@@ -347,12 +347,6 @@ export function suspenderOrg(ctx: Contexto, orgId: number, suspendida: boolean):
   db.prepare(`UPDATE orgs SET suspendida = ? WHERE id = ?`).run(suspendida ? 1 : 0, orgId);
 }
 
-export function forzarReverificacionOrg(ctx: Contexto, orgId: number): number {
-  exigirSuperadmin(ctx);
-  const r = db.prepare(`UPDATE users SET verificado = 0 WHERE org_id = ?`).run(orgId);
-  return r.changes;
-}
-
 /** Correo del dueño, para avisarle de una solicitud de soporte. */
 export function correoDelDueno(ctx: Contexto, orgId: number): { email: string; nombre: string } | null {
   exigirSuperadmin(ctx);

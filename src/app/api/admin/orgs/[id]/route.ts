@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { fichaOrg, forzarReverificacionOrg, suspenderOrg } from "@/lib/admin-db";
+import { fichaOrg, suspenderOrg } from "@/lib/admin-db";
 import { superadminApi } from "@/lib/tenant";
 
 export const runtime = "nodejs";
@@ -22,7 +22,7 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
 }
 
 const Accion = z.object({
-  accion: z.enum(["suspender", "reactivar", "forzar_reverificacion"]),
+  accion: z.enum(["suspender", "reactivar"]),
 });
 
 export async function POST(req: NextRequest, { params }: Ctx) {
@@ -44,10 +44,5 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     case "reactivar":
       suspenderOrg(s.ctx, orgId, false);
       return NextResponse.json({ ok: true, suspendida: false });
-
-    case "forzar_reverificacion": {
-      const n = forzarReverificacionOrg(s.ctx, orgId);
-      return NextResponse.json({ ok: true, usuarios: n });
-    }
   }
 }

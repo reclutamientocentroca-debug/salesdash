@@ -141,9 +141,6 @@ test("ninguna función de lectura de db.ts omite el orgId", async () => {
   const EXCEPCIONES = new Set([
     // Identidad: corren antes de que exista una sesión.
     "crearOrgConDueno", "buscarUsuarioPorEmail", "obtenerUsuario",
-    "marcarVerificado", "forzarReverificacion", "crearVerificacion",
-    "verificacionVigente", "sumarIntento", "invalidarVerificacion",
-    "contarVerificacionesDesde",
     // Plataforma: el superadmin es, por definición, de ninguna organización.
     // Solo se concede desde la consola (`npm run superadmin`).
     "marcarSuperadmin",

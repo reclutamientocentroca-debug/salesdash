@@ -50,7 +50,9 @@ export default function FormularioRegistro() {
         setCargando(false);
         return;
       }
-      router.push(`/verificar?correo=${encodeURIComponent(datos.email)}`);
+      // El registro ya deja la sesión abierta: se entra directo a conectar el
+      // primer número, que es lo único que hace falta para empezar a medir.
+      router.push("/numeros");
     } catch {
       setError("No hay conexión con el servidor. Revisa tu internet e intenta de nuevo.");
       setCargando(false);

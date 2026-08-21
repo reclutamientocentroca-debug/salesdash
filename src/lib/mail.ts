@@ -91,36 +91,36 @@ function esc(t: string): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Código de verificación
+// Prueba de configuración
 // ─────────────────────────────────────────────────────────────────────────────
 
-export async function enviarCodigoVerificacion(
-  email: string,
-  nombre: string,
-  codigo: string,
-): Promise<void> {
+/**
+ * Correo de prueba, el que manda `npm run probar-correo`.
+ *
+ * El registro ya no usa correo — se entra en el acto —, pero SMTP sigue
+ * haciendo falta para las solicitudes de acceso de soporte. Esto existe para
+ * comprobar esa configuración sin tener que provocar una solicitud real.
+ */
+export async function enviarPrueba(email: string): Promise<void> {
   const html = envoltura(`
-    <div style="font-size:19px;font-weight:600;letter-spacing:-0.02em;margin-bottom:8px;">Confirma tu correo</div>
+    <div style="font-size:19px;font-weight:600;letter-spacing:-0.02em;margin-bottom:8px;">El correo funciona</div>
     <div style="color:${TINTA_2};margin-bottom:20px;">
-      Hola ${esc(nombre)}, escribe este código en SalesDash para terminar de crear tu cuenta.
+      Si estás leyendo esto, la configuración SMTP de tu SalesDash es correcta y los
+      avisos de la plataforma van a llegar a su destino.
     </div>
-    <div style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:30px;font-weight:600;
-                letter-spacing:0.24em;color:${ACENTO};background:#eaf4f0;border-radius:9px;
-                padding:16px 0;text-align:center;margin-bottom:18px;">${codigo}</div>
-    <div style="color:${TINTA_2};font-size:12.5px;">
-      El código vence en 15 minutos. Si no fuiste tú quien creó la cuenta, ignora este mensaje.
+    <div style="color:${ACENTO};font-size:12.5px;">
+      Mensaje de prueba enviado con <code>npm run probar-correo</code>.
     </div>
   `);
 
-  const texto = `Confirma tu correo
+  const texto = `El correo funciona
 
-Hola ${nombre}, escribe este código en SalesDash para terminar de crear tu cuenta:
+Si estás leyendo esto, la configuración SMTP de tu SalesDash es correcta y los
+avisos de la plataforma van a llegar a su destino.
 
-${codigo}
+Mensaje de prueba enviado con: npm run probar-correo`;
 
-El código vence en 15 minutos. Si no fuiste tú quien creó la cuenta, ignora este mensaje.`;
-
-  await enviar(email, `${codigo} es tu código de SalesDash`, html, texto);
+  await enviar(email, "SalesDash — prueba de correo", html, texto);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

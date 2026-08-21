@@ -44,11 +44,6 @@ export default async function PaginaEquipo() {
                   <span className={`pastilla ${u.rol === "dueno" ? "pastilla-ia" : "pastilla-abierta"}`}>
                     {u.rol === "dueno" ? "Dueño" : "Miembro"}
                   </span>
-                  {!u.verificado && (
-                    <span className="pastilla pastilla-revision" style={{ marginLeft: 6 }}>
-                      Sin verificar
-                    </span>
-                  )}
                 </td>
                 <td className="tenue" style={{ paddingRight: 17 }}>{fechaCorta(u.created_at)}</td>
               </tr>

@@ -1,20 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import {
-  ahora,
-  buscarUsuarioPorEmail,
-  crearOrgConDueno,
-  crearVerificacion,
-} from "@/lib/db";
-import {
-  generarCodigo,
-  hashCodigo,
-  hashPassword,
-  ipDe,
-  limitar,
-  VIGENCIA_CODIGO,
-} from "@/lib/auth";
-import { enviarCodigoVerificacion } from "@/lib/mail";
+import { buscarUsuarioPorEmail, crearOrgConDueno } from "@/lib/db";
+import { hashPassword, ipDe, limitar } from "@/lib/auth";
+import { abrirSesion } from "@/lib/tenant";
 
 export const runtime = "nodejs";
 
@@ -49,25 +37,31 @@ export async function POST(req: NextRequest) {
   const { nombre, negocio, email, password } = datos.data;
   const correo = email.toLowerCase();
 
-  // Si el correo ya está registrado no se crea nada y no se avisa: responder
-  // distinto convertiría este endpoint en un detector de qué correos existen.
-  if (!buscarUsuarioPorEmail(correo)) {
-    const passwordHash = await hashPassword(password);
-    const color = PALETA[Math.floor(Math.random() * PALETA.length)]!;
-
-    const { userId } = crearOrgConDueno({ negocio, color, nombre, email: correo, passwordHash });
-
-    const codigo = generarCodigo();
-    crearVerificacion(userId, hashCodigo(codigo), ahora() + VIGENCIA_CODIGO);
-
-    try {
-      await enviarCodigoVerificacion(correo, nombre, codigo);
-    } catch (e) {
-      // La cuenta ya existe; el usuario puede pedir el reenvío desde la
-      // pantalla siguiente. Se registra el fallo sin el código.
-      console.error("No se pudo enviar el código de verificación:", e);
-    }
+  // Antes esto callaba cuando el correo ya existía, para no convertir el
+  // endpoint en un detector de cuentas. Con el registro directo eso deja de ser
+  // posible: la respuesta o abre sesión o no, y eso ya distingue los dos casos.
+  // Puestos a filtrar, mejor decirlo claro y que la persona sepa que su sitio
+  // es el login.
+  if (buscarUsuarioPorEmail(correo)) {
+    return NextResponse.json(
+      { error: "Ese correo ya tiene una cuenta. Entra con tu contraseña." },
+      { status: 409 },
+    );
   }
+
+  const passwordHash = await hashPassword(password);
+  const color = PALETA[Math.floor(Math.random() * PALETA.length)]!;
+
+  const { orgId, userId } = crearOrgConDueno({
+    negocio,
+    color,
+    nombre,
+    email: correo,
+    passwordHash,
+  });
+
+  // Sin código y sin correo de por medio: se entra en el acto.
+  await abrirSesion({ userId, orgId, superadmin: false });
 
   return NextResponse.json({ ok: true });
 }

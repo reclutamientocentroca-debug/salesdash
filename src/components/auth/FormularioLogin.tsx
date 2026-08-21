@@ -24,10 +24,6 @@ export default function FormularioLogin() {
       });
       const datos = await r.json();
 
-      if (datos.verificar) {
-        router.push(`/verificar?correo=${encodeURIComponent(datos.email)}`);
-        return;
-      }
       if (!r.ok) {
         setError(datos.error ?? "No pudimos entrar. Intenta de nuevo.");
         setCargando(false);

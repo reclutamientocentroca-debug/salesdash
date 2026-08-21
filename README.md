@@ -45,13 +45,14 @@ La cuenta de ejemplo entra en `/login` con **demo@salesdash.app** / **demo1234**
 | `npm run seed` | Organización de ejemplo con datos |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm test` | 32 pruebas: aislamiento, invariante de conteo, regla maestra, salvaguardas del agente |
-| `npm run probar-correo -- x@y.com` | Envía el correo de verificación real. Comprueba SMTP sin pasar por la app |
+| `npm run probar-correo -- x@y.com` | Envía un correo de prueba. Comprueba SMTP sin pasar por la app |
+| `npm run superadmin -- x@y.com` | Marca una cuenta como superadmin de la plataforma |
 | `npm run verificar-ia` | **Consume crédito.** Analiza conversaciones reales contra OpenRouter y comprueba el respaldo del agente |
 | `npm run verificar-vision` | **Consume crédito.** Clasifica una factura y una foto de producto reales |
 
 Las dos últimas gastan tokens de verdad: son para comprobar una configuración nueva, no para el día a día. `npm test` no toca la red.
 
-Sin SMTP configurado, **en desarrollo el código de verificación se imprime en la consola** para poder probar el registro completo. En producción, la falta de SMTP es un error.
+**El registro es directo: se crea la cuenta y se entra en el acto.** No hay confirmación por correo ni código de seis dígitos. SMTP sigue haciendo falta, pero solo para avisar al dueño de una solicitud de acceso de soporte — si falta, nadie se queda fuera de su cuenta.
 
 ---
 
@@ -219,8 +220,12 @@ Vive en `/admin`, con barra oscura arriba en vez de lateral clara, para que nunc
 **El rol `superadmin` solo se activa a mano en la base de datos.** No hay interfaz que lo otorgue:
 
 ```bash
-sqlite3 data/salesdash.db "UPDATE users SET superadmin = 1 WHERE email = 'tu@correo.com';"
+npm run superadmin -- tu@correo.com     # conceder
+npm run superadmin -- tu@correo.com --quitar
+npm run superadmin                      # ver quién lo tiene
 ```
+
+Dentro del contenedor: `docker exec -it <contenedor> npm run superadmin -- tu@correo.com`
 
 **Lo que el superadmin NO ve:** el contenido de ninguna conversación, ni nombres o teléfonos de los clientes finales, ni tokens en claro. Las métricas son agregados.
 

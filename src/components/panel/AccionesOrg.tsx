@@ -25,7 +25,7 @@ export default function AccionesOrg({
   const [nota, setNota] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function accion(accion: "suspender" | "reactivar" | "forzar_reverificacion") {
+  async function accion(accion: "suspender" | "reactivar") {
     if (accion === "suspender" && !confirm(`¿Suspender «${nombre}»? Sus usuarios no podrán entrar.`)) {
       return;
     }
@@ -45,9 +45,6 @@ export default function AccionesOrg({
     if (!r.ok) {
       setError(datos.error ?? "No se pudo completar la acción.");
       return;
-    }
-    if (accion === "forzar_reverificacion") {
-      setNota(`${datos.usuarios} usuario(s) tendrán que verificar su correo de nuevo.`);
     }
     router.refresh();
   }
@@ -81,14 +78,6 @@ export default function AccionesOrg({
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
         <button type="button" className="btn btn-secundario" disabled={ocupado} onClick={() => setPidiendo(!pidiendo)}>
           Pedir acceso
-        </button>
-        <button
-          type="button"
-          className="btn btn-secundario"
-          disabled={ocupado}
-          onClick={() => accion("forzar_reverificacion")}
-        >
-          Forzar reverificación
         </button>
         <button
           type="button"

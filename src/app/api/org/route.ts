@@ -26,7 +26,6 @@ export async function GET() {
       nombre: u.nombre,
       email: u.email,
       rol: u.rol,
-      verificado: u.verificado === 1,
     })),
     yo: { id: s.ctx.userId, rol: s.ctx.usuario.rol, superadmin: s.ctx.superadmin },
   });

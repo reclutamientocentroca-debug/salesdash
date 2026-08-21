@@ -1,16 +1,16 @@
 /**
  * SalesDash — credenciales.
  *
- * Contraseñas, firma de sesiones, códigos de verificación, cifrado de los
- * tokens de Whapi y límites de intentos. Todo lo que deriva de SESSION_SECRET
- * vive aquí, en un solo archivo auditable.
+ * Contraseñas, firma de sesiones, cifrado de los tokens de Whapi y límites de
+ * intentos. Todo lo que deriva de SESSION_SECRET vive aquí, en un solo archivo
+ * auditable.
  *
- * Nada de este módulo escribe una contraseña, un código ni un token en claro
- * a un log. Si necesitas depurar, usa `enmascarar()`.
+ * Nada de este módulo escribe una contraseña ni un token en claro a un log. Si
+ * necesitas depurar, usa `enmascarar()`.
  */
 import argon2 from "argon2";
 import { SignJWT, jwtVerify } from "jose";
-import { createCipheriv, createDecipheriv, hkdfSync, randomBytes, randomInt, timingSafeEqual, createHmac } from "node:crypto";
+import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from "node:crypto";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Secreto y claves derivadas
@@ -109,36 +109,6 @@ export function opcionesCookie() {
     path: "/",
     maxAge: DURACION_SESION,
   };
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Códigos de verificación
-// ─────────────────────────────────────────────────────────────────────────────
-
-export const VIGENCIA_CODIGO = 15 * 60; // 15 minutos
-export const MAX_INTENTOS = 5;
-export const MAX_REENVIOS_HORA = 3;
-
-/** Seis dígitos con aleatoriedad criptográfica, no Math.random. */
-export function generarCodigo(): string {
-  return String(randomInt(0, 1_000_000)).padStart(6, "0");
-}
-
-/**
- * HMAC, no un hash simple: el espacio de un código de 6 dígitos es de un
- * millón: un sha256 pelado se revierte con una tabla en segundos. Con HMAC,
- * quien robe la base necesita además SESSION_SECRET.
- */
-export function hashCodigo(codigo: string): string {
-  return createHmac("sha256", clave("codigos")).update(codigo).digest("hex");
-}
-
-/** Comparación en tiempo constante. */
-export function comparar(a: string, b: string): boolean {
-  const ba = Buffer.from(a);
-  const bb = Buffer.from(b);
-  if (ba.length !== bb.length) return false;
-  return timingSafeEqual(ba, bb);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

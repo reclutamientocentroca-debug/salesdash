@@ -99,11 +99,8 @@ export function GET(req: NextRequest) {
     avisos.push("Falta OPENROUTER_API_KEY: no se puede analizar ni responder.");
   }
 
-  if (!process.env.SMTP_HOST || !process.env.SMTP_PASS) {
-    avisos.push(
-      "Falta la configuración SMTP: nadie podrá verificar su correo y por tanto nadie podrá entrar.",
-    );
-  }
+  const correo = revisarCorreo();
+  avisos.push(...correo.avisos);
 
   return NextResponse.json(
     {
@@ -121,7 +118,8 @@ export function GET(req: NextRequest) {
       },
       configurado: {
         openrouter: !!process.env.OPENROUTER_API_KEY,
-        correo: !!(process.env.SMTP_HOST && process.env.SMTP_PASS),
+        correo: correo.utilizable,
+        correo_destinatarios: correo.destinatarios,
         whapi_partner: !!process.env.WHAPI_PARTNER_TOKEN,
       },
       avisos,
@@ -156,4 +154,64 @@ function esPuntoDeMontaje(carpeta: string): boolean | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Revisa el correo saliente.
+ *
+ * No basta con mirar si las variables existen: los dos fallos reales que se
+ * dan al configurar esto pasan la comprobación de "existe" y aun así no
+ * entregan nada.
+ *
+ *   1. La clave quedó con el valor de ejemplo del README sin sustituir.
+ *   2. El remitente es el de pruebas del proveedor, que solo entrega a la
+ *      dirección de la propia cuenta y a ninguna otra.
+ *
+ * Decir "correo: true" en cualquiera de esos casos es peor que no decir nada:
+ * manda a buscar el fallo dentro de la aplicación, donde no está.
+ */
+function revisarCorreo(): {
+  utilizable: boolean;
+  destinatarios: "cualquiera" | "solo_la_cuenta_del_proveedor" | "ninguno";
+  avisos: string[];
+} {
+  const host = process.env.SMTP_HOST ?? "";
+  const pass = process.env.SMTP_PASS ?? "";
+  const from = process.env.MAIL_FROM ?? "";
+  const avisos: string[] = [];
+
+  if (!host || !pass) {
+    avisos.push(
+      "Falta la configuración SMTP: las solicitudes de acceso de soporte no avisarán al dueño de la cuenta.",
+    );
+    return { utilizable: false, destinatarios: "ninguno", avisos };
+  }
+
+  // Valores de ejemplo pegados tal cual. Es un error frecuente y silencioso:
+  // el envío falla con un 535 idéntico al de una clave equivocada.
+  const ESPECIMENES = ["re_...", "sk-or-...", "cambiar", "changeme", "xxx", "..."];
+  if (ESPECIMENES.includes(pass.trim()) || pass.trim().endsWith("...")) {
+    avisos.push(
+      `SMTP_PASS tiene el valor de ejemplo "${pass}" en vez de una clave real: ` +
+        "ningún correo va a salir. Sustitúyelo por la clave de tu proveedor.",
+    );
+    return { utilizable: false, destinatarios: "ninguno", avisos };
+  }
+
+  // Remitentes de prueba de los proveedores: entregan solo a la dirección
+  // dueña de la cuenta, así que sirven para comprobar el despliegue y no para
+  // escribir a usuarios de verdad.
+  const DE_PRUEBA = ["resend.dev", "sandbox.mgsend.net", "example.com"];
+  const dominioRemitente = from.match(/@([^\s>]+)/)?.[1]?.toLowerCase() ?? "";
+
+  if (DE_PRUEBA.some((d) => dominioRemitente.endsWith(d))) {
+    avisos.push(
+      `MAIL_FROM usa el remitente de pruebas "${dominioRemitente}", que solo entrega a la ` +
+        "dirección de tu propia cuenta del proveedor. A cualquier otro correo no llegará nada. " +
+        "Verifica un dominio propio, o usa un proveedor que permita enviar sin dominio.",
+    );
+    return { utilizable: true, destinatarios: "solo_la_cuenta_del_proveedor", avisos };
+  }
+
+  return { utilizable: true, destinatarios: "cualquiera", avisos };
 }

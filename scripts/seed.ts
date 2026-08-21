@@ -23,7 +23,6 @@ import {
   getOrCreateConversation,
   insertMessage,
   marcarRevision,
-  marcarVerificado,
   registrarAiSent,
   sellarCierre,
   totalLeads,
@@ -72,7 +71,6 @@ async function main() {
     email: CORREO,
     passwordHash: await argon2.hash(CLAVE, { type: argon2.argon2id }),
   });
-  marcarVerificado(userId);
 
   actualizarAgente(orgId, {
     nombre: "Bella",

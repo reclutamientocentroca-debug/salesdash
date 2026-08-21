@@ -1,22 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import {
-  ahora,
-  buscarUsuarioPorEmail,
-  contarVerificacionesDesde,
-  crearVerificacion,
-  obtenerOrg,
-} from "@/lib/db";
-import {
-  generarCodigo,
-  hashCodigo,
-  ipDe,
-  limitar,
-  MAX_REENVIOS_HORA,
-  verificarPassword,
-  VIGENCIA_CODIGO,
-} from "@/lib/auth";
-import { enviarCodigoVerificacion } from "@/lib/mail";
+import { buscarUsuarioPorEmail, obtenerOrg } from "@/lib/db";
+import { ipDe, limitar, verificarPassword } from "@/lib/auth";
 import { abrirSesion } from "@/lib/tenant";
 
 export const runtime = "nodejs";
@@ -52,21 +37,6 @@ export async function POST(req: NextRequest) {
 
   if (!(await verificarPassword(usuario.password_hash, datos.data.password))) {
     return NextResponse.json({ error: CREDENCIALES }, { status: 401 });
-  }
-
-  // Sin verificar no se entra: se manda un código nuevo y a la pantalla de
-  // verificación, que es donde el usuario puede resolverlo.
-  if (!usuario.verificado) {
-    if (contarVerificacionesDesde(usuario.id, ahora() - 3600) <= MAX_REENVIOS_HORA) {
-      const codigo = generarCodigo();
-      crearVerificacion(usuario.id, hashCodigo(codigo), ahora() + VIGENCIA_CODIGO);
-      try {
-        await enviarCodigoVerificacion(usuario.email, usuario.nombre, codigo);
-      } catch (e) {
-        console.error("No se pudo enviar el código al entrar:", e);
-      }
-    }
-    return NextResponse.json({ verificar: true, email: usuario.email });
   }
 
   const org = obtenerOrg(usuario.org_id);

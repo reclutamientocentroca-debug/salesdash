@@ -49,21 +49,13 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash TEXT NOT NULL,
   rol TEXT CHECK(rol IN ('dueno','miembro')) NOT NULL DEFAULT 'dueno',
   superadmin INTEGER NOT NULL DEFAULT 0,
-  verificado INTEGER NOT NULL DEFAULT 0,
+  /* El registro es directo: la cuenta nace utilizable. La columna se conserva
+     porque la interfaz y la API la leen, y para no necesitar una migración si
+     algún día vuelve a exigirse verificación por correo. */
+  verificado INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 CREATE INDEX IF NOT EXISTS idx_users_org ON users(org_id);
-
-CREATE TABLE IF NOT EXISTS verificaciones (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id INTEGER NOT NULL REFERENCES users(id),
-  codigo_hash TEXT NOT NULL,
-  expira_at INTEGER NOT NULL,
-  intentos INTEGER NOT NULL DEFAULT 0,
-  usado INTEGER NOT NULL DEFAULT 0,
-  created_at INTEGER NOT NULL DEFAULT (unixepoch())
-);
-CREATE INDEX IF NOT EXISTS idx_verif_user ON verificaciones(user_id, created_at);
 
 CREATE TABLE IF NOT EXISTS canales (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -376,8 +368,13 @@ export function crearOrgConDueno(datos: {
     const org = s(`INSERT INTO orgs (nombre, color) VALUES (?, ?)`).run(d.negocio, d.color);
     const orgId = Number(org.lastInsertRowid);
 
+    // `verificado = 1` de entrada: el registro es directo, sin código por
+    // correo. La columna se conserva porque la interfaz y la API la leen, y
+    // porque volver a exigir verificación algún día no debería costar una
+    // migración.
     const user = s(
-      `INSERT INTO users (org_id, email, nombre, password_hash, rol) VALUES (?, ?, ?, ?, 'dueno')`,
+      `INSERT INTO users (org_id, email, nombre, password_hash, rol, verificado)
+       VALUES (?, ?, ?, ?, 'dueno', 1)`,
     ).run(orgId, d.email.toLowerCase(), d.nombre, d.passwordHash);
 
     // Toda organización nace con su agente vendedor configurado y APAGADO.
@@ -394,14 +391,6 @@ export function buscarUsuarioPorEmail(email: string): Usuario | undefined {
 
 export function obtenerUsuario(userId: number): Usuario | undefined {
   return s(`SELECT * FROM users WHERE id = ?`).get(userId) as Usuario | undefined;
-}
-
-export function marcarVerificado(userId: number): void {
-  s(`UPDATE users SET verificado = 1 WHERE id = ?`).run(userId);
-}
-
-export function forzarReverificacion(userId: number): void {
-  s(`UPDATE users SET verificado = 0 WHERE id = ?`).run(userId);
 }
 
 /**
@@ -435,50 +424,6 @@ export function listarMiembros(orgId: number): Usuario[] {
   return s(
     `SELECT * FROM users WHERE org_id = ? ORDER BY created_at ASC`,
   ).all(orgId) as Usuario[];
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Verificación por correo
-// ─────────────────────────────────────────────────────────────────────────────
-
-export function crearVerificacion(userId: number, codigoHash: string, expiraAt: number): number {
-  const tx = db.transaction(() => {
-    // Un código vivo a la vez: emitir uno nuevo invalida los anteriores.
-    s(`UPDATE verificaciones SET usado = 1 WHERE user_id = ? AND usado = 0`).run(userId);
-    return s(
-      `INSERT INTO verificaciones (user_id, codigo_hash, expira_at) VALUES (?, ?, ?)`,
-    ).run(userId, codigoHash, expiraAt);
-  });
-  return Number(tx().lastInsertRowid);
-}
-
-export interface Verificacion {
-  id: number; user_id: number; codigo_hash: string;
-  expira_at: number; intentos: number; usado: number; created_at: number;
-}
-
-export function verificacionVigente(userId: number): Verificacion | undefined {
-  return s(
-    `SELECT * FROM verificaciones
-      WHERE user_id = ? AND usado = 0
-      ORDER BY id DESC LIMIT 1`,
-  ).get(userId) as Verificacion | undefined;
-}
-
-export function sumarIntento(verificacionId: number): void {
-  s(`UPDATE verificaciones SET intentos = intentos + 1 WHERE id = ?`).run(verificacionId);
-}
-
-export function invalidarVerificacion(verificacionId: number): void {
-  s(`UPDATE verificaciones SET usado = 1 WHERE id = ?`).run(verificacionId);
-}
-
-/** Códigos emitidos al usuario desde `desde` (epoch). Límite: 3 reenvíos por hora. */
-export function contarVerificacionesDesde(userId: number, desde: number): number {
-  const fila = s(
-    `SELECT COUNT(*) AS n FROM verificaciones WHERE user_id = ? AND created_at >= ?`,
-  ).get(userId, desde) as { n: number };
-  return fila.n;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

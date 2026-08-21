@@ -3,13 +3,12 @@
  *
  *   npm run probar-correo -- tu@correo.com
  *
- * Manda el mismo correo de verificación que recibe un usuario al registrarse,
- * con un código de mentira. Si esto llega, el registro funciona; si falla,
- * el error sale aquí completo en vez de esconderse en los registros del
+ * Manda un correo de prueba. Si llega, la configuración SMTP es correcta; si
+ * falla, el error sale aquí completo en vez de esconderse en los registros del
  * servidor.
  */
 import "./env-loader";
-import { enviarCodigoVerificacion } from "../src/lib/mail";
+import { enviarPrueba } from "../src/lib/mail";
 
 const destino = process.argv[2];
 
@@ -48,7 +47,7 @@ if (remitente?.includes("resend.dev")) {
   );
 }
 
-enviarCodigoVerificacion(destino, "Prueba", "123456")
+enviarPrueba(destino)
   .then(() => {
     console.log(`Enviado a ${destino}. Revisa la bandeja y también el correo no deseado.`);
   })
