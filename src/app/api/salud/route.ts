@@ -56,7 +56,17 @@ export function GET(req: NextRequest) {
   }
 
   const existe = existsSync(rutaDb);
-  const tamanoKb = existe ? Math.round(statSync(rutaDb).size / 1024) : 0;
+
+  /*
+   * La base va en modo WAL, así que lo recién escrito NO está en el archivo
+   * principal: vive en el `-wal` hasta que se consolida. Mirar solo el primero
+   * hace creer que la base está vacía cuando no lo está — un diagnóstico que
+   * manda a buscar el problema al sitio equivocado.
+   */
+  const kb = (ruta: string) => (existsSync(ruta) ? Math.round(statSync(ruta).size / 1024) : 0);
+  const tamanoKb = kb(rutaDb);
+  const walKb = kb(`${rutaDb}-wal`);
+
   const montado = esPuntoDeMontaje(carpeta);
 
   const entorno = process.env.NODE_ENV ?? "desconocido";
@@ -93,13 +103,31 @@ export function GET(req: NextRequest) {
     // problema no es que falte, es que está en el sitio equivocado.
     const otros = (montajesDeDatos() ?? []).filter((m) => m !== carpeta);
 
-    avisos.push(
-      `${carpeta} NO es un volumen montado: los datos viven dentro del contenedor y ` +
-        "se borrarán en el próximo redespliegue." +
-        (otros.length
-          ? ` Sí hay un volumen en ${otros.join(", ")}: móntalo en ${carpeta}, o apunta la variable SALESDASH_DB a esa ruta.`
-          : " Monta un volumen ahí."),
-    );
+    /*
+     * El caso que de verdad pasa: el volumen está montado en la ruta correcta
+     * pero con un espacio de más al escribirla en el panel. `/app/data ` y
+     * `/app/data` son dos carpetas distintas para el sistema, así que todo
+     * funciona, no da ningún error, y los datos se borran igual en cada
+     * despliegue. En mountinfo un espacio aparece como \040, o sea que a
+     * simple vista tampoco se ve.
+     */
+    const casiIgual = otros.filter((m) => m !== carpeta && m.trim() === carpeta.trim());
+
+    if (casiIgual.length) {
+      avisos.push(
+        `Hay un volumen montado en "${casiIgual[0]}" pero la aplicación escribe en "${carpeta}": ` +
+          "se diferencian solo en un espacio, así que son carpetas distintas y el volumen queda sin usar. " +
+          "Corrige la ruta del montaje en el panel quitando el espacio sobrante.",
+      );
+    } else {
+      avisos.push(
+        `${carpeta} NO es un volumen montado: los datos viven dentro del contenedor y ` +
+          "se borrarán en el próximo redespliegue." +
+          (otros.length
+            ? ` Sí hay un volumen en ${otros.join(", ")}: móntalo en ${carpeta}, o apunta la variable SALESDASH_DB a esa ruta.`
+            : " Monta un volumen ahí."),
+      );
+    }
   }
 
   if (!process.env.OPENROUTER_API_KEY) {
@@ -121,6 +149,10 @@ export function GET(req: NextRequest) {
         carpeta_escribible: escribible,
         existe,
         tamano_kb: tamanoKb,
+        // Lo escrito y todavía sin consolidar. Con la base recién creada, casi
+        // todo está aquí y el archivo principal se queda en 4 KB.
+        wal_kb: walKb,
+        total_kb: tamanoKb + walKb,
         volumen_montado: montado,
         // Si volumen_montado es false, aquí se ve dónde SÍ hay volúmenes.
         montajes_detectados: montajesDeDatos(),

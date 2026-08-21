@@ -43,7 +43,7 @@ La cuenta de ejemplo entra en `/login` con **demo@salesdash.app** / **demo1234**
 | `npm run build` / `npm start` | Producción |
 | `npm run seed` | Organización de ejemplo con datos |
 | `npm run typecheck` | `tsc --noEmit` |
-| `npm test` | 35 pruebas: aislamiento, invariante de conteo, regla maestra, salvaguardas del agente |
+| `npm test` | 38 pruebas: aislamiento, invariante de conteo, regla maestra, salvaguardas del agente |
 | `npm run diagnostico` | Por qué no llegan conversaciones: sesiones en disco, mensajes recibidos y su estado |
 | `npm run probar-correo -- x@y.com` | Envía un correo de prueba. Comprueba SMTP sin pasar por la app |
 | `npm run superadmin -- x@y.com` | Marca una cuenta como superadmin de la plataforma |

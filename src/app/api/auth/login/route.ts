@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { buscarUsuarioPorEmail, obtenerOrg } from "@/lib/db";
-import { ipDe, limitar, verificarPassword } from "@/lib/auth";
+import { ipDe, limitar, olvidarLimite, verificarPassword } from "@/lib/auth";
 import { abrirSesion } from "@/lib/tenant";
 
 export const runtime = "nodejs";
@@ -38,6 +38,17 @@ export async function POST(req: NextRequest) {
   if (!(await verificarPassword(usuario.password_hash, datos.data.password))) {
     return NextResponse.json({ error: CREDENCIALES }, { status: 401 });
   }
+
+  /*
+   * La contraseña era correcta: se le devuelve el cupo a este correo.
+   *
+   * Sin esto, el límite cuenta también los aciertos y basta con entrar seis
+   * veces en quince minutos —probando algo, desde el móvil y el ordenador, tras
+   * cerrar sesión— para quedarse fuera con un «demasiados intentos» que además
+   * no es cierto. El límite por IP no se toca: ese sí protege de quien barre
+   * muchas cuentas distintas.
+   */
+  olvidarLimite(`login-mail:${correo}`);
 
   const org = obtenerOrg(usuario.org_id);
   if (!org || org.suspendida) {

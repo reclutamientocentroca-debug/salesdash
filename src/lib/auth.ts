@@ -182,6 +182,19 @@ export function limitar(clave_: string, maximo: number, ventanaSegs: number): {
   return { ok: true, restantes: maximo - actual.conteo, esperaSegs: 0 };
 }
 
+/**
+ * Borra la cuenta de intentos de una clave.
+ *
+ * Existe para que un acierto no gaste cupo. Un limitador que cuenta también los
+ * intentos correctos acaba castigando justo a quien sí sabe su contraseña: seis
+ * entradas buenas en un cuarto de hora y a la séptima le dice «demasiados
+ * intentos», que además es mentira. Los fallos siguen sumando, que es lo que
+ * protege de verdad contra quien prueba contraseñas a ciegas.
+ */
+export function olvidarLimite(clave_: string): void {
+  cubetas.delete(clave_);
+}
+
 export function _limpiarLimites(): void {
   cubetas.clear();
 }
