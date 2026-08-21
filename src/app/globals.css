@@ -37,6 +37,15 @@
   /* Forma */
   --radio-tarjeta: 12px;
   --radio-control: 9px;
+
+  /* Marca. Fijos: no dependen del acento que elige cada organización. */
+  --marca-1: #2f7ff0;
+  --marca-2: #1fa8c9;
+  --marca-3: #2ed8a7;
+  --marca-degradado: linear-gradient(100deg, var(--marca-1), var(--marca-2) 52%, var(--marca-3));
+  /* Fondo del escaparate. Más azul y más profundo que --ink, que es la tinta
+     del producto. */
+  --lienzo: #080d16;
 }
 
 @theme inline {
@@ -320,7 +329,74 @@ body {
   background: var(--soft);
 }
 
-/* ── Pantalla partida de autenticación ────────────────────────────────────── */
+/* ── Marca ────────────────────────────────────────────────────────────────── *
+ * Los tres colores del logotipo. No son el acento de la organización: ese lo
+ * elige cada cuenta y cambia. Estos son fijos, porque son la marca.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+.marca {
+  display: inline-flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.marca-texto {
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* `Dash` en degradado. El recorte sobre el texto necesita las dos
+   declaraciones: la estándar y la de WebKit, que es la que entienden Safari
+   y los navegadores de iOS. */
+.marca-degradado {
+  background: var(--marca-degradado);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.marca-bloque {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 13px;
+}
+
+/* Hereda el color del contenedor en vez de fijar uno: el lema aparece sobre
+   fondo oscuro, y una tinta fija lo dejaría ilegible si algún día se usa
+   sobre claro. */
+.marca-lema {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+
+.marca-lema i {
+  display: block;
+  width: 22px;
+  height: 1px;
+}
+.marca-lema i:first-child { background: var(--marca-1); }
+.marca-lema i:last-child { background: var(--marca-3); }
+
+/* ── Pantalla partida de autenticación ────────────────────────────────────── *
+ * Esta pantalla es el escaparate: lo primero que ve alguien y lo único que
+ * juzga antes de registrarse. Es la ÚNICA superficie que se salta el "sin
+ * sombras y sin degradados" del sistema de diseño, y se lo salta a propósito.
+ * Dentro del producto la regla sigue intacta: ahí los degradados compiten con
+ * los datos.
+ *
+ * Los halos son los dos extremos del degradado del logotipo —azul abajo a la
+ * izquierda, turquesa arriba a la derecha—, así que el color de la pantalla es
+ * el color de la marca y no una decoración elegida al azar.
+ * ────────────────────────────────────────────────────────────────────────── */
 
 .auth-marco {
   display: flex;
@@ -329,12 +405,52 @@ body {
 
 .auth-izquierda {
   flex: 1;
-  background: var(--ink);
+  position: relative;
+  isolation: isolate;
+  background: var(--lienzo);
   color: #ffffff;
   padding: 44px 48px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
+  overflow: hidden;
+}
+
+/* Halos de marca. En un pseudoelemento con z-index negativo: se pintan sobre
+   el fondo del propio elemento y por debajo del contenido, sin necesidad de
+   un div decorativo que además se tragaría los clics. */
+.auth-izquierda::before,
+.auth-derecha::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(880px 520px at 6% 100%, rgba(47, 127, 240, 0.22), transparent 62%),
+    radial-gradient(720px 460px at 98% 0%, rgba(46, 216, 167, 0.16), transparent 62%);
+}
+
+/* Rejilla de un píxel, difuminada con una máscara para que no corte en seco
+   contra el borde. */
+.auth-izquierda::after,
+.auth-derecha::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 54px 54px;
+  -webkit-mask-image: radial-gradient(ellipse at 32% 50%, #000 28%, transparent 76%);
+  mask-image: radial-gradient(ellipse at 32% 50%, #000 28%, transparent 76%);
+}
+
+/* En el escritorio el panel derecho es claro y no lleva ni halos ni rejilla:
+   los pseudoelementos solo entran cuando la izquierda desaparece. */
+.auth-derecha::before,
+.auth-derecha::after {
+  content: none;
 }
 
 .auth-derecha {
@@ -380,6 +496,19 @@ body {
   margin-top: 1px;
 }
 
+/* Next fija ancho y alto en el propio elemento para reservar el hueco; `auto`
+   en el alto conserva la proporción cuando el ancho se adapta. */
+.auth-logo {
+  height: auto;
+  max-width: 100%;
+}
+
+/* Solo aparece cuando el panel izquierdo se ha ido: sin esto el móvil se
+   quedaría sin marca ninguna. */
+.auth-marca-movil {
+  display: none;
+}
+
 @media (max-width: 900px) {
   .auth-izquierda {
     display: none;
@@ -387,6 +516,22 @@ body {
   .auth-derecha {
     width: 100%;
     padding: 32px 20px;
+    /* Hereda el escaparate: la tarjeta blanca del formulario flota sobre el
+       mismo lienzo oscuro que en el escritorio. */
+    position: relative;
+    isolation: isolate;
+    background: var(--lienzo);
+    color: #ffffff;
+    overflow: hidden;
+  }
+  .auth-derecha::before,
+  .auth-derecha::after {
+    content: "";
+  }
+  .auth-marca-movil {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 26px;
   }
 }
 

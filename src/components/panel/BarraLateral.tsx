@@ -81,7 +81,11 @@ export default function BarraLateral({ negocio, usuario, superadmin, pendientesR
             <div style={{ fontSize: 13.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {negocio}
             </div>
-            <div className="tenue">SalesDash</div>
+            {/* El avatar de arriba es la inicial del negocio: identifica la
+                cuenta. Esto identifica el producto. */}
+            <div className="tenue marca-texto" style={{ fontSize: 11.5 }}>
+              Sales<span className="marca-degradado">Dash</span>
+            </div>
           </div>
         </div>
 

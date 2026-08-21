@@ -62,6 +62,10 @@ COPY --from=build /app/tsconfig.json ./tsconfig.json
 # decir nada.
 COPY --from=build /app/next.config.ts ./next.config.ts
 
+# `next start` sirve /public desde el disco, no desde .next: sin esto el
+# logotipo devuelve 404 en producción aunque el build haya ido bien.
+COPY --from=build /app/public ./public
+
 # src y scripts viajan a la imagen para poder ejecutar dentro del contenedor
 # `npm run seed` y `npm run probar-correo`, que son los dos comandos que hacen
 # falta al poner en marcha un despliegue nuevo.
