@@ -605,6 +605,56 @@ export function getConversation(orgId: number, id: number): Conversacion | undef
     .get(orgId, id) as Conversacion | undefined;
 }
 
+export interface FilaBandeja extends Conversacion {
+  /** Texto del último mensaje, para la vista previa de la lista. */
+  ultimo_texto: string | null;
+  ultimo_emisor: Emisor | null;
+  mensajes: number;
+}
+
+/**
+ * La bandeja de UN número.
+ *
+ * `canalId` es obligatorio y no opcional a propósito: cada número conectado
+ * tiene su propia bandeja, como tendría su propio WhatsApp. Mezclar los hilos
+ * de dos números en una sola lista es exactamente lo que no se quiere — dos
+ * clientes distintos pueden escribir al mismo negocio por números distintos, y
+ * quien atiende uno no está atendiendo el otro.
+ *
+ * La vista previa sale de subconsultas y no de un JOIN: con un JOIN habría que
+ * agrupar toda la tabla de mensajes para quedarse con una fila por conversación.
+ */
+export function bandeja(
+  orgId: number,
+  canalId: number,
+  filtros: { estado?: EstadoCierre; limite?: number } = {},
+): FilaBandeja[] {
+  const cond = ["c.org_id = ?", "c.canal_id = ?"];
+  const val: unknown[] = [orgId, canalId];
+
+  if (filtros.estado !== undefined) {
+    cond.push("c.cerrado_por = ?");
+    val.push(filtros.estado);
+  }
+
+  val.push(Math.min(filtros.limite ?? 200, 400));
+
+  return s(
+    `SELECT c.*,
+            (SELECT m.content FROM messages m
+              WHERE m.conversation_id = c.id
+              ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS ultimo_texto,
+            (SELECT m.emisor FROM messages m
+              WHERE m.conversation_id = c.id
+              ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS ultimo_emisor,
+            (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id) AS mensajes
+       FROM conversations c
+      WHERE ${cond.join(" AND ")}
+      ORDER BY COALESCE(c.last_message_at, c.fecha_inicio) DESC
+      LIMIT ?`,
+  ).all(...val) as FilaBandeja[];
+}
+
 export function listarConversaciones(orgId: number, filtros: {
   desde?: number; hasta?: number; canalId?: number;
   estado?: EstadoCierre; limite?: number; offset?: number;

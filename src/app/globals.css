@@ -886,6 +886,143 @@ body {
   gap: 9px;
 }
 
+/* ── Bandeja ──────────────────────────────────────────────────────────────── *
+ * Dos paneles fijos, como cualquier cliente de mensajería: la lista de chats a
+ * la izquierda y el hilo abierto a la derecha. Cada uno con su propio scroll —
+ * si la página entera se desplazara, al bajar por un hilo largo se perdería de
+ * vista la lista, que es justo lo que uno necesita para saltar al siguiente.
+ *
+ * La altura se calcula desde el alto de la ventana en vez de dejarla crecer:
+ * una bandeja que empuja el pie de página hacia abajo deja de parecer una
+ * bandeja.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+.sd-bandeja {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 0;
+  height: calc(100vh - 210px);
+  min-height: 420px;
+  border: 1px solid var(--line);
+  border-radius: var(--radio-tarjeta);
+  overflow: hidden;
+  background: var(--card);
+}
+
+.sd-bandeja-lista {
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
+  background: var(--card);
+}
+
+.sd-bandeja-hilo {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--page);
+}
+
+.sd-bandeja-hilo-cuerpo {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 18px;
+}
+
+/* Cada fila de la lista. El borde izquierdo transparente reserva el hueco del
+   marcador de seleccionado: sin él, al elegir un chat toda la lista se
+   desplazaría dos píxeles. */
+.sd-chat {
+  display: block;
+  padding: 11px 13px 11px 11px;
+  border-bottom: 1px solid var(--line);
+  border-left: 3px solid transparent;
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.sd-chat:hover {
+  background: var(--soft);
+}
+
+.sd-chat-activo {
+  background: var(--soft);
+  border-left-color: var(--acc);
+}
+
+.sd-chat-fila {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sd-chat-nombre {
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sd-chat-hora {
+  font-size: 11px;
+  color: var(--ink-3);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Dos líneas y corta. Una vista previa que crece rompe la altura uniforme de
+   las filas y la lista deja de poder recorrerse de un vistazo. */
+.sd-chat-previo {
+  font-size: 12px;
+  color: var(--ink-2);
+  margin-top: 3px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.sd-chat-pastillas {
+  display: flex;
+  gap: 5px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+/* Cabecera del hilo abierto: quién es y a qué número escribió. */
+.sd-bandeja-cabecera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--card);
+  flex-shrink: 0;
+}
+
+/* Bajo 900px no caben dos paneles: se enseña uno u otro. Con un chat abierto,
+   el hilo; sin él, la lista. */
+@media (max-width: 900px) {
+  .sd-bandeja {
+    grid-template-columns: 1fr;
+    height: calc(100vh - 240px);
+  }
+  .sd-bandeja-lista {
+    border-right: none;
+  }
+  .sd-bandeja.con-hilo .sd-bandeja-lista {
+    display: none;
+  }
+  .sd-bandeja:not(.con-hilo) .sd-bandeja-hilo {
+    display: none;
+  }
+}
+
 /* ── Interruptor ──────────────────────────────────────────────────────────── */
 
 .sd-switch {

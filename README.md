@@ -130,6 +130,16 @@ Al arrancar, `src/instrumentation.ts` reabre las sesiones de los números ya vin
 
 ---
 
+## La bandeja
+
+Las conversaciones se leen con la forma de un cliente de mensajería: la lista de chats a la izquierda, el hilo abierto a la derecha, y las burbujas coloreadas por quién habló — cliente a un lado; IA y vendedor al otro, con colores distintos entre sí.
+
+**Cada número tiene su propia bandeja.** No existe una vista «todos los números» y no es un olvido: dos números son dos negocios, o dos sucursales, o dos personas atendiendo. Mezclar sus hilos en una lista hace imposible saber a cuál de tus números escribió el cliente, que es lo primero que hace falta para contestarle.
+
+El estado vive en la URL (`canal`, `chat`, `estado`), no en el navegador: un hilo se puede pasar por enlace, el botón atrás funciona, y la pantalla se sigue pintando en el servidor.
+
+---
+
 ## La atribución, que es el corazón del producto
 
 Los mensajes de la IA y los del vendedor salen del mismo número, así que `from_me` no los distingue. Se resuelve por `message_id`:
