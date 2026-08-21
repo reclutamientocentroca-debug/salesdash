@@ -25,7 +25,13 @@ const ESTADOS: Record<string, { texto: string; color: string }> = {
   error: { texto: "Con problema", color: "var(--red)" },
 };
 
-export default function ListaNumeros({ canales }: { canales: CanalVista[] }) {
+export default function ListaNumeros({
+  canales,
+  puedeCrearCanal,
+}: {
+  canales: CanalVista[];
+  puedeCrearCanal: boolean;
+}) {
   const router = useRouter();
   const [conectando, setConectando] = useState(canales.length === 0);
   const [revelado, setRevelado] = useState<{ id: number; token: string } | null>(null);
@@ -75,6 +81,7 @@ export default function ListaNumeros({ canales }: { canales: CanalVista[] }) {
     return (
       <>
         <ConectarNumero
+          puedeCrearCanal={puedeCrearCanal}
           alConectar={() => {
             setConectando(false);
             router.refresh();

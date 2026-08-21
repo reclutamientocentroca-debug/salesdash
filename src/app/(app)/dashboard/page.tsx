@@ -37,25 +37,14 @@ export default async function Dashboard({ searchParams }: Props) {
   const enRevision = contarRevisiones(ctx.orgId);
   const numeros = contarCanales(ctx.orgId);
 
-  if (numeros === 0) {
-    return (
-      <>
-        <h1 className="h1-pagina" style={{ marginBottom: 16 }}>Dashboard</h1>
-        <div className="tarjeta">
-          <Vacio
-            titulo="Todavía no has conectado ningún número"
-            texto="Conecta tu primer número de WhatsApp y en minutos verás cuánto vende tu IA y cuánto vende tu equipo."
-            accion={
-              <Link href="/numeros" className="btn btn-primario" style={{ textDecoration: "none" }}>
-                Conectar número
-              </Link>
-            }
-          />
-        </div>
-      </>
-    );
-  }
-
+  /*
+   * Sin números conectados NO se sustituye el panel por una pantalla vacía.
+   * El dashboard se enseña entero, con sus ceros, y la invitación a conectar
+   * va en una franja arriba. Un panel completo en cero comunica qué vas a
+   * tener; una pantalla vacía no comunica nada y parece un producto a medio
+   * hacer.
+   */
+  const sinConectar = numeros === 0;
   const altas = anomalias.filter((a) => a.severidad === "alta").length;
 
   return (
@@ -82,6 +71,28 @@ export default async function Dashboard({ searchParams }: Props) {
           )}
         </div>
       </div>
+
+      {sinConectar && (
+        <div
+          className="tarjeta"
+          style={{
+            marginBottom: 14, display: "flex", alignItems: "center", gap: 16,
+            flexWrap: "wrap", borderColor: "var(--acc-bg)", background: "var(--acc-bg)",
+          }}
+        >
+          <div style={{ flex: 1, minWidth: 240 }}>
+            <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--acc)" }}>
+              Así se verá tu panel en cuanto conectes un número
+            </div>
+            <div style={{ fontSize: 12.5, color: "var(--ink-2)", marginTop: 2 }}>
+              Ahora mismo todo está en cero porque todavía no llega ninguna conversación.
+            </div>
+          </div>
+          <Link href="/numeros" className="btn btn-acento" style={{ textDecoration: "none" }}>
+            Conectar número
+          </Link>
+        </div>
+      )}
 
       {!m.cuadra && (
         <div className="aviso aviso-error" role="alert" style={{ marginBottom: 14 }}>

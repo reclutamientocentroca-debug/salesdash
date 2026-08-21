@@ -26,7 +26,15 @@ const TEXTOS: Record<Exclude<Estado, "nombre" | "conectado">, { punto: string; t
   error: { punto: "var(--red)", texto: "Algo salió mal", pulso: false },
 };
 
-export default function ConectarNumero({ alConectar }: { alConectar: () => void }) {
+export default function ConectarNumero({
+  alConectar,
+  puedeCrearCanal,
+}: {
+  alConectar: () => void;
+  /** Falso si no hay cuenta Partner de Whapi: sin ella no se puede crear un
+   *  canal, y por tanto no hay QR que mostrar. */
+  puedeCrearCanal: boolean;
+}) {
   const router = useRouter();
   const [estado, setEstado] = useState<Estado>("nombre");
   const [nombre, setNombre] = useState("");
@@ -35,7 +43,8 @@ export default function ConectarNumero({ alConectar }: { alConectar: () => void 
   const [detalle, setDetalle] = useState<string | null>(null);
   const [phone, setPhone] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
-  const [modoToken, setModoToken] = useState(false);
+  // Sin cuenta Partner el único camino es el token, así que se abre en ese modo.
+  const [modoToken, setModoToken] = useState(!puedeCrearCanal);
   const [token, setToken] = useState("");
 
   // Evita que un sondeo en vuelo escriba sobre la pantalla ya desmontada.
@@ -147,8 +156,24 @@ export default function ConectarNumero({ alConectar }: { alConectar: () => void 
       <div className="tarjeta" style={{ maxWidth: 440, margin: "0 auto" }}>
         <h2 className="h1-pagina" style={{ marginBottom: 4 }}>Conectar un número</h2>
         <p style={{ fontSize: 13.5, color: "var(--ink-2)", marginBottom: 18 }}>
-          Ponle un nombre para reconocerlo en el panel. Después escaneas un código con tu WhatsApp.
+          {modoToken
+            ? "Ponle un nombre y pega el token de tu canal de Whapi. Después escaneas el código con tu WhatsApp."
+            : "Ponle un nombre para reconocerlo en el panel. Después escaneas un código con tu WhatsApp."}
         </p>
+
+        {/*
+          Sin cuenta Partner no se puede crear el canal desde aquí, así que no
+          hay QR que ofrecer. En vez de un error con el nombre de una variable
+          de entorno, se explica el camino que sí funciona.
+        */}
+        {!puedeCrearCanal && (
+          <div className="aviso aviso-ambar" style={{ marginBottom: 16 }}>
+            Para crear canales desde el panel hace falta una cuenta Partner de Whapi. Mientras tanto,
+            crea el canal en <strong>whapi.cloud</strong> —al registrarte te dan uno de prueba gratis—
+            copia su clave de API y pégala aquí. El resto funciona igual: verás el QR, se conectará
+            solo y quedará midiendo.
+          </div>
+        )}
 
         <label className="etiqueta-campo" htmlFor="nombre-canal">Nombre del número</label>
         <input
@@ -190,21 +215,24 @@ export default function ConectarNumero({ alConectar }: { alConectar: () => void 
           {ocupado ? "Preparando…" : modoToken ? "Guardar token" : "Conectar número"}
         </button>
 
-        <p style={{ textAlign: "center", marginTop: 16 }}>
-          <button
-            type="button"
-            className="tenue"
-            style={{ background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}
-            onClick={() => {
-              setModoToken(!modoToken);
-              setDetalle(null);
-            }}
-          >
-            {modoToken
-              ? "Prefiero escanear el código"
-              : "¿Ya tienes un token de Whapi? Úsalo en su lugar"}
-          </button>
-        </p>
+        {/* El cambio de camino solo se ofrece si los dos están disponibles. */}
+        {puedeCrearCanal && (
+          <p style={{ textAlign: "center", marginTop: 16 }}>
+            <button
+              type="button"
+              className="tenue"
+              style={{ background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}
+              onClick={() => {
+                setModoToken(!modoToken);
+                setDetalle(null);
+              }}
+            >
+              {modoToken
+                ? "Prefiero escanear el código"
+                : "¿Ya tienes un token de Whapi? Úsalo en su lugar"}
+            </button>
+          </p>
+        )}
       </div>
     );
   }

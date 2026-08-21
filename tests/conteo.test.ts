@@ -2,7 +2,7 @@ import "./entorno";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as D from "../src/lib/db";
-import { calcularMetricas } from "../src/lib/metrics";
+import { calcularMetricas, rellenarDias } from "../src/lib/metrics";
 
 /**
  * La invariante del procedimiento diario:
@@ -102,4 +102,42 @@ test("una conversación nueva entra como lead y sigue cuadrando", () => {
   assert.equal(m.leads, 12);
   assert.equal(m.sin_cerrar, 5);
   assert.equal(m.cuadra, true);
+});
+
+test("el gráfico rellena los días sin actividad", () => {
+  // serieDiaria solo devuelve días con datos: sin rellenar, un martes en cero
+  // desaparece y la línea une el lunes con el miércoles ocultando la caída.
+  const serie = [
+    { dia: "2026-08-15", leads: 7, cierres_ia: 2, cierres_humano: 1 },
+    { dia: "2026-08-18", leads: 5, cierres_ia: 3, cierres_humano: 2 },
+  ];
+  const desde = Math.floor(Date.parse("2026-08-15T00:00:00Z") / 1000);
+  const hasta = Math.floor(Date.parse("2026-08-18T23:59:59Z") / 1000);
+
+  const llena = rellenarDias(serie, { desde, hasta });
+
+  assert.equal(llena.length, 4, "del 15 al 18 son cuatro días");
+  assert.deepEqual(
+    llena.map((d) => d.leads),
+    [7, 0, 0, 5],
+    "los días 16 y 17 tienen que aparecer en cero",
+  );
+});
+
+test("el gráfico no dibuja días futuros", () => {
+  // El rango se calcula en hora local y llega hasta las 23:59 de hoy; SQLite
+  // agrupa en UTC. Al oeste de Greenwich esas 23:59 ya son mañana en UTC.
+  const finDeHoyLocal = Math.floor(
+    new Date(new Date().setHours(23, 59, 59, 0)).getTime() / 1000,
+  );
+  const hace2Dias = finDeHoyLocal - 2 * 86_400;
+
+  const llena = rellenarDias([], { desde: hace2Dias, hasta: finDeHoyLocal });
+  const hoyUTC = new Date().toISOString().slice(0, 10);
+
+  assert.ok(llena.length > 0, "debe generar días");
+  assert.ok(
+    llena[llena.length - 1]!.dia <= hoyUTC,
+    `el último día del gráfico (${llena[llena.length - 1]!.dia}) no puede ser posterior a hoy (${hoyUTC})`,
+  );
 });

@@ -30,5 +30,6 @@ export default async function PaginaNumeros() {
     };
   });
 
-  return <ListaNumeros canales={canales} />;
+  // Solo el booleano: el token de socio no sale del servidor.
+  return <ListaNumeros canales={canales} puedeCrearCanal={!!process.env.WHAPI_PARTNER_TOKEN} />;
 }

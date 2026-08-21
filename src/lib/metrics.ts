@@ -165,8 +165,60 @@ export function calcularMetricas(orgId: number, rango: Rango): Metricas {
       ventas: Math.round(c.ventas * 100) / 100,
       tasa: porcentaje(c.cierres_ia + c.cierres_humano, c.leads),
     })),
-    serie_diaria: serieDiaria(orgId, rango),
+    serie_diaria: rellenarDias(serieDiaria(orgId, rango), rango),
   };
+}
+
+/**
+ * Rellena con ceros los días sin actividad.
+ *
+ * `serieDiaria` solo devuelve los días que tuvieron conversaciones, así que un
+ * martes en cero simplemente no existe y el gráfico une el lunes con el
+ * miércoles: la caída desaparece justo cuando es lo más importante que ver.
+ *
+ * Además, un panel recién estrenado pasa de no tener gráfico a tener uno
+ * plano en cero, que enseña la forma de lo que vendrá.
+ */
+export function rellenarDias(
+  serie: { dia: string; leads: number; cierres_ia: number; cierres_humano: number }[],
+  rango: { desde: number; hasta: number },
+  maxDias = 92,
+): typeof serie {
+  const aISO = (epoch: number) => new Date(epoch * 1000).toISOString().slice(0, 10);
+
+  // Con "Todo" el rango empieza en 1970: se ancla al primer día con datos para
+  // no generar veinte mil columnas vacías.
+  const primero = serie[0]?.dia;
+  let desdeISO = aISO(rango.desde);
+  if (rango.desde === 0) desdeISO = primero ?? aISO(rango.hasta);
+
+  /*
+   * El rango se calcula en hora local y termina a las 23:59 del día de hoy;
+   * los días de la serie los agrupa SQLite en UTC. Al oeste de Greenwich esas
+   * 23:59 locales ya son el día siguiente en UTC, así que sin recortar el
+   * gráfico dibuja un día de más — mañana, siempre en cero.
+   */
+  const hoyISO = aISO(Math.floor(Date.now() / 1000));
+  const finISO = aISO(rango.hasta);
+  const hastaISO = finISO > hoyISO ? hoyISO : finISO;
+  const dias = Math.round(
+    (Date.parse(`${hastaISO}T00:00:00Z`) - Date.parse(`${desdeISO}T00:00:00Z`)) / 86_400_000,
+  );
+
+  // Rangos muy largos se dejan como están: rellenarlos no aporta y sí satura.
+  if (!Number.isFinite(dias) || dias < 0 || dias > maxDias) return serie;
+
+  const porDia = new Map(serie.map((p) => [p.dia, p]));
+  const completa: typeof serie = [];
+
+  for (let i = 0; i <= dias; i++) {
+    const dia = new Date(Date.parse(`${desdeISO}T00:00:00Z`) + i * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    completa.push(porDia.get(dia) ?? { dia, leads: 0, cierres_ia: 0, cierres_humano: 0 });
+  }
+
+  return completa;
 }
 
 /** "1 h 12 min", "45 min", "38 s". Para mostrar los tiempos de cierre. */
