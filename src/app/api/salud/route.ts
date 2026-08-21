@@ -20,8 +20,17 @@ export const dynamic = "force-dynamic";
  * Solo devuelve booleanos y rutas: ninguna clave, ningún dato de negocio,
  * ningún conteo. Es público a propósito, para poder comprobarlo desde fuera
  * antes de tener cuenta.
+ *
+ * SIEMPRE responde 200 mientras la aplicación esté viva, aunque haya avisos.
+ * Sirve tal cual como health check del despliegue. Con `?estricto=1` devuelve
+ * 503 si hay algún aviso — eso es para monitorización, NO para el health check
+ * del panel: si el orquestador ve 503 da el contenedor por muerto y lo
+ * reinicia en bucle; el proxy se queda sin nadie a quien enviar las peticiones
+ * y el sitio entero pasa a responder 500. Que falte SMTP no es motivo para
+ * tirar la aplicación abajo.
  */
 export function GET(req: NextRequest) {
+  const estricto = req.nextUrl.searchParams.get("estricto") === "1";
   const appUrl = process.env.APP_URL ?? "";
   const hostPeticion = req.headers.get("host") ?? "";
 
@@ -117,8 +126,8 @@ export function GET(req: NextRequest) {
       },
       avisos,
     },
-    // 503 si algo está mal: así un chequeo automático lo nota sin leer el JSON.
-    { status: avisos.length === 0 ? 200 : 503 },
+    // Ver la nota de arriba: 200 salvo que se pida `?estricto=1` a propósito.
+    { status: estricto && avisos.length > 0 ? 503 : 200 },
   );
 }
 

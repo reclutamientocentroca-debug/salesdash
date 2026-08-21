@@ -57,6 +57,11 @@ COPY --from=build /app/.next        ./.next
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/tsconfig.json ./tsconfig.json
 
+# next.config.ts lo vuelve a leer `next start`, no solo `next build`. Si no
+# está en la imagen, el servidor arranca con la configuración por defecto y sin
+# decir nada.
+COPY --from=build /app/next.config.ts ./next.config.ts
+
 # src y scripts viajan a la imagen para poder ejecutar dentro del contenedor
 # `npm run seed` y `npm run probar-correo`, que son los dos comandos que hacen
 # falta al poner en marcha un despliegue nuevo.
@@ -69,6 +74,11 @@ COPY --from=build /app/scripts ./scripts
 RUN mkdir -p /app/data
 
 EXPOSE 3000
+
+# El health check va contra /api/salud, que responde 200 mientras la
+# aplicación esté viva (los avisos de configuración NO la marcan como caída:
+# eso reiniciaría el contenedor en bucle y dejaría el sitio en 500).
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/api/salud').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 # `next start -H 0.0.0.0`: dentro de un contenedor, escuchar solo en localhost
 # lo deja inalcanzable para el proxy.
