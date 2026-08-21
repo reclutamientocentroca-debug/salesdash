@@ -185,7 +185,15 @@ UPDATE conversations SET cerrado_por = ?, fecha_cierre = ?
  WHERE org_id = ? AND id = ? AND fecha_cierre IS NULL
 ```
 
-Lo único que rompe el sellado es una corrección manual desde la bandeja de revisión, y queda registrada como anomalía para poder auditarla.
+#### La única excepción: el resumen manda sobre la factura
+
+**Si en algún punto del hilo aparece el resumen de pedido, la venta es de quien lo escribió — aunque la factura llegue antes.** Una factura solo cierra cuando en todo el hilo no hubo resumen.
+
+El resumen es el momento en que el pedido queda cerrado —producto, total y envío—; la factura es papeleo alrededor de esa misma venta, vaya delante o detrás. Sin esta excepción, un vendedor que adelanta la factura mientras la IA está cerrando le quitaba la venta a la IA.
+
+La excepción va en un solo sentido y lo garantiza el `WHERE`, no el código que llama: solo se mueven los cierres cuya señal fue una imagen (`reatribuirCierrePorResumen`). Un cierre por resumen no lo mueve nada, y `fecha_cierre` no se toca nunca: la venta se cerró cuando se cerró.
+
+Lo otro que rompe el sellado es una corrección manual desde la bandeja de revisión, y queda registrada como anomalía para poder auditarla.
 
 ### Los cinco estados y la invariante
 

@@ -186,7 +186,7 @@ test("ninguna función de lectura de db.ts omite el orgId", async () => {
     // Misma clase: el barrido de cierres del arranque no tiene sesión de la que
     // deducir la organización. Devuelve identificadores y nada más, y cada uno
     // vuelve como `orgId` de las funciones normales.
-    "orgsConConversacionesAbiertas",
+    "orgsParaBarrerCierres",
     // Ruta del disco, no una consulta.
     "rutaDatos",
   ]);

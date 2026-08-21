@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as D from "../src/lib/db";
 import { llegoPorAnuncio, anuncioParaModelo } from "../src/lib/anuncio";
-import { sellarCierresPendientes } from "../src/lib/cierre";
+import { registrarCierre, sellarCierresPendientes } from "../src/lib/cierre";
 import { informeDeCanal } from "../src/lib/informe";
 import { calcularMetricas, rellenarDias } from "../src/lib/metrics";
 
@@ -614,4 +614,91 @@ test("si el informe recorta hilos, lo dice en su cabecera", () => {
   // las ventas.
   const filas = (html.match(/<a href="#hilo-/g) ?? []).length;
   assert.ok(filas > 2, `la tabla lista las ${filas} conversaciones, no solo las transcritas`);
+});
+
+/**
+ * EL RESUMEN LE QUITA LA VENTA A LA FACTURA, TAMBIÉN EN CALIENTE.
+ *
+ * El caso real: el analista ya selló la venta con la foto de la factura que
+ * mandó el vendedor, y minutos después la IA manda su resumen de pedido. La
+ * regla maestra —el primero que cierra se lleva la venta— dejaría esa venta en
+ * el lado del equipo para siempre. La excepción la mueve, porque el resumen es
+ * el cierre y la factura es papeleo.
+ */
+test("una venta cerrada por la factura pasa a la IA cuando llega el resumen", () => {
+  const hilo = nuevaConversacion();
+  D.insertMessage(orgId, {
+    conversationId: hilo, whapiMessageId: `fact-${siguiente++}`, emisor: "humano",
+    tipo: "imagen", content: "[imagen]", createdAt: 1_700_000_200,
+  });
+  D.sellarCierre(orgId, hilo, {
+    cerradoPor: "humano", senal: "imagen_factura", fechaCierre: 1_700_000_200,
+  });
+
+  const antes = calcularMetricas(orgId, RANGO);
+
+  const cambio = registrarCierre(orgId, hilo, {
+    emisor: "ia",
+    content: "Resumen de su pedido: 1 abanico, TOTAL A PAGAR: USD 45",
+    cuando: 1_700_000_800,
+  });
+
+  assert.equal(cambio, true, "el resumen se queda con la venta");
+  const conv = D.getConversation(orgId, hilo);
+  assert.equal(conv?.cerrado_por, "ia");
+  assert.equal(conv?.senal_de_cierre, "resumen_ia");
+  assert.equal(
+    conv?.fecha_cierre,
+    1_700_000_200,
+    "la venta se cerró cuando se cerró: esto decide de quién es, no cuándo pasó",
+  );
+
+  const m = calcularMetricas(orgId, RANGO);
+  assert.equal(m.cierres_ia, antes.cierres_ia + 1);
+  assert.equal(m.cierres_humano, antes.cierres_humano - 1);
+  assert.equal(m.leads, antes.leads, "no aparece ninguna venta nueva: es la misma");
+  assert.equal(m.cuadra, true);
+});
+
+/**
+ * Y en un solo sentido: una factura NUNCA le quita la venta a un resumen, ni
+ * un resumen posterior se la quita a otro anterior. Si esta se rompe, la
+ * excepción se comió la regla maestra.
+ */
+test("la factura no reasigna una venta que ya cerró un resumen", () => {
+  const hilo = nuevaConversacion();
+  D.sellarCierre(orgId, hilo, {
+    cerradoPor: "ia", senal: "resumen_ia", fechaCierre: 1_700_000_300,
+  });
+
+  // Un vendedor manda su factura y se sella otra vez: no se mueve nada.
+  assert.equal(
+    D.reatribuirCierrePorResumen(orgId, hilo, { cerradoPor: "humano", senal: "imagen_factura" }),
+    false,
+    "un cierre por resumen no se toca",
+  );
+  assert.equal(D.getConversation(orgId, hilo)?.cerrado_por, "ia");
+
+  // Ni un segundo resumen, más tarde, se la quita al primero.
+  assert.equal(
+    registrarCierre(orgId, hilo, {
+      emisor: "humano", content: "Resumen del pedido: otra cosa", cuando: 1_700_009_000,
+    }),
+    false,
+    "entre dos resúmenes manda el primero",
+  );
+  assert.equal(D.getConversation(orgId, hilo)?.cerrado_por, "ia");
+
+  // Y una corrección manual tampoco la puede pisar un resumen que llegue luego.
+  const manual = nuevaConversacion();
+  D.marcarRevision(orgId, manual, "sin señal clara");
+  D.resolverRevision(orgId, manual, "humano");
+  assert.equal(
+    registrarCierre(orgId, manual, {
+      emisor: "ia", content: "Resumen de su pedido: tarde", cuando: 1_700_009_500,
+    }),
+    false,
+    "lo que firmó una persona no lo mueve una regla",
+  );
+  assert.equal(D.getConversation(orgId, manual)?.cerrado_por, "humano");
 });

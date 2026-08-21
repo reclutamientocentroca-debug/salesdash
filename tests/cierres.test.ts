@@ -184,3 +184,60 @@ test("el marcador sin dos puntos se sigue buscando literal", () => {
   assert.equal(contieneMarcador("Pedido confirmado, gracias", "Pedido confirmado"), true);
   assert.equal(contieneMarcador("Resumen de su pedido: x", "Pedido confirmado"), false);
 });
+
+/**
+ * EL RESUMEN DE PEDIDO MANDA SOBRE LA FACTURA.
+ *
+ * Única excepción al orden cronológico. El resumen es el momento en que el
+ * pedido queda cerrado —producto, total y envío—; la factura es papeleo
+ * alrededor de esa misma venta, vaya delante o detrás. Sin esto, un vendedor
+ * que adelanta la factura mientras la IA está cerrando le quitaba la venta a
+ * la IA.
+ */
+test("la factura llega primero y el resumen después: la venta es de la IA", async () => {
+  const hilo = [
+    m({ emisor: "cliente", created_at: 100, content: "lo quiero" }),
+    // El vendedor adelanta la factura mientras la IA sigue cerrando.
+    m({ emisor: "humano", created_at: 200, tipo: "imagen", categoria_imagen: "factura", content: "[imagen]" }),
+    m({ emisor: "ia", created_at: 400, content: "Resumen de su pedido: 1 cartera, TOTAL A PAGAR: USD 30" }),
+  ];
+
+  const r = await buscarPrimeraSenal(MARCADOR, hilo, nuncaSeLlama);
+  assert.equal(r.senales.length, 1);
+  assert.equal(r.senales[0]!.quien, "ia", "la cerró el resumen, no la factura");
+  assert.equal(r.senales[0]!.senal, "resumen_ia");
+});
+
+/**
+ * Y el ahorro que trae la regla: si hay resumen en el hilo, no hace falta
+ * describir ni una imagen. Describir cuesta una llamada de visión por foto.
+ */
+test("con resumen en el hilo no se paga la visión de ninguna imagen", async () => {
+  const hilo = [
+    m({ emisor: "humano", created_at: 100, tipo: "imagen", content: "[imagen]" }),
+    m({ emisor: "ia", created_at: 300, content: "Resumen del pedido: 2 camisas" }),
+    m({ emisor: "humano", created_at: 900, tipo: "imagen", content: "[imagen]" }),
+  ];
+
+  // `nuncaSeLlama` revienta si alguien pide describir una imagen.
+  const r = await buscarPrimeraSenal(MARCADOR, hilo, nuncaSeLlama);
+  assert.equal(r.senales[0]!.senal, "resumen_ia");
+  assert.equal(r.imagenSinDescribir, false);
+});
+
+/**
+ * La excepción va en UN solo sentido. Sin resumen en el hilo, la factura cierra
+ * y es del vendedor — que es como se cuenta el cierre del representante.
+ */
+test("sin resumen en todo el hilo, la factura cierra para el representante", async () => {
+  const hilo = [
+    m({ emisor: "cliente", created_at: 100, content: "mándamelo" }),
+    m({ emisor: "humano", created_at: 200, content: "va en camino" }),
+    m({ emisor: "humano", created_at: 300, tipo: "imagen", categoria_imagen: "factura", content: "[imagen]" }),
+  ];
+
+  const r = await buscarPrimeraSenal(MARCADOR, hilo, nuncaSeLlama);
+  assert.equal(r.senales.length, 1);
+  assert.equal(r.senales[0]!.quien, "humano");
+  assert.equal(r.senales[0]!.senal, "imagen_factura");
+});

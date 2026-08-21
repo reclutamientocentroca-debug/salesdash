@@ -9,8 +9,8 @@
  * Orden de ejecución, y este orden importa:
  *   1. Barrer los hilos con actividad; los ya sellados no se reevalúan
  *   2. Ordenar los mensajes por created_at ascendente
- *   3. Reglas mecánicas hasta la PRIMERA señal de cierre, y detenerse
- *   4. Visión solo para imágenes de hilos sin cierre asignado
+ *   3. Reglas mecánicas: primero el resumen de pedido, que manda sobre la factura
+ *   4. Visión solo si en todo el hilo no hubo resumen — describir cuesta dinero
  *   5. Lo que quede, al modelo de texto
  *   6. Lo que el modelo tampoco resuelva, a revisión
  *   7. Verificar la invariante de conteo
@@ -74,43 +74,56 @@ const CIERRA_LA_IMAGEN = (c: CategoriaImagen | null) =>
   c === "factura" || c === "comprobante_pago";
 
 /**
- * Recorre el hilo en orden y devuelve la PRIMERA señal de cierre.
+ * La señal que cierra el hilo.
  *
- * Sigue recogiendo señales que compartan ese mismo segundo para detectar el
- * empate de marcas de tiempo, que va a revisión. En cuanto aparece una señal
- * posterior, se detiene: lo que venga después no reclasifica nada.
+ * EL RESUMEN DE PEDIDO MANDA SOBRE LA FACTURA. Si en algún punto de la
+ * conversación aparece el resumen —el mensaje con el marcador—, la venta es de
+ * quien lo escribió, aunque una factura le llegue antes o después. La factura
+ * sola no reasigna una venta que ya cerró un resumen.
+ *
+ * Es la única excepción al orden cronológico, y tiene razón de negocio: el
+ * resumen es el momento en que el cliente dice que sí y queda cerrado el
+ * pedido; la factura que un vendedor manda después —o incluso antes, mientras
+ * se despacha— es papeleo alrededor de esa misma venta. Sin esta regla, un
+ * vendedor que adelanta la factura le quitaba a la IA una venta que la IA
+ * cerró.
+ *
+ * Se busca en dos pases y ese orden ahorra dinero: el resumen es texto y leerlo
+ * no cuesta nada, mientras que reconocer una factura pide visión. Si hay
+ * resumen en el hilo, no se describe ni una imagen.
+ *
+ * Dentro de cada pase sigue mandando el orden, y las señales que comparten
+ * segundo se recogen todas para detectar el empate, que va a revisión.
  */
 export async function buscarPrimeraSenal(
   marcador: string,
   mensajes: Mensaje[],
   describir: (m: Mensaje) => Promise<CategoriaImagen | null>,
 ): Promise<{ senales: Senal[]; imagenSinDescribir: boolean }> {
-  const senales: Senal[] = [];
+  // ── Pase 1: el resumen de pedido. Es leer texto: ni un modelo. ──────────
+  const texto: Senal[] = [];
   let humanoAntes = false;
-  let resumenIaAntes = false;
-  let imagenSinDescribir = false;
 
   for (const m of mensajes) {
-    // Ya hay una señal y este mensaje es posterior: se acabó la búsqueda.
-    if (senales.length && m.created_at > senales[0]!.cuando) break;
+    if (texto.length && m.created_at > texto[0]!.cuando) break;
 
     const saliente = m.emisor === "ia" || m.emisor === "humano";
 
-    // ── Señal de texto con el marcador de cierre ──────────────────────────
     if (saliente && contieneMarcador(m.content, marcador)) {
       if (m.emisor === "ia" && !humanoAntes) {
-        senales.push({ quien: "ia", senal: "resumen_ia", cuando: m.created_at, mensajeId: m.id });
+        texto.push({ quien: "ia", senal: "resumen_ia", cuando: m.created_at, mensajeId: m.id });
       } else if (m.emisor === "ia") {
-        // La IA mandó el resumen pero un vendedor ya había escrito antes:
-        // por la regla de atribución, la venta es del humano.
-        senales.push({
+        // La IA mandó el resumen pero un vendedor ya había escrito antes: la
+        // venta la trabajó una persona y es suya. Esto NO lo cambia la regla
+        // del resumen sobre la factura, que va de otra cosa.
+        texto.push({
           quien: "humano",
           senal: "resumen_tras_intervencion",
           cuando: m.created_at,
           mensajeId: m.id,
         });
       } else {
-        senales.push({
+        texto.push({
           quien: "humano",
           senal: "confirmacion_texto",
           cuando: m.created_at,
@@ -119,29 +132,44 @@ export async function buscarPrimeraSenal(
       }
     }
 
-    // ── Señal de imagen: la factura que manda el vendedor ─────────────────
-    // Solo cuenta si la IA NO mandó resumen antes. Ese "antes" es literal.
-    else if (m.emisor === "humano" && m.tipo === "imagen" && !resumenIaAntes) {
-      const categoria = m.categoria_imagen ?? (await describir(m));
+    /*
+     * El estado se actualiza DESPUÉS de evaluar el mensaje: un mensaje no se
+     * precede a sí mismo.
+     *
+     * Las imágenes del vendedor no cuentan como intervención: son la factura o
+     * el comprobante, papeleo alrededor de la venta y no el trabajo de
+     * venderla. Si contaran, el vendedor que adelanta la factura le quitaría a
+     * la IA el resumen que manda después — la regla del resumen sobre la
+     * factura, burlada por la puerta de atrás. Gemela del `tipo <> 'imagen'`
+     * de `huboHumanoAntes` en `db.ts`.
+     */
+    if (m.emisor === "humano" && m.tipo !== "imagen") humanoAntes = true;
+  }
 
-      if (categoria === null) {
-        // No se pudo describir. Nunca se asume que era una factura.
-        imagenSinDescribir = true;
-      } else if (CIERRA_LA_IMAGEN(categoria)) {
-        senales.push({
-          quien: "humano",
-          senal: categoria === "factura" ? "imagen_factura" : "imagen_comprobante",
-          cuando: m.created_at,
-          mensajeId: m.id,
-        });
-      }
-      // `foto_producto` no cierra nada: el hilo sigue abierto.
+  if (texto.length) return { senales: texto, imagenSinDescribir: false };
+
+  // ── Pase 2: la factura. Solo si en TODO el hilo no hubo resumen. ────────
+  const senales: Senal[] = [];
+  let imagenSinDescribir = false;
+
+  for (const m of mensajes) {
+    if (senales.length && m.created_at > senales[0]!.cuando) break;
+    if (m.emisor !== "humano" || m.tipo !== "imagen") continue;
+
+    const categoria = m.categoria_imagen ?? (await describir(m));
+
+    if (categoria === null) {
+      // No se pudo describir. Nunca se asume que era una factura.
+      imagenSinDescribir = true;
+    } else if (CIERRA_LA_IMAGEN(categoria)) {
+      senales.push({
+        quien: "humano",
+        senal: categoria === "factura" ? "imagen_factura" : "imagen_comprobante",
+        cuando: m.created_at,
+        mensajeId: m.id,
+      });
     }
-
-    // El estado se actualiza DESPUÉS de evaluar el mensaje: un mensaje no se
-    // precede a sí mismo.
-    if (m.emisor === "humano") humanoAntes = true;
-    if (m.emisor === "ia" && contieneMarcador(m.content, marcador)) resumenIaAntes = true;
+    // `foto_producto` no cierra nada: el hilo sigue abierto.
   }
 
   return { senales, imagenSinDescribir };
@@ -350,7 +378,8 @@ Responde SOLO con este JSON, sin texto adicional y sin backticks:
 
 Reglas:
 - El mensaje de cierre de la IA contiene el marcador "${marcador}", con o sin palabras en medio: "${marcador}" y "${marcador.replace(/:\s*$/, "")} de su pedido:" son la misma señal.
-- La venta pertenece a quien produjo la PRIMERA señal de cierre. Lo posterior no cuenta.
+- El resumen de pedido MANDA sobre la factura: si en algún punto del hilo aparece el resumen, la venta es de quien lo escribió, aunque la foto de factura llegue antes o después. La factura solo cierra si en todo el hilo no hubo resumen.
+- Entre dos señales del mismo tipo gana la PRIMERA, en orden.
 - "total" y "envio" son números, sin símbolo de moneda. Si no aparecen, null.
 - "total" es TODO lo que el cliente va a pagar, con el envío dentro si lo hay. "envio" es la parte de ese total que es transporte. Si el cliente dice "2500 más 300 de envío", entonces total=2800 y envio=300.
 - "datos_faltantes" lista lo que el pedido necesita y no está (talla, color, dirección…).

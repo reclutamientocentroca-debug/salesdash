@@ -20,8 +20,9 @@
 import {
   huboHumanoAntes,
   obtenerOrg,
-  orgsConConversacionesAbiertas,
-  salientesSinCierre,
+  orgsParaBarrerCierres,
+  reatribuirCierrePorResumen,
+  salientesDeHilosPorSellar,
   sellarCierre,
   type Emisor,
 } from "./db";
@@ -89,12 +90,17 @@ export function duenoDelCierre(emisor: Emisor, humanoAntes: boolean): Cierre | n
 
 /**
  * Sella el cierre si este mensaje lleva el marcador. Devuelve true solo si fue
- * ESTE mensaje el que cerró la venta.
+ * ESTE mensaje el que se quedó con la venta.
  *
- * No sella nada si la conversación ya estaba cerrada: eso lo garantiza
+ * Sobre una conversación ya cerrada normalmente no hace nada —lo garantiza
  * `sellarCierre`, donde vive la regla maestra de «el primero que cierra se
- * lleva la venta». Llamar a esto de más es inofensivo; llamarlo de menos deja
- * una venta sin contar.
+ * lleva la venta»— con una excepción: si lo que la cerró fue una FACTURA, este
+ * resumen se la quita. El resumen es el momento en que el pedido queda cerrado
+ * y la factura es papeleo alrededor de esa misma venta; un vendedor que
+ * adelanta la factura no le quita a la IA la venta que la IA cerró.
+ *
+ * Llamar a esto de más es inofensivo; llamarlo de menos deja una venta sin
+ * contar, o contada al lado equivocado.
  */
 export function registrarCierre(
   orgId: number,
@@ -109,10 +115,18 @@ export function registrarCierre(
   const cierre = duenoDelCierre(mensaje.emisor, huboHumanoAntes(orgId, conversationId, mensaje.cuando));
   if (!cierre) return false;
 
-  return sellarCierre(orgId, conversationId, {
+  const sellado = sellarCierre(orgId, conversationId, {
     cerradoPor: cierre.quien,
     senal: cierre.senal,
     fechaCierre: mensaje.cuando,
+  });
+  if (sellado) return true;
+
+  // Estaba cerrada. Solo se le quita la venta a una factura, y `WHERE` de
+  // `reatribuirCierrePorResumen` es quien lo garantiza.
+  return reatribuirCierrePorResumen(orgId, conversationId, {
+    cerradoPor: cierre.quien,
+    senal: cierre.senal,
   });
 }
 
@@ -124,24 +138,28 @@ export function registrarCierre(
  * —cerradas de verdad, con el pedido escrito en el hilo— seguían apareciendo
  * como abiertas: la venta estaba hecha y el panel no la contaba.
  *
+ * Y arregla de paso las que se contaron al lado equivocado: si a un hilo lo
+ * cerró una factura y dentro hay un resumen de pedido, la venta es de quien
+ * escribió el resumen. Ver `reatribuirCierrePorResumen`.
+ *
  * Se recorre solo lo que puede cambiar: los mensajes que mandamos nosotros en
- * hilos sin cierre. Del primero que lleve el marcador sale el cierre, con su
- * hora y su dueño; los siguientes de ese mismo hilo ya no importan, porque el
- * primero que cierra se lleva la venta.
+ * esos dos grupos de hilos. Del primero que lleve el marcador sale el cierre,
+ * con su hora y su dueño; los siguientes de ese mismo hilo ya no importan,
+ * porque entre dos resúmenes manda el primero.
  *
  * No llama al modelo. El cierre es mecánico y se cuenta ya; el pedido de dentro
  * —producto, total, envío— lo saca el analista después, y hacer una llamada por
  * cada venta vieja al arrancar convertiría un despliegue en una factura.
  *
- * Es idempotente: pasarlo dos veces no sella nada nuevo, porque `sellarCierre`
- * no toca un hilo que ya tenga cierre.
+ * Es idempotente: a la segunda pasada no queda nada que sellar ni que
+ * reatribuir, porque ningún hilo cerrado por un resumen entra en la consulta.
  */
 export function sellarCierresPendientes(orgId: number): number {
   const marcador = obtenerOrg(orgId)?.marcador_cierre ?? MARCADOR_POR_DEFECTO;
 
   const sellados = new Set<number>();
 
-  for (const m of salientesSinCierre(orgId)) {
+  for (const m of salientesDeHilosPorSellar(orgId)) {
     if (sellados.has(m.conversation_id)) continue;
     if (!contieneMarcador(m.content, marcador)) continue;
 
@@ -167,7 +185,7 @@ export function sellarCierresPendientes(orgId: number): number {
  */
 export function barrerCierresPendientes(): number {
   let total = 0;
-  for (const orgId of orgsConConversacionesAbiertas()) {
+  for (const orgId of orgsParaBarrerCierres()) {
     total += sellarCierresPendientes(orgId);
   }
   return total;

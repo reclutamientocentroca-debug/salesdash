@@ -806,8 +806,10 @@ export function actualizarConversacion(orgId: number, id: number, campos: Partia
  *
  * Sella el cierre solo si la conversación no tenía uno. Una vez sellada, ni la
  * factura que manda el vendedor diez minutos después ni ninguna otra señal
- * posterior la reclasifican. La única forma de cambiarla es `resolverRevision`,
- * que es una corrección humana explícita.
+ * posterior la reclasifican. Las dos únicas formas de cambiarla son
+ * `resolverRevision`, que es una corrección humana explícita, y
+ * `reatribuirCierrePorResumen`, que es la regla del resumen sobre la factura y
+ * está justificada ahí mismo.
  *
  * Devuelve true si este cierre fue el que quedó.
  */
@@ -819,6 +821,35 @@ export function sellarCierre(orgId: number, id: number, cierre: {
         SET cerrado_por = ?, senal_de_cierre = ?, fecha_cierre = ?
       WHERE org_id = ? AND id = ? AND fecha_cierre IS NULL`,
   ).run(cierre.cerradoPor, cierre.senal, cierre.fechaCierre, orgId, id);
+  return r.changes > 0;
+}
+
+/**
+ * EL RESUMEN DE PEDIDO MANDA SOBRE LA FACTURA.
+ *
+ * Única excepción a la regla maestra, y solo en un sentido: un resumen de
+ * pedido le quita la venta a una factura, nunca al revés. El resumen es el
+ * momento en que el pedido queda cerrado —producto, total y envío—, y la
+ * factura es papeleo alrededor de esa misma venta. Un vendedor que adelanta la
+ * factura mientras la IA está cerrando no le quita la venta a la IA.
+ *
+ * El `WHERE` es la garantía, no el código que llama: solo se mueven los cierres
+ * cuya señal fue una imagen. Un cierre por resumen no se toca —el primero de
+ * ellos manda— y una corrección manual, menos todavía: esa la firmó una
+ * persona.
+ *
+ * `fecha_cierre` NO se toca. La venta se cerró cuando se cerró; esto decide de
+ * quién es, no cuándo pasó, y moverla falsearía los tiempos de cierre.
+ */
+export function reatribuirCierrePorResumen(orgId: number, id: number, cierre: {
+  cerradoPor: "ia" | "humano"; senal: string;
+}): boolean {
+  const r = s(
+    `UPDATE conversations
+        SET cerrado_por = ?, senal_de_cierre = ?
+      WHERE org_id = ? AND id = ?
+        AND senal_de_cierre IN ('imagen_factura', 'imagen_comprobante')`,
+  ).run(cierre.cerradoPor, cierre.senal, orgId, id);
   return r.changes > 0;
 }
 
@@ -1019,27 +1050,45 @@ export function guardarDescripcionImagen(orgId: number, mensajeId: number, datos
  */
 export function huboHumanoAntes(orgId: number, conversationId: number, antesDe: number): boolean {
   const fila = s(
+    /*
+     * ESCRIBIÓ, y una foto no es escribir.
+     *
+     * Las imágenes del vendedor quedan fuera porque casi siempre son la factura
+     * o el comprobante: papeleo alrededor de una venta, no el trabajo de
+     * venderla. Contándolas, un vendedor que adelanta la factura convertía el
+     * resumen que la IA mandaba después en un cierre humano —y eso es
+     * exactamente lo que prohíbe la regla del resumen sobre la factura, solo
+     * que por la puerta de atrás.
+     */
     `SELECT 1 AS x FROM messages
-      WHERE org_id = ? AND conversation_id = ? AND emisor = 'humano' AND created_at < ?
+      WHERE org_id = ? AND conversation_id = ? AND emisor = 'humano'
+        AND tipo <> 'imagen' AND created_at < ?
       LIMIT 1`,
   ).get(orgId, conversationId, antesDe) as { x: number } | undefined;
   return !!fila;
 }
 
 /**
- * Los mensajes que mandamos nosotros en las conversaciones que siguen sin
- * cerrar. Es lo que barre `cierre.ts` buscando resúmenes de pedido que nadie
- * selló.
+ * Los mensajes que mandamos nosotros en los hilos donde un resumen de pedido
+ * todavía puede cambiar algo. Es lo que barre `cierre.ts`.
  *
- * Solo hilos sin `fecha_cierre`: los cerrados ya tienen dueño y la regla
- * maestra dice que no se les toca. Y solo salientes, porque el cliente no
- * cierra una venta escribiendo «resumen».
+ * Son dos grupos, y por dos razones distintas:
+ *
+ *   - Los que siguen SIN CERRAR: puede haber un resumen dentro que nadie selló
+ *     nunca —porque llegó antes de que existiera el sellado automático— y esa
+ *     venta está hecha y sin contar.
+ *   - Los cerrados POR UNA FACTURA: si además hay un resumen en el hilo, la
+ *     venta es de quien lo escribió. Ver `reatribuirCierrePorResumen`.
+ *
+ * Lo cerrado por un resumen no entra: ahí ya mandó el primero, y ninguno
+ * posterior lo mueve. Solo salientes, porque un cliente no cierra una venta
+ * escribiendo «resumen».
  *
  * El orden es el de la conversación, para que el PRIMER marcador de cada hilo
- * sea también el primero que sale de aquí: la venta es de quien la cerró
- * primero, no del último que escribió.
+ * sea también el primero que sale de aquí: entre dos resúmenes gana el
+ * primero, no el último que se escribió.
  */
-export function salientesSinCierre(
+export function salientesDeHilosPorSellar(
   orgId: number,
   limite = 20_000,
 ): { conversation_id: number; emisor: Emisor; content: string; created_at: number }[] {
@@ -1047,7 +1096,9 @@ export function salientesSinCierre(
     `SELECT m.conversation_id, m.emisor, m.content, m.created_at
        FROM messages m
        JOIN conversations c ON c.id = m.conversation_id AND c.org_id = m.org_id
-      WHERE m.org_id = ? AND c.fecha_cierre IS NULL AND m.emisor <> 'cliente'
+      WHERE m.org_id = ? AND m.emisor <> 'cliente'
+        AND (c.fecha_cierre IS NULL
+             OR c.senal_de_cierre IN ('imagen_factura', 'imagen_comprobante'))
       ORDER BY m.conversation_id ASC, m.created_at ASC, m.id ASC
       LIMIT ?`,
   ).all(orgId, limite) as {
@@ -1064,9 +1115,11 @@ export function salientesSinCierre(
  * conversación, ni un mensaje, ni un importe—, y cada identificador vuelve
  * inmediatamente como `orgId` de las funciones normales.
  */
-export function orgsConConversacionesAbiertas(): number[] {
+export function orgsParaBarrerCierres(): number[] {
   const filas = s(
-    `SELECT DISTINCT org_id FROM conversations WHERE fecha_cierre IS NULL`,
+    `SELECT DISTINCT org_id FROM conversations
+      WHERE fecha_cierre IS NULL
+         OR senal_de_cierre IN ('imagen_factura', 'imagen_comprobante')`,
   ).all() as { org_id: number }[];
   return filas.map((f) => f.org_id);
 }
