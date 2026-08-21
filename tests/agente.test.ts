@@ -491,3 +491,28 @@ test("en un número donde contesta otra IA, el agente se calla aunque esté ence
   D.actualizarCanal(orgId, canalId, { contesta_ia: 0 });
   encender(false);
 });
+
+/**
+ * El panel no responde en un número donde contesta la IA del dueño, y no
+ * depende de que el interruptor del agente esté bien puesto: la guarda lo
+ * impide aunque quedara encendido. Esta prueba fija las DOS mitades, porque la
+ * promesa que se le hace al dueño es que su cliente no va a recibir nunca dos
+ * respuestas.
+ */
+test("marcar el número como atendido por tu IA deja mudo al agente del panel", async () => {
+  encender(true);
+  D.actualizarCanal(orgId, canalId, { contesta_ia: 1 });
+
+  // Mitad 1: aunque `agente_activo` siga en 1, no habla.
+  assert.equal(D.obtenerCanal(orgId, canalId)?.agente_activo, 1, "a propósito: queda encendido");
+  const id = hilo([{ emisor: "cliente", content: "¿me lo mandan hoy?", hace: 20 }]);
+  assert.equal(motivoDe(await atenderConversacion(orgId, canalId, id)), "contesta_otra_ia");
+
+  // Mitad 2: y la pantalla no miente, porque al marcarlo se apaga.
+  D.actualizarCanal(orgId, canalId, { agente_activo: 0 });
+  assert.equal(D.obtenerCanal(orgId, canalId)?.agente_activo, 0);
+  assert.equal(motivoDe(await atenderConversacion(orgId, canalId, id)), "agente_apagado");
+
+  D.actualizarCanal(orgId, canalId, { contesta_ia: 0 });
+  encender(false);
+});

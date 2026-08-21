@@ -60,9 +60,26 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
   const datos = Cambio.safeParse(await req.json().catch(() => null));
   if (!datos.success) return NextResponse.json({ error: "Revisa los datos" }, { status: 400 });
 
+  /*
+   * Marcar el número como atendido por una IA ajena APAGA nuestro agente.
+   *
+   * No hacía falta para que se calle —la guarda de `atenderConversacion` ya se
+   * lo impide, y esa es la que de verdad garantiza que no hable—, pero sí para
+   * que la pantalla no mienta: un interruptor que dice «Encendido» en un número
+   * donde el agente no va a contestar es una promesa que nadie cumple, y al
+   * dueño le queda la duda de si su cliente va a recibir dos respuestas.
+   */
+  const apagarNuestroAgente = datos.data.contesta_ia === true;
+
   actualizarCanal(s.ctx.orgId, canal.id, {
     nombre: datos.data.nombre,
-    agente_activo: datos.data.agente_activo === undefined ? undefined : datos.data.agente_activo ? 1 : 0,
+    agente_activo: apagarNuestroAgente
+      ? 0
+      : datos.data.agente_activo === undefined
+        ? undefined
+        : datos.data.agente_activo
+          ? 1
+          : 0,
     contesta_ia: datos.data.contesta_ia === undefined ? undefined : datos.data.contesta_ia ? 1 : 0,
     activo: datos.data.activo === undefined ? undefined : datos.data.activo ? 1 : 0,
   });

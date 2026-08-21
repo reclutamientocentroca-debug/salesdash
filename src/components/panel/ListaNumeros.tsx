@@ -61,14 +61,13 @@ export default function ListaNumeros({ canales }: { canales: CanalVista[] }) {
     if (
       valor &&
       !confirm(
-        `¿En «${nombre}» contesta una IA?\n\n` +
-          "El panel NO va a responder: solo mira. Lo que salga de este número contará como de la " +
-          "IA en vez de como que intervino una persona, y en cuanto vea un resumen de pedido lo " +
-          "apuntará como venta cerrada por ella.\n\n" +
+        `¿En «${nombre}» contesta TU IA?\n\n` +
+          "El panel NO va a responder a nadie. Solo mira las conversaciones y, cuando vea el " +
+          "resumen de pedido de tu IA, apunta esa venta como cerrada por ella.\n\n" +
+          "Además, el agente vendedor del panel se apaga en este número y no puede volver a " +
+          "hablar aquí, para que ningún cliente reciba dos respuestas.\n\n" +
           "Las conversaciones que ya están se recalculan: se les quita «intervino un humano» y sus " +
-          "ventas pasan al lado de la IA. Y nuestro agente vendedor se queda callado en este " +
-          "número, para que el cliente no reciba dos respuestas.\n\n" +
-          "Apagarlo después no deshace lo recalculado.",
+          "ventas pasan al lado de la IA. Apagarlo después no deshace lo recalculado.",
       )
     ) {
       return;
@@ -220,7 +219,7 @@ export default function ListaNumeros({ canales }: { canales: CanalVista[] }) {
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                     <dt style={{ color: "var(--ink-2)" }}>Quién contesta</dt>
                     <dd style={{ color: c.contesta_ia ? "var(--acc)" : "var(--ink-3)", fontWeight: 600 }}>
-                      {c.contesta_ia ? "Una IA" : "Personas"}
+                      {c.contesta_ia ? "Tu IA · el panel solo vigila" : "Personas"}
                     </dd>
                   </div>
                 </dl>
@@ -259,7 +258,14 @@ export default function ListaNumeros({ canales }: { canales: CanalVista[] }) {
                     aria-pressed={c.contesta_ia}
                     onClick={() => marcarContestaIa(c.id, c.nombre, !c.contesta_ia)}
                   >
-                    {c.contesta_ia ? "Aquí vuelven a contestar personas" : "Aquí contesta una IA"}
+                    {/* «Tu IA» y no «una IA» a secas: lo que se marca es que
+                        contesta la del dueño y que el panel se limita a mirar.
+                        Leído deprisa, «Aquí contesta una IA» se puede entender
+                        como que se enciende la nuestra, que es justo lo
+                        contrario de lo que hace. */}
+                    {c.contesta_ia
+                      ? "Aquí vuelven a contestar personas"
+                      : "Aquí contesta tu IA (el panel solo vigila)"}
                   </button>
 
                   {/*
