@@ -89,9 +89,16 @@ export function GET(req: NextRequest) {
   // El aviso más importante de todos: sin volumen la aplicación funciona
   // perfectamente, y el siguiente redespliegue se lleva todas las cuentas.
   if (montado === false) {
+    // Si hay un volumen en otra ruta, decirlo ahorra la parte difícil: el
+    // problema no es que falte, es que está en el sitio equivocado.
+    const otros = (montajesDeDatos() ?? []).filter((m) => m !== carpeta);
+
     avisos.push(
       `${carpeta} NO es un volumen montado: los datos viven dentro del contenedor y ` +
-        "se borrarán en el próximo redespliegue. Monta un volumen ahí.",
+        "se borrarán en el próximo redespliegue." +
+        (otros.length
+          ? ` Sí hay un volumen en ${otros.join(", ")}: móntalo en ${carpeta}, o apunta la variable SALESDASH_DB a esa ruta.`
+          : " Monta un volumen ahí."),
     );
   }
 
@@ -115,6 +122,8 @@ export function GET(req: NextRequest) {
         existe,
         tamano_kb: tamanoKb,
         volumen_montado: montado,
+        // Si volumen_montado es false, aquí se ve dónde SÍ hay volúmenes.
+        montajes_detectados: montajesDeDatos(),
       },
       configurado: {
         openrouter: !!process.env.OPENROUTER_API_KEY,
@@ -137,23 +146,43 @@ export function GET(req: NextRequest) {
  * Devuelve null donde no se puede saber (fuera de Linux), para no dar un
  * aviso falso en desarrollo.
  */
-function esPuntoDeMontaje(carpeta: string): boolean | null {
+function puntosDeMontaje(): string[] | null {
   try {
     if (!existsSync("/proc/self/mountinfo")) return null;
 
-    const lineas = readFileSync("/proc/self/mountinfo", "utf8").split("\n");
-
-    // Barras al estilo POSIX y sin la final, que es como aparecen en mountinfo.
-    const normalizada = carpeta.replace(/\\/g, "/").replace(/\/+$/, "");
-
-    return lineas.some((l) => {
+    return readFileSync("/proc/self/mountinfo", "utf8")
+      .split("\n")
       // El quinto campo de cada línea es el punto de montaje.
-      const destino = l.split(" ")[4];
-      return destino === normalizada;
-    });
+      .map((l) => l.split(" ")[4] ?? "")
+      .filter(Boolean);
   } catch {
     return null;
   }
+}
+
+function esPuntoDeMontaje(carpeta: string): boolean | null {
+  const montajes = puntosDeMontaje();
+  if (montajes === null) return null;
+
+  // Barras al estilo POSIX y sin la final, que es como aparecen en mountinfo.
+  const normalizada = carpeta.replace(/\\/g, "/").replace(/\/+$/, "");
+  return montajes.includes(normalizada);
+}
+
+/**
+ * Los montajes que ha puesto alguien a propósito, sin el ruido del sistema.
+ *
+ * "No está montado en /app/data" no dice dónde SÍ está. Esta lista convierte
+ * un callejón sin salida en un dato accionable: si aparece /data, el volumen
+ * existe y solo está en la ruta equivocada.
+ */
+function montajesDeDatos(): string[] | null {
+  const montajes = puntosDeMontaje();
+  if (montajes === null) return null;
+
+  const RUIDO = /^\/(proc|sys|dev|run|etc\/(hosts|hostname|resolv\.conf)|usr|lib|bin|sbin|var\/lib\/docker)/;
+
+  return [...new Set(montajes.filter((m) => m !== "/" && !RUIDO.test(m)))];
 }
 
 /**
