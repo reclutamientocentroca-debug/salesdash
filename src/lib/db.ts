@@ -404,6 +404,16 @@ export function forzarReverificacion(userId: number): void {
   s(`UPDATE users SET verificado = 0 WHERE id = ?`).run(userId);
 }
 
+/**
+ * Superadmin de la plataforma. No hay forma de concederlo desde la interfaz, y
+ * es deliberado: el panel /admin ve todas las organizaciones, así que el
+ * primer superadmin tiene que marcarse desde la consola con
+ * `npm run superadmin`. Que no exista un botón es la salvaguarda.
+ */
+export function marcarSuperadmin(userId: number, valor: boolean): void {
+  s(`UPDATE users SET superadmin = ? WHERE id = ?`).run(valor ? 1 : 0, userId);
+}
+
 // ── Organización (ya con sesión) ────────────────────────────────────────────
 
 export function obtenerOrg(orgId: number): Org | undefined {

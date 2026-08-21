@@ -144,6 +144,9 @@ test("ninguna función de lectura de db.ts omite el orgId", async () => {
     "marcarVerificado", "forzarReverificacion", "crearVerificacion",
     "verificacionVigente", "sumarIntento", "invalidarVerificacion",
     "contarVerificacionesDesde",
+    // Plataforma: el superadmin es, por definición, de ninguna organización.
+    // Solo se concede desde la consola (`npm run superadmin`).
+    "marcarSuperadmin",
     // El webhook deduce la organización desde el canal.
     "canalPorWebhook",
   ]);

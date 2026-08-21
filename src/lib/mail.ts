@@ -35,18 +35,29 @@ function obtenerTransporte(): Transporter | null {
 async function enviar(a: string, asunto: string, html: string, texto: string): Promise<void> {
   const t = obtenerTransporte();
 
-  if (!t) {
-    // Sin SMTP configurado el registro seguiría funcionando pero el código
-    // no llegaría a ninguna parte. En desarrollo se imprime para poder
-    // probar el flujo completo; en producción es un error que hay que ver.
-    if (process.env.NODE_ENV === "production") {
-      throw new Error("No hay SMTP configurado: el correo no se pudo enviar");
+  if (t) {
+    try {
+      await t.sendMail({ from: REMITENTE(), to: a, subject: asunto, html, text: texto });
+      return;
+    } catch (e) {
+      // En producción esto tiene que doler: sin correo nadie verifica su
+      // cuenta y por tanto nadie puede entrar. El error sube.
+      if (process.env.NODE_ENV === "production") throw e;
+
+      // En desarrollo, no. Un SMTP roto — una clave de ejemplo sin sustituir,
+      // el clásico — tiene que comportarse igual que un SMTP ausente, o el
+      // registro queda bloqueado por algo que en local da lo mismo.
+      console.warn(`\n[correo NO enviado: ${e instanceof Error ? e.message : e}]`);
     }
-    console.warn(`\n[correo sin SMTP] Para: ${a}\n${asunto}\n${texto}\n`);
-    return;
+  } else if (process.env.NODE_ENV === "production") {
+    // Sin SMTP configurado el registro seguiría funcionando pero el código no
+    // llegaría a ninguna parte. En producción es un error que hay que ver.
+    throw new Error("No hay SMTP configurado: el correo no se pudo enviar");
   }
 
-  await t.sendMail({ from: REMITENTE(), to: a, subject: asunto, html, text: texto });
+  // Respaldo de desarrollo: el código por consola, para poder probar el flujo
+  // completo sin depender del correo.
+  console.warn(`\n[correo por consola] Para: ${a}\n${asunto}\n${texto}\n`);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
