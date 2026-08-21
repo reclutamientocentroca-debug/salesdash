@@ -66,13 +66,31 @@ SESSION_SECRET=
 WHAPI_PARTNER_TOKEN=
 WHAPI_PARTNER_PROJECT_ID=      # opcional: si falta, se toma el primer proyecto
 
-SMTP_HOST=
-SMTP_PORT=587
-SMTP_USER=
-SMTP_PASS=
+# Con Resend: el usuario es la palabra "resend", no tu correo.
+SMTP_HOST=smtp.resend.com
+SMTP_PORT=465
+SMTP_USER=resend
+SMTP_PASS=re_...
 MAIL_FROM="SalesDash <no-reply@tudominio.com>"
 
 APP_URL=https://tudominio.com  # sin barra final
+```
+
+### Correo con Resend
+
+| Campo | Valor |
+|---|---|
+| `SMTP_HOST` | `smtp.resend.com` |
+| `SMTP_PORT` | `465` (TLS directo) o `587` (STARTTLS) |
+| `SMTP_USER` | `resend` — literalmente esa palabra, no tu correo |
+| `SMTP_PASS` | tu clave de API, la que empieza por `re_` |
+
+`MAIL_FROM` tiene que usar un dominio verificado en Resend. **Mientras no verifiques uno, `onboarding@resend.dev` solo envía a la dirección de tu propia cuenta de Resend** — sirve para probar el despliegue, no para atender usuarios reales, que se registran con correos cualesquiera.
+
+Comprueba que funciona antes de perseguir el fallo dentro de la aplicación:
+
+```bash
+npm run probar-correo -- tu@correo.com
 ```
 
 ### Qué modelo usar

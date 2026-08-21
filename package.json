@@ -12,7 +12,8 @@
     "start": "next start -p ${PORT:-3000}",
     "typecheck": "tsc --noEmit",
     "seed": "tsx scripts/seed.ts",
-    "test": "node --import tsx --test tests/aislamiento.test.ts tests/conteo.test.ts tests/cierres.test.ts tests/agente.test.ts"
+    "test": "node --import tsx --test tests/aislamiento.test.ts tests/conteo.test.ts tests/cierres.test.ts tests/agente.test.ts",
+    "probar-correo": "tsx scripts/probar-correo.ts"
   },
   "dependencies": {
     "next": "^16.0.0",
