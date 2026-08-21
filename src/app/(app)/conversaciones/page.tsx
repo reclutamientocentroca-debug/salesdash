@@ -47,9 +47,30 @@ export default async function PaginaConversaciones({ searchParams }: Props) {
   const ctx = await requerirSesion();
   const { rango: clave = "7d", estado, canal: canalParam, chat: chatParam } = await searchParams;
 
-  const canales = listarCanales(ctx.orgId).filter((c) => c.activo === 1);
+  /*
+   * Solo los números REALMENTE vinculados tienen bandeja.
+   *
+   * Crear un número en el panel no lo conecta a nada: hasta que alguien escanea
+   * su QR no existe como WhatsApp, no puede recibir un mensaje y su bandeja
+   * estaría vacía por definición. Una pestaña ahí solo sirve para hacer creer
+   * que ese número está atendiendo.
+   *
+   * El teléfono es la marca de que se escaneó: hasta entonces la fila guarda un
+   * `pendiente:…`, y el número real lo escribe `wa.ts` cuando WhatsApp confirma
+   * la vinculación. Se usa eso y no `estado` porque el estado va y viene con
+   * cada reconexión, y una bandeja no puede aparecer y desaparecer porque el
+   * socket se haya caído medio minuto.
+   */
+  const canales = listarCanales(ctx.orgId).filter(
+    (c) => c.activo === 1 && !c.phone.startsWith("pendiente:"),
+  );
 
   if (canales.length === 0) {
+    // Hay números creados pero ninguno escaneado: es un caso distinto de no
+    // tener ninguno, y merece un texto distinto o el usuario se queda mirando
+    // una pantalla vacía sin saber que le falta un paso.
+    const sinEscanear = listarCanales(ctx.orgId).filter((c) => c.activo === 1).length;
+
     return (
       <>
         <div className="sd-cabecera">
@@ -57,12 +78,20 @@ export default async function PaginaConversaciones({ searchParams }: Props) {
         </div>
         <div className="tarjeta">
           <Vacio
-            titulo="Todavía no hay ningún número conectado"
-            texto="Conecta un número escaneando su código QR y aquí aparecerá su bandeja."
+            titulo={
+              sinEscanear > 0
+                ? "Te falta escanear el código"
+                : "Todavía no hay ningún número conectado"
+            }
+            texto={
+              sinEscanear > 0
+                ? `Tienes ${sinEscanear} número${sinEscanear === 1 ? "" : "s"} creado${sinEscanear === 1 ? "" : "s"}, pero ninguno vinculado a un WhatsApp. Su bandeja aparece en cuanto escanees el QR desde el teléfono.`
+                : "Conecta un número escaneando su código QR y aquí aparecerá su bandeja."
+            }
           />
           <p style={{ textAlign: "center", marginTop: 12 }}>
             <Link href="/numeros" className="btn btn-primario" style={{ textDecoration: "none" }}>
-              Conectar un número
+              {sinEscanear > 0 ? "Ir a escanear el QR" : "Conectar un número"}
             </Link>
           </p>
         </div>
@@ -79,13 +108,20 @@ export default async function PaginaConversaciones({ searchParams }: Props) {
     limite: 200,
   });
 
-  // El hilo abierto tiene que pertenecer a ESTE número: si se cambia de
-  // bandeja con un chat abierto, el de la bandeja anterior no se arrastra.
+  /*
+   * El hilo abierto tiene que pertenecer a ESTE número: al cambiar de bandeja,
+   * el chat de la anterior no se arrastra.
+   *
+   * Si no se pidió ninguno, se abre el primero — el más reciente. Una bandeja
+   * que se abre con el panel derecho vacío obliga a un clic para ver algo, y
+   * ninguna aplicación de mensajería hace eso: entras y ya estás leyendo la
+   * última conversación.
+   */
   const pedidoChat = Number(chatParam);
-  const abierta =
-    Number.isInteger(pedidoChat) && chats.some((c) => c.id === pedidoChat)
-      ? getConversation(ctx.orgId, pedidoChat)
-      : undefined;
+  const elegidoAMano = Number.isInteger(pedidoChat) && chats.some((c) => c.id === pedidoChat);
+  const elegido = elegidoAMano ? pedidoChat : (chats[0]?.id ?? null);
+
+  const abierta = elegido === null ? undefined : getConversation(ctx.orgId, elegido);
 
   const mensajes = abierta ? listarMensajes(ctx.orgId, abierta.id) : [];
 
@@ -147,7 +183,13 @@ export default async function PaginaConversaciones({ searchParams }: Props) {
         </div>
       )}
 
-      <div className={`sd-bandeja${abierta ? " con-hilo" : ""}`}>
+      {/*
+        `con-hilo` marca que el usuario ELIGIÓ un chat, no que haya uno abierto.
+        La diferencia importa solo en móvil, donde no caben los dos paneles: si
+        se marcara por el hilo abierto, como ahora siempre se abre el primero,
+        el teléfono enseñaría el hilo y nunca la lista.
+      */}
+      <div className={`sd-bandeja${elegidoAMano ? " con-hilo" : ""}`}>
         {/* ── Lista de chats ────────────────────────────────────────────── */}
         <div className="sd-bandeja-lista">
           {chats.length === 0 ? (
@@ -196,6 +238,16 @@ export default async function PaginaConversaciones({ searchParams }: Props) {
           ) : (
             <>
               <div className="sd-bandeja-cabecera">
+                {/* En móvil el hilo ocupa la pantalla entera y la lista se
+                    esconde: sin esto no habría forma de volver a ella. */}
+                <Link
+                  href={url({ chat: null })}
+                  className="btn btn-tenue solo-movil"
+                  style={{ textDecoration: "none", padding: "4px 8px", fontSize: 12, flexShrink: 0 }}
+                >
+                  ← Chats
+                </Link>
+
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontWeight: 600, fontSize: 13.5 }}>
                     {abierta.cliente_nombre ?? "Sin nombre"}

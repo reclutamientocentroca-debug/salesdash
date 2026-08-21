@@ -1005,9 +1005,18 @@ body {
   flex-shrink: 0;
 }
 
+/* Solo aparece donde la lista y el hilo no caben a la vez. */
+.solo-movil {
+  display: none;
+}
+
 /* Bajo 900px no caben dos paneles: se enseña uno u otro. Con un chat abierto,
    el hilo; sin él, la lista. */
 @media (max-width: 900px) {
+  .solo-movil {
+    display: inline-flex;
+  }
+
   .sd-bandeja {
     grid-template-columns: 1fr;
     height: calc(100vh - 240px);
