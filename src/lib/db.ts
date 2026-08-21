@@ -82,6 +82,10 @@ CREATE TABLE IF NOT EXISTS conversations (
   cliente_nombre TEXT,
   origen TEXT,
   producto_anuncio TEXT,
+  /* Texto del anuncio que trajo al cliente. El título dice QUÉ producto; esto
+     dice qué se le prometió, que es lo que hay que leer para entender la
+     conversación que viene detrás. */
+  descripcion_anuncio TEXT,
   intervencion_humana INTEGER NOT NULL DEFAULT 0,
   cerrado_por TEXT CHECK(cerrado_por IN ('ia','humano','abierta','revision')) NOT NULL DEFAULT 'abierta',
   senal_de_cierre TEXT,
@@ -231,6 +235,12 @@ function migrar(conexion: DB): void {
   const columnas = (tabla: string) =>
     (conexion.pragma(`table_info(${tabla})`) as { name: string }[]).map((c) => c.name);
 
+  // conversations: la descripción del anuncio que trajo al cliente. ALTER ADD
+  // COLUMN no reescribe la tabla ni toca una sola fila existente.
+  if (!columnas("conversations").includes("descripcion_anuncio")) {
+    conexion.exec(`ALTER TABLE conversations ADD COLUMN descripcion_anuncio TEXT`);
+  }
+
   // anomalies: las anomalías de canal no tienen conversación.
   if (!columnas("anomalies").includes("canal_id")) {
     conexion.exec(`
@@ -311,7 +321,7 @@ export interface Canal {
 export interface Conversacion {
   id: number; org_id: number; canal_id: number;
   cliente_phone: string; cliente_nombre: string | null;
-  origen: string | null; producto_anuncio: string | null;
+  origen: string | null; producto_anuncio: string | null; descripcion_anuncio: string | null;
   intervencion_humana: number; cerrado_por: EstadoCierre;
   senal_de_cierre: string | null;
   total: number | null; envio: number | null;
@@ -548,7 +558,7 @@ export function getOrCreateConversation(
   clientePhone: string,
   datos: {
     nombre?: string | null; origen?: string | null;
-    productoAnuncio?: string | null; cuando?: number;
+    productoAnuncio?: string | null; descripcionAnuncio?: string | null; cuando?: number;
   } = {},
 ): { conversacion: Conversacion; nueva: boolean } {
   const existente = s(
@@ -568,11 +578,11 @@ export function getOrCreateConversation(
   const cuando = datos.cuando ?? ahora();
   const r = s(
     `INSERT INTO conversations
-       (org_id, canal_id, cliente_phone, cliente_nombre, origen, producto_anuncio, fecha_inicio, last_message_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       (org_id, canal_id, cliente_phone, cliente_nombre, origen, producto_anuncio, descripcion_anuncio, fecha_inicio, last_message_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     orgId, canalId, clientePhone, datos.nombre ?? null,
-    datos.origen ?? null, datos.productoAnuncio ?? null, cuando, cuando,
+    datos.origen ?? null, datos.productoAnuncio ?? null, datos.descripcionAnuncio ?? null, cuando, cuando,
   );
 
   return {
@@ -615,7 +625,7 @@ export function listarConversaciones(orgId: number, filtros: {
 }
 
 const COLUMNAS_CONV = [
-  "cliente_nombre", "origen", "producto_anuncio", "intervencion_humana",
+  "cliente_nombre", "origen", "producto_anuncio", "descripcion_anuncio", "intervencion_humana",
   "senal_de_cierre", "total", "envio", "producto_vendido", "resumen_pedido",
   "justificacion", "datos_faltantes", "motivo_perdida", "analizada_at",
   "last_message_at",
@@ -1016,6 +1026,47 @@ export function resumenVentas(orgId: number, r: Rango) {
        FROM conversations
       WHERE ${where} AND cerrado_por IN ('ia','humano')`,
   ).get(...val) as { suma: number; con_monto: number };
+}
+
+/**
+ * Los que llegaron por un anuncio.
+ *
+ * NO sustituye a `totalLeads`, que cuenta toda conversación abierta y es la que
+ * sostiene la invariante `leads = ia + humano + abiertas + revisión`. Son dos
+ * preguntas distintas: cuánta gente escribió, y cuánta escribió porque la
+ * trajo un anuncio. La segunda es la que dice si la publicidad funciona.
+ */
+export function leadsDeAnuncio(orgId: number, r: Rango): number {
+  const { where, val } = filtroRango(orgId, r);
+  return (s(
+    `SELECT COUNT(*) AS n FROM conversations
+      WHERE ${where} AND producto_anuncio IS NOT NULL AND producto_anuncio <> ''`,
+  ).get(...val) as { n: number }).n;
+}
+
+/**
+ * Qué producto anunciado trae a cada cliente, con lo que el anuncio prometía.
+ *
+ * La descripción se toma con MAX y no con GROUP_CONCAT: varios anuncios pueden
+ * compartir título con textos distintos, y aquí interesa una muestra legible,
+ * no todas concatenadas.
+ */
+export function productosDeAnuncio(
+  orgId: number,
+  r: Rango,
+): { producto: string; descripcion: string | null; leads: number; cerrados: number }[] {
+  const { where, val } = filtroRango(orgId, r);
+  return s(
+    `SELECT producto_anuncio AS producto,
+            MAX(descripcion_anuncio) AS descripcion,
+            COUNT(*) AS leads,
+            SUM(CASE WHEN cerrado_por IN ('ia','humano') THEN 1 ELSE 0 END) AS cerrados
+       FROM conversations
+      WHERE ${where} AND producto_anuncio IS NOT NULL AND producto_anuncio <> ''
+      GROUP BY producto_anuncio
+      ORDER BY leads DESC, producto ASC
+      LIMIT 12`,
+  ).all(...val) as { producto: string; descripcion: string | null; leads: number; cerrados: number }[];
 }
 
 export function leadsPorSuCuenta(orgId: number, r: Rango): number {

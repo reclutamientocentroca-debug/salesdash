@@ -53,7 +53,7 @@ export default async function Dashboard({ searchParams }: Props) {
         <div>
           <h1 className="h1-pagina">Dashboard</h1>
           <p className="tenue" style={{ marginTop: 2 }}>
-            {m.leads} leads en el rango · {m.escribieron_por_su_cuenta} escribieron por su cuenta
+            {m.leads_anuncio} leads por anuncio · {m.leads} conversaciones en total
           </p>
         </div>
 
@@ -102,12 +102,18 @@ export default async function Dashboard({ searchParams }: Props) {
       )}
 
       <div className="sd-kpis" style={{ marginBottom: 14 }}>
+        {/*
+          «Leads» son los que llegaron por un anuncio, no todo el que escribe.
+          Es la pregunta que se hace de verdad quien paga publicidad: cuánta
+          gente me trajo. El total queda al lado porque sigue siendo la base de
+          la invariante de conteo y de los porcentajes de cierre.
+        */}
         <Kpi
-          etiqueta="Leads"
-          valor={m.leads}
+          etiqueta="Leads por anuncio"
+          valor={m.leads_anuncio}
           icono={<IconoConversaciones tam={17} />}
-          tono="neutro"
-          pie={`${m.escribieron_por_su_cuenta} por su cuenta`}
+          tono="acento"
+          pie={`de ${m.leads} conversaciones`}
         />
         <Kpi
           etiqueta="Cerró la IA"
@@ -193,6 +199,51 @@ export default async function Dashboard({ searchParams }: Props) {
           </ul>
         </section>
       </div>
+
+      {/*
+        Qué anuncio trae a cada cliente. La descripción es la mitad útil: el
+        título dice el producto, y el texto dice qué se le prometió — que es lo
+        que explica por qué el cliente escribe lo que escribe.
+      */}
+      <section className="tarjeta" style={{ marginBottom: 14 }}>
+        <h2 className="titulo-tarjeta" style={{ marginBottom: 12 }}>Productos que traen leads</h2>
+
+        {m.productos_anuncio.length === 0 ? (
+          <Vacio
+            titulo="Todavía no ha llegado nadie por un anuncio"
+            texto="Cuando un cliente escriba desde un anuncio de Facebook o Instagram, aquí aparecerá qué producto lo trajo y qué le prometía."
+          />
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table className="tabla">
+              <thead>
+                <tr>
+                  <th>Producto anunciado</th>
+                  <th>Lo que promete el anuncio</th>
+                  <th style={{ textAlign: "right" }}>Leads</th>
+                  <th style={{ textAlign: "right" }}>Cerrados</th>
+                  <th style={{ textAlign: "right" }}>Tasa</th>
+                </tr>
+              </thead>
+              <tbody>
+                {m.productos_anuncio.map((p) => (
+                  <tr key={p.producto}>
+                    <td style={{ fontWeight: 600, maxWidth: 220 }}>{p.producto}</td>
+                    <td className="tenue" style={{ maxWidth: 340 }}>
+                      {p.descripcion ?? "—"}
+                    </td>
+                    <td style={{ textAlign: "right" }}>{p.leads}</td>
+                    <td style={{ textAlign: "right", color: "var(--acc)" }}>{p.cerrados}</td>
+                    <td style={{ textAlign: "right" }}>
+                      {p.leads === 0 ? 0 : Math.round((p.cerrados / p.leads) * 100)}%
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
       <div className="sd-fila-3">
         <section className="tarjeta">

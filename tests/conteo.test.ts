@@ -141,3 +141,54 @@ test("el gráfico no dibuja días futuros", () => {
     `el último día del gráfico (${llena[llena.length - 1]!.dia}) no puede ser posterior a hoy (${hoyUTC})`,
   );
 });
+
+/**
+ * Los leads de anuncio son otra pregunta, no una redefinición.
+ *
+ * El panel enseña «Leads por anuncio» porque es lo que le importa a quien paga
+ * publicidad. Pero el total sigue siendo la base de la invariante de arriba y
+ * de los porcentajes de cierre: si algún día alguien sustituye uno por otro,
+ * los porcentajes empiezan a mentir y el aviso de «los números no cuadran»
+ * salta sin que nada esté roto de verdad.
+ */
+test("los leads de anuncio se cuentan aparte del total", () => {
+  // Se mide el antes y el después en vez de fijar totales absolutos: otras
+  // pruebas del archivo crean conversaciones, y una cifra escrita a mano aquí
+  // se rompería en cuanto alguien añada un caso más arriba.
+  const antes = calcularMetricas(orgId, RANGO);
+
+  const deAnuncio = D.getOrCreateConversation(orgId, canalId, `1809999${siguiente++}`, {
+    cuando: 1_700_000_000,
+    origen: "anuncio",
+    productoAnuncio: "Zapatos de cuero",
+    descripcionAnuncio: "Zapatos de cuero · envío gratis",
+  }).conversacion.id;
+
+  const m = calcularMetricas(orgId, RANGO);
+
+  assert.equal(m.leads_anuncio, antes.leads_anuncio + 1, "llegó uno por anuncio");
+  assert.equal(m.leads, antes.leads + 1, "el total cuenta a todos, con anuncio o sin él");
+  assert.equal(
+    m.escribieron_por_su_cuenta,
+    antes.escribieron_por_su_cuenta,
+    "el que llega por anuncio no cuenta como que escribió por su cuenta",
+  );
+  assert.equal(
+    m.leads_anuncio + m.escribieron_por_su_cuenta,
+    m.leads,
+    "no puede faltar ni sobrar nadie entre los dos grupos",
+  );
+
+  assert.equal(
+    m.cuadra,
+    true,
+    "contar los de anuncio aparte no puede romper la invariante del total",
+  );
+
+  const p = m.productos_anuncio.find((x) => x.producto === "Zapatos de cuero");
+  assert.equal(p?.leads, 1);
+  assert.equal(p?.descripcion, "Zapatos de cuero · envío gratis", "la descripción del anuncio se conserva");
+
+  // Se deja como estaba para no arrastrar estado a otras pruebas del archivo.
+  D.actualizarConversacion(orgId, deAnuncio, { producto_anuncio: null });
+});

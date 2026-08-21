@@ -94,10 +94,34 @@ export default async function PaginaConversaciones({ searchParams }: Props) {
                       {c.producto_vendido ?? (
                         <span className="tenue">{c.producto_anuncio ?? "—"}</span>
                       )}
+                      {/* Lo que prometía el anuncio, debajo del producto: sin
+                          esto no se entiende por qué el cliente pregunta lo que
+                          pregunta. */}
+                      {c.descripcion_anuncio && (
+                        <div
+                          className="tenue"
+                          style={{ fontSize: 11.5, maxWidth: 260, marginTop: 2 }}
+                          title={c.descripcion_anuncio}
+                        >
+                          {c.descripcion_anuncio}
+                        </div>
+                      )}
                     </td>
                     <td style={{ textAlign: "right" }}>{dinero(c.total)}</td>
                     <td>
-                      <Pastilla estado={c.cerrado_por} />
+                      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                        <Pastilla estado={c.cerrado_por} />
+                        {/* Un vendedor llegó a escribir aquí. Va aparte del
+                            estado y no en su lugar: quién cerró y si alguien
+                            tuvo que meter mano son dos datos distintos, y una
+                            conversación que cerró la IA también puede haber
+                            tenido intervención antes. */}
+                        {c.intervencion_humana === 1 && (
+                          <span className="pastilla pastilla-intervencion" title="Un vendedor escribió en esta conversación">
+                            Intervino
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="tenue" style={{ textAlign: "right", paddingRight: 17 }}>
                       {hace(c.last_message_at)}

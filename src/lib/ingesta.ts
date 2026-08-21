@@ -57,6 +57,8 @@ export interface MensajeEntrante {
   /** El chat nace de un anuncio de Meta. */
   deAnuncio: boolean;
   productoAnuncio: string | null;
+  /** Lo que prometía el anuncio. Explica la conversación que viene detrás. */
+  descripcionAnuncio: string | null;
 }
 
 export interface Resultado {
@@ -107,6 +109,7 @@ export async function ingerir(
         cuando: m.cuando,
         origen: m.deAnuncio ? "anuncio" : null,
         productoAnuncio: m.productoAnuncio,
+        descripcionAnuncio: m.descripcionAnuncio,
       });
 
       // Invariante 3.

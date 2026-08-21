@@ -142,6 +142,11 @@ async function main() {
         cuando: inicio,
         origen: deAnuncio ? "anuncio" : null,
         productoAnuncio: deAnuncio ? producto.nombre : null,
+        // Lo que promete el anuncio. Sin esto la columna del panel sale vacía
+        // en los datos de ejemplo y parece que la función no funciona.
+        descripcionAnuncio: deAnuncio
+          ? `${producto.nombre} desde ${Math.round(producto.precio)} · envío a todo el país · consulta disponibilidad`
+          : null,
       });
       const cid = conversacion.id;
       creadas++;

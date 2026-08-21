@@ -7,7 +7,9 @@
 import {
   conteoConIntervencionHumana,
   conteoPorEstado,
+  leadsDeAnuncio,
   leadsPorSuCuenta,
+  productosDeAnuncio,
   metricasPorCanal,
   obtenerOrg,
   resumenVentas,
@@ -55,7 +57,12 @@ const porcentaje = (parte: number, total: number) =>
   total === 0 ? 0 : Math.round((parte / total) * 1000) / 10;
 
 export interface Metricas {
+  /** Toda conversación abierta en el rango. Es la base de la invariante. */
   leads: number;
+  /** Los que llegaron por un anuncio: los que miden si la publicidad funciona. */
+  leads_anuncio: number;
+  /** Qué producto anunciado los trajo, y qué prometía ese anuncio. */
+  productos_anuncio: { producto: string; descripcion: string | null; leads: number; cerrados: number }[];
   cierres_ia: number;
   cierres_humano: number;
   sin_cerrar: number;
@@ -125,6 +132,8 @@ export function calcularMetricas(orgId: number, rango: Rango): Metricas {
 
   return {
     leads,
+    leads_anuncio: leadsDeAnuncio(orgId, rango),
+    productos_anuncio: productosDeAnuncio(orgId, rango),
     cierres_ia: estados.ia,
     cierres_humano: estados.humano,
     sin_cerrar: estados.abierta,

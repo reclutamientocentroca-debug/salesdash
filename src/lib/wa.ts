@@ -197,6 +197,8 @@ function traducir(m: WAMessage): MensajeEntrante | null {
         ? (marca as { toNumber(): number }).toNumber()
         : ahora();
 
+  const anuncio = real.extendedTextMessage?.contextInfo?.externalAdReply;
+
   return {
     id,
     deMi: m.key?.fromMe === true,
@@ -206,9 +208,11 @@ function traducir(m: WAMessage): MensajeEntrante | null {
     mediaUrl: null,
     cuando,
     nombre: m.pushName ?? null,
-    // El anuncio de Meta llega en `contextInfo.externalAdReply`.
-    deAnuncio: !!real.extendedTextMessage?.contextInfo?.externalAdReply,
-    productoAnuncio: real.extendedTextMessage?.contextInfo?.externalAdReply?.title ?? null,
+    // El anuncio de Meta llega en `contextInfo.externalAdReply`: `title` es el
+    // producto anunciado y `body` lo que se le prometió al cliente.
+    deAnuncio: !!anuncio,
+    productoAnuncio: anuncio?.title ?? null,
+    descripcionAnuncio: anuncio?.body ?? null,
   };
 }
 

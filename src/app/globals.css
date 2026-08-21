@@ -33,6 +33,10 @@
   --red-bg: #fbeceb;
   --amber: #c47f0e;
   --amber-bg: #fdf3e2;
+  /* Intervención humana. Separado del ámbar a propósito: son dos avisos
+     distintos y tienen que distinguirse sin leer. */
+  --naranja: #d2601a;
+  --naranja-bg: #fdeee3;
 
   /* Forma */
   --radio-tarjeta: 12px;
@@ -270,6 +274,14 @@ body {
 .pastilla-revision {
   background: var(--amber-bg);
   color: var(--amber);
+}
+
+/* Un vendedor llegó a escribir en esta conversación. Naranja y no ámbar: si
+   compartiera color con «en revisión» habría que leer el texto para saber cuál
+   es cuál, y el sentido de marcarlo es verlo de un vistazo. */
+.pastilla-intervencion {
+  background: var(--naranja-bg);
+  color: var(--naranja);
 }
 
 /* ── Avisos ───────────────────────────────────────────────────────────────── */
