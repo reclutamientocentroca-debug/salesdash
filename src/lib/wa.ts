@@ -1,0 +1,467 @@
+/**
+ * SalesDash — conexión a WhatsApp por QR.
+ *
+ * Sustituye a `whapi.ts`. Ya no hay intermediario ni webhook: el servidor
+ * mantiene un socket abierto por cada número conectado, y los mensajes entran
+ * por ahí directamente.
+ *
+ * QUÉ CAMBIA RESPECTO A UN PROVEEDOR
+ *
+ *   - La sesión vive en DISCO, en `<datos>/sesiones/<canalId>`. Si esa carpeta
+ *     no sobrevive al redespliegue, hay que reescanear el QR de todos los
+ *     números. Con un proveedor la sesión vivía en su servidor y esto daba
+ *     igual; ahora el volumen es obligatorio, no recomendable.
+ *
+ *   - El contenedor tiene que estar SIEMPRE encendido. No hay nadie guardando
+ *     los mensajes mientras esté apagado: lo que llegue con el socket caído se
+ *     recupera cuando WhatsApp resincroniza, pero no está garantizado.
+ *
+ *   - Los sockets viven en la memoria del proceso. Si algún día esto corre en
+ *     varias réplicas, dos procesos abrirían la misma sesión y WhatsApp cerrará
+ *     una de las dos. Una réplica, o repartir canales por proceso.
+ *
+ * El registro va en `globalThis` por el mismo motivo que la conexión de la base
+ * de datos: en desarrollo Next recarga los módulos en caliente, y sin esto cada
+ * cambio de código abriría una sesión nueva encima de la anterior.
+ */
+import makeWASocket, {
+  Browsers,
+  DisconnectReason,
+  useMultiFileAuthState,
+  type WAMessage,
+  type WASocket,
+} from "baileys";
+import { Boom } from "@hapi/boom";
+import { toDataURL } from "qrcode";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { actualizarCanal, ahora, canalesParaReconectar, obtenerCanalSinOrg, rutaDatos, type Canal, type TipoMensaje } from "@/lib/db";
+import { ingerir, type MensajeEntrante } from "@/lib/ingesta";
+import { jidDeTelefono } from "@/lib/telefono";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Estado
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type EstadoCanal =
+  | "iniciando"
+  | "esperando"
+  | "conectado"
+  | "desconectado"
+  | "error";
+
+export interface Instantanea {
+  estado: EstadoCanal;
+  phone: string | null;
+  detalle: string | null;
+  /** Imagen del QR como data URL. Solo cuando el estado es `esperando`. */
+  qr: string | null;
+}
+
+interface Sesion {
+  canalId: number;
+  sock: WASocket | null;
+  estado: EstadoCanal;
+  qr: string | null;
+  phone: string | null;
+  detalle: string | null;
+  /** Reintentos seguidos de reconexión. Se usa para espaciarlos. */
+  intentos: number;
+  /** Cierre pedido por nosotros: no hay que reconectar. */
+  cerrandoAdrede: boolean;
+}
+
+const global_ = globalThis as unknown as {
+  __salesdash_wa?: Map<number, Sesion>;
+  __salesdash_wa_rehidratado?: boolean;
+};
+
+const sesiones: Map<number, Sesion> = (global_.__salesdash_wa ??= new Map());
+
+/**
+ * Baileys es hablador y su registro no ayuda a nadie en producción. Se le pasa
+ * uno mudo salvo los errores, que sí interesan.
+ *
+ * El tipo se declara aquí en vez de importarlo: `ILogger` no sale por el índice
+ * del paquete, y con la forma basta — TypeScript comprueba la estructura, no el
+ * nombre. Así tampoco hay que arrastrar pino como dependencia directa.
+ */
+interface Registro {
+  level: string;
+  child(obj: Record<string, unknown>): Registro;
+  trace(obj: unknown, msg?: string): void;
+  debug(obj: unknown, msg?: string): void;
+  info(obj: unknown, msg?: string): void;
+  warn(obj: unknown, msg?: string): void;
+  error(obj: unknown, msg?: string): void;
+}
+
+const registro: Registro = {
+  level: "silent",
+  child: () => registro,
+  trace: () => {},
+  debug: () => {},
+  info: () => {},
+  warn: () => {},
+  error: (obj: unknown, msg?: string) => console.error("[wa]", msg ?? "", obj),
+};
+
+function carpetaSesion(canalId: number): string {
+  return join(rutaDatos(), "sesiones", String(canalId));
+}
+
+function sesionDe(canalId: number): Sesion {
+  let s = sesiones.get(canalId);
+  if (!s) {
+    s = {
+      canalId,
+      sock: null,
+      estado: "iniciando",
+      qr: null,
+      phone: null,
+      detalle: null,
+      intentos: 0,
+      cerrandoAdrede: false,
+    };
+    sesiones.set(canalId, s);
+  }
+  return s;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Traducción de mensajes
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * De un mensaje de Baileys al formato propio de `ingesta.ts`.
+ *
+ * `mediaUrl` va SIEMPRE a null y no es un descuido: un proveedor daba una URL
+ * temporal que el modelo con visión podía leer. Aquí los archivos llegan como
+ * bytes cifrados y habría que descargarlos y servirlos nosotros. El mensaje se
+ * registra igual —con su marca `[imagen]`— así que el conteo, la atribución y
+ * la detección de intervención humana siguen exactos; lo único que se pierde
+ * es la clasificación de la imagen, y el analista ya trata ese caso.
+ */
+function traducir(m: WAMessage): MensajeEntrante | null {
+  const id = m.key?.id;
+  const chatId = m.key?.remoteJid;
+  if (!id || !chatId) return null;
+
+  const contenido = m.message;
+  if (!contenido) return null;
+
+  // Los mensajes efímeros y los de "ver una vez" traen el real anidado.
+  const real =
+    contenido.ephemeralMessage?.message ??
+    contenido.viewOnceMessage?.message ??
+    contenido.viewOnceMessageV2?.message ??
+    contenido;
+
+  let tipo: TipoMensaje = "otro";
+  let texto = "";
+
+  const conCaption = (marca: string, caption?: string | null) =>
+    caption?.trim() ? `${marca} ${caption.trim()}` : marca;
+
+  if (real.conversation) {
+    tipo = "texto";
+    texto = real.conversation;
+  } else if (real.extendedTextMessage?.text) {
+    tipo = "texto";
+    texto = real.extendedTextMessage.text;
+  } else if (real.imageMessage) {
+    tipo = "imagen";
+    texto = conCaption("[imagen]", real.imageMessage.caption);
+  } else if (real.documentMessage) {
+    const nombre = real.documentMessage.fileName;
+    tipo = "documento";
+    texto = conCaption(`[documento${nombre ? `: ${nombre}` : ""}]`, real.documentMessage.caption);
+  } else if (real.audioMessage) {
+    tipo = "audio";
+    texto = real.audioMessage.ptt ? "[nota de voz]" : "[audio]";
+  } else if (real.videoMessage) {
+    tipo = "otro";
+    texto = conCaption("[video]", real.videoMessage.caption);
+  } else {
+    const clave = Object.keys(real)[0];
+    tipo = "otro";
+    texto = `[${clave ?? "mensaje"}]`;
+  }
+
+  // `messageTimestamp` puede venir como número o como Long de protobuf.
+  const marca = m.messageTimestamp;
+  const cuando =
+    typeof marca === "number"
+      ? marca
+      : typeof marca === "object" && marca !== null && "toNumber" in marca
+        ? (marca as { toNumber(): number }).toNumber()
+        : ahora();
+
+  return {
+    id,
+    deMi: m.key?.fromMe === true,
+    chatId,
+    tipo,
+    content: texto,
+    mediaUrl: null,
+    cuando,
+    nombre: m.pushName ?? null,
+    // El anuncio de Meta llega en `contextInfo.externalAdReply`.
+    deAnuncio: !!real.extendedTextMessage?.contextInfo?.externalAdReply,
+    productoAnuncio: real.extendedTextMessage?.contextInfo?.externalAdReply?.title ?? null,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Ciclo de vida del socket
+// ─────────────────────────────────────────────────────────────────────────────
+
+function anotarEstado(s: Sesion, canal: Canal | undefined, estado: string): void {
+  if (!canal) return;
+  if (canal.estado === estado) return;
+  try {
+    actualizarCanal(canal.org_id, s.canalId, { estado });
+  } catch (e) {
+    console.error("[wa] no se pudo anotar el estado del canal", e);
+  }
+}
+
+/**
+ * Abre el socket de un canal. Si ya hay creds guardadas reconecta sin QR; si no,
+ * WhatsApp emite uno y queda en `esperando`.
+ */
+async function abrir(canalId: number): Promise<void> {
+  const s = sesionDe(canalId);
+  if (s.sock) return;
+
+  const canal = obtenerCanalSinOrg(canalId);
+  if (!canal) throw new Error(`El canal ${canalId} no existe`);
+
+  const carpeta = carpetaSesion(canalId);
+  mkdirSync(carpeta, { recursive: true });
+
+  const { state, saveCreds } = await useMultiFileAuthState(carpeta);
+
+  s.cerrandoAdrede = false;
+  s.estado = state.creds.registered ? "iniciando" : "esperando";
+  s.detalle = null;
+
+  const sock = makeWASocket({
+    auth: state,
+    logger: registro,
+    // El nombre que verá el usuario en «Dispositivos vinculados» de su móvil.
+    browser: Browsers.ubuntu("SalesDash"),
+    // No marca los mensajes como leídos: el vendedor tiene que poder ver en su
+    // móvil lo que todavía no ha atendido.
+    markOnlineOnConnect: false,
+  });
+
+  s.sock = sock;
+
+  sock.ev.on("creds.update", () => {
+    void saveCreds();
+  });
+
+  sock.ev.on("connection.update", (u) => {
+    void (async () => {
+      if (u.qr) {
+        s.estado = "esperando";
+        s.detalle = null;
+        try {
+          s.qr = await toDataURL(u.qr, { margin: 1, width: 320 });
+        } catch (e) {
+          console.error("[wa] no se pudo dibujar el QR", e);
+        }
+        anotarEstado(s, canal, "esperando");
+      }
+
+      if (u.connection === "open") {
+        s.estado = "conectado";
+        s.qr = null;
+        s.intentos = 0;
+        s.detalle = null;
+        // `id` llega como `<número>:<dispositivo>@s.whatsapp.net`.
+        s.phone = (sock.user?.id ?? "").split(":")[0]?.replace(/\D/g, "") || null;
+
+        try {
+          actualizarCanal(canal.org_id, canalId, {
+            estado: "conectado",
+            ...(s.phone ? { phone: s.phone } : {}),
+          });
+        } catch (e) {
+          console.error("[wa] no se pudo guardar el número conectado", e);
+        }
+      }
+
+      if (u.connection === "close") {
+        s.sock = null;
+        const causa = (u.lastDisconnect?.error as Boom | undefined)?.output?.statusCode;
+        const cerroSesion = causa === DisconnectReason.loggedOut;
+
+        if (s.cerrandoAdrede) return;
+
+        if (cerroSesion) {
+          // El usuario desvinculó el dispositivo desde su móvil. Las creds ya no
+          // valen: hay que borrarlas o el QR nuevo nunca aparecería.
+          s.estado = "desconectado";
+          s.detalle = "La sesión se cerró desde el teléfono. Vuelve a escanear el código.";
+          s.qr = null;
+          olvidarCredenciales(canalId);
+          anotarEstado(s, canal, "desconectado");
+          return;
+        }
+
+        // Cualquier otro cierre es transitorio: se reintenta separando cada vez
+        // más, hasta un minuto, para no castigar a WhatsApp ni al servidor.
+        s.intentos = Math.min(s.intentos + 1, 6);
+        const espera = Math.min(1000 * 2 ** s.intentos, 60_000);
+        s.estado = "iniciando";
+        s.detalle = `Reconectando (intento ${s.intentos})…`;
+        setTimeout(() => {
+          abrir(canalId).catch((e) => {
+            s.estado = "error";
+            s.detalle = e instanceof Error ? e.message : "No se pudo reconectar";
+          });
+        }, espera);
+      }
+    })();
+  });
+
+  sock.ev.on("messages.upsert", ({ messages, type }) => {
+    // `append` son mensajes viejos que WhatsApp reenvía al sincronizar. Se
+    // ingieren igual: insertar es idempotente y así no se pierde historial.
+    if (type !== "notify" && type !== "append") return;
+
+    void (async () => {
+      const traducidos = messages.map(traducir).filter((m): m is MensajeEntrante => m !== null);
+      if (traducidos.length === 0) return;
+
+      // Se relee el canal: `agente_activo` pudo cambiar desde que se abrió.
+      const actual = obtenerCanalSinOrg(canalId);
+      if (!actual || actual.activo !== 1) return;
+
+      try {
+        await ingerir(actual, traducidos, { dentroDePeticion: false });
+      } catch (e) {
+        console.error("[wa] fallo al ingerir un lote de mensajes", e);
+      }
+    })();
+  });
+}
+
+function olvidarCredenciales(canalId: number): void {
+  try {
+    rmSync(carpetaSesion(canalId), { recursive: true, force: true });
+  } catch (e) {
+    console.error("[wa] no se pudo borrar la sesión del disco", e);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// API pública
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Pone en marcha la conexión de un canal. Si ya está en marcha, no hace nada. */
+export async function conectar(canalId: number): Promise<Instantanea> {
+  const s = sesionDe(canalId);
+  if (!s.sock) {
+    try {
+      await abrir(canalId);
+    } catch (e) {
+      s.estado = "error";
+      s.detalle = e instanceof Error ? e.message : "No se pudo iniciar la conexión";
+    }
+  }
+  return instantanea(canalId);
+}
+
+export function instantanea(canalId: number): Instantanea {
+  const s = sesiones.get(canalId);
+  if (!s) return { estado: "desconectado", phone: null, detalle: null, qr: null };
+  return { estado: s.estado, phone: s.phone, detalle: s.detalle, qr: s.qr };
+}
+
+/**
+ * Cierra la conexión. Con `olvidar` borra también las credenciales del disco,
+ * que es lo que hay que hacer al eliminar un número: si no, la carpeta queda
+ * huérfana y el número seguiría apareciendo vinculado en el teléfono.
+ */
+export async function desconectar(canalId: number, olvidar: boolean): Promise<void> {
+  const s = sesiones.get(canalId);
+
+  if (s) {
+    s.cerrandoAdrede = true;
+    s.qr = null;
+    s.estado = "desconectado";
+    try {
+      if (olvidar && s.sock) await s.sock.logout();
+      else s.sock?.end(undefined);
+    } catch {
+      // Cerrar una sesión ya rota no es un error que deba propagarse.
+    }
+    s.sock = null;
+  }
+
+  if (olvidar) {
+    olvidarCredenciales(canalId);
+    sesiones.delete(canalId);
+  }
+}
+
+/**
+ * Envía un texto y devuelve el id del mensaje.
+ *
+ * Ese id es la pieza sobre la que se sostiene la atribución: se registra en
+ * `ai_sent_ids` y, cuando el mismo mensaje vuelve como saliente, se reconoce
+ * como enviado por la IA en vez de por un vendedor.
+ */
+export async function enviarTexto(canalId: number, telefono: string, texto: string): Promise<string> {
+  const s = sesiones.get(canalId);
+  if (!s?.sock || s.estado !== "conectado") {
+    throw new Error("El número no está conectado a WhatsApp");
+  }
+
+  const enviado = await s.sock.sendMessage(jidDeTelefono(telefono), { text: texto });
+  const id = enviado?.key?.id;
+  if (!id) throw new Error("WhatsApp no devolvió el identificador del mensaje enviado");
+  return id;
+}
+
+/**
+ * Reabre las sesiones de todos los canales activos. Se llama una vez al
+ * arrancar el servidor: sin esto, tras cada despliegue nadie recibiría mensajes
+ * hasta que alguien abriera la pantalla del número.
+ */
+export async function rehidratar(): Promise<void> {
+  if (global_.__salesdash_wa_rehidratado) return;
+  global_.__salesdash_wa_rehidratado = true;
+
+  let canales: { id: number }[] = [];
+  try {
+    canales = canalesParaReconectar();
+  } catch (e) {
+    console.error("[wa] no se pudieron listar los canales a reconectar", e);
+    return;
+  }
+
+  /*
+   * Solo los que ya tienen credenciales en el disco.
+   *
+   * Un canal creado y nunca escaneado no tiene nada que reabrir: abrirle un
+   * socket generaría un QR que nadie va a mirar, y cuando venciera WhatsApp
+   * cerraría la conexión y el reintento la abriría otra vez, en bucle y para
+   * siempre. Ese canal recibe su socket cuando alguien abra su pantalla.
+   */
+  const vinculados = canales.filter((c) => existsSync(join(carpetaSesion(c.id), "creds.json")));
+
+  if (vinculados.length === 0) return;
+  console.log(`[wa] reabriendo ${vinculados.length} sesión(es) de WhatsApp`);
+
+  for (const c of vinculados) {
+    try {
+      await abrir(c.id);
+    } catch (e) {
+      console.error(`[wa] no se pudo reabrir el canal ${c.id}`, e);
+    }
+  }
+}

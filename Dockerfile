@@ -15,8 +15,11 @@
 FROM node:22-bookworm-slim AS build
 
 # better-sqlite3 y argon2 compilan código nativo. Sin esto, npm ci falla.
+#
+# git tampoco es opcional: baileys depende de libsignal, que se instala desde un
+# repositorio de GitHub y no desde npm. Sin git, `npm ci` se cae aquí mismo.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends python3 make g++ ca-certificates \
+ && apt-get install -y --no-install-recommends python3 make g++ git ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

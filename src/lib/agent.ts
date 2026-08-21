@@ -2,9 +2,10 @@
  * SalesDash — IA vendedora.
  *
  * ═══ EL ÚNICO MÓDULO QUE ENVÍA ═══
- * `enviarTexto` es la única función del sistema que habla con la API de
- * mensajes de WhatsApp. No se exporta: nadie fuera de este archivo puede
- * llamarla. El analista no la tiene ni la puede alcanzar.
+ * Este es el único archivo del sistema que puede mandar un mensaje a un
+ * cliente. El transporte vive en `wa.ts`, pero ESTE es el único módulo que
+ * importa su función de envío, y una prueba barre el código para comprobarlo.
+ * El analista no la tiene ni la puede alcanzar.
  *
  * El agente es opcional y va apagado por defecto. Se dispara solo si el canal
  * tiene `agente_activo = 1`, el mensaje es del cliente, y no aplica ninguna
@@ -36,8 +37,6 @@ import {
 import { descifrar } from "./auth";
 import { completar, ErrorIA } from "./ia";
 
-const GATE = "https://gate.whapi.cloud";
-
 /** Ventana en la que un mensaje de vendedor silencia al agente. */
 const SILENCIO_TRAS_HUMANO = 2 * 60 * 60;
 /** Tope de respuestas por conversación y hora, contra bucles. */
@@ -49,28 +48,18 @@ const MAX_MENSAJES_CONTEXTO = 20;
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * POST https://gate.whapi.cloud/messages/text → { sent, message: { id } }
- * Verificado contra la documentación de Whapi.
+ * El envío por el socket de WhatsApp vive en `wa.ts`, que es el transporte.
+ *
+ * Esta función existe igualmente, y sigue sin exportarse, porque la garantía
+ * del producto no es «el código de enviar está en este archivo» sino «nadie
+ * salvo el agente puede enviar». `wa.enviarTexto` tiene que ser público para
+ * que este módulo lo use; lo que lo mantiene a raya es que ESTE es el único
+ * archivo que lo importa, y hay una prueba que lo comprueba barriendo el
+ * código. Si mañana otro módulo lo importa, esa prueba falla.
  */
-async function enviarTexto(token: string, para: string, texto: string): Promise<string> {
-  const r = await fetch(`${GATE}/messages/text`, {
-    method: "POST",
-    headers: {
-      accept: "application/json",
-      "content-type": "application/json",
-      authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({ to: para, body: texto, typing_time: 2 }),
-    signal: AbortSignal.timeout(30_000),
-  });
-
-  if (!r.ok) throw new Error(`Whapi respondió ${r.status} al enviar`);
-
-  const datos = (await r.json()) as { sent?: boolean; message?: { id?: string } };
-  const id = datos.message?.id;
-  if (!id) throw new Error("Whapi no devolvió el id del mensaje enviado");
-
-  return id;
+async function enviarTexto(canalId: number, para: string, texto: string): Promise<string> {
+  const { enviarTexto: enviar } = await import("./wa");
+  return enviar(canalId, para, texto);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -318,7 +307,7 @@ export async function atenderConversacion(
   // ── Enviar ──────────────────────────────────────────────────────────────
   let messageId: string;
   try {
-    messageId = await enviarTexto(descifrar(canal.token_cifrado), conv.cliente_phone, respuesta.texto);
+    messageId = await enviarTexto(canal.id, conv.cliente_phone, respuesta.texto);
   } catch (e) {
     crearAnomalia(orgId, {
       conversationId,

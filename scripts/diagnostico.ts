@@ -5,7 +5,7 @@
  *
  * Responde a la pregunta en orden, de fuera hacia dentro:
  *   1. ¿Hay algún canal conectado?
- *   2. ¿Whapi tiene registrada NUESTRA url de webhook, o ninguna?
+ *   2. ¿Está la sesión de WhatsApp guardada en el disco?
  *   3. ¿Han llegado mensajes?
  *   4. Si llegaron, ¿en qué estado quedaron?
  *
@@ -13,9 +13,9 @@
  * se puede pegar en un chat sin exponer nada.
  */
 import "./env-loader";
-import { db, listarCanales, obtenerOrg } from "../src/lib/db";
-import { descifrar } from "../src/lib/auth";
-import { armarUrlWebhook } from "../src/lib/whapi";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { db, listarCanales, obtenerOrg, rutaDatos } from "../src/lib/db";
 
 const hace = (t: number | null) => {
   if (!t) return "nunca";
@@ -59,58 +59,36 @@ async function main() {
       console.log(`     último evento    ${hace(c.ultimo_evento_at)}`);
       console.log(`     agente vendedor  ${c.agente_activo ? "encendido" : "apagado"}`);
 
-      const nuestra = armarUrlWebhook(c.id, c.webhook_secret);
-      console.log(`     webhook esperado ${nuestra.replace(/s=[^&]+/, "s=***")}`);
+      /*
+       * LA comprobación, ahora que se conecta por QR: ¿existe la sesión en el
+       * disco? Es lo único que decide si el número vuelve solo tras un
+       * reinicio o si hay que reescanear el código. No se imprime ni un byte de
+       * las credenciales, solo si están y a qué número pertenecen.
+       */
+      const carpeta = join(rutaDatos(), "sesiones", String(c.id));
+      console.log(`     sesión en disco  ${carpeta}`);
 
-      // Lo que Whapi tiene registrado de verdad. Es LA comprobación: un canal
-      // conectado sin webhook apuntado aquí funciona en WhatsApp y no manda
-      // absolutamente nada al panel.
-      let token = "";
-      try {
-        token = descifrar(c.token_cifrado);
-      } catch {
-        console.log("     ⚠ el token guardado no se puede descifrar (¿cambió SESSION_SECRET?)");
-        continue;
-      }
+      if (!existsSync(join(carpeta, "creds.json"))) {
+        console.log("     ✗ NO hay sesión guardada.");
+        console.log("       → el número no recibirá nada hasta escanear el QR.");
+        console.log("       → Números → abre el número y escanea el código.");
+      } else {
+        try {
+          const creds = JSON.parse(readFileSync(join(carpeta, "creds.json"), "utf8")) as {
+            registered?: boolean;
+            me?: { id?: string };
+          };
+          const vinculado = (creds.me?.id ?? "").split(":")[0];
 
-      try {
-        const r = await fetch("https://gate.whapi.cloud/settings", {
-          headers: { accept: "application/json", authorization: `Bearer ${token}` },
-          signal: AbortSignal.timeout(20_000),
-        });
-
-        if (!r.ok) {
-          console.log(`     ⚠ Whapi respondió ${r.status} al consultar la configuración`);
-        } else {
-          const s = (await r.json()) as { webhooks?: { url?: string; events?: unknown[] }[] };
-          const hooks = s.webhooks ?? [];
-
-          if (!hooks.length) {
-            console.log("     ✗ Whapi NO tiene ningún webhook registrado.");
-            console.log("       → nada de lo que ocurra en WhatsApp llegará al panel.");
-            console.log("       → Números → «Reintentar configuración»");
+          if (creds.registered) {
+            console.log(`     ✓ sesión vinculada al número ${vinculado ? `+${vinculado}` : "(desconocido)"}`);
+            console.log("       reconecta sola al arrancar el servidor.");
           } else {
-            for (const h of hooks) {
-              const url = h.url ?? "";
-              const coincide = url.split("?")[0] === nuestra.split("?")[0];
-              console.log(`     webhook en Whapi ${url.replace(/s=[^&]+/, "s=***")}`);
-              console.log(`     ${coincide ? "✓ apunta a este panel" : "✗ apunta a OTRA dirección"}`);
-              console.log(`       eventos: ${JSON.stringify(h.events ?? [])}`);
-            }
+            console.log("     ⚠ hay carpeta de sesión pero sin vincular: falta escanear el QR.");
           }
+        } catch {
+          console.log("     ⚠ las credenciales del disco están corruptas: hay que reescanear.");
         }
-
-        // Estado real del número en WhatsApp.
-        const rh = await fetch("https://gate.whapi.cloud/health?wakeup=false", {
-          headers: { accept: "application/json", authorization: `Bearer ${token}` },
-          signal: AbortSignal.timeout(20_000),
-        });
-        if (rh.ok) {
-          const h = (await rh.json()) as { status?: { text?: string }; user?: { id?: string } };
-          console.log(`     estado en Whapi  ${h.status?.text ?? "?"}`);
-        }
-      } catch (e) {
-        console.log(`     ⚠ no se pudo consultar a Whapi: ${e instanceof Error ? e.message : e}`);
       }
       console.log();
     }
@@ -138,7 +116,7 @@ async function main() {
       }
     } else {
       console.log("\n  ✗ No ha llegado NI UN mensaje al panel.");
-      console.log("    Si escribiste al número y el webhook de arriba apunta bien,");
+      console.log("    Si escribiste al número y la sesión de arriba está vinculada,");
       console.log("    revisa que el mensaje fuera ENTRANTE: un mensaje que sale del");
       console.log("    propio número hacia alguien con quien nunca hubo conversación");
       console.log("    no abre una nueva, para no inflar el conteo de leads.");

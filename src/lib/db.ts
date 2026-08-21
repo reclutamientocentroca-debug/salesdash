@@ -197,6 +197,17 @@ const RUTA_DB =
       ? resolve(process.env.SALESDASH_DB)
       : resolve(process.cwd(), "data", "salesdash.db");
 
+/**
+ * La carpeta donde vive todo lo que tiene que sobrevivir a un redespliegue: la
+ * base de datos y, desde que se conecta por QR, las sesiones de WhatsApp.
+ *
+ * Con `:memory:` —las pruebas— no hay carpeta de base, así que se cae a `data/`
+ * del proyecto para que nada intente escribir en la raíz del disco.
+ */
+export function rutaDatos(): string {
+  return RUTA_DB === ":memory:" ? resolve(process.cwd(), "data") : dirname(RUTA_DB);
+}
+
 // En dev, Next recarga los módulos en caliente; sin esto se abrirían decenas
 // de conexiones a la misma base.
 const global_ = globalThis as unknown as { __salesdash_db?: DB };
@@ -493,6 +504,28 @@ export function canalPorWebhook(canalId: number, secret: string): Canal | undefi
   return s(
     `SELECT * FROM canales WHERE id = ? AND webhook_secret = ? AND activo = 1`,
   ).get(canalId, secret) as Canal | undefined;
+}
+
+/**
+ * EXCEPCIÓN — el socket de WhatsApp no tiene sesión ni organización.
+ *
+ * Un mensaje entra por un socket que solo conoce su `canalId`; la organización
+ * se deduce del canal, igual que hace el webhook. No se expone a ninguna ruta
+ * de API: lo usa `wa.ts` y nadie más.
+ */
+export function obtenerCanalSinOrg(canalId: number): Canal | undefined {
+  return s(`SELECT * FROM canales WHERE id = ?`).get(canalId) as Canal | undefined;
+}
+
+/**
+ * EXCEPCIÓN — reconexión al arrancar.
+ *
+ * Al levantarse el servidor hay que reabrir la sesión de cada número conectado,
+ * y en ese momento no existe ninguna sesión de usuario. Devuelve identificadores
+ * y nada más: ni un dato de negocio, ni un nombre, ni un teléfono.
+ */
+export function canalesParaReconectar(): { id: number }[] {
+  return s(`SELECT id FROM canales WHERE activo = 1 ORDER BY id`).all() as { id: number }[];
 }
 
 export function marcarActividadCanal(orgId: number, canalId: number, cuando: number): void {

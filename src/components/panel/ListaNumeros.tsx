@@ -13,7 +13,6 @@ export interface CanalVista {
   agente_activo: boolean;
   activo: boolean;
   ultimo_evento_at: number | null;
-  token_enmascarado: string;
 }
 
 const ESTADOS: Record<string, { texto: string; color: string }> = {
@@ -22,19 +21,13 @@ const ESTADOS: Record<string, { texto: string; color: string }> = {
   escaneando: { texto: "Conectando", color: "var(--blue)" },
   iniciando: { texto: "Preparando", color: "var(--amber)" },
   pendiente: { texto: "Sin vincular", color: "var(--ink-3)" },
+  desconectado: { texto: "Desconectado", color: "var(--red)" },
   error: { texto: "Con problema", color: "var(--red)" },
 };
 
-export default function ListaNumeros({
-  canales,
-  puedeCrearCanal,
-}: {
-  canales: CanalVista[];
-  puedeCrearCanal: boolean;
-}) {
+export default function ListaNumeros({ canales }: { canales: CanalVista[] }) {
   const router = useRouter();
   const [conectando, setConectando] = useState(canales.length === 0);
-  const [revelado, setRevelado] = useState<{ id: number; token: string } | null>(null);
   const [ocupado, setOcupado] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -53,12 +46,6 @@ export default function ListaNumeros({
       return null;
     }
     return datos;
-  }
-
-  async function revelar(id: number) {
-    // El token se pide en el momento y no se deja en el DOM al cerrar.
-    const datos = await accion(id, { accion: "revelar" });
-    if (datos?.token) setRevelado({ id, token: datos.token });
   }
 
   async function desconectar(id: number, nombre: string) {
@@ -81,7 +68,6 @@ export default function ListaNumeros({
     return (
       <>
         <ConectarNumero
-          puedeCrearCanal={puedeCrearCanal}
           alConectar={() => {
             setConectando(false);
             router.refresh();
@@ -166,40 +152,21 @@ export default function ListaNumeros({
                       {c.agente_activo ? "Encendido" : "Apagado"}
                     </dd>
                   </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
-                    <dt style={{ color: "var(--ink-2)" }}>Token</dt>
-                    <dd
-                      className="num"
-                      style={{ fontFamily: "var(--font-mono)", fontSize: 11.5, overflow: "hidden", textOverflow: "ellipsis" }}
-                    >
-                      {revelado?.id === c.id ? revelado.token : c.token_enmascarado}
-                    </dd>
-                  </div>
                 </dl>
 
                 <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
-                  {revelado?.id === c.id ? (
-                    <button type="button" className="btn btn-secundario" onClick={() => setRevelado(null)}>
-                      Ocultar
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className="btn btn-secundario"
-                      disabled={ocupado === c.id}
-                      onClick={() => revelar(c.id)}
-                    >
-                      Ver token
-                    </button>
-                  )}
-
+                  {/* Antes había «Ver token» y «Reintentar configuración». El
+                      primero no tiene sentido sin proveedor —la credencial es la
+                      vinculación del teléfono, no un texto— y el segundo apuntaba
+                      un webhook que ya no existe. Los sustituye reconectar, que es
+                      lo único accionable cuando un número aparece caído. */}
                   <button
                     type="button"
                     className="btn btn-secundario"
                     disabled={ocupado === c.id}
-                    onClick={() => accion(c.id, { accion: "reintentar_webhook" })}
+                    onClick={() => accion(c.id, { accion: "reconectar" })}
                   >
-                    Reintentar configuración
+                    Reconectar
                   </button>
 
                   <button

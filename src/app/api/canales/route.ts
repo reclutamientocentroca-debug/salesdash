@@ -1,16 +1,15 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { contarCanales, crearCanal, listarCanales } from "@/lib/db";
-import { cifrar, descifrar, enmascarar, secretoAleatorio } from "@/lib/auth";
+import { secretoAleatorio } from "@/lib/auth";
 import { sesionApi } from "@/lib/tenant";
-import { crearCanalWhapi, ErrorWhapi, mensajeDeError, validarToken } from "@/lib/whapi";
+import { conectar } from "@/lib/wa";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const MAX_CANALES = 20;
 
-/** Nunca se devuelve el token en claro en un listado. */
 function aVista(c: ReturnType<typeof listarCanales>[number]) {
   return {
     id: c.id,
@@ -21,18 +20,7 @@ function aVista(c: ReturnType<typeof listarCanales>[number]) {
     activo: c.activo === 1,
     ultimo_evento_at: c.ultimo_evento_at,
     created_at: c.created_at,
-    token_enmascarado: enmascarar(descifrarSeguro(c.token_cifrado)),
   };
-}
-
-function descifrarSeguro(blob: string): string {
-  try {
-    return descifrar(blob);
-  } catch {
-    // SESSION_SECRET cambió: el token ya no se puede leer. No se revienta la
-    // vista por eso; el canal aparece y el usuario puede reconectarlo.
-    return "";
-  }
 }
 
 export async function GET() {
@@ -43,17 +31,16 @@ export async function GET() {
 }
 
 /**
- * Dos caminos, mismo final: una fila en `canales` con su token cifrado y su
- * webhook apuntado al panel.
+ * Un solo camino: se crea la fila y se abre la sesión de WhatsApp, que emite el
+ * QR en cuanto está lista.
  *
- *  - `{ nombre }`          → crea el canal en Whapi y devuelve su id para que
- *                            la pantalla del QR empiece a sondear. Es el
- *                            camino principal.
- *  - `{ nombre, token }`   → el usuario trae un canal ya creado en Whapi.
+ * Antes había dos —crear el canal en el proveedor, o pegar un token ya
+ * existente— porque el proveedor era quien sostenía la sesión. Al conectar por
+ * QR no hay token que pegar: la credencial es la vinculación del teléfono, y
+ * vive en el disco de este servidor.
  */
 const Entrada = z.object({
   nombre: z.string().trim().min(2, "Ponle un nombre al número").max(60),
-  token: z.string().trim().min(16).max(200).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -77,45 +64,24 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { nombre, token } = datos.data;
+  // Se conserva aunque ya no haya webhook: es la credencial con la que una
+  // automatización externa avisa a /api/ai-sent de que un mensaje lo mandó
+  // la IA. Sin ella, esos envíos se contarían como humanos.
   const webhookSecret = secretoAleatorio();
 
+  let id: number;
   try {
-    // ── Camino secundario: token pegado a mano ──────────────────────────────
-    if (token) {
-      const salud = await validarToken(token);
-
-      const id = crearCanal(orgId, {
-        nombre,
-        // Si todavía no está vinculado, el teléfono llega al conectarse.
-        phone: salud.phone ?? `pendiente:${webhookSecret.slice(0, 10)}`,
-        tokenCifrado: cifrar(token),
-        webhookSecret,
-        whapiChannelId: null,
-        estado: salud.estado,
-      });
-
-      return NextResponse.json({ id, estado: salud.estado, phone: salud.phone });
-    }
-
-    // ── Camino principal: crear el canal y mostrar el QR ────────────────────
-    const canal = await crearCanalWhapi(`SalesDash · ${nombre}`);
-
-    const id = crearCanal(orgId, {
-      nombre,
+    id = crearCanal(orgId, {
+      nombre: datos.data.nombre,
+      // El número real se conoce al escanear el QR, y hasta entonces hace falta
+      // un valor distinto por canal: la columna es UNIQUE(org_id, phone).
       phone: `pendiente:${webhookSecret.slice(0, 10)}`,
-      tokenCifrado: cifrar(canal.token),
+      tokenCifrado: "",
       webhookSecret,
-      whapiChannelId: canal.id,
+      whapiChannelId: null,
       estado: "iniciando",
     });
-
-    return NextResponse.json({ id, estado: "iniciando" });
   } catch (e) {
-    if (e instanceof ErrorWhapi) {
-      return NextResponse.json({ error: mensajeDeError(e) }, { status: 502 });
-    }
-    // UNIQUE(org_id, phone): ese número ya está conectado en esta cuenta.
     if (e instanceof Error && e.message.includes("UNIQUE")) {
       return NextResponse.json(
         { error: "Ese número ya está conectado en esta cuenta." },
@@ -123,6 +89,15 @@ export async function POST(req: NextRequest) {
       );
     }
     console.error("No se pudo crear el canal:", e);
-    return NextResponse.json({ error: "No pudimos conectar el número. Intenta de nuevo." }, { status: 500 });
+    return NextResponse.json(
+      { error: "No pudimos preparar el número. Intenta de nuevo." },
+      { status: 500 },
+    );
   }
+
+  // Abrir el socket puede tardar un segundo largo; el QR se recoge sondeando,
+  // así que aquí no se espera a que aparezca.
+  void conectar(id);
+
+  return NextResponse.json({ id, estado: "iniciando" });
 }

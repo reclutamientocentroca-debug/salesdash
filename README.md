@@ -10,13 +10,12 @@ Cada persona crea su cuenta, conecta sus números y obtiene su propio panel. Las
 
 **IA analista** (`src/lib/analyzer.ts`) — lee conversaciones y las clasifica. **Nunca escribe a un cliente.** No importa `agent.ts`, ni la función de envío, ni nada que hable con WhatsApp.
 
-**IA vendedora** (`src/lib/agent.ts`) — responde a los clientes. Es **opcional** y se enciende por número. Contiene `enviarTexto`, la única función del sistema que habla con la API de mensajes de WhatsApp. **No se exporta**: nadie fuera de ese archivo puede llamarla.
+**IA vendedora** (`src/lib/agent.ts`) — responde a los clientes. Es **opcional** y se enciende por número. Es el **único módulo que puede mandar un mensaje**: el transporte vive en `src/lib/wa.ts`, pero solo `agent.ts` importa su función de envío.
 
-La separación no es una convención que se pueda romper sin darse cuenta:
+La separación no es una convención que se pueda romper sin darse cuenta: hay una prueba que barre todo `src/` y falla si cualquier otro archivo importa la función de envío.
 
 ```bash
-grep -rl "messages/text" src/     # → src/lib/agent.ts, y nada más
-grep -n "function enviarTexto" src/lib/agent.ts   # → sin export
+npm test    # incluye «solo el agente puede enviar mensajes a un cliente»
 ```
 
 ---
@@ -44,7 +43,8 @@ La cuenta de ejemplo entra en `/login` con **demo@salesdash.app** / **demo1234**
 | `npm run build` / `npm start` | Producción |
 | `npm run seed` | Organización de ejemplo con datos |
 | `npm run typecheck` | `tsc --noEmit` |
-| `npm test` | 32 pruebas: aislamiento, invariante de conteo, regla maestra, salvaguardas del agente |
+| `npm test` | 35 pruebas: aislamiento, invariante de conteo, regla maestra, salvaguardas del agente |
+| `npm run diagnostico` | Por qué no llegan conversaciones: sesiones en disco, mensajes recibidos y su estado |
 | `npm run probar-correo -- x@y.com` | Envía un correo de prueba. Comprueba SMTP sin pasar por la app |
 | `npm run superadmin -- x@y.com` | Marca una cuenta como superadmin de la plataforma |
 | `npm run verificar-ia` | **Consume crédito.** Analiza conversaciones reales contra OpenRouter y comprueba el respaldo del agente |
@@ -63,14 +63,9 @@ OPENROUTER_API_KEY=sk-or-...
 OPENROUTER_MODEL_ANALISIS=openai/gpt-4o-mini
 OPENROUTER_MODEL_AGENTE=openai/gpt-4o-mini
 
-# Firma las cookies Y deriva la clave AES-256-GCM de los tokens de Whapi.
+# Firma las cookies de sesión y deriva las claves derivadas de la aplicación.
 # Si cambia, se invalidan las sesiones y los tokens guardados dejan de leerse.
 SESSION_SECRET=
-
-# Cuenta Partner de Whapi: credencial de la plataforma, no del usuario.
-# Sin ella el panel no puede crear canales y solo funciona pegando un token.
-WHAPI_PARTNER_TOKEN=
-WHAPI_PARTNER_PROJECT_ID=      # opcional: si falta, se toma el primer proyecto
 
 # Con Resend: el usuario es la palabra "resend", no tu correo.
 SMTP_HOST=smtp.resend.com
@@ -113,25 +108,25 @@ La lista de modelos se carga de OpenRouter (`GET /api/v1/models`, cacheada 24 h)
 
 ## Cómo se conecta un número
 
-El método principal es **escanear un QR desde el panel**. El usuario nunca sale de la aplicación ni ve un token.
+Se **escanea un QR desde el panel**, y es el único camino. No hay proveedor, no hay token que pegar, no hay cuota mensual: el servidor habla directamente con WhatsApp usando [Baileys](https://github.com/WhiskeySockets/Baileys), el mismo protocolo de WhatsApp Web.
 
-Por debajo la sostiene [Whapi](https://whapi.cloud) — no Baileys, no una sesión propia de WhatsApp Web, no la API de Meta:
+Se pone un nombre, aparece el código, se escanea con el teléfono. El número queda vinculado igual que si abrieras WhatsApp Web, y así aparece en **Dispositivos vinculados** del móvil.
 
-| Paso | Endpoint |
-|---|---|
-| Crear el canal | `PUT manager.whapi.cloud/channels` (API de socio) |
-| Pedir el QR | `GET gate.whapi.cloud/users/login?wakeup=true` |
-| Consultar estado | `GET gate.whapi.cloud/health` |
-| Apuntar el webhook | `PATCH gate.whapi.cloud/settings` |
-| Eliminar el canal | `DELETE manager.whapi.cloud/channels/{id}` |
+Mientras la pantalla del QR está abierta se sondea el estado cada 2 segundos. Ese sondeo ya no sale a la red: solo lee el estado del socket que este mismo proceso mantiene abierto.
 
-Mientras la pantalla del QR está abierta se sondea el estado cada 2 segundos. **No hay WebSockets**, y ese es el único sondeo del sistema: todo lo demás entra por el webhook.
+### Lo que hay que saber antes de desplegarlo
 
-Whapi avisa de que inicializar un canal recién creado **puede tardar hasta minuto y medio**. Por eso existe el estado `iniciando` y la pantalla espera en vez de mostrar un error.
+**La sesión vive en el disco**, en `<datos>/sesiones/<canalId>`. Es la consecuencia más importante de no tener proveedor: si esa carpeta no sobrevive al redespliegue, **hay que reescanear el QR de todos los números**. El volumen dejó de ser recomendable y pasó a ser obligatorio.
 
-**Alternativa:** quien ya tenga un canal en Whapi puede pegar su token desde el enlace discreto al pie de esa pantalla. Ambos caminos terminan igual.
+**El contenedor tiene que estar siempre encendido.** Con un proveedor, sus servidores recibían los mensajes aunque el panel estuviera caído y los reenviaban después. Aquí no hay nadie detrás: con el proceso apagado, el socket está cerrado.
 
-Los tokens se guardan cifrados con AES-256-GCM en `canales.token_cifrado`, enmascarados en la interfaz, y nunca aparecen en logs ni en respuestas de API salvo el endpoint explícito de revelar.
+**Una sola réplica.** Los sockets viven en la memoria del proceso. Dos réplicas abrirían la misma sesión y WhatsApp cerraría una de las dos.
+
+**WhatsApp puede bloquear un número** por comportamiento automatizado. No es la API oficial de Meta, y ese riesgo es real y no lo controla esta aplicación.
+
+Al arrancar, `src/instrumentation.ts` reabre las sesiones de los números ya vinculados — solo esos: un canal creado y nunca escaneado no tiene nada que reabrir.
+
+**Ya no hay tokens que guardar ni que revelar.** La credencial es la vinculación del teléfono, no un texto: desapareció `canales.token_cifrado`, la pantalla de «Ver token» y, con ellas, la posibilidad de filtrar uno por la interfaz.
 
 ---
 
@@ -140,11 +135,11 @@ Los tokens se guardan cifrados con AES-256-GCM en `canales.token_cifrado`, enmas
 Los mensajes de la IA y los del vendedor salen del mismo número, así que `from_me` no los distingue. Se resuelve por `message_id`:
 
 1. Al enviar, el agente registra el id devuelto en `ai_sent_ids`. Si el envío lo hace Make, avisa por `POST /api/ai-sent`.
-2. Cuando llega el webhook del saliente, se busca ese id: si está → `ia`; si no → `humano` + `intervencion_humana = 1`.
+2. Cuando el saliente vuelve por el socket, se busca ese id: si está → `ia`; si no → `humano` + `intervencion_humana = 1`.
 
-**La carrera está resuelta.** El webhook del saliente puede llegar antes que el aviso: el mensaje queda como `humano` de forma provisional, y cuando llega `/api/ai-sent` se corrige a `ia` y se recalcula la conversación entera. Sin esto, los cierres de la IA se contarían como humanos.
+**La carrera está resuelta.** El saliente puede volver antes que el aviso: el mensaje queda como `humano` de forma provisional, y cuando llega `/api/ai-sent` se corrige a `ia` y se recalcula la conversación entera. Sin esto, los cierres de la IA se contarían como humanos.
 
-`POST /api/ai-sent` se identifica con la sesión del panel o con `?canal=<id>&s=<webhook_secret>` — la misma credencial del webhook, que quien configura Make ya tiene.
+`POST /api/ai-sent` se identifica con la sesión del panel o con `?canal=<id>&s=<webhook_secret>`. Ya no hay webhook entrante, pero esa credencial se conserva: es lo que permite a una automatización externa avisar de que un envío fue suyo. Sin ella, sus mensajes se contarían como humanos.
 
 ### La regla maestra
 
@@ -192,7 +187,9 @@ Dos consecuencias que importan:
 - **Si la conversación ya está sellada, la imagen no se procesa.** Ahí se iba la mayor parte del gasto: las facturas de trámite posterior son la mayoría. Hay una prueba que lo verifica.
 - **Si el modelo de visión falla, la conversación va a `revision`.** Nunca se asume que era una factura.
 
-El archivo **no se descarga ni se almacena**: se le pasa al modelo la URL temporal de Whapi y se guarda solo la descripción. Guardar las facturas de los clientes de tus clientes es un problema de privacidad que no queremos.
+El archivo **no se descarga ni se almacena**. Guardar las facturas de los clientes de tus clientes es un problema de privacidad que no queremos.
+
+**Al conectar por QR esto tiene una consecuencia:** un proveedor daba una URL temporal que el modelo con visión podía leer; por el socket los archivos llegan como bytes cifrados, y servirlos exigiría almacenarlos. Así que hoy las imágenes **se registran pero no se clasifican**: el mensaje entra con su marca  —el conteo, la atribución y la detección de intervención humana siguen exactos— y la descripción queda como .
 
 ---
 
@@ -274,4 +271,4 @@ Dos de ellas son de canal y no de conversación, así que `anomalies.conversatio
 - **Transcripción de notas de voz.** Se registran para que el conteo de mensajes y la detección de intervención humana sean correctos, pero su contenido no se analiza.
 - **Invitar miembros al equipo.** La tabla `users` ya soporta el rol `miembro`; falta el flujo de invitación por correo.
 - **Cupo real de los modelos gratuitos.** El indicador de consumo usa una estimación: OpenRouter no publica el cupo restante por clave.
-- **Contexto del anuncio.** Se lee `referral` del webhook de forma defensiva; si Whapi no lo reenvía, `producto_anuncio` queda vacío y lo deduce el analista del texto.
+- **Contexto del anuncio.** Se lee `contextInfo.externalAdReply` de forma defensiva; si WhatsApp no lo manda, `producto_anuncio` queda vacío y lo deduce el analista del texto.

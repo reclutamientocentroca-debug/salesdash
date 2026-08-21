@@ -132,6 +132,38 @@ test("el webhook exige el secreto del propio canal", () => {
   assert.equal(D.canalPorWebhook(B.canalId, "secreto-BetaTienda")?.org_id, B.orgId);
 });
 
+test("solo el agente puede enviar mensajes a un cliente", async () => {
+  // El transporte (`wa.ts`) tiene que exportar `enviarTexto` para que el agente
+  // lo use. Lo que impide que cualquiera envíe es que NADIE MÁS lo importe.
+  // Antes esto se garantizaba con una función privada; al pasar el envío al
+  // módulo del socket, la garantía se sostiene con este barrido.
+  const { readdirSync, readFileSync, statSync } = await import("node:fs");
+  const { join } = await import("node:path");
+
+  const archivos: string[] = [];
+  (function recorrer(dir: string) {
+    for (const e of readdirSync(dir)) {
+      const ruta = join(dir, e);
+      if (statSync(ruta).isDirectory()) recorrer(ruta);
+      else if (/\.tsx?$/.test(e)) archivos.push(ruta);
+    }
+  })("src");
+
+  const culpables = archivos.filter((f) => {
+    if (f.endsWith(join("lib", "agent.ts")) || f.endsWith(join("lib", "wa.ts"))) return false;
+    const fuente = readFileSync(f, "utf8");
+    // Cualquier forma de traerse la función de envío desde el transporte.
+    return /enviarTexto[^\n]*from\s+["'][^"']*wa["']/.test(fuente) ||
+      /from\s+["'][^"']*wa["'][^\n]*enviarTexto/.test(fuente);
+  });
+
+  assert.deepEqual(
+    culpables,
+    [],
+    `Estos archivos importan la función de envío y no deberían: ${culpables.join(", ")}`,
+  );
+});
+
 test("ninguna función de lectura de db.ts omite el orgId", async () => {
   // Barrido del propio archivo: toda función exportada que reciba datos de
   // negocio tiene que empezar por orgId. Las excepciones están enumeradas.
@@ -146,6 +178,11 @@ test("ninguna función de lectura de db.ts omite el orgId", async () => {
     "marcarSuperadmin",
     // El webhook deduce la organización desde el canal.
     "canalPorWebhook",
+    // El socket de WhatsApp tampoco tiene sesión: deduce la organización desde
+    // el canal, y la reconexión al arrancar solo devuelve identificadores.
+    "obtenerCanalSinOrg", "canalesParaReconectar",
+    // Ruta del disco, no una consulta.
+    "rutaDatos",
   ]);
 
   const infractoras: string[] = [];
