@@ -140,11 +140,25 @@ export function Vacio({
 export interface PuntoSerie {
   dia: string;
   leads: number;
+  /** Los que trajo la publicidad. Es la línea que se mira cuando se paga por ella. */
+  leads_anuncio: number;
   cierres_ia: number;
   cierres_humano: number;
 }
 
-export function GraficoArea({ serie }: { serie: PuntoSerie[] }) {
+/**
+ * `soloAnuncio` no cambia los datos: cuando el panel ya está filtrado, la línea
+ * de anuncio y la de conversaciones son la MISMA y dibujarlas las dos deja un
+ * trazo ámbar encima de otro verde que parece un fallo de pintado. Se dibuja
+ * una sola y la leyenda la nombra por lo que es.
+ */
+export function GraficoArea({
+  serie,
+  soloAnuncio = false,
+}: {
+  serie: PuntoSerie[];
+  soloAnuncio?: boolean;
+}) {
   if (serie.length < 2) {
     return (
       <Vacio
@@ -179,7 +193,7 @@ export function GraficoArea({ serie }: { serie: PuntoSerie[] }) {
       viewBox={`0 0 ${An} ${Al}`}
       style={{ width: "100%", height: "auto" }}
       role="img"
-      aria-label={`Leads por día, tendencia ${tendencia}. De ${primero.leads} el ${primero.dia} a ${ultimo.leads} el ${ultimo.dia}. Máximo ${maximo}.`}
+      aria-label={`Conversaciones por día, tendencia ${tendencia}. De ${primero.leads} el ${primero.dia} a ${ultimo.leads} el ${ultimo.dia}, de las cuales ${ultimo.leads_anuncio} llegaron por un anuncio. Máximo ${maximo}.`}
     >
       {[0, 0.5, 1].map((f) => (
         <line
@@ -208,6 +222,12 @@ export function GraficoArea({ serie }: { serie: PuntoSerie[] }) {
 
       <path d={area} fill="var(--acc-bg)" />
       <path d={linea("leads")} fill="none" stroke="var(--acc)" strokeWidth="1.8" />
+      {/* Los de anuncio van en ámbar: son un subconjunto de la línea de arriba,
+          y la distancia entre las dos es exactamente la gente que escribió sin
+          que la publicidad la trajera. */}
+      {!soloAnuncio && (
+        <path d={linea("leads_anuncio")} fill="none" stroke="var(--amber)" strokeWidth="1.6" />
+      )}
       <path d={linea("cierres_ia")} fill="none" stroke="var(--acc)" strokeWidth="1.4" strokeDasharray="4 3" />
       <path d={linea("cierres_humano")} fill="none" stroke="var(--blue)" strokeWidth="1.4" />
 
@@ -229,9 +249,12 @@ export function GraficoArea({ serie }: { serie: PuntoSerie[] }) {
   );
 }
 
-export function LeyendaGrafico() {
+export function LeyendaGrafico({ soloAnuncio = false }: { soloAnuncio?: boolean }) {
   const items = [
-    { color: "var(--acc)", texto: "Leads", guion: false },
+    { color: "var(--acc)", texto: soloAnuncio ? "Leads por anuncio" : "Conversaciones", guion: false },
+    ...(soloAnuncio
+      ? []
+      : [{ color: "var(--amber)", texto: "Leads por anuncio", guion: false }]),
     { color: "var(--acc)", texto: "Cierres de la IA", guion: true },
     { color: "var(--blue)", texto: "Cierres humanos", guion: false },
   ];

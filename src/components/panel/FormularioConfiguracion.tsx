@@ -140,6 +140,11 @@ export default function FormularioConfiguracion({ orgInicial }: { orgInicial: Or
           onChange={(e) => cambiar("marcador_cierre", e.target.value)}
         />
         <p className="tenue" style={{ marginTop: 8 }}>
+          Admite palabras en medio: con <strong>Resumen:</strong> también cuentan{" "}
+          <strong>Resumen de su pedido:</strong> o <strong>Resumen del pedido:</strong>. Lo que no
+          cuenta es nombrar la palabra sin los dos puntos («ahora le paso el resumen»).
+        </p>
+        <p className="tenue" style={{ marginTop: 6 }}>
           Distingue mayúsculas de minúsculas solo al mostrarlo; al buscar, no. Si lo cambias, las
           conversaciones ya clasificadas no se vuelven a evaluar.
         </p>

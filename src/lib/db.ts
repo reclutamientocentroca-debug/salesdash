@@ -33,7 +33,9 @@ CREATE TABLE IF NOT EXISTS orgs (
   nombre TEXT NOT NULL,
   color TEXT NOT NULL DEFAULT '#12876a',
   meta_cobertura INTEGER NOT NULL DEFAULT 90,
-  meta_efectividad INTEGER NOT NULL DEFAULT 80,
+  /* 90 y 85: la IA tiene que cerrar 9 de cada 10 y el equipo vender a 85 de
+     cada 100 hilos que toca. Son las metas del negocio, no un adorno. */
+  meta_efectividad INTEGER NOT NULL DEFAULT 85,
   marcador_cierre TEXT NOT NULL DEFAULT 'Resumen:',
   modelo_analisis TEXT NOT NULL DEFAULT 'meta-llama/llama-3.3-70b-instruct:free',
   modelo_vision TEXT NOT NULL DEFAULT 'openai/gpt-4o-mini',
@@ -69,6 +71,12 @@ CREATE TABLE IF NOT EXISTS canales (
   estado TEXT NOT NULL DEFAULT 'pendiente',
   ultimo_evento_at INTEGER,
   agente_activo INTEGER NOT NULL DEFAULT 0,
+  /* En este número contesta una IA que no es la nuestra.
+     Distinto de agente_activo, que enciende NUESTRO agente: esto no manda ni un
+     mensaje, solo dice de quién son los que salen. Sin ello, todo lo que sale de
+     un número atendido por un bot ajeno se cuenta como que intervino una
+     persona, y sus ventas se le acreditan al equipo en vez de a la IA. */
+  contesta_ia INTEGER NOT NULL DEFAULT 0,
   activo INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL DEFAULT (unixepoch()),
   UNIQUE(org_id, phone)
@@ -286,10 +294,34 @@ function migrar(conexion: DB): void {
     );
   }
 
+  // canales: en este número contesta una IA ajena.
+  if (!columnas("canales").includes("contesta_ia")) {
+    conexion.exec(`ALTER TABLE canales ADD COLUMN contesta_ia INTEGER NOT NULL DEFAULT 0`);
+  }
+
   // conversations: la descripción del anuncio que trajo al cliente. ALTER ADD
   // COLUMN no reescribe la tabla ni toca una sola fila existente.
   if (!columnas("conversations").includes("descripcion_anuncio")) {
     conexion.exec(`ALTER TABLE conversations ADD COLUMN descripcion_anuncio TEXT`);
+  }
+
+  /*
+   * orgs: la meta de efectividad del equipo pasa de 80 a 85.
+   *
+   * El DEFAULT del esquema solo vale para las cuentas nuevas, así que las que
+   * ya existen seguirían midiéndose contra el 80 viejo y el semáforo diría
+   * verde donde el negocio dice que falta.
+   *
+   * Va detrás de `user_version` y no de un `WHERE meta_efectividad = 80` a
+   * secas porque esto corre en CADA arranque: sin la marca, al dueño que
+   * mañana decida bajar su meta a 80 se la volveríamos a subir en el siguiente
+   * reinicio, sin que nadie lo tocara. Se hace una vez y no se repite.
+   */
+  const version = (conexion.prepare(`PRAGMA user_version`).get() as { user_version: number })
+    .user_version;
+  if (version < 1) {
+    conexion.prepare(`UPDATE orgs SET meta_efectividad = 85 WHERE meta_efectividad = 80`).run();
+    conexion.exec(`PRAGMA user_version = 1`);
   }
 
   // anomalies: las anomalías de canal no tienen conversación.
@@ -366,7 +398,7 @@ export interface Canal {
   id: number; org_id: number; nombre: string; phone: string;
   token_cifrado: string; webhook_secret: string;
   whapi_channel_id: string | null; estado: string; ultimo_evento_at: number | null;
-  agente_activo: number; activo: number; created_at: number;
+  agente_activo: number; contesta_ia: number; activo: number; created_at: number;
 }
 
 export interface Conversacion {
@@ -533,7 +565,7 @@ export function crearCanal(orgId: number, datos: {
 
 const COLUMNAS_CANAL = [
   "nombre", "phone", "token_cifrado", "whapi_channel_id",
-  "estado", "ultimo_evento_at", "agente_activo", "activo",
+  "estado", "ultimo_evento_at", "agente_activo", "contesta_ia", "activo",
 ] as const;
 
 export function actualizarCanal(orgId: number, id: number, campos: Partial<Canal>): void {
@@ -624,6 +656,35 @@ export function getOrCreateConversation(
         .run(datos.nombre, orgId, existente.id);
       existente.cliente_nombre = datos.nombre;
     }
+
+    /*
+     * El anuncio también puede llegar después: el cliente escribe «hola», y es
+     * el segundo mensaje —o uno de días más tarde, al pinchar un anuncio— el
+     * que trae el `externalAdReply`. Sin esto ese lead se quedaba para siempre
+     * como «escribió por su cuenta» aunque lo hubiera traído la publicidad.
+     *
+     * Solo se rellena lo que está vacío. Si el cliente vuelve por un anuncio
+     * distinto, el lead sigue siendo del primero que lo trajo: el lead se
+     * cuenta una sola vez, y es esa primera vez la que la publicidad pagó.
+     */
+    const anuncio: Record<string, string> = {};
+    if (datos.origen && !existente.origen) anuncio.origen = datos.origen;
+    if (datos.productoAnuncio && !existente.producto_anuncio) {
+      anuncio.producto_anuncio = datos.productoAnuncio;
+    }
+    if (datos.descripcionAnuncio && !existente.descripcion_anuncio) {
+      anuncio.descripcion_anuncio = datos.descripcionAnuncio;
+    }
+
+    const campos = Object.keys(anuncio);
+    if (campos.length > 0) {
+      s(
+        `UPDATE conversations SET ${campos.map((c) => `${c} = ?`).join(", ")}
+          WHERE org_id = ? AND id = ?`,
+      ).run(...campos.map((c) => anuncio[c]!), orgId, existente.id);
+      Object.assign(existente, anuncio);
+    }
+
     return { conversacion: existente, nueva: false };
   }
 
@@ -803,13 +864,74 @@ export function recalcularIntervencionHumana(orgId: number, conversationId: numb
   ).run(orgId, conversationId, orgId, conversationId);
 }
 
-/** Hilos a barrer en el procedimiento diario: con novedades o todavía abiertos. */
+/**
+ * Todo lo que salió de este número lo escribió una IA, no una persona.
+ *
+ * Se ejecuta cuando el dueño marca el número como atendido por una IA. Hasta
+ * ese momento el panel no tenía forma de saberlo: un mensaje saliente que no
+ * mandamos nosotros —porque lo manda su propio bot— se guardaba como `humano`,
+ * y de ahí salían las dos cosas que el dueño ve mal: la pastilla naranja de
+ * «intervino» en conversaciones donde no intervino nadie, y sus ventas
+ * acreditadas al equipo en vez de a la IA.
+ *
+ * Corrige el ORIGEN —el emisor de los mensajes— y deja que lo demás se derive
+ * de ahí. Lo que ya estaba sellado como cierre humano se reatribuye solo si su
+ * señal fue de texto: una factura o un comprobante los manda una persona desde
+ * su móvil, y esos no los toca aunque el número lo lleve un bot.
+ *
+ * Es una corrección explícita del dueño, y no se deshace sola al apagar el
+ * ajuste: los mensajes ya reatribuidos se quedan como IA.
+ */
+export function reatribuirCanalAIa(
+  orgId: number,
+  canalId: number,
+): { mensajes: number; cierres: number } {
+  const tx = db.transaction(() => {
+    const enElCanal = `SELECT id FROM conversations WHERE org_id = ? AND canal_id = ?`;
+
+    const mensajes = s(
+      `UPDATE messages SET emisor = 'ia'
+        WHERE org_id = ? AND emisor = 'humano' AND conversation_id IN (${enElCanal})`,
+    ).run(orgId, orgId, canalId).changes;
+
+    s(
+      `UPDATE conversations SET intervencion_humana = 0
+        WHERE org_id = ? AND canal_id = ?`,
+    ).run(orgId, canalId);
+
+    const cierres = s(
+      `UPDATE conversations
+          SET cerrado_por = 'ia', senal_de_cierre = 'resumen_ia'
+        WHERE org_id = ? AND canal_id = ? AND cerrado_por = 'humano'
+          AND senal_de_cierre IN ('confirmacion_texto', 'resumen_tras_intervencion')`,
+    ).run(orgId, canalId).changes;
+
+    return { mensajes, cierres };
+  });
+
+  return tx();
+}
+
+/**
+ * Hilos a barrer en el procedimiento diario: con novedades, todavía abiertos, o
+ * CERRADOS SIN ANALIZAR.
+ *
+ * Ese tercer grupo es el de las ventas que se sellaron solas al llegar el
+ * mensaje con el marcador. El cierre ya está atribuido —eso no cuesta ni una
+ * llamada al modelo—, pero el pedido que hay dentro (producto, total, envío)
+ * sigue sin extraer. Sin esta rama, esas ventas contaban como cierre y
+ * facturaban cero para siempre: la conversación estaba cerrada, así que nada
+ * volvía a mirarla.
+ */
 export function conversacionesPorAnalizar(orgId: number, desde: number): Conversacion[] {
   return s(
     `SELECT * FROM conversations
       WHERE org_id = ?
-        AND fecha_cierre IS NULL
-        AND (analizada_at IS NULL OR last_message_at > analizada_at OR last_message_at >= ?)
+        AND (
+          (fecha_cierre IS NULL
+            AND (analizada_at IS NULL OR last_message_at > analizada_at OR last_message_at >= ?))
+          OR (fecha_cierre IS NOT NULL AND analizada_at IS NULL)
+        )
       ORDER BY last_message_at ASC`,
   ).all(orgId, desde) as Conversacion[];
 }
@@ -886,6 +1008,67 @@ export function guardarDescripcionImagen(orgId: number, mensajeId: number, datos
     `UPDATE messages SET descripcion_imagen = ?, categoria_imagen = ?
       WHERE org_id = ? AND id = ?`,
   ).run(datos.descripcion, datos.categoria, orgId, mensajeId);
+}
+
+/**
+ * ¿Escribió un vendedor ANTES de este momento?
+ *
+ * Decide de quién es una venta cerrada con el marcador: si un humano ya estaba
+ * en la conversación, el resumen que manda la IA cierra una venta que llevaba
+ * un vendedor. El «antes» es estricto — un mensaje no se precede a sí mismo.
+ */
+export function huboHumanoAntes(orgId: number, conversationId: number, antesDe: number): boolean {
+  const fila = s(
+    `SELECT 1 AS x FROM messages
+      WHERE org_id = ? AND conversation_id = ? AND emisor = 'humano' AND created_at < ?
+      LIMIT 1`,
+  ).get(orgId, conversationId, antesDe) as { x: number } | undefined;
+  return !!fila;
+}
+
+/**
+ * Los mensajes que mandamos nosotros en las conversaciones que siguen sin
+ * cerrar. Es lo que barre `cierre.ts` buscando resúmenes de pedido que nadie
+ * selló.
+ *
+ * Solo hilos sin `fecha_cierre`: los cerrados ya tienen dueño y la regla
+ * maestra dice que no se les toca. Y solo salientes, porque el cliente no
+ * cierra una venta escribiendo «resumen».
+ *
+ * El orden es el de la conversación, para que el PRIMER marcador de cada hilo
+ * sea también el primero que sale de aquí: la venta es de quien la cerró
+ * primero, no del último que escribió.
+ */
+export function salientesSinCierre(
+  orgId: number,
+  limite = 20_000,
+): { conversation_id: number; emisor: Emisor; content: string; created_at: number }[] {
+  return s(
+    `SELECT m.conversation_id, m.emisor, m.content, m.created_at
+       FROM messages m
+       JOIN conversations c ON c.id = m.conversation_id AND c.org_id = m.org_id
+      WHERE m.org_id = ? AND c.fecha_cierre IS NULL AND m.emisor <> 'cliente'
+      ORDER BY m.conversation_id ASC, m.created_at ASC, m.id ASC
+      LIMIT ?`,
+  ).all(orgId, limite) as {
+    conversation_id: number; emisor: Emisor; content: string; created_at: number;
+  }[];
+}
+
+/**
+ * Las organizaciones que tienen algo que barrer al arrancar.
+ *
+ * EXCEPCIÓN a la regla de aislamiento, de la misma clase que
+ * `canalesParaReconectar`: el barrido del arranque no tiene sesión de la que
+ * deducir una organización. Devuelve identificadores y nada más —ni una
+ * conversación, ni un mensaje, ni un importe—, y cada identificador vuelve
+ * inmediatamente como `orgId` de las funciones normales.
+ */
+export function orgsConConversacionesAbiertas(): number[] {
+  const filas = s(
+    `SELECT DISTINCT org_id FROM conversations WHERE fecha_cierre IS NULL`,
+  ).all() as { org_id: number }[];
+  return filas.map((f) => f.org_id);
 }
 
 /** ¿Escribió un humano desde `desde`? Silencia al agente vendedor. */
@@ -1105,12 +1288,28 @@ export function soporteVigente(orgId: number, adminUserId: number): SoporteAcces
 // siendo el reemplazo de un solo módulo.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export interface Rango { desde: number; hasta: number; canalId?: number }
+export interface Rango {
+  desde: number;
+  hasta: number;
+  canalId?: number;
+  /**
+   * Deja fuera a quien escribió por su cuenta: el panel entero pasa a hablar
+   * solo de la gente que trajo un anuncio.
+   *
+   * Va en el rango y no en cada consulta porque tiene que aplicarse a TODAS a
+   * la vez. Si el filtro alcanzara a los leads pero no a los cierres, la tasa
+   * dividiría cierres de todo el mundo entre leads de anuncio y pasaría del
+   * 100 %; y la invariante `leads = ia + humano + abiertas + revisión`, que se
+   * comprueba en pantalla, dejaría de cuadrar sin que nada estuviera roto.
+   */
+  soloAnuncio?: boolean;
+}
 
 function filtroRango(orgId: number, r: Rango) {
   const cond = ["org_id = ?", "fecha_inicio >= ?", "fecha_inicio <= ?"];
   const val: unknown[] = [orgId, r.desde, r.hasta];
   if (r.canalId !== undefined) { cond.push("canal_id = ?"); val.push(r.canalId); }
+  if (r.soloAnuncio) cond.push(DE_ANUNCIO);
   return { where: cond.join(" AND "), val };
 }
 
@@ -1131,33 +1330,106 @@ export function totalLeads(orgId: number, r: Rango): number {
   return (s(`SELECT COUNT(*) AS n FROM conversations WHERE ${where}`).get(...val) as { n: number }).n;
 }
 
+/**
+ * LO FACTURADO — el dinero del pedido, sin el envío.
+ *
+ * `total` es lo que el cliente paga en total y `envio` es la parte de ese total
+ * que es transporte. El envío entra y sale: se le cobra al cliente y se le paga
+ * al mensajero, así que sumarlo a la facturación infla el número justo en el
+ * dinero que el negocio no se queda. Lo que se factura es el pedido.
+ *
+ * El `MAX(..., 0)` es una defensa, no un adorno. Los montos los extrae un
+ * modelo de un chat escrito a mano, y de vez en cuando apunta un envío mayor
+ * que el total —porque el cliente escribió el precio sin el envío, o porque el
+ * modelo se equivocó—. Sin el tope, esa fila restaría de las demás y una venta
+ * mal leída bajaría la facturación del mes.
+ */
+export const facturado = (p = "") =>
+  `MAX(COALESCE(${p}total, 0) - COALESCE(${p}envio, 0), 0)`;
+
+const FACTURADO = facturado();
+
 export function resumenVentas(orgId: number, r: Rango) {
   const { where, val } = filtroRango(orgId, r);
   return s(
-    `SELECT COALESCE(SUM(total), 0) AS suma, COUNT(total) AS con_monto
+    `SELECT COALESCE(SUM(${FACTURADO}), 0) AS facturado,
+            COALESCE(SUM(CASE WHEN cerrado_por = 'ia'     THEN ${FACTURADO} END), 0) AS facturado_ia,
+            COALESCE(SUM(CASE WHEN cerrado_por = 'humano' THEN ${FACTURADO} END), 0) AS facturado_humano,
+            COALESCE(SUM(envio), 0) AS envios,
+            COUNT(total) AS con_monto
        FROM conversations
       WHERE ${where} AND cerrado_por IN ('ia','humano')`,
-  ).get(...val) as { suma: number; con_monto: number };
+  ).get(...val) as {
+    facturado: number; facturado_ia: number; facturado_humano: number;
+    envios: number; con_monto: number;
+  };
 }
 
 /**
- * Los que llegaron por un anuncio.
+ * Llegó por un anuncio.
+ *
+ * Se pregunta por el ORIGEN, no por el título. Meta no siempre manda `title` en
+ * el anuncio —hay creatividades sin titular—, y con la condición puesta sobre
+ * `producto_anuncio` ese cliente se contaba como si hubiera escrito por su
+ * cuenta: el anuncio lo trajo y la cifra de publicidad no lo veía.
+ *
+ * El título se deja como segunda vía a propósito: las conversaciones guardadas
+ * antes de que existiera la columna `origen`, o por cualquier otra entrada que
+ * solo apunte el producto, siguen contando como lo que son. Las dos ramas se
+ * niegan enteras en `leadsPorSuCuenta`, así que los dos grupos siguen sumando
+ * exactamente el total.
+ */
+/*
+ * `COALESCE` y no `origen = 'anuncio'` a secas: en SQL una comparación contra
+ * NULL da NULL, no falso, y `NOT (NULL OR falso)` vuelve a ser NULL — la fila
+ * no entraría ni en un grupo ni en el otro y los dos dejarían de sumar el
+ * total, que es justo lo que comprueba la prueba de conteo.
+ */
+/* Gemela de `llegoPorAnuncio` en `anuncio.ts`: las dos deciden lo mismo, una
+ * para contar en SQL y otra para pintar en pantalla. Cambiar una sola de ellas
+ * deja el panel enseñando pastillas de anuncio que el conteo no ve. */
+export const deAnuncio = (p = "") =>
+  `(COALESCE(${p}origen, '') = 'anuncio' OR COALESCE(${p}producto_anuncio, '') <> '')`;
+
+/** El prefijo es para las consultas que aliasan la tabla, como la de canales. */
+const DE_ANUNCIO = deAnuncio();
+
+/**
+ * Cuántos trajo la publicidad y cuántos de ellos se cerraron.
  *
  * NO sustituye a `totalLeads`, que cuenta toda conversación abierta y es la que
  * sostiene la invariante `leads = ia + humano + abiertas + revisión`. Son dos
  * preguntas distintas: cuánta gente escribió, y cuánta escribió porque la
  * trajo un anuncio. La segunda es la que dice si la publicidad funciona.
+ *
+ * Los cierres vienen de aquí y no de `conteoPorEstado` porque la tasa que se
+ * enseña bajo «Leads por anuncio» tiene que dividir cierres DE ESOS leads entre
+ * ESOS leads. Mezclar el numerador de todos con este denominador da porcentajes
+ * por encima de 100.
  */
-export function leadsDeAnuncio(orgId: number, r: Rango): number {
+export function resumenDeAnuncio(
+  orgId: number,
+  r: Rango,
+): { leads: number; cerrados: number; cierres_ia: number; cierres_humano: number } {
   const { where, val } = filtroRango(orgId, r);
-  return (s(
-    `SELECT COUNT(*) AS n FROM conversations
-      WHERE ${where} AND producto_anuncio IS NOT NULL AND producto_anuncio <> ''`,
-  ).get(...val) as { n: number }).n;
+  return s(
+    `SELECT COUNT(*) AS leads,
+            SUM(CASE WHEN cerrado_por IN ('ia','humano') THEN 1 ELSE 0 END) AS cerrados,
+            SUM(CASE WHEN cerrado_por = 'ia'     THEN 1 ELSE 0 END) AS cierres_ia,
+            SUM(CASE WHEN cerrado_por = 'humano' THEN 1 ELSE 0 END) AS cierres_humano
+       FROM conversations
+      WHERE ${where} AND ${DE_ANUNCIO}`,
+  ).get(...val) as { leads: number; cerrados: number; cierres_ia: number; cierres_humano: number };
 }
 
 /**
  * Qué producto anunciado trae a cada cliente, con lo que el anuncio prometía.
+ *
+ * Se agrupa por el título y, cuando el anuncio no trae título, por su texto:
+ * sin eso todas las creatividades sin titular caerían en la misma fila y el
+ * panel diría que un solo «anuncio» trae la mitad de los clientes. `producto`
+ * sale nulo en ese caso y lo nombra `metrics.ts`, que es quien decide qué se
+ * lee en pantalla.
  *
  * La descripción se toma con MAX y no con GROUP_CONCAT: varios anuncios pueden
  * compartir título con textos distintos, y aquí interesa una muestra legible,
@@ -1166,26 +1438,26 @@ export function leadsDeAnuncio(orgId: number, r: Rango): number {
 export function productosDeAnuncio(
   orgId: number,
   r: Rango,
-): { producto: string; descripcion: string | null; leads: number; cerrados: number }[] {
+): { producto: string | null; descripcion: string | null; leads: number; cerrados: number }[] {
   const { where, val } = filtroRango(orgId, r);
   return s(
-    `SELECT producto_anuncio AS producto,
-            MAX(descripcion_anuncio) AS descripcion,
+    `SELECT MAX(NULLIF(producto_anuncio, '')) AS producto,
+            MAX(NULLIF(descripcion_anuncio, '')) AS descripcion,
             COUNT(*) AS leads,
             SUM(CASE WHEN cerrado_por IN ('ia','humano') THEN 1 ELSE 0 END) AS cerrados
        FROM conversations
-      WHERE ${where} AND producto_anuncio IS NOT NULL AND producto_anuncio <> ''
-      GROUP BY producto_anuncio
+      WHERE ${where} AND ${DE_ANUNCIO}
+      GROUP BY COALESCE(NULLIF(producto_anuncio, ''), NULLIF(descripcion_anuncio, ''), '')
       ORDER BY leads DESC, producto ASC
       LIMIT 12`,
-  ).all(...val) as { producto: string; descripcion: string | null; leads: number; cerrados: number }[];
+  ).all(...val) as { producto: string | null; descripcion: string | null; leads: number; cerrados: number }[];
 }
 
 export function leadsPorSuCuenta(orgId: number, r: Rango): number {
   const { where, val } = filtroRango(orgId, r);
   return (s(
     `SELECT COUNT(*) AS n FROM conversations
-      WHERE ${where} AND (producto_anuncio IS NULL OR producto_anuncio = '')`,
+      WHERE ${where} AND NOT ${DE_ANUNCIO}`,
   ).get(...val) as { n: number }).n;
 }
 
@@ -1209,27 +1481,37 @@ export function tiemposDeCierre(orgId: number, r: Rango) {
   ).get(...val) as { ia: number | null; humano: number | null };
 }
 
-/** Producto y monto de cada venta cerrada. La normalización va en metrics.ts. */
+/**
+ * Producto y monto de cada venta cerrada. La normalización va en metrics.ts.
+ *
+ * El monto es lo FACTURADO, sin el envío: el ranking dice qué producto trae el
+ * dinero, y un producto no vende más por mandarse más lejos.
+ */
 export function ventasParaRanking(orgId: number, r: Rango) {
   const { where, val } = filtroRango(orgId, r);
   return s(
-    `SELECT producto_vendido, total FROM conversations
+    `SELECT producto_vendido, ${FACTURADO} AS facturado FROM conversations
       WHERE ${where} AND cerrado_por IN ('ia','humano') AND producto_vendido IS NOT NULL`,
-  ).all(...val) as { producto_vendido: string; total: number | null }[];
+  ).all(...val) as { producto_vendido: string; facturado: number }[];
 }
 
 export function metricasPorCanal(orgId: number, r: Rango) {
   const cond = ["c.org_id = ?", "c.fecha_inicio >= ?", "c.fecha_inicio <= ?"];
   const val: unknown[] = [orgId, r.desde, r.hasta];
   if (r.canalId !== undefined) { cond.push("c.canal_id = ?"); val.push(r.canalId); }
+  // El filtro va en el ON del LEFT JOIN, con el resto de condiciones: puesto en
+  // el WHERE tumbaría las filas de los números sin un solo lead de anuncio, y
+  // un número que no está trayendo a nadie es exactamente lo que hay que ver.
+  if (r.soloAnuncio) cond.push(deAnuncio("c."));
 
   return s(
     `SELECT ca.id AS canal_id, ca.nombre, ca.phone,
             COUNT(c.id) AS leads,
+            SUM(CASE WHEN ${deAnuncio("c.")} THEN 1 ELSE 0 END) AS leads_anuncio,
             SUM(CASE WHEN c.cerrado_por = 'ia'       THEN 1 ELSE 0 END) AS cierres_ia,
             SUM(CASE WHEN c.cerrado_por = 'humano'   THEN 1 ELSE 0 END) AS cierres_humano,
             SUM(CASE WHEN c.cerrado_por = 'revision' THEN 1 ELSE 0 END) AS revision,
-            COALESCE(SUM(CASE WHEN c.cerrado_por IN ('ia','humano') THEN c.total END), 0) AS ventas
+            COALESCE(SUM(CASE WHEN c.cerrado_por IN ('ia','humano') THEN ${facturado('c.')} END), 0) AS ventas
        FROM canales ca
        LEFT JOIN conversations c ON c.canal_id = ca.id AND ${cond.join(" AND ")}
       WHERE ca.org_id = ?
@@ -1237,7 +1519,7 @@ export function metricasPorCanal(orgId: number, r: Rango) {
       ORDER BY leads DESC`,
   ).all(...val, orgId) as {
     canal_id: number; nombre: string; phone: string;
-    leads: number; cierres_ia: number; cierres_humano: number;
+    leads: number; leads_anuncio: number; cierres_ia: number; cierres_humano: number;
     revision: number; ventas: number;
   }[];
 }
@@ -1247,12 +1529,16 @@ export function serieDiaria(orgId: number, r: Rango) {
   return s(
     `SELECT date(fecha_inicio, 'unixepoch') AS dia,
             COUNT(*) AS leads,
+            SUM(CASE WHEN ${DE_ANUNCIO} THEN 1 ELSE 0 END) AS leads_anuncio,
             SUM(CASE WHEN cerrado_por = 'ia'     THEN 1 ELSE 0 END) AS cierres_ia,
             SUM(CASE WHEN cerrado_por = 'humano' THEN 1 ELSE 0 END) AS cierres_humano
        FROM conversations
       WHERE ${where}
       GROUP BY dia ORDER BY dia ASC`,
-  ).all(...val) as { dia: string; leads: number; cierres_ia: number; cierres_humano: number }[];
+  ).all(...val) as {
+    dia: string; leads: number; leads_anuncio: number;
+    cierres_ia: number; cierres_humano: number;
+  }[];
 }
 
 /** Motivos de pérdida del segmento sin cerrar. Lo más valioso del panel. */

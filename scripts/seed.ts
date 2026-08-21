@@ -135,13 +135,17 @@ async function main() {
       const canal = elegir(canales);
       const producto = elegir(PRODUCTOS);
       const deAnuncio = azar() < 0.65;
+      // Uno de cada ocho anuncios llega sin título: Meta no siempre manda
+      // `title`, y en el panel de ejemplo tiene que verse esa fila —«Anuncio
+      // sin título»— porque esos leads también los trajo la publicidad.
+      const sinTitulo = deAnuncio && azar() < 0.125;
       const inicio = base + entre(8, 19) * 3600 + entre(0, 59) * 60;
 
       const { conversacion } = getOrCreateConversation(orgId, canal.id, String(++telefono), {
         nombre: elegir(NOMBRES),
         cuando: inicio,
         origen: deAnuncio ? "anuncio" : null,
-        productoAnuncio: deAnuncio ? producto.nombre : null,
+        productoAnuncio: deAnuncio && !sinTitulo ? producto.nombre : null,
         // Lo que promete el anuncio. Sin esto la columna del panel sale vacía
         // en los datos de ejemplo y parece que la función no funciona.
         descripcionAnuncio: deAnuncio

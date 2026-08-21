@@ -35,6 +35,8 @@ import {
   type Producto,
 } from "./db";
 import { descifrar } from "./auth";
+import { anuncioParaModelo, type DatosAnuncio } from "./anuncio";
+import { MARCADOR_POR_DEFECTO, registrarCierre } from "./cierre";
 import { completar, ErrorIA } from "./ia";
 
 /** Ventana en la que un mensaje de vendedor silencia al agente. */
@@ -109,6 +111,8 @@ export function dentroDeHorario(desde: string | null, hasta: string | null, fech
 
 export type MotivoSilencio =
   | "agente_apagado"
+  /** En este número ya contesta otra IA. Ver la guarda en `atenderConversacion`. */
+  | "contesta_otra_ia"
   | "canal_apagado"
   | "ultimo_no_es_cliente"
   | "vendedor_reciente"
@@ -127,7 +131,19 @@ const TONOS: Record<string, string> = {
   alegre: "Habla con energía y entusiasmo, sin exagerar.",
 };
 
-function armarSistema(negocio: string, agente: Agente, catalogo: Producto[]): string {
+/**
+ * El prompt del sistema. Se exporta para que una prueba pueda leerlo: que el
+ * anuncio llegue al modelo no hay forma de comprobarlo sin llamar a la red, y
+ * es justo lo que no puede volver a perderse.
+ */
+export function armarSistema(
+  negocio: string,
+  agente: Agente,
+  catalogo: Producto[],
+  anuncio: DatosAnuncio | null,
+  /** El marcador con el que se declara cerrada una venta. */
+  marcador: string = MARCADOR_POR_DEFECTO,
+): string {
   const productos = catalogo.length
     ? catalogo
         .map((p) => {
@@ -139,6 +155,18 @@ function armarSistema(negocio: string, agente: Agente, catalogo: Producto[]): st
         .join("\n")
     : "(sin catálogo cargado)";
 
+  /*
+   * El anuncio que trajo al cliente entra en el prompt, y esto no es un lujo.
+   *
+   * Es lo que el cliente vino buscando: sin ello el agente abre preguntando
+   * «¿qué producto te interesa?» a alguien que acaba de pinchar la foto de ese
+   * producto, y esa primera pregunta boba es la que hace que no conteste. El
+   * anuncio lo publicó el propio negocio, así que se puede dar por bueno para
+   * SABER de qué se habla; el catálogo sigue mandando en precios y condiciones,
+   * y eso lo dicen las reglas de abajo.
+   */
+  const deAnuncio = anuncio ? anuncioParaModelo(anuncio) : null;
+
   return `Eres ${agente.nombre}, quien atiende el WhatsApp de ${negocio}.
 
 ${TONOS[agente.tono] ?? TONOS.cercano}
@@ -146,13 +174,26 @@ ${TONOS[agente.tono] ?? TONOS.cercano}
 Catálogo:
 ${productos}
 
+${deAnuncio ? `${deAnuncio}\n` : ""}
 ${agente.instrucciones ? `Instrucciones del negocio:\n${agente.instrucciones}\n` : ""}
 Reglas que no puedes romper:
-- No inventes precios, productos, plazos ni promociones. Si algo no está arriba, di que lo confirmas y no lo prometas.
+- No inventes precios, productos, plazos ni promociones. Si algo no está arriba, di que lo confirmas y no lo prometas.${
+  deAnuncio
+    ? `
+- Da por hecho que el cliente escribe por el producto del anuncio: no le preguntes de qué producto habla ni le pidas que lo repita. Si él nombra otro, manda lo que él diga.
+- El anuncio dice lo que se le prometió, no lo que hay. Si promete un precio o una condición que no está en el catálogo, ni la niegues ni la confirmes por tu cuenta: dile que lo confirmas con el equipo.`
+    : ""
+}
 - Responde corto, como se escribe por WhatsApp: una o dos frases. Nada de listas largas ni de textos de catálogo.
 - No pidas datos que ya te dieron en la conversación.
 - Si el cliente pide hablar con una persona, dile que ya avisas a alguien del equipo y no sigas vendiendo.
-- Escribe solo el mensaje que va a leer el cliente. Sin comillas, sin explicaciones, sin firmar.`;
+- Escribe solo el mensaje que va a leer el cliente. Sin comillas, sin explicaciones, sin firmar.
+
+CÓMO SE CIERRA UNA VENTA:
+Cuando el cliente ya confirmó qué lleva y cómo lo paga, y no falta ningún dato del pedido, manda un último mensaje que EMPIECE con "${marcador}" y siga con el pedido en una línea: producto, cantidad, total y envío.
+Ejemplo: ${marcador} 2 camisas talla M — 2500 en total, 300 de envío incluido.
+Ese mensaje es lo que registra la venta en el sistema. Si no lo mandas, para el negocio la venta no existe.
+No escribas "${marcador}" en ningún otro momento: ni para resumir lo que llevan hablado, ni para repetir una lista de precios. Solo cierra pedidos confirmados.`;
 }
 
 function aHistorial(mensajes: Mensaje[]) {
@@ -178,6 +219,8 @@ export interface RespuestaGenerada {
 export async function generarRespuesta(
   orgId: number,
   mensajes: Mensaje[],
+  /** El anuncio del hilo, si lo trajo uno. El chat de prueba no tiene. */
+  anuncio: DatosAnuncio | null = null,
 ): Promise<RespuestaGenerada> {
   const org = obtenerOrg(orgId);
   const agente = obtenerAgente(orgId);
@@ -189,7 +232,16 @@ export async function generarRespuesta(
     modelo: agente.modelo,
     respaldo: agente.modelo_respaldo,
     mensajes: [
-      { role: "system", content: armarSistema(org?.nombre ?? "el negocio", agente, catalogo) },
+      {
+        role: "system",
+        content: armarSistema(
+          org?.nombre ?? "el negocio",
+          agente,
+          catalogo,
+          anuncio,
+          org?.marcador_cierre ?? MARCADOR_POR_DEFECTO,
+        ),
+      },
       ...aHistorial(mensajes),
     ],
     maxTokens: 400,
@@ -225,6 +277,22 @@ export async function atenderConversacion(
   const canal = obtenerCanal(orgId, canalId);
   if (!canal || canal.activo !== 1) return { atendida: false, motivo: "canal_apagado" };
   if (canal.agente_activo !== 1) return { atendida: false, motivo: "agente_apagado" };
+
+  /*
+   * EN UN NÚMERO DONDE YA CONTESTA OTRA IA, ESTE AGENTE NO ABRE LA BOCA.
+   *
+   * `contesta_ia` lo enciende el dueño para decir que las respuestas de ese
+   * WhatsApp las escribe un bot suyo y que el panel solo mira. Si además
+   * alguien dejara encendido nuestro agente —por descuido, o porque lo probó
+   * hace un mes—, el cliente recibiría dos respuestas distintas al mismo
+   * mensaje, de dos vendedores que no se conocen entre sí. Eso no se arregla
+   * después: ya lo leyó.
+   *
+   * Por eso la guarda está AQUÍ, en el único camino por el que sale un mensaje,
+   * y no en la pantalla que enciende el interruptor: lo que no puede pasar es
+   * que hable, no que quede mal configurado.
+   */
+  if (canal.contesta_ia === 1) return { atendida: false, motivo: "contesta_otra_ia" };
 
   const conv = getConversation(orgId, conversationId);
   if (!conv) return { atendida: false, motivo: "canal_apagado" };
@@ -281,7 +349,9 @@ export async function atenderConversacion(
   // ── Generar ─────────────────────────────────────────────────────────────
   let respuesta: RespuestaGenerada;
   try {
-    respuesta = await generarRespuesta(orgId, historial);
+    // `conv` lleva el anuncio que abrió el hilo: producto y promesa. Es lo que
+    // el agente necesita para no preguntar lo que el cliente ya vino a pedir.
+    respuesta = await generarRespuesta(orgId, historial, conv);
   } catch (e) {
     /*
      * El modelo falló y su respaldo también, o no había respaldo.
@@ -327,14 +397,27 @@ export async function atenderConversacion(
    */
   try {
     registrarAiSent(orgId, messageId);
+    const cuando = ahora();
     insertMessage(orgId, {
       conversationId,
       whapiMessageId: messageId,
       emisor: "ia",
       tipo: "texto",
       content: respuesta.texto,
-      createdAt: ahora(),
+      createdAt: cuando,
     });
+
+    /*
+     * Si este mensaje era el resumen del pedido, la venta queda cerrada AQUÍ.
+     *
+     * Tiene que ser en este punto y no en la ingesta: el mensaje que el agente
+     * acaba de mandar ya está guardado, así que cuando WhatsApp lo devuelva por
+     * el socket la inserción no hará nada —es idempotente— y nadie más volvería
+     * a mirarlo. Sin esto, la IA cierra la venta y el dashboard no se entera.
+     */
+    if (registrarCierre(orgId, conversationId, { emisor: "ia", content: respuesta.texto, cuando })) {
+      console.log(`[agente] venta cerrada por la IA en la conversación ${conversationId}`);
+    }
   } catch (e) {
     console.error(
       `CRÍTICO: se envió el mensaje ${messageId} pero no se pudo registrar como de la IA. ` +

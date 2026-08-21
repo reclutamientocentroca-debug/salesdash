@@ -17,6 +17,7 @@ function aVista(c: ReturnType<typeof listarCanales>[number]) {
     phone: c.phone.startsWith("pendiente:") ? null : c.phone,
     estado: c.estado,
     agente_activo: c.agente_activo === 1,
+    contesta_ia: c.contesta_ia === 1,
     activo: c.activo === 1,
     ultimo_evento_at: c.ultimo_evento_at,
     created_at: c.created_at,

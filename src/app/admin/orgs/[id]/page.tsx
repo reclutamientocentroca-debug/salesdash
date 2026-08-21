@@ -46,7 +46,7 @@ export default async function FichaOrganizacion({ params }: Props) {
 
       {!cuadra && (
         <div className="aviso aviso-error" style={{ marginBottom: 14 }}>
-          Los conteos de esta cuenta no cuadran: {f.metricas.leads} leads contra{" "}
+          Los conteos de esta cuenta no cuadran: {f.metricas.leads} conversaciones contra{" "}
           {f.metricas.cierres_ia + f.metricas.cierres_humano + f.metricas.abiertas + f.metricas.revision}{" "}
           conversaciones clasificadas.
         </div>
@@ -56,12 +56,13 @@ export default async function FichaOrganizacion({ params }: Props) {
         <section className="tarjeta">
           <h2 className="titulo-tarjeta" style={{ marginBottom: 12 }}>Métricas acumuladas</h2>
           <dl style={{ display: "grid", gap: 8, fontSize: 12.5 }}>
-            <Fila etiqueta="Leads" valor={String(f.metricas.leads)} />
+            <Fila etiqueta="Leads por anuncio" valor={String(f.metricas.leads_anuncio)} />
+            <Fila etiqueta="Conversaciones" valor={String(f.metricas.leads)} />
             <Fila etiqueta="Cerró la IA" valor={String(f.metricas.cierres_ia)} />
             <Fila etiqueta="Cerró el equipo" valor={String(f.metricas.cierres_humano)} />
             <Fila etiqueta="Sin cerrar" valor={String(f.metricas.abiertas)} />
             <Fila etiqueta="En revisión" valor={String(f.metricas.revision)} />
-            <Fila etiqueta="Ventas procesadas" valor={dinero(f.metricas.ventas)} />
+            <Fila etiqueta="Facturado (sin envíos)" valor={dinero(f.metricas.ventas)} />
           </dl>
         </section>
 

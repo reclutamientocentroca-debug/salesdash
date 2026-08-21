@@ -6,8 +6,8 @@
  * lógica es la misma y por eso vive aquí, en un solo sitio, hablando un formato
  * propio en vez del de un proveedor.
  *
- * Las tres invariantes de este archivo sostienen todo el producto y ninguna es
- * decorativa:
+ * Las cuatro invariantes de este archivo sostienen todo el producto y ninguna
+ * es decorativa:
  *
  *   1. UN LEAD ES UN CLIENTE QUE LLEGA. La conversación nace del primer mensaje
  *      ENTRANTE. Un saliente hacia un número desconocido no abre conversación:
@@ -20,12 +20,19 @@
  *   3. INSERTAR ES IDEMPOTENTE. `whapi_message_id` es UNIQUE: el mismo mensaje
  *      puede llegar dos veces —reconexión, resincronización— y no puede
  *      duplicar mensajes, leads ni ventas.
+ *
+ *   4. UNA VENTA SE REGISTRA CUANDO SE CIERRA. El mensaje con el marcador sella
+ *      el cierre aquí mismo, al entrar. Antes esto solo pasaba dentro del
+ *      analista, y el analista solo corre cuando alguien pulsa un botón: una
+ *      venta cerrada por la mañana no existía para el dashboard hasta que a
+ *      alguien se le ocurría pedir el barrido.
  */
 import { after } from "next/server";
 import {
   ahora,
   esDeIa,
   existeConversacion,
+  getConversation,
   getOrCreateConversation,
   insertMessage,
   marcarActividadCanal,
@@ -33,6 +40,7 @@ import {
   type Emisor,
   type TipoMensaje,
 } from "@/lib/db";
+import { registrarCierre } from "@/lib/cierre";
 import { esGrupo, normalizarTelefono } from "@/lib/telefono";
 
 /**
@@ -84,6 +92,10 @@ export async function ingerir(
   // agente vendedor puede atender.
   const conversacionesDelCliente = new Set<number>();
 
+  // Toda conversación con algún mensaje nuevo. De estas salen las que hay que
+  // analizar: las que este lote acaba de cerrar.
+  const tocadas = new Set<number>();
+
   for (const m of mensajes) {
     if (!m.id || !m.chatId) continue;
 
@@ -93,8 +105,25 @@ export async function ingerir(
     const telefono = normalizarTelefono(m.chatId);
     if (!telefono) continue;
 
-    // Invariante 2.
-    const emisor: Emisor = !m.deMi ? "cliente" : esDeIa(orgId, m.id) ? "ia" : "humano";
+    /*
+     * Invariante 2 — de quién es este mensaje.
+     *
+     * Entrante: del cliente. Saliente con su id registrado: nuestro, de la IA.
+     * ¿Y el resto de salientes? Hasta ahora, de un humano, y esa suposición es
+     * falsa en los números que atiende un bot propio del dueño: el panel les
+     * ponía «intervino un humano» a conversaciones donde no habló ninguno, y le
+     * acreditaba al equipo las ventas que cerró esa IA.
+     *
+     * `contesta_ia` es el dueño diciendo quién contesta en su número. Es un
+     * ajuste y no una adivinanza a propósito: desde fuera, un mensaje escrito a
+     * mano y uno de un bot ajeno son idénticos, y en un número donde contestan
+     * personas seguir suponiendo «humano» es lo correcto.
+     */
+    const emisor: Emisor = !m.deMi
+      ? "cliente"
+      : esDeIa(orgId, m.id) || canal.contesta_ia === 1
+        ? "ia"
+        : "humano";
 
     try {
       // Invariante 1.
@@ -125,7 +154,26 @@ export async function ingerir(
 
       if (insertado !== null) {
         procesados++;
-        if (emisor === "cliente") conversacionesDelCliente.add(conversacion.id);
+        tocadas.add(conversacion.id);
+
+        if (emisor === "cliente") {
+          conversacionesDelCliente.add(conversacion.id);
+        } else {
+          /*
+           * INVARIANTE 4 — una venta se registra cuando se cierra.
+           *
+           * El vendedor manda el resumen desde su móvil y la venta queda
+           * contada en ese instante, sin esperar a que nadie pulse «Analizar».
+           * Reconocer el marcador es mecánico: no cuesta ni una llamada al
+           * modelo. (Los resúmenes que manda la IA los sella `agent.ts`: su
+           * mensaje ya está guardado cuando WhatsApp lo devuelve por aquí.)
+           */
+          registrarCierre(orgId, conversacion.id, {
+            emisor,
+            content: m.content,
+            cuando: m.cuando,
+          });
+        }
       }
     } catch (e) {
       // Un mensaje malo no puede tumbar el lote entero.
@@ -144,17 +192,53 @@ export async function ingerir(
    * El import es dinámico a propósito: el módulo que envía no entra en el grafo
    * hasta que hay un cliente esperando y el agente está encendido.
    */
-  if (canal.agente_activo === 1 && conversacionesDelCliente.size > 0) {
-    const trabajo = async () => {
-      const { atenderConversacion } = await import("@/lib/agent");
+  const atiendeElAgente = canal.agente_activo === 1 && conversacionesDelCliente.size > 0;
 
-      for (const conversationId of conversacionesDelCliente) {
-        try {
-          await atenderConversacion(orgId, canal.id, conversationId);
-        } catch (e) {
-          // Nunca se reintenta en bucle: se registra y el hilo queda para un
-          // humano. Un agente insistiendo es peor que un agente callado.
-          console.error(`El agente falló en la conversación ${conversationId}:`, e);
+  if (atiendeElAgente || tocadas.size > 0) {
+    const trabajo = async () => {
+      if (atiendeElAgente) {
+        const { atenderConversacion } = await import("@/lib/agent");
+
+        for (const conversationId of conversacionesDelCliente) {
+          try {
+            await atenderConversacion(orgId, canal.id, conversationId);
+          } catch (e) {
+            // Nunca se reintenta en bucle: se registra y el hilo queda para un
+            // humano. Un agente insistiendo es peor que un agente callado.
+            console.error(`El agente falló en la conversación ${conversationId}:`, e);
+          }
+        }
+      }
+
+      /*
+       * Las ventas que este lote acabó de cerrar se analizan solas.
+       *
+       * El cierre ya está atribuido y contado —el marcador no cuesta nada—,
+       * pero el pedido de dentro (producto, total, envío) hay que sacarlo del
+       * hilo, y eso sí pide el modelo. Es UNA llamada por venta cerrada, en el
+       * momento en que se cierra: nada que ver con barrer el histórico entero,
+       * que es lo que el barrido manual evita. Sin esto, la venta se contaba
+       * como cierre pero facturaba cero hasta que alguien pulsara el botón.
+       *
+       * Se mira DESPUÉS del agente, a propósito: el resumen que acaba de
+       * escribir la IA cierra su conversación en esa misma vuelta.
+       */
+      const cerradas = [...tocadas].filter((id) => {
+        const c = getConversation(orgId, id);
+        return c && c.fecha_cierre !== null && c.analizada_at === null;
+      });
+
+      if (cerradas.length > 0) {
+        const { analizarConversacion } = await import("@/lib/analyzer");
+
+        for (const conversationId of cerradas) {
+          try {
+            await analizarConversacion(orgId, conversationId);
+          } catch (e) {
+            // El pedido se queda sin extraer, pero la venta ya está contada.
+            // El barrido manual volverá a intentarlo.
+            console.error(`No se pudo analizar la venta cerrada ${conversationId}:`, e);
+          }
         }
       }
     };

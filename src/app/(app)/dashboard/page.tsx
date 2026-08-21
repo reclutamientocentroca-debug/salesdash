@@ -24,14 +24,22 @@ export const metadata = { title: "Dashboard · SalesDash" };
 export const dynamic = "force-dynamic";
 
 interface Props {
-  searchParams: Promise<{ rango?: string }>;
+  searchParams: Promise<{ rango?: string; solo?: string }>;
 }
 
 export default async function Dashboard({ searchParams }: Props) {
   const ctx = await requerirSesion();
-  const { rango: clave = "7d" } = await searchParams;
+  const { rango: clave = "7d", solo } = await searchParams;
 
-  const rango = rangoAEpochs(clave);
+  /*
+   * El filtro vive en la URL y no en un estado del cliente: así el panel se
+   * puede compartir o guardar en marcadores tal como se está mirando, y la
+   * página sigue siendo de servidor —el filtro se aplica en el SQL, no
+   * escondiendo filas ya pintadas—.
+   */
+  const soloAnuncio = solo === "anuncio";
+
+  const rango = { ...rangoAEpochs(clave), soloAnuncio };
   const m = calcularMetricas(ctx.orgId, rango);
   const anomalias = listarAnomalias(ctx.orgId);
   const enRevision = contarRevisiones(ctx.orgId);
@@ -53,11 +61,32 @@ export default async function Dashboard({ searchParams }: Props) {
         <div>
           <h1 className="h1-pagina">Dashboard</h1>
           <p className="tenue" style={{ marginTop: 2 }}>
-            {m.leads_anuncio} leads por anuncio · {m.leads} conversaciones en total
+            {soloAnuncio
+              ? `${m.leads} leads por anuncio · el resto del panel no los cuenta`
+              : `${m.leads_anuncio} leads por anuncio · ${m.leads} conversaciones en total`}
           </p>
         </div>
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {/*
+            El interruptor de quién entra en el panel. Apagado, el panel cuenta
+            toda conversación y «Leads por anuncio» es una cifra más dentro;
+            encendido, TODO —la rosca, lo facturado, las tasas, el gráfico y la
+            tabla por número— habla solo de la gente que trajo un anuncio.
+
+            Es un enlace y no un interruptor de cliente porque el filtro se
+            aplica en el SQL: la página se vuelve a pintar con otras cifras, no
+            esconde las que ya estaban.
+          */}
+          <Link
+            href={soloAnuncio ? `/dashboard?rango=${clave}` : `/dashboard?rango=${clave}&solo=anuncio`}
+            className={`btn ${soloAnuncio ? "btn-acento" : "btn-secundario"}`}
+            style={{ textDecoration: "none" }}
+            aria-pressed={soloAnuncio}
+          >
+            {soloAnuncio ? "Solo leads de anuncio" : "Contando a todos"}
+          </Link>
+
           {enRevision > 0 && (
             <Link href="/revision" className="btn btn-secundario" style={{ textDecoration: "none" }}>
               <IconoRevision />
@@ -113,36 +142,71 @@ export default async function Dashboard({ searchParams }: Props) {
           valor={m.leads_anuncio}
           icono={<IconoConversaciones tam={17} />}
           tono="acento"
-          pie={`de ${m.leads} conversaciones`}
+          pie={
+            soloAnuncio
+              ? `${m.tasa_cierre_anuncio}% cerrados · nadie más entra en el panel`
+              : `de ${m.leads} conversaciones · ${m.tasa_cierre_anuncio}% cerrados`
+          }
         />
+        {/*
+          «de las conversaciones» y no «de los leads»: aquí arriba «lead» ya
+          significa el que trajo un anuncio, y este porcentaje se calcula sobre
+          el total. Dos palabras distintas para dos denominadores distintos.
+
+          Debajo del número va el dinero que esos cierres facturaron, sin el
+          envío. Un contador de cierres no dice si la IA está vendiendo o solo
+          despachando pedidos de mil pesos; el importe sí, y es la respuesta a
+          «¿qué me está dejando esto?» sin tener que cruzar dos tarjetas.
+        */}
         <Kpi
           etiqueta="Cerró la IA"
           valor={m.cierres_ia}
           icono={<IconoRayo tam={17} />}
           tono="acento"
-          pie={`${m.tasa_cierre_ia}% de los leads`}
+          pie={
+            <>
+              {m.tasa_cierre_ia}% {soloAnuncio ? "de los leads de anuncio" : "de las conversaciones"}
+              <br />
+              <strong style={{ color: "var(--acc)" }}>{dinero(m.facturado_ia)}</strong> facturados
+            </>
+          }
         />
+        {/* El equipo lleva su importe por la misma razón: con uno solo de los
+            dos números en pantalla no se puede comparar, que es justo lo que se
+            quiere saber cuando se mira esta fila. */}
         <Kpi
           etiqueta="Cerró el equipo"
           valor={m.cierres_humano}
           icono={<IconoPersona tam={17} />}
           tono="azul"
-          pie={`${formatearDuracion(m.tiempo_promedio_humano)} de media`}
+          pie={
+            <>
+              {formatearDuracion(m.tiempo_promedio_humano)} de media
+              <br />
+              <strong style={{ color: "var(--blue)" }}>{dinero(m.facturado_humano)}</strong> facturados
+            </>
+          }
         />
+        {/*
+          Facturado, no cobrado: el envío se le cobra al cliente y se le paga al
+          mensajero, así que sumarlo aquí inflaría la cifra justo con el dinero
+          que el negocio no se queda. Va en el pie para que el total siga
+          cuadrando con lo que el dueño ve en su cuenta.
+        */}
         <Kpi
-          etiqueta="Ventas generadas"
-          valor={dinero(m.ventas_generadas)}
+          etiqueta="Facturado"
+          valor={dinero(m.facturado)}
           icono={<IconoMoneda tam={17} />}
           tono="ambar"
-          pie={`${dinero(m.valor_promedio_venta)} por venta`}
+          pie={`${dinero(m.valor_promedio_venta)} por pedido · ${dinero(m.envios_cobrados)} de envíos aparte`}
         />
       </div>
 
       <div className="sd-fila-2" style={{ marginBottom: 14 }}>
         <section className="tarjeta">
-          <h2 className="titulo-tarjeta" style={{ marginBottom: 10 }}>Leads y cierres por día</h2>
-          <GraficoArea serie={m.serie_diaria} />
-          {m.serie_diaria.length >= 2 && <LeyendaGrafico />}
+          <h2 className="titulo-tarjeta" style={{ marginBottom: 10 }}>Quién llega y quién cierra, por día</h2>
+          <GraficoArea serie={m.serie_diaria} soloAnuncio={soloAnuncio} />
+          {m.serie_diaria.length >= 2 && <LeyendaGrafico soloAnuncio={soloAnuncio} />}
         </section>
 
         <section className="tarjeta">
@@ -155,6 +219,44 @@ export default async function Dashboard({ searchParams }: Props) {
               { etiqueta: "Equipo", valor: m.cierres_humano, color: "var(--blue)" },
             ]}
           />
+
+          {/*
+            Debajo del reparto de cierres, el dinero de esos cierres. La rosca
+            dice cuántos hilos cerró cada uno y esta línea dice cuánto entró por
+            ellos: son las dos mitades de la misma pregunta, y separarlas en dos
+            tarjetas obliga a mirar arriba y abajo para responderla.
+
+            Sin el envío, que se le cobra al cliente y se le paga al mensajero.
+            El importe sale del resumen del pedido que saca el analista.
+          */}
+          <div
+            style={{
+              marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--line)",
+              display: "grid", gap: 7, fontSize: 12.5,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+              <span style={{ flex: 1, color: "var(--ink-2)" }}>Facturado sin envío</span>
+              <span className="num" style={{ fontWeight: 700, fontSize: 15 }}>
+                {dinero(m.facturado)}
+              </span>
+            </div>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+              <span style={{ flex: 1, color: "var(--ink-2)" }}>Lo cerró la IA</span>
+              <span className="num" style={{ fontWeight: 600, color: "var(--acc)" }}>
+                {dinero(m.facturado_ia)}
+              </span>
+            </div>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+              <span style={{ flex: 1, color: "var(--ink-2)" }}>Lo cerró el equipo</span>
+              <span className="num" style={{ fontWeight: 600, color: "var(--blue)" }}>
+                {dinero(m.facturado_humano)}
+              </span>
+            </div>
+            <div className="tenue">
+              {dinero(m.envios_cobrados)} de envíos cobrados, fuera de esta cuenta.
+            </div>
+          </div>
         </section>
 
         <section className="tarjeta">
@@ -257,7 +359,12 @@ export default async function Dashboard({ searchParams }: Props) {
                 <thead>
                   <tr>
                     <th>Número</th>
-                    <th style={{ textAlign: "right" }}>Leads</th>
+                    {/* Con el panel filtrado las dos columnas dirían el mismo
+                        número: se deja una y se la llama por su nombre. */}
+                    {!soloAnuncio && <th style={{ textAlign: "right" }}>Por anuncio</th>}
+                    <th style={{ textAlign: "right" }}>
+                      {soloAnuncio ? "Leads de anuncio" : "Conversaciones"}
+                    </th>
                     <th style={{ textAlign: "right" }}>IA</th>
                     <th style={{ textAlign: "right" }}>Equipo</th>
                     <th style={{ textAlign: "right" }}>Tasa</th>
@@ -273,6 +380,11 @@ export default async function Dashboard({ searchParams }: Props) {
                           <div className="tenue">{c.phone ?? "sin vincular"}</div>
                         </div>
                       </td>
+                      {!soloAnuncio && (
+                        <td style={{ textAlign: "right", fontWeight: 600, color: "var(--amber)" }}>
+                          {c.leads_anuncio}
+                        </td>
+                      )}
                       <td style={{ textAlign: "right" }}>{c.leads}</td>
                       <td style={{ textAlign: "right", color: "var(--acc)" }}>{c.cierres_ia}</td>
                       <td style={{ textAlign: "right", color: "var(--blue)" }}>{c.cierres_humano}</td>

@@ -7,7 +7,7 @@
 import {
   conteoConIntervencionHumana,
   conteoPorEstado,
-  leadsDeAnuncio,
+  resumenDeAnuncio,
   leadsPorSuCuenta,
   productosDeAnuncio,
   metricasPorCanal,
@@ -53,6 +53,9 @@ function presentar(original: string): string {
   return limpio.charAt(0).toUpperCase() + limpio.slice(1);
 }
 
+/** Dos decimales. El dinero no se enseña con la coma corrida de un float. */
+const redondear = (n: number) => Math.round(n * 100) / 100;
+
 const porcentaje = (parte: number, total: number) =>
   total === 0 ? 0 : Math.round((parte / total) * 1000) / 10;
 
@@ -61,6 +64,10 @@ export interface Metricas {
   leads: number;
   /** Los que llegaron por un anuncio: los que miden si la publicidad funciona. */
   leads_anuncio: number;
+  /** De esos, cuántos acabaron cerrados. Numerador y denominador del MISMO grupo. */
+  cierres_anuncio: number;
+  /** Porcentaje de los leads de anuncio que se cerró. Nunca pasa de 100. */
+  tasa_cierre_anuncio: number;
   /** Qué producto anunciado los trajo, y qué prometía ese anuncio. */
   productos_anuncio: { producto: string; descripcion: string | null; leads: number; cerrados: number }[];
   cierres_ia: number;
@@ -70,7 +77,17 @@ export interface Metricas {
   /** leads === cierres_ia + cierres_humano + sin_cerrar + revision */
   cuadra: boolean;
 
-  ventas_generadas: number;
+  /**
+   * Lo facturado: el dinero de los pedidos cerrados, SIN el envío. El envío se
+   * le cobra al cliente y se le paga al mensajero; no es facturación.
+   */
+  facturado: number;
+  /** De eso, lo que cerró la IA sola. Es lo que la IA le hizo ganar al negocio. */
+  facturado_ia: number;
+  facturado_humano: number;
+  /** Lo cobrado por envíos, aparte. Se enseña para que el total siga cuadrando. */
+  envios_cobrados: number;
+  /** Facturación media por venta con monto. También sin envío. */
   valor_promedio_venta: number;
   tasa_cierre_ia: number;
   tasa_cierre_total: number;
@@ -87,21 +104,29 @@ export interface Metricas {
   top_productos: { producto: string; unidades: number; monto: number }[];
   por_canal: {
     canal_id: number; nombre: string; phone: string | null;
-    leads: number; cierres_ia: number; cierres_humano: number;
+    leads: number; leads_anuncio: number; cierres_ia: number; cierres_humano: number;
     revision: number; ventas: number; tasa: number;
   }[];
-  serie_diaria: { dia: string; leads: number; cierres_ia: number; cierres_humano: number }[];
+  serie_diaria: {
+    dia: string; leads: number; leads_anuncio: number;
+    cierres_ia: number; cierres_humano: number;
+  }[];
 }
 
 export function calcularMetricas(orgId: number, rango: Rango): Metricas {
   const org = obtenerOrg(orgId);
+  // 90 y 85 son las metas del negocio: la IA cierra 9 de cada 10, y de los
+  // hilos que toca un vendedor tienen que acabar en venta 85 de cada 100. El
+  // `??` solo actúa si la organización no existe; cada una guarda las suyas y
+  // puede cambiarlas desde Configuración.
   const metaCobertura = org?.meta_cobertura ?? 90;
-  const metaEfectividad = org?.meta_efectividad ?? 80;
+  const metaEfectividad = org?.meta_efectividad ?? 85;
 
   const leads = totalLeads(orgId, rango);
   const estados = conteoPorEstado(orgId, rango);
   const ventas = resumenVentas(orgId, rango);
   const tiempos = tiemposDeCierre(orgId, rango);
+  const anuncio = resumenDeAnuncio(orgId, rango);
 
   const cierresTotales = estados.ia + estados.humano;
 
@@ -113,7 +138,7 @@ export function calcularMetricas(orgId: number, rango: Rango): Metricas {
     if (!clave) continue;
     const actual = acumulado.get(clave) ?? { unidades: 0, monto: 0, original: v.producto_vendido };
     actual.unidades += 1;
-    actual.monto += v.total ?? 0;
+    actual.monto += v.facturado;
     acumulado.set(clave, actual);
   }
 
@@ -132,17 +157,31 @@ export function calcularMetricas(orgId: number, rango: Rango): Metricas {
 
   return {
     leads,
-    leads_anuncio: leadsDeAnuncio(orgId, rango),
-    productos_anuncio: productosDeAnuncio(orgId, rango),
+    leads_anuncio: anuncio.leads,
+    cierres_anuncio: anuncio.cerrados,
+    tasa_cierre_anuncio: porcentaje(anuncio.cerrados, anuncio.leads),
+    /*
+     * Un anuncio sin título tiene que llamarse de alguna forma en la tabla: la
+     * fila existe igual, con sus leads y su tasa, y dejarla en blanco parecería
+     * un fallo del panel. El texto del anuncio, que es lo que de verdad dice
+     * qué se prometió, sigue en su columna.
+     */
+    productos_anuncio: productosDeAnuncio(orgId, rango).map((p) => ({
+      ...p,
+      producto: p.producto ?? "Anuncio sin título",
+    })),
     cierres_ia: estados.ia,
     cierres_humano: estados.humano,
     sin_cerrar: estados.abierta,
     revision: estados.revision,
     cuadra: leads === estados.ia + estados.humano + estados.abierta + estados.revision,
 
-    ventas_generadas: Math.round(ventas.suma * 100) / 100,
+    facturado: redondear(ventas.facturado),
+    facturado_ia: redondear(ventas.facturado_ia),
+    facturado_humano: redondear(ventas.facturado_humano),
+    envios_cobrados: redondear(ventas.envios),
     valor_promedio_venta:
-      ventas.con_monto === 0 ? 0 : Math.round((ventas.suma / ventas.con_monto) * 100) / 100,
+      ventas.con_monto === 0 ? 0 : redondear(ventas.facturado / ventas.con_monto),
     tasa_cierre_ia: porcentaje(estados.ia, leads),
     tasa_cierre_total: porcentaje(cierresTotales, leads),
 
@@ -168,6 +207,7 @@ export function calcularMetricas(orgId: number, rango: Rango): Metricas {
       nombre: c.nombre,
       phone: c.phone.startsWith("pendiente:") ? null : c.phone,
       leads: c.leads,
+      leads_anuncio: c.leads_anuncio,
       cierres_ia: c.cierres_ia,
       cierres_humano: c.cierres_humano,
       revision: c.revision,
@@ -189,7 +229,10 @@ export function calcularMetricas(orgId: number, rango: Rango): Metricas {
  * plano en cero, que enseña la forma de lo que vendrá.
  */
 export function rellenarDias(
-  serie: { dia: string; leads: number; cierres_ia: number; cierres_humano: number }[],
+  serie: {
+    dia: string; leads: number; leads_anuncio: number;
+    cierres_ia: number; cierres_humano: number;
+  }[],
   rango: { desde: number; hasta: number },
   maxDias = 92,
 ): typeof serie {
@@ -224,7 +267,9 @@ export function rellenarDias(
     const dia = new Date(Date.parse(`${desdeISO}T00:00:00Z`) + i * 86_400_000)
       .toISOString()
       .slice(0, 10);
-    completa.push(porDia.get(dia) ?? { dia, leads: 0, cierres_ia: 0, cierres_humano: 0 });
+    completa.push(
+      porDia.get(dia) ?? { dia, leads: 0, leads_anuncio: 0, cierres_ia: 0, cierres_humano: 0 },
+    );
   }
 
   return completa;

@@ -78,7 +78,7 @@ async function main() {
     `  leads ${metricas.leads} = ia ${metricas.cierres_ia} + humano ${metricas.cierres_humano} + abiertas ${metricas.sin_cerrar} + revisión ${metricas.revision}`,
   );
   console.log(`  invariante cuadra: ${metricas.cuadra}`);
-  console.log(`  ventas ${metricas.ventas_generadas} · promedio ${metricas.valor_promedio_venta}`);
+  console.log(`  facturado ${metricas.facturado} · promedio ${metricas.valor_promedio_venta}`);
   console.log(`  cobertura IA ${metricas.cobertura_ia.valor}% (${metricas.cobertura_ia.estado})`);
   console.log(`  top: ${metricas.top_productos.map((p: { producto: string; unidades: number }) => `${p.producto} ×${p.unidades}`).join(", ")}`);
 }

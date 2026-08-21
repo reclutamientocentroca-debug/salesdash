@@ -2,6 +2,7 @@ import "./entorno";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buscarPrimeraSenal } from "../src/lib/analyzer";
+import { contieneMarcador } from "../src/lib/cierre";
 import type { CategoriaImagen, Mensaje } from "../src/lib/db";
 
 /**
@@ -130,4 +131,56 @@ test("el marcador de cierre es configurable por organización", async () => {
 
   assert.equal((await buscarPrimeraSenal("Resumen:", hilo, nuncaSeLlama)).senales.length, 0);
   assert.equal((await buscarPrimeraSenal("pedido confirmado:", hilo, nuncaSeLlama)).senales.length, 1);
+});
+
+/**
+ * EL MARCADOR ADMITE PALABRAS EN MEDIO.
+ *
+ * Con el marcador «Resumen:», una IA que escribe «Resumen de su pedido:» estaba
+ * cerrando la venta y el panel no la contaba: la frase no contiene «Resumen:»
+ * por ningún lado. Pasó en producción, con el pedido entero —producto, total y
+ * dirección— escrito en el hilo y la conversación enseñada como abierta.
+ */
+test("«Resumen de su pedido:» cierra igual que «Resumen:»", () => {
+  const real = [
+    "Perfecto, Yazmín.",
+    "",
+    "Excelente, tenemos envío para su zona. Le llega en 48 a 72 horas.",
+    "",
+    "Resumen de su pedido:",
+    "",
+    "Producto: Cepillo Blower 2 en 1",
+    "Costo del producto: USD 16",
+    "TOTAL A PAGAR: USD 21",
+  ].join("\n");
+
+  assert.equal(contieneMarcador(real, MARCADOR), true, "el mensaje real de producción");
+  assert.equal(contieneMarcador("Resumen: 1 camisa, total 1850", MARCADOR), true);
+  assert.equal(contieneMarcador("RESUMEN DEL PEDIDO: 2 carteras", MARCADOR), true);
+});
+
+/**
+ * Aflojar no puede ser abrir la mano: si cualquier mención de la palabra
+ * cerrara la venta, el panel contaría ventas donde solo hubo una frase.
+ */
+test("hablar del resumen no cierra nada", () => {
+  assert.equal(
+    contieneMarcador("ahora le paso el resumen y le confirmo el total", MARCADOR),
+    false,
+    "sin los dos puntos no hay pedido, hay una promesa",
+  );
+  assert.equal(
+    contieneMarcador("Resumen\n\nde su pedido: x", MARCADOR),
+    false,
+    "unos dos puntos dos párrafos más abajo son de otra frase",
+  );
+});
+
+/**
+ * Un marcador sin dos puntos se busca tal cual. Ahí la frase entera ES la
+ * señal, y aflojarla la convertiría en cualquier cosa.
+ */
+test("el marcador sin dos puntos se sigue buscando literal", () => {
+  assert.equal(contieneMarcador("Pedido confirmado, gracias", "Pedido confirmado"), true);
+  assert.equal(contieneMarcador("Resumen de su pedido: x", "Pedido confirmado"), false);
 });

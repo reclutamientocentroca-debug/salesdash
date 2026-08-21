@@ -9,6 +9,7 @@ import {
   type EstadoCierre,
   type FilaBandeja,
 } from "@/lib/db";
+import { llegoPorAnuncio } from "@/lib/anuncio";
 import { requerirSesion } from "@/lib/tenant";
 
 export const metadata = { title: "Conversaciones · SalesDash" };
@@ -125,6 +126,17 @@ export default async function PaginaConversaciones({ searchParams }: Props) {
 
   const mensajes = abierta ? listarMensajes(ctx.orgId, abierta.id) : [];
 
+  /*
+   * Cuántos de estos chats los trajo un anuncio.
+   *
+   * Es la misma pregunta del dashboard, hecha donde se atiende: un lead es
+   * quien llega por un anuncio, y aquí se ve cuántos de los que hay delante
+   * escribieron porque la publicidad los trajo. Se cuenta sobre la bandeja ya
+   * cargada y no con otra consulta: es la lista que el usuario está mirando,
+   * con su filtro puesto, y cualquier otro número no cuadraría con lo que ve.
+   */
+  const porAnuncio = chats.filter(llegoPorAnuncio).length;
+
   const url = (cambios: { canal?: number; chat?: number | null; estado?: string }) => {
     const p = new URLSearchParams();
     p.set("rango", clave);
@@ -143,6 +155,7 @@ export default async function PaginaConversaciones({ searchParams }: Props) {
           <h1 className="h1-pagina">Conversaciones</h1>
           <p className="tenue" style={{ marginTop: 2 }}>
             {chats.length} en la bandeja de <strong>{canal.nombre}</strong>
+            {chats.length > 0 && ` · ${porAnuncio} por anuncio`}
           </p>
         </div>
 
@@ -218,8 +231,13 @@ export default async function PaginaConversaciones({ searchParams }: Props) {
                   {c.intervencion_humana === 1 && (
                     <span className="pastilla pastilla-intervencion">Intervino</span>
                   )}
-                  {c.producto_anuncio && (
-                    <span className="pastilla pastilla-abierta">{c.producto_anuncio}</span>
+                  {/* El anuncio sin título también se enseña: lo que cuenta
+                      para la publicidad es que llegó por un anuncio, y sin
+                      pastilla el hilo parecería de alguien que escribió solo. */}
+                  {llegoPorAnuncio(c) && (
+                    <span className="pastilla pastilla-abierta">
+                      {c.producto_anuncio ?? "Por anuncio"}
+                    </span>
                   )}
                 </div>
               </Link>
@@ -274,7 +292,7 @@ export default async function PaginaConversaciones({ searchParams }: Props) {
                 </div>
               </div>
 
-              {abierta.producto_anuncio && (
+              {llegoPorAnuncio(abierta) && (
                 <div
                   style={{
                     padding: "9px 16px",
@@ -283,7 +301,8 @@ export default async function PaginaConversaciones({ searchParams }: Props) {
                     fontSize: 12,
                   }}
                 >
-                  <strong>Llegó por un anuncio:</strong> {abierta.producto_anuncio}
+                  <strong>Llegó por un anuncio</strong>
+                  {abierta.producto_anuncio ? `: ${abierta.producto_anuncio}` : ""}
                   {abierta.descripcion_anuncio && (
                     <div className="tenue" style={{ marginTop: 2 }}>{abierta.descripcion_anuncio}</div>
                   )}

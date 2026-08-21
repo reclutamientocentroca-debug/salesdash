@@ -17,6 +17,25 @@ export async function register(): Promise<void> {
   // compilación abriría sesiones en una máquina que no es la que sirve.
   if (process.env.NEXT_PHASE === "phase-production-build") return;
 
+  /*
+   * Primero las ventas, después las sesiones.
+   *
+   * Un resumen de pedido que se mandó ayer es una venta cerrada ayer, y hasta
+   * que no se sella el panel enseña esa conversación como abierta y no la
+   * cuenta. Sellar es mecánico —leer el marcador— y no depende de que WhatsApp
+   * conecte, así que va delante: si la reconexión tarda o falla, las cifras del
+   * panel ya están bien igual.
+   */
+  try {
+    const { barrerCierresPendientes } = await import("@/lib/cierre");
+    const selladas = barrerCierresPendientes();
+    if (selladas > 0) {
+      console.log(`[arranque] ${selladas} venta(s) con resumen de pedido que estaban sin contar`);
+    }
+  } catch (e) {
+    console.error("[arranque] no se pudo barrer los cierres pendientes", e);
+  }
+
   try {
     const { rehidratar } = await import("@/lib/wa");
     await rehidratar();

@@ -109,7 +109,9 @@ test("A no puede escribir en los datos de B", () => {
 test("las métricas de A solo cuentan lo de A", () => {
   assert.equal(D.totalLeads(A.orgId, RANGO), 1);
   assert.equal(D.conteoPorEstado(A.orgId, RANGO).ia, 1);
-  assert.equal(D.resumenVentas(A.orgId, RANGO).suma, 1000);
+  // 1000 de pedido con 200 de envío: lo facturado son 800. El envío se cobra y
+  // se paga, no se factura.
+  assert.equal(D.resumenVentas(A.orgId, RANGO).facturado, 800);
 
   const canales = D.metricasPorCanal(A.orgId, RANGO);
   assert.equal(canales.length, 1);
@@ -181,6 +183,10 @@ test("ninguna función de lectura de db.ts omite el orgId", async () => {
     // El socket de WhatsApp tampoco tiene sesión: deduce la organización desde
     // el canal, y la reconexión al arrancar solo devuelve identificadores.
     "obtenerCanalSinOrg", "canalesParaReconectar",
+    // Misma clase: el barrido de cierres del arranque no tiene sesión de la que
+    // deducir la organización. Devuelve identificadores y nada más, y cada uno
+    // vuelve como `orgId` de las funciones normales.
+    "orgsConConversacionesAbiertas",
     // Ruta del disco, no una consulta.
     "rutaDatos",
   ]);

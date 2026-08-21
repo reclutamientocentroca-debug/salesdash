@@ -36,6 +36,10 @@ import {
   type Mensaje,
   type Rango,
 } from "./db";
+import { anuncioParaModelo } from "./anuncio";
+// El marcador lo reconoce `cierre.ts`, que es quien sella al entrar el mensaje.
+// Aquí se usa la MISMA función: dos formas de leerlo darían dos verdades.
+import { contieneMarcador } from "./cierre";
 import { completar, completarJson, ErrorIA, type Mensaje as MensajeIA } from "./ia";
 import { comoDataUrl } from "./media";
 import { revisarConversacion } from "./anomalies";
@@ -58,9 +62,6 @@ export interface ResultadoAnalisis {
 // Reglas mecánicas
 // ─────────────────────────────────────────────────────────────────────────────
 
-function contieneMarcador(texto: string, marcador: string): boolean {
-  return texto.toLowerCase().includes(marcador.toLowerCase().trim());
-}
 
 interface Senal {
   quien: "ia" | "humano";
@@ -325,18 +326,37 @@ function transcribir(mensajes: Mensaje[]): string {
   return aviso + lineas.join("\n");
 }
 
-function promptAnalista(marcador: string, estadoMecanico: Estado | null): string {
+/**
+ * El hilo, precedido por el anuncio que trajo al cliente.
+ *
+ * Sin esto el analista lee «quiero dos» y no tiene forma de saber dos de qué:
+ * el producto se nombró en el anuncio, no en la conversación, y la venta se
+ * quedaba sin nombre en el ranking.
+ */
+function conElAnuncio(conv: Conversacion, hilo: string): string {
+  const anuncio = anuncioParaModelo(conv);
+  return anuncio ? `${anuncio}\n\n${hilo}` : hilo;
+}
+
+function promptAnalista(
+  marcador: string,
+  estadoMecanico: Estado | null,
+  conAnuncio: boolean,
+): string {
   return `Eres un analista de ventas por WhatsApp. Lees una conversación y extraes los datos del pedido.
 
 Responde SOLO con este JSON, sin texto adicional y sin backticks:
 {"estado":"cerrada_ia|cerrada_humano|abierta|revision","senal_de_cierre":"resumen_ia|imagen_factura|confirmacion_texto|ninguna","justificacion":"una línea explicando qué señal usaste","resumen_pedido":"producto, cantidad, talla, total, envío","producto_vendido":"nombre normalizado","total":null,"envio":null,"datos_faltantes":[],"cliente_sin_respuesta":false,"motivo_perdida":"precio|falta de foto|costo de envío|sin respuesta|duda no resuelta|no aplica"}
 
 Reglas:
-- El mensaje de cierre de la IA contiene el marcador "${marcador}".
+- El mensaje de cierre de la IA contiene el marcador "${marcador}", con o sin palabras en medio: "${marcador}" y "${marcador.replace(/:\s*$/, "")} de su pedido:" son la misma señal.
 - La venta pertenece a quien produjo la PRIMERA señal de cierre. Lo posterior no cuenta.
 - "total" y "envio" son números, sin símbolo de moneda. Si no aparecen, null.
+- "total" es TODO lo que el cliente va a pagar, con el envío dentro si lo hay. "envio" es la parte de ese total que es transporte. Si el cliente dice "2500 más 300 de envío", entonces total=2800 y envio=300.
 - "datos_faltantes" lista lo que el pedido necesita y no está (talla, color, dirección…).
-- "motivo_perdida" solo si la conversación no cerró; si cerró, "no aplica".
+- "motivo_perdida" solo si la conversación no cerró; si cerró, "no aplica".${conAnuncio ? `
+- Arriba del hilo está el anuncio por el que escribió este cliente. Úsalo para "producto_vendido" cuando la venta cerró y en el hilo nadie llegó a nombrar el producto: es lo que el cliente vino a comprar.
+- Que llegara por un anuncio NO cierra nada. Si no hay señal de cierre, la conversación está abierta igual.` : ""}
 ${
   estadoMecanico
     ? `- El estado YA está determinado como "${estadoMecanico}". Respétalo y limítate a extraer los datos del pedido.`
@@ -356,9 +376,17 @@ export async function analizarConversacion(
   const conv = getConversation(orgId, conversationId);
   if (!conv) throw new Error("La conversación no existe");
 
-  // Sellada: no se reevalúa. Ni se describen sus imágenes, que es donde se
-  // iba la mayor parte del gasto de visión.
-  if (conv.fecha_cierre !== null) {
+  /*
+   * Sellada Y ya analizada: no se toca. Ni se describen sus imágenes, que es
+   * donde se iba la mayor parte del gasto de visión.
+   *
+   * Sellada pero SIN analizar es otra cosa: es una venta que se cerró sola al
+   * llegar el mensaje con el marcador. Quién cerró ya está decidido y no se
+   * vuelve a tocar, pero el pedido —producto, total, envío— sigue sin sacar, y
+   * es lo que hace falta para que la venta facture. Antes esta rama la
+   * devolvía intacta y esas ventas se quedaban en cero para siempre.
+   */
+  if (conv.fecha_cierre !== null && conv.analizada_at !== null) {
     return {
       conversationId,
       estado: conv.cerrado_por,
@@ -397,31 +425,53 @@ export async function analizarConversacion(
   const conAudio = listarMensajes(orgId, conversationId);
 
   // ── Paso 3 y 4: reglas mecánicas, con visión solo si hace falta ──────────
-  const { senales, imagenSinDescribir } = await buscarPrimeraSenal(marcador, conAudio, (m) =>
-    describirImagen(orgId, modeloVision, m),
-  );
+  /*
+   * Si la conversación ya venía sellada, este paso se salta ENTERO.
+   *
+   * Quién cerró está decidido desde que entró el mensaje con el marcador, y
+   * volver a buscarlo no cambiaría nada —`sellarCierre` no reclasifica— pero sí
+   * pagaría la visión de todas las imágenes del hilo. Aquí solo queda extraer
+   * el pedido, y para eso basta el modelo de texto.
+   */
+  const yaSellada = conv.fecha_cierre !== null;
 
-  let estado: Estado | null = null;
-  let senal: string | null = null;
+  let senales: Senal[] = [];
+  let estado: Estado | null = yaSellada && conv.cerrado_por !== "revision" ? conv.cerrado_por : null;
+  let senal: string | null = yaSellada ? conv.senal_de_cierre : null;
   let motivoRevision: string | null = null;
 
-  if (senales.length) {
-    const distintos = new Set(senales.map((s) => s.quien));
-    if (distintos.size > 1) {
-      // Empate de marcas de tiempo: dos señales en el mismo segundo y de
-      // dueños distintos. No se adivina, va a revisión.
+  if (!yaSellada) {
+    const mecanicas = await buscarPrimeraSenal(marcador, conAudio, (m) =>
+      describirImagen(orgId, modeloVision, m),
+    );
+    senales = mecanicas.senales;
+
+    if (senales.length) {
+      const distintos = new Set(senales.map((x) => x.quien));
+      if (distintos.size > 1) {
+        // Empate de marcas de tiempo: dos señales en el mismo segundo y de
+        // dueños distintos. No se adivina, va a revisión.
+        estado = "revision";
+        motivoRevision = "Dos señales de cierre con la misma hora: no se puede saber cuál fue primero.";
+      } else {
+        estado = senales[0]!.quien;
+        senal = senales[0]!.senal;
+      }
+    } else if (mecanicas.imagenSinDescribir) {
       estado = "revision";
-      motivoRevision = "Dos señales de cierre con la misma hora: no se puede saber cuál fue primero.";
-    } else {
-      estado = senales[0]!.quien;
-      senal = senales[0]!.senal;
+      motivoRevision = "Hay una imagen del vendedor que no se pudo describir.";
     }
-  } else if (imagenSinDescribir) {
-    estado = "revision";
-    motivoRevision = "Hay una imagen del vendedor que no se pudo describir.";
   }
 
   // ── Paso 5: el modelo de texto ──────────────────────────────────────────
+  /*
+   * Se relee el hilo por última vez. Las transcripciones y las descripciones
+   * de imagen se acaban de escribir en los pasos 3 y 4, y la copia `mensajes`
+   * es anterior a todas: pasándole esa, el analista leería «[nota de voz]» y
+   * «[imagen]» a secas, que son justo los huecos que esos dos pasos tapan.
+   */
+  const completos = listarMensajes(orgId, conversationId);
+
   let salida: SalidaAnalista | null = null;
   let falloModelo = false;
 
@@ -431,8 +481,15 @@ export async function analizarConversacion(
       proposito: "analisis",
       modelo: modeloTexto,
       mensajes: [
-        { role: "system", content: promptAnalista(marcador, estado === "revision" ? null : estado) },
-        { role: "user", content: transcribir(mensajes) },
+        {
+          role: "system",
+          content: promptAnalista(
+            marcador,
+            estado === "revision" ? null : estado,
+            anuncioParaModelo(conv) !== null,
+          ),
+        },
+        { role: "user", content: conElAnuncio(conv, transcribir(completos)) },
       ],
       maxTokens: 600,
       temperatura: 0,
@@ -444,6 +501,8 @@ export async function analizarConversacion(
   }
 
   // ── Paso 6: lo que no se resolvió, a revisión ───────────────────────────
+  // Una conversación ya sellada nunca entra aquí: su estado no está en duda,
+  // solo faltaba el pedido.
   if (estado === null) {
     const delModelo = traducirEstado(salida?.estado);
     if (delModelo === null) {
@@ -471,7 +530,14 @@ export async function analizarConversacion(
         ? salida.motivo_perdida
         : undefined,
     justificacion: justificacion ?? undefined,
-    analizada_at: ahora(),
+    /*
+     * Si el modelo falló en una venta que ya estaba sellada, NO se marca como
+     * analizada. El cierre está contado —eso no dependía del modelo—, pero el
+     * pedido sigue sin extraer: darla por analizada la sacaría de la cola y esa
+     * venta facturaría cero para siempre sin que nada lo señalara. Así el
+     * siguiente barrido vuelve a intentarlo.
+     */
+    analizada_at: yaSellada && falloModelo ? undefined : ahora(),
   });
 
   if (estado === "ia" || estado === "humano") {

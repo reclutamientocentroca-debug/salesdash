@@ -196,7 +196,20 @@ function traducir(m: WAMessage): MensajeEntrante | null {
         ? (marca as { toNumber(): number }).toNumber()
         : ahora();
 
-  const anuncio = real.extendedTextMessage?.contextInfo?.externalAdReply;
+  /*
+   * El anuncio no viaja solo en los mensajes de texto. Un click-to-WhatsApp
+   * abre el chat con un `extendedTextMessage`, sí, pero el cliente puede llegar
+   * mandando la foto del anuncio o una nota de voz, y entonces el
+   * `externalAdReply` viene colgado del `contextInfo` de ESE mensaje. Mirando
+   * solo el de texto, ese cliente entraba como si hubiera escrito por su cuenta.
+   */
+  const anuncio = (
+    real.extendedTextMessage ??
+    real.imageMessage ??
+    real.videoMessage ??
+    real.audioMessage ??
+    real.documentMessage
+  )?.contextInfo?.externalAdReply;
 
   return {
     id,

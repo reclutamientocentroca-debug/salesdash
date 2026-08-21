@@ -19,7 +19,9 @@
  * Las métricas son agregados. Los datos personales de los clientes de tus
  * clientes no se exponen en esta consola.
  */
-import { ahora, db, type SoporteAcceso } from "./db";
+// `deAnuncio` es la MISMA condición que usa el panel del cliente: aquí abajo,
+// «lead» tiene que significar exactamente lo que significa allí.
+import { ahora, db, deAnuncio, facturado, type SoporteAcceso } from "./db";
 import type { Contexto } from "./tenant";
 
 /** Puerta de entrada. Si esto falla, no se ejecuta nada más. */
@@ -41,7 +43,10 @@ export interface ResumenPlataforma {
   cuentas_suspendidas: number;
   numeros_conectados: number;
   agentes_activos: number;
+  /** Toda conversación abierta. Es el trabajo que ha procesado la plataforma. */
   leads: number;
+  /** De ellas, las que trajo un anuncio: los leads por los que se paga. */
+  leads_anuncio: number;
   cierres_ia: number;
   cierres_humano: number;
   ventas_totales: number;
@@ -69,11 +74,12 @@ export function resumenPlataforma(ctx: Contexto): ResumenPlataforma {
      FROM canales`,
   );
 
-  const conv = uno<{ leads: number; ia: number; humano: number; ventas: number }>(
+  const conv = uno<{ leads: number; anuncio: number; ia: number; humano: number; ventas: number }>(
     `SELECT COUNT(*) AS leads,
+            SUM(CASE WHEN ${deAnuncio()} THEN 1 ELSE 0 END) AS anuncio,
             SUM(CASE WHEN cerrado_por = 'ia' THEN 1 ELSE 0 END) AS ia,
             SUM(CASE WHEN cerrado_por = 'humano' THEN 1 ELSE 0 END) AS humano,
-            COALESCE(SUM(CASE WHEN cerrado_por IN ('ia','humano') THEN total END), 0) AS ventas
+            COALESCE(SUM(CASE WHEN cerrado_por IN ('ia','humano') THEN ${facturado()} END), 0) AS ventas
        FROM conversations`,
   );
 
@@ -84,6 +90,7 @@ export function resumenPlataforma(ctx: Contexto): ResumenPlataforma {
     numeros_conectados: canales.conectados ?? 0,
     agentes_activos: canales.con_agente ?? 0,
     leads: conv.leads,
+    leads_anuncio: conv.anuncio ?? 0,
     cierres_ia: conv.ia ?? 0,
     cierres_humano: conv.humano ?? 0,
     ventas_totales: Math.round((conv.ventas ?? 0) * 100) / 100,
@@ -103,6 +110,7 @@ export interface FilaOrg {
   numeros: number;
   numeros_conectados: number;
   leads_mes: number;
+  leads_anuncio_mes: number;
   cierres_ia: number;
   cierres_humano: number;
   tasa_cierre: number;
@@ -126,6 +134,8 @@ export function listarOrgs(ctx: Contexto): FilaOrg[] {
          (SELECT COUNT(*) FROM canales c WHERE c.org_id = o.id AND c.agente_activo = 1) AS con_agente,
          (SELECT COUNT(*) FROM conversations v WHERE v.org_id = o.id AND v.fecha_inicio >= ?) AS leads_mes,
          (SELECT COUNT(*) FROM conversations v WHERE v.org_id = o.id AND v.fecha_inicio >= ?
+            AND ${deAnuncio("v.")}) AS leads_anuncio_mes,
+         (SELECT COUNT(*) FROM conversations v WHERE v.org_id = o.id AND v.fecha_inicio >= ?
             AND v.cerrado_por = 'ia') AS cierres_ia,
          (SELECT COUNT(*) FROM conversations v WHERE v.org_id = o.id AND v.fecha_inicio >= ?
             AND v.cerrado_por = 'humano') AS cierres_humano,
@@ -135,10 +145,10 @@ export function listarOrgs(ctx: Contexto): FilaOrg[] {
        FROM orgs o
        ORDER BY o.created_at DESC`,
     )
-    .all(desdeMes, desdeMes, desdeMes) as {
+    .all(desdeMes, desdeMes, desdeMes, desdeMes) as {
     id: number; nombre: string; suspendida: number; created_at: number;
     correo_dueno: string | null; numeros: number; conectados: number; con_agente: number;
-    leads_mes: number; cierres_ia: number; cierres_humano: number;
+    leads_mes: number; leads_anuncio_mes: number; cierres_ia: number; cierres_humano: number;
     ultima_actividad: number | null; anomalias_altas: number;
   }[];
 
@@ -151,6 +161,7 @@ export function listarOrgs(ctx: Contexto): FilaOrg[] {
     numeros: f.numeros,
     numeros_conectados: f.conectados,
     leads_mes: f.leads_mes,
+    leads_anuncio_mes: f.leads_anuncio_mes,
     cierres_ia: f.cierres_ia,
     cierres_humano: f.cierres_humano,
     tasa_cierre:
@@ -184,7 +195,7 @@ export interface FichaOrg {
     ultimo_evento_at: number | null; webhook_vivo: boolean;
   }[];
   metricas: {
-    leads: number; cierres_ia: number; cierres_humano: number;
+    leads: number; leads_anuncio: number; cierres_ia: number; cierres_humano: number;
     abiertas: number; revision: number; ventas: number;
   };
   anomalias: { tipo: string; severidad: string; n: number }[];
@@ -222,15 +233,17 @@ export function fichaOrg(ctx: Contexto, orgId: number): FichaOrg | null {
   const m = db
     .prepare(
       `SELECT COUNT(*) AS leads,
+              SUM(CASE WHEN ${deAnuncio()} THEN 1 ELSE 0 END) AS anuncio,
               SUM(CASE WHEN cerrado_por = 'ia' THEN 1 ELSE 0 END) AS ia,
               SUM(CASE WHEN cerrado_por = 'humano' THEN 1 ELSE 0 END) AS humano,
               SUM(CASE WHEN cerrado_por = 'abierta' THEN 1 ELSE 0 END) AS abiertas,
               SUM(CASE WHEN cerrado_por = 'revision' THEN 1 ELSE 0 END) AS revision,
-              COALESCE(SUM(CASE WHEN cerrado_por IN ('ia','humano') THEN total END), 0) AS ventas
+              COALESCE(SUM(CASE WHEN cerrado_por IN ('ia','humano') THEN ${facturado()} END), 0) AS ventas
          FROM conversations WHERE org_id = ?`,
     )
     .get(orgId) as {
-    leads: number; ia: number; humano: number; abiertas: number; revision: number; ventas: number;
+    leads: number; anuncio: number; ia: number; humano: number;
+    abiertas: number; revision: number; ventas: number;
   };
 
   const anomalias = db
@@ -277,6 +290,7 @@ export function fichaOrg(ctx: Contexto, orgId: number): FichaOrg | null {
     })),
     metricas: {
       leads: m.leads,
+      leads_anuncio: m.anuncio ?? 0,
       cierres_ia: m.ia ?? 0,
       cierres_humano: m.humano ?? 0,
       abiertas: m.abiertas ?? 0,

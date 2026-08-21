@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import AnalizarBoton from "@/components/panel/AnalizarBoton";
 import { Burbuja } from "@/components/panel/Burbuja";
 import { Pastilla, dinero, fechaHora } from "@/components/panel/Piezas";
+import { llegoPorAnuncio } from "@/lib/anuncio";
 import { getConversation, listarCanales, listarMensajes } from "@/lib/db";
 import { requerirSesion } from "@/lib/tenant";
 
@@ -75,10 +76,29 @@ export default async function PaginaConversacion({ params, searchParams }: Props
               <Dato etiqueta="Producto" valor={conv.producto_vendido ?? "—"} />
               <Dato etiqueta="Total" valor={dinero(conv.total)} />
               <Dato etiqueta="Envío" valor={dinero(conv.envio)} />
-              <Dato etiqueta="Del anuncio" valor={conv.producto_anuncio ?? "—"} />
+              <Dato
+                etiqueta="Del anuncio"
+                valor={
+                  conv.producto_anuncio ??
+                  (llegoPorAnuncio(conv) ? "Anuncio sin título" : "—")
+                }
+              />
               <Dato etiqueta="Primer mensaje" valor={fechaHora(conv.fecha_inicio)} />
               <Dato etiqueta="Cierre" valor={fechaHora(conv.fecha_cierre)} />
             </dl>
+
+            {/*
+              Lo que el anuncio le prometió a este cliente. Va con el pedido y
+              no en una tarjeta aparte porque es lo que se lee justo antes de
+              entender por qué pide lo que pide: el título dice qué producto lo
+              trajo, y el texto, qué se le dijo que iba a encontrar.
+            */}
+            {conv.descripcion_anuncio && (
+              <p style={{ marginTop: 12, fontSize: 12.5, color: "var(--ink-2)" }}>
+                <strong style={{ color: "var(--ink)" }}>Prometía:</strong>{" "}
+                {conv.descripcion_anuncio}
+              </p>
+            )}
 
             {conv.resumen_pedido && (
               <p style={{ marginTop: 12, fontSize: 12.5, color: "var(--ink-2)" }}>{conv.resumen_pedido}</p>

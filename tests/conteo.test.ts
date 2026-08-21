@@ -2,6 +2,9 @@ import "./entorno";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as D from "../src/lib/db";
+import { llegoPorAnuncio, anuncioParaModelo } from "../src/lib/anuncio";
+import { sellarCierresPendientes } from "../src/lib/cierre";
+import { informeDeCanal } from "../src/lib/informe";
 import { calcularMetricas, rellenarDias } from "../src/lib/metrics";
 
 /**
@@ -108,8 +111,8 @@ test("el gráfico rellena los días sin actividad", () => {
   // serieDiaria solo devuelve días con datos: sin rellenar, un martes en cero
   // desaparece y la línea une el lunes con el miércoles ocultando la caída.
   const serie = [
-    { dia: "2026-08-15", leads: 7, cierres_ia: 2, cierres_humano: 1 },
-    { dia: "2026-08-18", leads: 5, cierres_ia: 3, cierres_humano: 2 },
+    { dia: "2026-08-15", leads: 7, leads_anuncio: 4, cierres_ia: 2, cierres_humano: 1 },
+    { dia: "2026-08-18", leads: 5, leads_anuncio: 2, cierres_ia: 3, cierres_humano: 2 },
   ];
   const desde = Math.floor(Date.parse("2026-08-15T00:00:00Z") / 1000);
   const hasta = Math.floor(Date.parse("2026-08-18T23:59:59Z") / 1000);
@@ -190,5 +193,425 @@ test("los leads de anuncio se cuentan aparte del total", () => {
   assert.equal(p?.descripcion, "Zapatos de cuero · envío gratis", "la descripción del anuncio se conserva");
 
   // Se deja como estaba para no arrastrar estado a otras pruebas del archivo.
-  D.actualizarConversacion(orgId, deAnuncio, { producto_anuncio: null });
+  D.actualizarConversacion(orgId, deAnuncio, { producto_anuncio: null, origen: null });
+});
+
+/**
+ * Un anuncio sin título sigue siendo un anuncio.
+ *
+ * Meta no siempre manda `title`: hay creatividades que solo llevan texto. Si el
+ * conteo se hace sobre el título, ese cliente aparece como que escribió por su
+ * cuenta y la publicidad que lo trajo no se lleva el mérito — que es justo la
+ * cifra por la que se paga.
+ */
+test("el que llega por un anuncio sin título cuenta igual como lead de anuncio", () => {
+  const antes = calcularMetricas(orgId, RANGO);
+
+  const sinTitulo = D.getOrCreateConversation(orgId, canalId, `1809888${siguiente++}`, {
+    cuando: 1_700_000_000,
+    origen: "anuncio",
+    productoAnuncio: null,
+    descripcionAnuncio: "Colchones ortopédicos · entrega en 24 horas",
+  }).conversacion.id;
+
+  const m = calcularMetricas(orgId, RANGO);
+
+  assert.equal(m.leads_anuncio, antes.leads_anuncio + 1, "sin título, pero lo trajo el anuncio");
+  assert.equal(
+    m.escribieron_por_su_cuenta,
+    antes.escribieron_por_su_cuenta,
+    "no escribió por su cuenta: venía de un anuncio",
+  );
+  assert.equal(
+    m.leads_anuncio + m.escribieron_por_su_cuenta,
+    m.leads,
+    "los dos grupos tienen que seguir sumando el total exacto",
+  );
+  assert.equal(m.cuadra, true);
+
+  const fila = m.productos_anuncio.find(
+    (p) => p.descripcion === "Colchones ortopédicos · entrega en 24 horas",
+  );
+  assert.equal(fila?.leads, 1, "el anuncio sin título tiene su propia fila");
+  assert.equal(fila?.producto, "Anuncio sin título", "la fila se nombra, no se deja en blanco");
+
+  D.actualizarConversacion(orgId, sinTitulo, { origen: null, descripcion_anuncio: null });
+});
+
+/**
+ * El anuncio puede llegar después del «hola».
+ *
+ * El cliente escribe, y es el segundo mensaje —o el de días más tarde, al
+ * pinchar el anuncio— el que trae el `externalAdReply`. Antes ese lead se
+ * quedaba para siempre contado como que escribió por su cuenta.
+ */
+test("el anuncio que llega tarde se anota en la conversación que ya existía", () => {
+  const telefono = `1809777${siguiente++}`;
+  const primera = D.getOrCreateConversation(orgId, canalId, telefono, { cuando: 1_700_000_000 });
+  assert.equal(primera.nueva, true);
+  assert.equal(primera.conversacion.producto_anuncio, null);
+
+  const antes = calcularMetricas(orgId, RANGO);
+
+  const segunda = D.getOrCreateConversation(orgId, canalId, telefono, {
+    cuando: 1_700_000_500,
+    origen: "anuncio",
+    productoAnuncio: "Nevera 12 pies",
+    descripcionAnuncio: "Nevera 12 pies · 0 % de interés a 6 meses",
+  });
+
+  assert.equal(segunda.nueva, false, "el lead no se cuenta dos veces");
+  assert.equal(segunda.conversacion.producto_anuncio, "Nevera 12 pies");
+  assert.equal(segunda.conversacion.descripcion_anuncio, "Nevera 12 pies · 0 % de interés a 6 meses");
+
+  const m = calcularMetricas(orgId, RANGO);
+  assert.equal(m.leads, antes.leads, "no nace ningún lead nuevo: es el mismo cliente");
+  assert.equal(m.leads_anuncio, antes.leads_anuncio + 1, "pero ahora se sabe que lo trajo el anuncio");
+  assert.equal(m.escribieron_por_su_cuenta, antes.escribieron_por_su_cuenta - 1);
+
+  // Un segundo anuncio no le roba el lead al primero: se cuenta una sola vez, y
+  // esa vez la pagó quien lo trajo.
+  const tercera = D.getOrCreateConversation(orgId, canalId, telefono, {
+    cuando: 1_700_001_000,
+    origen: "anuncio",
+    productoAnuncio: "Estufa de 4 hornillas",
+    descripcionAnuncio: "Estufa de 4 hornillas · envío gratis",
+  });
+  assert.equal(tercera.conversacion.producto_anuncio, "Nevera 12 pies", "manda el anuncio que lo trajo");
+
+  D.actualizarConversacion(orgId, primera.conversacion.id, {
+    origen: null, producto_anuncio: null, descripcion_anuncio: null,
+  });
+});
+
+
+/**
+ * La condición de «llegó por un anuncio» está escrita dos veces: en SQL para
+ * contar y en JavaScript para pintar. Esta prueba las enfrenta.
+ *
+ * Si alguien toca una y se olvida de la otra, el panel enseña una pastilla de
+ * anuncio en un hilo que el dashboard no está contando —o al revés—, y el
+ * número que se mira para decidir cuánto se invierte en publicidad deja de
+ * corresponder con los hilos que se pueden abrir y leer.
+ */
+test("la bandeja y el conteo deciden lo mismo sobre quién vino de un anuncio", () => {
+  D.getOrCreateConversation(orgId, canalId, `1809555${siguiente++}`, {
+    cuando: 1_700_000_000,
+    origen: "anuncio",
+    productoAnuncio: "Aire acondicionado",
+    descripcionAnuncio: "Aire 12 000 BTU · instalación incluida",
+  });
+  D.getOrCreateConversation(orgId, canalId, `1809556${siguiente++}`, {
+    cuando: 1_700_000_000,
+    origen: "anuncio",
+    productoAnuncio: null,
+    descripcionAnuncio: "Sin título, pero de un anuncio",
+  });
+  nuevaConversacion();
+
+  const m = calcularMetricas(orgId, RANGO);
+  const enPantalla = D.listarConversaciones(orgId, { limite: 500 }).filter(llegoPorAnuncio);
+
+  assert.equal(
+    enPantalla.length,
+    m.leads_anuncio,
+    "lo que el panel marca como de anuncio es exactamente lo que el conteo suma",
+  );
+});
+
+/**
+ * El anuncio que se le pasa a la IA. Es texto, no una cifra, pero decide lo
+ * mismo: lo que el agente sabe del cliente antes de escribirle.
+ */
+test("el anuncio se le cuenta a la IA con producto y promesa", () => {
+  const completo = anuncioParaModelo({
+    origen: "anuncio",
+    producto_anuncio: "Estufa de 4 hornillas",
+    descripcion_anuncio: "Estufa de 4 hornillas · envío gratis",
+  });
+  assert.ok(completo?.includes("Estufa de 4 hornillas"));
+  assert.ok(completo?.includes("envío gratis"), "la promesa del anuncio va incluida");
+
+  const sinTitulo = anuncioParaModelo({
+    origen: "anuncio",
+    producto_anuncio: null,
+    descripcion_anuncio: "Colchones ortopédicos",
+  });
+  assert.ok(sinTitulo?.includes("Colchones ortopédicos"));
+  assert.ok(sinTitulo?.includes("no traía título"), "se dice que falta, no se calla");
+
+  assert.equal(
+    anuncioParaModelo({ origen: null, producto_anuncio: null, descripcion_anuncio: null }),
+    null,
+    "sin anuncio no se le mete nada al prompt",
+  );
+});
+
+
+/**
+ * Lo facturado es el pedido, no lo cobrado.
+ *
+ * El envío se le cobra al cliente y se le paga al mensajero: sumarlo a la
+ * facturación infla la cifra justo con el dinero que el negocio no se queda, y
+ * es el número que el dueño compara con lo que le entra de verdad.
+ */
+test("lo facturado descuenta el envío del total del pedido", () => {
+  const antes = calcularMetricas(orgId, RANGO);
+
+  const conEnvio = nuevaConversacion();
+  D.actualizarConversacion(orgId, conEnvio, {
+    total: 2800, envio: 300, producto_vendido: "Nevera 12 pies",
+  });
+  D.sellarCierre(orgId, conEnvio, {
+    cerradoPor: "ia", senal: "resumen_ia", fechaCierre: 1_700_000_100,
+  });
+
+  const m = calcularMetricas(orgId, RANGO);
+
+  assert.equal(m.facturado, antes.facturado + 2500, "2800 cobrados menos 300 de envío");
+  assert.equal(m.facturado_ia, antes.facturado_ia + 2500, "lo cerró la IA, así que es suyo");
+  assert.equal(m.envios_cobrados, antes.envios_cobrados + 300, "el envío se enseña aparte, no se pierde");
+
+  const fila = m.top_productos.find((x) => x.producto === "Nevera 12 pies");
+  assert.equal(fila?.monto, 2500, "el ranking cuenta lo mismo: un producto no vende más por ir más lejos");
+});
+
+/**
+ * Los montos los saca un modelo de un chat escrito a mano. De vez en cuando
+ * apunta un envío mayor que el total —el cliente escribió el precio sin el
+ * envío, o el modelo se equivocó—. Esa fila no puede restarle a las demás: una
+ * venta mal leída bajaría la facturación del mes entero.
+ */
+test("un envío mayor que el total no le resta a la facturación", () => {
+  const antes = calcularMetricas(orgId, RANGO);
+
+  const raro = nuevaConversacion();
+  D.actualizarConversacion(orgId, raro, { total: 500, envio: 900 });
+  D.sellarCierre(orgId, raro, {
+    cerradoPor: "humano", senal: "confirmacion_texto", fechaCierre: 1_700_000_200,
+  });
+
+  const m = calcularMetricas(orgId, RANGO);
+  assert.equal(m.facturado, antes.facturado, "aporta cero, nunca en negativo");
+  assert.ok(m.facturado >= 0);
+});
+
+/**
+ * El filtro «solo leads de anuncio» tiene que alcanzar a TODO el panel.
+ *
+ * Es lo que se rompe solo si algún día se añade una consulta de métricas que no
+ * pase por `filtroRango`: el conteo de leads se filtraría y los cierres no, la
+ * tasa dividiría cierres de todo el mundo entre leads de anuncio —y pasaría del
+ * 100 %—, y la invariante que el panel enseña en rojo dejaría de cuadrar sin
+ * que nada estuviera roto de verdad.
+ */
+test("filtrando por anuncio, el panel entero cuenta solo a esos leads", () => {
+  const conAnuncio = D.getOrCreateConversation(orgId, canalId, `1809666${siguiente++}`, {
+    cuando: 1_700_000_000,
+    origen: "anuncio",
+    productoAnuncio: "Abanico de techo",
+    descripcionAnuncio: "Abanico de techo · instalación incluida",
+  }).conversacion.id;
+  D.actualizarConversacion(orgId, conAnuncio, { total: 3000, envio: 500 });
+  D.sellarCierre(orgId, conAnuncio, {
+    cerradoPor: "ia", senal: "resumen_ia", fechaCierre: 1_700_000_600,
+  });
+
+  const todos = calcularMetricas(orgId, RANGO);
+  const soloAnuncio = calcularMetricas(orgId, { ...RANGO, soloAnuncio: true });
+
+  assert.equal(soloAnuncio.leads, todos.leads_anuncio, "el total pasa a ser el de anuncio");
+  assert.equal(soloAnuncio.leads_anuncio, soloAnuncio.leads);
+  assert.equal(soloAnuncio.escribieron_por_su_cuenta, 0, "quien escribió solo no entra");
+  assert.equal(soloAnuncio.cuadra, true, "la invariante cuadra también dentro del filtro");
+  assert.ok(soloAnuncio.leads < todos.leads, "y es un panel más pequeño que el de todos");
+
+  assert.ok(
+    soloAnuncio.tasa_cierre_total <= 100,
+    `la tasa no puede pasar del 100 % (salió ${soloAnuncio.tasa_cierre_total})`,
+  );
+  assert.ok(
+    soloAnuncio.cierres_ia <= todos.cierres_ia && soloAnuncio.facturado <= todos.facturado,
+    "los cierres y lo facturado se filtran con los leads, no se quedan con el total",
+  );
+
+  const dia = soloAnuncio.serie_diaria.find((d) => d.leads > 0);
+  assert.ok(dia, "el gráfico tiene que traer algún día con leads");
+  assert.equal(dia.leads, dia.leads_anuncio, "en el gráfico filtrado las dos líneas son la misma");
+
+  const canal = soloAnuncio.por_canal.find((c) => c.canal_id === canalId);
+  assert.equal(canal?.leads, canal?.leads_anuncio, "y en la tabla por número, también");
+
+  D.actualizarConversacion(orgId, conAnuncio, { origen: null, producto_anuncio: null });
+});
+
+/**
+ * Una venta con resumen de pedido dentro es una venta cerrada, aunque el
+ * resumen se mandara antes de que existiera el sellado automático.
+ *
+ * Es la avería que se veía en el panel: conversaciones con su pedido escrito en
+ * el hilo, que seguían apareciendo como abiertas y no entraban en el conteo de
+ * cierres de la IA. El barrido del arranque las sella con la hora del mensaje
+ * que las cerró, no con la de hoy.
+ */
+test("el barrido cuenta las ventas con resumen que nadie había sellado", () => {
+  const antes = calcularMetricas(orgId, RANGO);
+
+  const vieja = nuevaConversacion();
+  D.insertMessage(orgId, {
+    conversationId: vieja, whapiMessageId: `viejo-${siguiente++}`, emisor: "cliente",
+    tipo: "texto", content: "¿me lo pueden enviar hoy?", createdAt: 1_700_000_100,
+  });
+  D.insertMessage(orgId, {
+    conversationId: vieja, whapiMessageId: `viejo-${siguiente++}`, emisor: "ia",
+    tipo: "texto", content: "Resumen: 1 camisa manga larga, total 1850, envío 200",
+    createdAt: 1_700_000_400,
+  });
+
+  const sinBarrer = calcularMetricas(orgId, RANGO);
+  assert.equal(sinBarrer.cierres_ia, antes.cierres_ia, "todavía nadie la ha contado");
+  assert.equal(D.getConversation(orgId, vieja)?.cerrado_por, "abierta");
+
+  assert.equal(sellarCierresPendientes(orgId), 1, "el barrido encuentra exactamente esa");
+
+  const conv = D.getConversation(orgId, vieja);
+  assert.equal(conv?.cerrado_por, "ia", "el resumen lo mandó la IA sola: la venta es suya");
+  assert.equal(conv?.senal_de_cierre, "resumen_ia");
+  assert.equal(conv?.fecha_cierre, 1_700_000_400, "se cierra cuando se cerró, no cuando se barrió");
+
+  const m = calcularMetricas(orgId, RANGO);
+  assert.equal(m.cierres_ia, antes.cierres_ia + 1, "ahora sí cuenta como cierre de la IA");
+  assert.equal(m.sin_cerrar, sinBarrer.sin_cerrar - 1, "y deja de contar como abierta");
+  assert.equal(m.cuadra, true);
+
+  assert.equal(sellarCierresPendientes(orgId), 0, "pasarlo dos veces no sella nada nuevo");
+});
+
+/**
+ * El barrido no le regala a la IA una venta que trabajó una persona: es la
+ * misma regla de atribución del sellado en vivo, no una copia relajada.
+ */
+test("si un vendedor escribió antes, el barrido sella la venta como suya", () => {
+  const hilo = nuevaConversacion();
+  D.insertMessage(orgId, {
+    conversationId: hilo, whapiMessageId: `mixto-${siguiente++}`, emisor: "humano",
+    tipo: "texto", content: "ya mismo te confirmo disponibilidad", createdAt: 1_700_000_200,
+  });
+  D.insertMessage(orgId, {
+    conversationId: hilo, whapiMessageId: `mixto-${siguiente++}`, emisor: "ia",
+    tipo: "texto", content: "Resumen: 2 pantalones, total 4800", createdAt: 1_700_000_500,
+  });
+
+  assert.equal(sellarCierresPendientes(orgId), 1);
+
+  const conv = D.getConversation(orgId, hilo);
+  assert.equal(conv?.cerrado_por, "humano");
+  assert.equal(conv?.senal_de_cierre, "resumen_tras_intervencion");
+});
+
+/**
+ * UN NÚMERO DONDE CONTESTA UNA IA AJENA.
+ *
+ * El dueño tiene su propio bot en ese WhatsApp. Sus respuestas no salen de aquí
+ * —así que no llevan nuestro identificador— y hasta ahora se guardaban como de
+ * un humano: el panel enseñaba «intervino un humano» en conversaciones donde no
+ * habló ninguno, y le acreditaba al equipo las ventas que cerró esa IA.
+ *
+ * Marcar el número corrige el origen: los mensajes pasan a ser de la IA, y de
+ * ahí se derivan solas la pastilla y la atribución de la venta.
+ */
+test("marcar el número como atendido por una IA corrige lo que ya estaba mal", () => {
+  const hilo = nuevaConversacion();
+  D.insertMessage(orgId, {
+    conversationId: hilo, whapiMessageId: `bot-${siguiente++}`, emisor: "cliente",
+    tipo: "texto", content: "vi el anuncio, ¿precio?", createdAt: 1_700_000_100,
+  });
+  // Lo escribió el bot del dueño, pero entró sin identificador: «humano».
+  D.insertMessage(orgId, {
+    conversationId: hilo, whapiMessageId: `bot-${siguiente++}`, emisor: "humano",
+    tipo: "texto", content: "Resumen de su pedido:\nProducto: cartera\nTOTAL A PAGAR: USD 30",
+    createdAt: 1_700_000_300,
+  });
+  D.recalcularIntervencionHumana(orgId, hilo);
+
+  assert.equal(sellarCierresPendientes(orgId), 1, "el resumen cierra la venta igual");
+  const mal = D.getConversation(orgId, hilo);
+  assert.equal(mal?.cerrado_por, "humano", "pero se la lleva el equipo, que es lo que el dueño ve mal");
+  assert.equal(mal?.intervencion_humana, 1, "y con la pastilla de intervino");
+
+  const r = D.reatribuirCanalAIa(orgId, canalId);
+  assert.ok(r.mensajes >= 1, "reatribuye los mensajes del número");
+  assert.ok(r.cierres >= 1, "y los cierres que venían de una señal de texto");
+
+  const bien = D.getConversation(orgId, hilo);
+  assert.equal(bien?.cerrado_por, "ia", "la venta es de la IA que la cerró");
+  assert.equal(bien?.senal_de_cierre, "resumen_ia");
+  assert.equal(bien?.intervencion_humana, 0, "y no intervino nadie");
+  assert.equal(
+    D.listarMensajes(orgId, hilo).some((m) => m.emisor === "humano"),
+    false,
+    "en este número no hay mensajes de humano: los escribe una IA",
+  );
+});
+
+/**
+ * EL INFORME QUE UNO SE LLEVA.
+ *
+ * Desconectar un número borra sus conversaciones y sus métricas para siempre.
+ * El informe es la única salida por la que el dueño no lo pierde todo, así que
+ * tiene que traer lo mismo que el panel: las cifras del número, sus hilos y lo
+ * que se habló dentro.
+ */
+test("el informe de un número trae sus cifras, sus hilos y lo que se dijo", () => {
+  const canal = D.obtenerCanal(orgId, canalId);
+  assert.ok(canal, "el canal de las pruebas tiene que existir");
+
+  const conv = nuevaConversacion();
+  D.insertMessage(orgId, {
+    conversationId: conv, whapiMessageId: `inf-${siguiente++}`, emisor: "cliente",
+    tipo: "texto", content: "¿tienen la cartera roja?", createdAt: 1_700_000_100,
+  });
+  D.actualizarConversacion(orgId, conv, { cliente_nombre: "Ana <b>Pérez</b>" });
+
+  const m = calcularMetricas(orgId, { ...RANGO, canalId });
+  const { nombre, html } = informeDeCanal(orgId, canal, { ahora: new Date("2026-08-21T12:00:00Z") });
+
+  assert.equal(nombre, "informe-ventas-2026-08-21.html", "el archivo se llama por su número y su día");
+
+  assert.ok(html.includes(`<td class="fuerte">${m.leads}</td>`), "las conversaciones del número");
+  assert.ok(html.includes("Facturado sin envío"), "el dinero, sin el envío");
+  assert.ok(html.includes("Cobertura de la IA"), "los porcentajes con su meta");
+  assert.ok(html.includes("¿tienen la cartera roja?"), "y lo que el cliente escribió");
+
+  /*
+   * Lo de dentro lo escribió gente por WhatsApp: si el nombre de un cliente
+   * lleva etiquetas, tienen que verse como texto y no ejecutarse cuando el
+   * dueño abra su propio informe.
+   */
+  assert.ok(html.includes("Ana &lt;b&gt;Pérez&lt;/b&gt;"), "el HTML de dentro va escapado");
+  assert.equal(html.includes("<b>Pérez</b>"), false);
+
+  // Un archivo de una pieza: sin nada que cargar de fuera, que es lo que le
+  // permite abrirse dentro de dos años y sin internet.
+  assert.equal(/<script|src="http|href="http/i.test(html), false, "nada que traer de la red");
+});
+
+/**
+ * Un número con años de historia no cabe entero en una página que se pueda
+ * abrir. Se recorta, sí — pero el documento tiene que DECIRLO: un informe que
+ * se calla lo que le falta es peor que no tenerlo, porque se confía en él.
+ */
+test("si el informe recorta hilos, lo dice en su cabecera", () => {
+  const canal = D.obtenerCanal(orgId, canalId);
+  assert.ok(canal);
+
+  const { html } = informeDeCanal(orgId, canal, { hilos: 2 });
+
+  assert.ok(html.includes("Se transcriben los 2 hilos más recientes"), "lo avisa arriba del todo");
+  assert.equal((html.match(/class="hilo"/g) ?? []).length, 2, "y transcribe exactamente esos");
+
+  // La tabla de conversaciones sigue entera: se recortan los mensajes, nunca
+  // las ventas.
+  const filas = (html.match(/<a href="#hilo-/g) ?? []).length;
+  assert.ok(filas > 2, `la tabla lista las ${filas} conversaciones, no solo las transcritas`);
 });

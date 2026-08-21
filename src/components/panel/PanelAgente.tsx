@@ -21,6 +21,8 @@ interface CanalAgente {
   nombre: string;
   phone: string | null;
   agente_activo: boolean;
+  /** En este número contesta una IA ajena: el nuestro se calla, esté como esté. */
+  contesta_ia: boolean;
   conectado: boolean;
 }
 
@@ -232,13 +234,19 @@ export default function PanelAgente({
           <div style={{ display: "grid", gap: 12 }}>
             {canales.map((c) => (
               <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                {/*
+                  El interruptor se apaga solo en los números donde ya contesta
+                  otra IA. No es un adorno: el agente tiene su propia guarda y
+                  no habla ahí, y un interruptor que se puede encender pero no
+                  hace nada es una promesa que la pantalla no cumple.
+                */}
                 <button
                   type="button"
                   role="switch"
-                  aria-checked={c.agente_activo}
+                  aria-checked={c.agente_activo && !c.contesta_ia}
                   aria-label={`Agente en ${c.nombre}`}
                   className="sd-switch"
-                  disabled={!c.conectado}
+                  disabled={!c.conectado || c.contesta_ia}
                   onClick={() => alternarCanal(c.id, !c.agente_activo)}
                 />
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -246,12 +254,13 @@ export default function PanelAgente({
                   <div className="num tenue">
                     {c.phone ? `+${c.phone}` : "sin vincular"}
                     {!c.conectado && " · desconectado"}
+                    {c.contesta_ia && " · aquí contesta tu IA, el panel solo mira"}
                   </div>
                 </div>
                 <span
-                  className={`pastilla ${c.agente_activo ? "pastilla-ia" : "pastilla-abierta"}`}
+                  className={`pastilla ${c.agente_activo && !c.contesta_ia ? "pastilla-ia" : "pastilla-abierta"}`}
                 >
-                  {c.agente_activo ? "Responde" : "Apagado"}
+                  {c.contesta_ia ? "Solo vigila" : c.agente_activo ? "Responde" : "Apagado"}
                 </span>
               </div>
             ))}

@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { actualizarCanal, eliminarCanal, obtenerCanal } from "@/lib/db";
+import { actualizarCanal, eliminarCanal, obtenerCanal, reatribuirCanalAIa } from "@/lib/db";
 import { sesionApi } from "@/lib/tenant";
 import { conectar, desconectar, instantanea } from "@/lib/wa";
 
@@ -28,6 +28,7 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
     // El estado vivo del socket manda sobre el último guardado en la base.
     estado: vista.estado === "desconectado" ? canal.estado : vista.estado,
     agente_activo: canal.agente_activo === 1,
+    contesta_ia: canal.contesta_ia === 1,
     activo: canal.activo === 1,
     ultimo_evento_at: canal.ultimo_evento_at,
     created_at: canal.created_at,
@@ -44,6 +45,7 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
 const Cambio = z.object({
   nombre: z.string().trim().min(2).max(60).optional(),
   agente_activo: z.boolean().optional(),
+  contesta_ia: z.boolean().optional(),
   activo: z.boolean().optional(),
 });
 
@@ -61,8 +63,28 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
   actualizarCanal(s.ctx.orgId, canal.id, {
     nombre: datos.data.nombre,
     agente_activo: datos.data.agente_activo === undefined ? undefined : datos.data.agente_activo ? 1 : 0,
+    contesta_ia: datos.data.contesta_ia === undefined ? undefined : datos.data.contesta_ia ? 1 : 0,
     activo: datos.data.activo === undefined ? undefined : datos.data.activo ? 1 : 0,
   });
+
+  /*
+   * Encender «aquí contesta una IA» no vale solo para lo que venga: lo que hace
+   * falta arreglar es lo que YA está en el panel con la pastilla de «intervino»
+   * y la venta acreditada al equipo. Se reatribuye el número entero y se barren
+   * los resúmenes de pedido que se habían quedado sin sellar, que ahora ya
+   * tienen dueño: la IA.
+   *
+   * Solo al encenderlo, y solo si estaba apagado. Apagarlo no deshace nada.
+   */
+  if (datos.data.contesta_ia === true && canal.contesta_ia !== 1) {
+    const { mensajes, cierres } = reatribuirCanalAIa(s.ctx.orgId, canal.id);
+    const { sellarCierresPendientes } = await import("@/lib/cierre");
+    const selladas = sellarCierresPendientes(s.ctx.orgId);
+    console.log(
+      `[canal ${canal.id}] atendido por IA: ${mensajes} mensaje(s) reatribuidos, ` +
+        `${cierres} cierre(s) pasados al lado de la IA, ${selladas} venta(s) selladas`,
+    );
+  }
 
   // Apagar un número cierra su sesión; volver a encenderlo la reabre.
   if (datos.data.activo === false) void desconectar(canal.id, false);

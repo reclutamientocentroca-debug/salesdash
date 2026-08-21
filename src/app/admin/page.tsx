@@ -31,14 +31,14 @@ export default async function PaginaAdmin() {
           pie={`${r.agentes_activos} con agente vendedor`}
         />
         <Kpi
-          etiqueta="Leads procesados"
-          valor={r.leads}
+          etiqueta="Leads por anuncio"
+          valor={r.leads_anuncio}
           icono={<IconoRayo tam={17} />}
           tono="azul"
-          pie={`${r.cierres_ia} por IA · ${r.cierres_humano} por equipos`}
+          pie={`de ${r.leads} conversaciones · ${r.cierres_ia} cerró la IA, ${r.cierres_humano} los equipos`}
         />
         <Kpi
-          etiqueta="Ventas procesadas"
+          etiqueta="Facturado"
           valor={dinero(r.ventas_totales)}
           icono={<IconoMoneda tam={17} />}
           tono="ambar"
@@ -59,6 +59,7 @@ export default async function PaginaAdmin() {
                   <th>Alta</th>
                   <th style={{ textAlign: "right" }}>Números</th>
                   <th style={{ textAlign: "right" }}>Leads (30 d)</th>
+                  <th style={{ textAlign: "right" }}>Conversaciones</th>
                   <th style={{ textAlign: "right" }}>IA</th>
                   <th style={{ textAlign: "right" }}>Equipo</th>
                   <th style={{ textAlign: "right" }}>Tasa</th>
@@ -93,7 +94,10 @@ export default async function PaginaAdmin() {
                         <span className="tenue"> de {o.numeros}</span>
                       )}
                     </td>
-                    <td style={{ textAlign: "right" }}>{o.leads_mes}</td>
+                    {/* «Leads» es lo que trajo la publicidad; el total va al lado
+                        porque es el trabajo que esa cuenta le da al sistema. */}
+                    <td style={{ textAlign: "right", fontWeight: 600 }}>{o.leads_anuncio_mes}</td>
+                    <td className="tenue" style={{ textAlign: "right" }}>{o.leads_mes}</td>
                     <td style={{ textAlign: "right", color: "var(--acc)" }}>{o.cierres_ia}</td>
                     <td style={{ textAlign: "right", color: "var(--blue)" }}>{o.cierres_humano}</td>
                     <td style={{ textAlign: "right" }}>{o.tasa_cierre}%</td>

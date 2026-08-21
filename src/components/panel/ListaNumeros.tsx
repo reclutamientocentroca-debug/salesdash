@@ -11,6 +11,8 @@ export interface CanalVista {
   phone: string | null;
   estado: string;
   agente_activo: boolean;
+  /** En este número contesta una IA que no es la nuestra. */
+  contesta_ia: boolean;
   activo: boolean;
   ultimo_evento_at: number | null;
 }
@@ -48,10 +50,60 @@ export default function ListaNumeros({ canales }: { canales: CanalVista[] }) {
     return datos;
   }
 
-  async function desconectar(id: number, nombre: string) {
-    if (!confirm(`¿Desconectar «${nombre}»? Se borran sus conversaciones y métricas, y no se puede deshacer.`)) {
+  /**
+   * Quién contesta en este número.
+   *
+   * Encenderlo no cambia solo lo que venga: recalcula lo que ya está. Por eso
+   * se pregunta antes — es la diferencia entre «la IA cerró 12 ventas» y «el
+   * equipo cerró 12 ventas», y el panel entero se lee distinto.
+   */
+  async function marcarContestaIa(id: number, nombre: string, valor: boolean) {
+    if (
+      valor &&
+      !confirm(
+        `¿En «${nombre}» contesta una IA?\n\n` +
+          "El panel NO va a responder: solo mira. Lo que salga de este número contará como de la " +
+          "IA en vez de como que intervino una persona, y en cuanto vea un resumen de pedido lo " +
+          "apuntará como venta cerrada por ella.\n\n" +
+          "Las conversaciones que ya están se recalculan: se les quita «intervino un humano» y sus " +
+          "ventas pasan al lado de la IA. Y nuestro agente vendedor se queda callado en este " +
+          "número, para que el cliente no reciba dos respuestas.\n\n" +
+          "Apagarlo después no deshace lo recalculado.",
+      )
+    ) {
       return;
     }
+
+    setOcupado(id);
+    setError(null);
+    const r = await fetch(`/api/canales/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ contesta_ia: valor }),
+    });
+    setOcupado(null);
+    if (!r.ok) {
+      const datos = await r.json().catch(() => ({}));
+      setError(datos.error ?? "No se pudo guardar quién contesta en este número.");
+      return;
+    }
+    router.refresh();
+  }
+
+  /**
+   * Desconectar borra las conversaciones y las métricas del número, y no se
+   * deshace. Por eso ya no lo pregunta un `confirm()` del navegador: un aviso
+   * que solo se puede aceptar o cancelar deja al dueño eligiendo entre perderlo
+   * todo o no hacer nada.
+   *
+   * En su lugar se abre este paso, donde la salida buena —descargar el informe—
+   * está delante y en verde, y el botón rojo espera debajo. Cuesta un clic más
+   * y evita la llamada de «¿se puede recuperar?», que no.
+   */
+  const [despidiendo, setDespidiendo] = useState<number | null>(null);
+  const [descargado, setDescargado] = useState<number | null>(null);
+
+  async function desconectar(id: number) {
     setOcupado(id);
     setError(null);
     const r = await fetch(`/api/canales/${id}`, { method: "DELETE" });
@@ -61,6 +113,7 @@ export default function ListaNumeros({ canales }: { canales: CanalVista[] }) {
       setError(datos.error ?? "No se pudo desconectar.");
       return;
     }
+    setDespidiendo(null);
     router.refresh();
   }
 
@@ -148,11 +201,41 @@ export default function ListaNumeros({ canales }: { canales: CanalVista[] }) {
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                     <dt style={{ color: "var(--ink-2)" }}>Agente vendedor</dt>
-                    <dd style={{ color: c.agente_activo ? "var(--acc)" : "var(--ink-3)", fontWeight: 600 }}>
-                      {c.agente_activo ? "Encendido" : "Apagado"}
+                    {/* Si en el número contesta otra IA, el nuestro se calla
+                        aunque esté encendido: dos vendedores contestando el
+                        mismo mensaje es peor que ninguno. */}
+                    <dd
+                      style={{
+                        color: c.agente_activo && !c.contesta_ia ? "var(--acc)" : "var(--ink-3)",
+                        fontWeight: 600,
+                      }}
+                    >
+                      {c.contesta_ia
+                        ? "Callado: aquí contesta otra IA"
+                        : c.agente_activo
+                          ? "Encendido"
+                          : "Apagado"}
+                    </dd>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                    <dt style={{ color: "var(--ink-2)" }}>Quién contesta</dt>
+                    <dd style={{ color: c.contesta_ia ? "var(--acc)" : "var(--ink-3)", fontWeight: 600 }}>
+                      {c.contesta_ia ? "Una IA" : "Personas"}
                     </dd>
                   </div>
                 </dl>
+
+                {/*
+                  De quién son los mensajes que salen de este número. No manda
+                  nada ni enciende nada: solo dice quién escribe, que es de lo
+                  que salen la pastilla de «intervino un humano» y el lado al
+                  que va cada venta cerrada.
+                */}
+                <p className="tenue" style={{ marginBottom: 10 }}>
+                  {c.contesta_ia
+                    ? "El panel solo mira este número: no contesta. Lo que salga de aquí se cuenta como de la IA, y cuando vea un resumen de pedido lo apuntará como venta cerrada por ella."
+                    : "Las respuestas que no salgan de aquí se cuentan como escritas por una persona. Si en este número contesta un bot tuyo, díselo o sus ventas se las llevará el equipo."}
+                </p>
 
                 <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
                   {/* Antes había «Ver token» y «Reintentar configuración». El
@@ -171,14 +254,90 @@ export default function ListaNumeros({ canales }: { canales: CanalVista[] }) {
 
                   <button
                     type="button"
+                    className={`btn ${c.contesta_ia ? "btn-acento" : "btn-secundario"}`}
+                    disabled={ocupado === c.id}
+                    aria-pressed={c.contesta_ia}
+                    onClick={() => marcarContestaIa(c.id, c.nombre, !c.contesta_ia)}
+                  >
+                    {c.contesta_ia ? "Aquí vuelven a contestar personas" : "Aquí contesta una IA"}
+                  </button>
+
+                  {/*
+                    El informe no vive solo en la despedida: se puede bajar
+                    cuando se quiera. Un dueño que quiere el histórico de su
+                    número no tiene por qué pasar por la pantalla de borrarlo.
+
+                    Es un enlace y no un botón con `fetch` porque el navegador
+                    ya sabe descargar: el servidor manda el archivo con su
+                    nombre y el navegador lo guarda, sin pasar por memoria.
+                  */}
+                  <a
+                    className="btn btn-secundario"
+                    style={{ textDecoration: "none" }}
+                    href={`/api/canales/${c.id}/informe`}
+                    onClick={() => setDescargado(c.id)}
+                  >
+                    Descargar informe
+                  </a>
+
+                  <button
+                    type="button"
                     className="btn btn-tenue"
                     style={{ color: "var(--red)", marginLeft: "auto" }}
                     disabled={ocupado === c.id}
-                    onClick={() => desconectar(c.id, c.nombre)}
+                    onClick={() => setDespidiendo(despidiendo === c.id ? null : c.id)}
                   >
                     Desconectar
                   </button>
                 </div>
+
+                {despidiendo === c.id && (
+                  <div
+                    className="aviso aviso-error"
+                    style={{ marginTop: 12, display: "grid", gap: 10 }}
+                    role="alertdialog"
+                    aria-label={`Desconectar ${c.nombre}`}
+                  >
+                    <div>
+                      Al desconectar <strong>{c.nombre}</strong> se borran sus conversaciones, sus
+                      mensajes y sus métricas. No se puede deshacer y no queda copia en el servidor.
+                      Llévate antes el informe: trae el panel de este número, sus porcentajes, sus
+                      cierres y los hilos con cada cliente, en un archivo que se abre en cualquier
+                      navegador y se imprime a PDF.
+                    </div>
+
+                    <div style={{ display: "flex", gap: 7, flexWrap: "wrap", alignItems: "center" }}>
+                      <a
+                        className="btn btn-acento"
+                        style={{ textDecoration: "none" }}
+                        href={`/api/canales/${c.id}/informe`}
+                        onClick={() => setDescargado(c.id)}
+                      >
+                        Descargar el informe
+                      </a>
+
+                      <button
+                        type="button"
+                        className="btn btn-tenue"
+                        style={{ color: "var(--red)" }}
+                        disabled={ocupado === c.id}
+                        onClick={() => desconectar(c.id)}
+                      >
+                        {descargado === c.id ? "Ya lo tengo: desconectar" : "Desconectar sin informe"}
+                      </button>
+
+                      <button
+                        type="button"
+                        className="btn btn-tenue"
+                        style={{ marginLeft: "auto" }}
+                        disabled={ocupado === c.id}
+                        onClick={() => setDespidiendo(null)}
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
+                )}
               </article>
             );
           })}

@@ -41,6 +41,7 @@ export async function GET() {
       nombre: c.nombre,
       phone: c.phone.startsWith("pendiente:") ? null : c.phone,
       agente_activo: c.agente_activo === 1,
+      contesta_ia: c.contesta_ia === 1,
       conectado: c.estado === "conectado",
     })),
     consumo: {

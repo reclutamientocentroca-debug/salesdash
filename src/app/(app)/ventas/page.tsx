@@ -41,10 +41,31 @@ export default async function PaginaVentas({ searchParams }: Props) {
       </div>
 
       <div className="sd-kpis" style={{ marginBottom: 14 }}>
-        <Kpi etiqueta="Ventas generadas" valor={dinero(m.ventas_generadas)} icono={<IconoMoneda tam={17} />} tono="ambar" />
-        <Kpi etiqueta="Valor promedio" valor={dinero(m.valor_promedio_venta)} icono={<IconoVentas tam={17} />} tono="neutro" />
-        <Kpi etiqueta="Cerró la IA" valor={m.cierres_ia} icono={<IconoRayo tam={17} />} tono="acento" />
-        <Kpi etiqueta="Cerró el equipo" valor={m.cierres_humano} icono={<IconoPersona tam={17} />} tono="azul" />
+        {/* Las mismas palabras que el dashboard: «facturado» es el pedido sin
+            el envío, aquí y allí. Dos pantallas con el mismo número no pueden
+            llamarlo distinto. */}
+        <Kpi
+          etiqueta="Facturado"
+          valor={dinero(m.facturado)}
+          icono={<IconoMoneda tam={17} />}
+          tono="ambar"
+          pie={`${dinero(m.envios_cobrados)} de envíos aparte`}
+        />
+        <Kpi etiqueta="Promedio por pedido" valor={dinero(m.valor_promedio_venta)} icono={<IconoVentas tam={17} />} tono="neutro" />
+        <Kpi
+          etiqueta="Cerró la IA"
+          valor={m.cierres_ia}
+          icono={<IconoRayo tam={17} />}
+          tono="acento"
+          pie={`${dinero(m.facturado_ia)} facturados`}
+        />
+        <Kpi
+          etiqueta="Cerró el equipo"
+          valor={m.cierres_humano}
+          icono={<IconoPersona tam={17} />}
+          tono="azul"
+          pie={`${dinero(m.facturado_humano)} facturados`}
+        />
       </div>
 
       <div className="sd-fila-3">
@@ -65,8 +86,9 @@ export default async function PaginaVentas({ searchParams }: Props) {
                     <th>Producto</th>
                     <th>Número</th>
                     <th>Cerró</th>
-                    <th style={{ textAlign: "right" }}>Envío</th>
                     <th style={{ textAlign: "right" }}>Total</th>
+                    <th style={{ textAlign: "right" }}>Envío</th>
+                    <th style={{ textAlign: "right" }}>Facturado</th>
                     <th style={{ textAlign: "right", paddingRight: 17 }}>Fecha</th>
                   </tr>
                 </thead>
@@ -82,8 +104,13 @@ export default async function PaginaVentas({ searchParams }: Props) {
                       <td>{v.producto_vendido ?? <span className="tenue">sin identificar</span>}</td>
                       <td style={{ color: "var(--ink-2)" }}>{nombres.get(v.canal_id) ?? "—"}</td>
                       <td><Pastilla estado={v.cerrado_por} /></td>
-                      <td style={{ textAlign: "right" }}>{dinero(v.envio)}</td>
-                      <td style={{ textAlign: "right", fontWeight: 600 }}>{dinero(v.total)}</td>
+                      <td style={{ textAlign: "right" }}>{dinero(v.total)}</td>
+                      <td className="tenue" style={{ textAlign: "right" }}>{dinero(v.envio)}</td>
+                      {/* La resta a la vista: es de donde sale el KPI de arriba,
+                          y con las tres columnas nadie tiene que fiarse. */}
+                      <td style={{ textAlign: "right", fontWeight: 600 }}>
+                        {dinero(Math.max((v.total ?? 0) - (v.envio ?? 0), 0))}
+                      </td>
                       <td className="tenue" style={{ textAlign: "right", paddingRight: 17 }}>
                         {fechaCorta(v.fecha_cierre)}
                       </td>
