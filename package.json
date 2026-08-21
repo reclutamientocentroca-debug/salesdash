@@ -16,7 +16,8 @@
     "probar-correo": "tsx scripts/probar-correo.ts",
     "superadmin": "tsx scripts/hacer-superadmin.ts",
     "verificar-ia": "tsx tests/real-ia.ts",
-    "verificar-vision": "tsx tests/real-vision.ts"
+    "verificar-vision": "tsx tests/real-vision.ts",
+    "diagnostico": "tsx scripts/diagnostico.ts"
   },
   "dependencies": {
     "next": "^16.0.0",

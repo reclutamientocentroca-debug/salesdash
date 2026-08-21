@@ -223,19 +223,57 @@ export async function estadoCanal(token: string, despertar = false): Promise<Sal
 }
 
 /** Apunta el webhook del canal a este panel. Se llama al conectar. */
+interface WebhookWhapi {
+  url?: string;
+  events?: unknown[];
+  mode?: string;
+}
+
+/**
+ * Apunta el webhook del canal a este panel CONSERVANDO los que ya hubiera.
+ *
+ * `PATCH /settings` reemplaza el array de webhooks entero. Mandar solo el
+ * nuestro borraría en silencio los de quien ya tenga ese número trabajando
+ * —una automatización en Make, por ejemplo— y su operación real dejaría de
+ * recibir mensajes sin un solo aviso. Conectar un número para MEDIRLO no
+ * puede romper lo que ese número ya hace.
+ *
+ * Así que primero se lee lo que hay, se quita solo una entrada anterior
+ * nuestra (para no duplicarla al reconectar) y se añade la nueva.
+ */
 export async function apuntarWebhook(token: string, url: string): Promise<void> {
+  const nuestro = {
+    url,
+    events: [{ type: "messages", method: "post" }],
+    mode: "method",
+  };
+
+  let existentes: WebhookWhapi[] = [];
+  try {
+    const actual = await pedir<{ webhooks?: WebhookWhapi[] }>(`${GATE}/settings`, { token });
+    existentes = actual?.webhooks ?? [];
+  } catch (e) {
+    // Si no se puede leer la configuración, se prefiere no tocarla: dejar el
+    // canal mudo es reparable, borrarle los webhooks a alguien no.
+    throw new ErrorWhapi(
+      `No se pudo leer la configuración del canal, así que no se tocó: ${
+        e instanceof Error ? e.message : "error desconocido"
+      }`,
+      502,
+    );
+  }
+
+  // Se descartan las entradas que ya apunten a este mismo panel, comparando
+  // sin el secreto: al reconectar, el secreto cambia pero la ruta no.
+  const sinLaNuestra = existentes.filter((w) => {
+    const suya = (w.url ?? "").split("?")[0];
+    return suya && suya !== url.split("?")[0];
+  });
+
   await pedir(`${GATE}/settings`, {
     metodo: "PATCH",
     token,
-    cuerpo: {
-      webhooks: [
-        {
-          url,
-          events: [{ type: "messages", method: "post" }],
-          mode: "method",
-        },
-      ],
-    },
+    cuerpo: { webhooks: [...sinLaNuestra, nuestro] },
   });
 }
 
