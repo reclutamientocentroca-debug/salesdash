@@ -275,7 +275,8 @@ Reglas:
 ${
   estadoMecanico
     ? `- El estado YA está determinado como "${estadoMecanico}". Respétalo y limítate a extraer los datos del pedido.`
-    : `- Si no puedes decidir con certeza quién cerró, usa "revision". Es preferible a adivinar.`
+    : `- Si NO hay ninguna señal de cierre, el estado es "abierta". Que la conversación siga viva no es una duda: es una conversación abierta.
+- Usa "revision" SOLO cuando sí hay indicios de que el pedido se cerró (se habla de pago, de entrega, de una factura) pero no puedes saber si lo cerró la IA o un vendedor. Es un caso raro: si dudas entre "abierta" y "revision", elige "abierta".`
 }`;
 }
 

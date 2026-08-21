@@ -45,6 +45,11 @@ La cuenta de ejemplo entra en `/login` con **demo@salesdash.app** / **demo1234**
 | `npm run seed` | Organización de ejemplo con datos |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm test` | 32 pruebas: aislamiento, invariante de conteo, regla maestra, salvaguardas del agente |
+| `npm run probar-correo -- x@y.com` | Envía el correo de verificación real. Comprueba SMTP sin pasar por la app |
+| `npm run verificar-ia` | **Consume crédito.** Analiza conversaciones reales contra OpenRouter y comprueba el respaldo del agente |
+| `npm run verificar-vision` | **Consume crédito.** Clasifica una factura y una foto de producto reales |
+
+Las dos últimas gastan tokens de verdad: son para comprobar una configuración nueva, no para el día a día. `npm test` no toca la red.
 
 Sin SMTP configurado, **en desarrollo el código de verificación se imprime en la consola** para poder probar el registro completo. En producción, la falta de SMTP es un error.
 
