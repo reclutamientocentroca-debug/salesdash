@@ -1,4 +1,5 @@
 import type { Mensaje } from "@/lib/db";
+import { urlServida } from "@/lib/media";
 
 /**
  * Una burbuja del hilo.
@@ -24,9 +25,57 @@ export function Burbuja({ m }: { m: Mensaje }) {
   const clase =
     m.emisor === "cliente" ? "sd-burbuja-cliente" : m.emisor === "ia" ? "sd-burbuja-ia" : "sd-burbuja-humano";
 
+  const archivo = urlServida(m.media_url);
+
   /*
-   * Las imágenes se muestran como una fila con su descripción y categoría.
-   * Nunca la foto: el archivo no se almacena en ningún momento.
+   * Una nota de voz se escucha. Antes solo se veía «[nota de voz]», que en una
+   * conversación de venta es un agujero: media negociación puede ir hablada.
+   * Debajo va su transcripción, que es lo mismo que lee la IA — si difieren,
+   * se ve al instante.
+   */
+  if (m.tipo === "audio" && archivo) {
+    return (
+      <div className={`sd-burbuja ${clase}`} style={{ maxWidth: "82%" }}>
+        {/* `preload="none"`: en un hilo de treinta audios, precargarlos todos
+            son treinta descargas para escuchar quizá uno. */}
+        <audio controls preload="none" src={archivo} style={{ width: "100%", maxWidth: 260 }} />
+        {m.transcripcion && (
+          <div style={{ fontSize: 12, marginTop: 6, opacity: 0.9, fontStyle: "italic" }}>
+            {m.transcripcion}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  /*
+   * La foto se ve. Se guarda en el volumen y se sirve por una ruta que exige
+   * sesión, nunca por una URL pública. Debajo, lo que el modelo entendió de
+   * ella: es lo que decide si esa imagen cuenta como cierre.
+   */
+  if (m.tipo === "imagen" && archivo) {
+    return (
+      <div className={`sd-burbuja ${clase}`} style={{ maxWidth: "82%" }}>
+        {/* Sin next/image: la ruta exige sesión y su optimizador no la lleva. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={archivo}
+          alt={m.descripcion_imagen ?? "Imagen enviada en la conversación"}
+          style={{ display: "block", maxWidth: "100%", borderRadius: 8, marginBottom: 6 }}
+        />
+        {m.descripcion_imagen && (
+          <div style={{ fontSize: 11.5, opacity: 0.85 }}>
+            {m.descripcion_imagen}
+            {m.categoria_imagen && ` · ${CATEGORIAS[m.categoria_imagen] ?? m.categoria_imagen}`}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  /*
+   * Lo que no se pudo descargar —o no se descarga a propósito, como los
+   * documentos— se sigue enseñando como una fila con su descripción.
    */
   if (m.tipo !== "texto") {
     return (

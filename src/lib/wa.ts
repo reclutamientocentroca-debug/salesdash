@@ -27,6 +27,7 @@
 import makeWASocket, {
   Browsers,
   DisconnectReason,
+  downloadMediaMessage,
   useMultiFileAuthState,
   type WAMessage,
   type WASocket,
@@ -37,6 +38,7 @@ import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { actualizarCanal, ahora, canalesParaReconectar, obtenerCanalSinOrg, rutaDatos, type Canal, type TipoMensaje } from "@/lib/db";
 import { ingerir, type MensajeEntrante } from "@/lib/ingesta";
+import { esDescargable, guardar } from "@/lib/media";
 import { jidDeTelefono } from "@/lib/telefono";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -135,12 +137,9 @@ function sesionDe(canalId: number): Sesion {
 /**
  * De un mensaje de Baileys al formato propio de `ingesta.ts`.
  *
- * `mediaUrl` va SIEMPRE a null y no es un descuido: un proveedor daba una URL
- * temporal que el modelo con visión podía leer. Aquí los archivos llegan como
- * bytes cifrados y habría que descargarlos y servirlos nosotros. El mensaje se
- * registra igual —con su marca `[imagen]`— así que el conteo, la atribución y
- * la detección de intervención humana siguen exactos; lo único que se pierde
- * es la clasificación de la imagen, y el analista ya trata ese caso.
+ * `mediaUrl` sale null de aquí y lo rellena quien llama, después de descargar
+ * el archivo: la descarga es asíncrona y esta traducción no lo es. Solo se
+ * bajan imágenes y audio; ver `media.ts` para por qué no los documentos.
  */
 function traducir(m: WAMessage): MensajeEntrante | null {
   const id = m.key?.id;
@@ -343,6 +342,27 @@ async function abrir(canalId: number): Promise<void> {
       // Se relee el canal: `agente_activo` pudo cambiar desde que se abrió.
       const actual = obtenerCanalSinOrg(canalId);
       if (!actual || actual.activo !== 1) return;
+
+      /*
+       * Los archivos se bajan ANTES de guardar el mensaje. WhatsApp los sirve
+       * cifrados y por tiempo limitado: si se dejara para después, la nota de
+       * voz que el cliente mandó anoche ya no se podría descargar por la
+       * mañana. Un fallo aquí no cancela nada — el mensaje entra igual, solo
+       * que sin archivo.
+       */
+      await Promise.all(
+        traducidos.map(async (m, i) => {
+          const original = messages[i];
+          if (!original || !esDescargable(m.tipo)) return;
+
+          try {
+            const datos = await downloadMediaMessage(original, "buffer", {});
+            m.mediaUrl = guardar(actual.org_id, m.id, m.tipo, datos as Buffer);
+          } catch (e) {
+            console.error(`[wa] no se pudo descargar el archivo de ${m.id}`, e);
+          }
+        }),
+      );
 
       try {
         await ingerir(actual, traducidos, { dentroDePeticion: false });

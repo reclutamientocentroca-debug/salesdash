@@ -27,6 +27,7 @@ export default async function PaginaConfiguracion() {
           marcador_cierre: ctx.org.marcador_cierre,
           modelo_analisis: ctx.org.modelo_analisis,
           modelo_vision: ctx.org.modelo_vision,
+          modelo_audio: ctx.org.modelo_audio,
         }}
       />
     </>

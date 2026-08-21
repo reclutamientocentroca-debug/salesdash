@@ -24,6 +24,7 @@ import {
   crearAnomalia,
   getConversation,
   guardarDescripcionImagen,
+  guardarTranscripcion,
   listarMensajes,
   marcarRevision,
   obtenerOrg,
@@ -35,7 +36,8 @@ import {
   type Mensaje,
   type Rango,
 } from "./db";
-import { completarJson, ErrorIA, type Mensaje as MensajeIA } from "./ia";
+import { completar, completarJson, ErrorIA, type Mensaje as MensajeIA } from "./ia";
+import { comoDataUrl } from "./media";
 import { revisarConversacion } from "./anomalies";
 
 /** Tope de mensajes que se le pasan al modelo, para no dispararse en tokens. */
@@ -172,15 +174,18 @@ Criterios:
  * Describe una imagen y guarda el resultado. La descripción se genera UNA vez
  * y se guarda: no se vuelve a pedir nunca.
  *
- * El archivo no se descarga ni se almacena: se le pasa al modelo la URL
- * temporal de Whapi y se guarda solo la descripción.
+ * El archivo se guarda en el volumen y NO es alcanzable desde internet, así que
+ * al modelo se le manda incrustado en la propia petición como data URL. Pasarle
+ * una URL de este servidor no serviría: tendría que atravesar la sesión.
  */
 async function describirImagen(
   orgId: number,
   modeloVision: string,
   m: Mensaje,
 ): Promise<CategoriaImagen | null> {
-  if (!m.media_url) {
+  const imagen = m.media_url ? comoDataUrl(orgId, m.media_url) : null;
+
+  if (!imagen) {
     guardarDescripcionImagen(orgId, m.id, { descripcion: "[imagen sin describir]", categoria: null });
     return null;
   }
@@ -195,7 +200,7 @@ async function describirImagen(
           role: "user",
           content: [
             { type: "text", text: PROMPT_VISION },
-            { type: "image_url", image_url: { url: m.media_url } },
+            { type: "image_url", image_url: { url: imagen } },
           ],
         },
       ] as MensajeIA[],
@@ -219,6 +224,62 @@ async function describirImagen(
     console.error("Visión no disponible:", e instanceof ErrorIA ? e.message : e);
     guardarDescripcionImagen(orgId, m.id, { descripcion: "[imagen sin describir]", categoria: null });
     return null;
+  }
+}
+
+const PROMPT_AUDIO = `Transcribe literalmente este audio de una conversación de venta por WhatsApp.
+
+Reglas:
+- Devuelve SOLO lo que se dice, sin comentarlo ni resumirlo.
+- Respeta el idioma original. No traduzcas.
+- Si no se entiende nada o está en silencio, devuelve exactamente: [audio ininteligible]
+- No añadas comillas ni marcas de tiempo.`;
+
+/**
+ * Pasa una nota de voz a texto y la guarda. Se hace UNA vez por mensaje.
+ *
+ * Sin esto un audio es un agujero en la conversación: el analista ve
+ * `[nota de voz]` y no puede decidir nada, y media venta puede cerrarse
+ * hablando. La transcripción se guarda junto al mensaje y desde ahí la leen
+ * tanto el analista como el agente vendedor.
+ *
+ * Un fallo no rompe el análisis: el mensaje se queda sin transcribir, que es
+ * exactamente como estaba antes.
+ */
+async function transcribirAudio(orgId: number, modeloAudio: string, m: Mensaje): Promise<void> {
+  if (m.transcripcion) return;
+
+  const audio = m.media_url ? comoDataUrl(orgId, m.media_url) : null;
+  if (!audio) return;
+
+  // La data URL trae delante `data:audio/ogg;base64,` y el modelo espera solo
+  // el contenido y el formato por separado.
+  const base64 = audio.slice(audio.indexOf(",") + 1);
+  const formato = (m.media_url ?? "").split(".").pop()?.toLowerCase() || "ogg";
+
+  try {
+    const { texto } = await completar({
+      orgId,
+      proposito: "audio",
+      modelo: modeloAudio,
+      mensajes: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: PROMPT_AUDIO },
+            { type: "input_audio", input_audio: { data: base64, format: formato } },
+          ],
+        },
+      ] as MensajeIA[],
+      maxTokens: 700,
+      temperatura: 0,
+    });
+
+    const limpio = texto.trim();
+    if (limpio) guardarTranscripcion(orgId, m.id, limpio);
+  } catch (e) {
+    // Modelo sin soporte de audio, sin cuota o caído. Se registra y se sigue.
+    console.error("Transcripción no disponible:", e instanceof ErrorIA ? e.message : e);
   }
 }
 
@@ -246,9 +307,13 @@ function transcribir(mensajes: Mensaje[]): string {
   const lineas = usados.map((m) => {
     const quien = m.emisor === "cliente" ? "CLIENTE" : m.emisor === "ia" ? "IA" : "VENDEDOR";
     const hora = new Date(m.created_at * 1000).toISOString().slice(5, 16).replace("T", " ");
+    // Lo que no es texto llega al modelo COMO texto, o no llega: una imagen sin
+    // describir y un audio sin transcribir son huecos en la conversación.
     const extra = m.descripcion_imagen
       ? ` (imagen: ${m.descripcion_imagen}${m.categoria_imagen ? `, tipo ${m.categoria_imagen}` : ""})`
-      : "";
+      : m.transcripcion
+        ? ` (audio: ${m.transcripcion})`
+        : "";
     return `[${hora}] ${quien}: ${m.content}${extra}`;
   });
 
@@ -307,6 +372,7 @@ export async function analizarConversacion(
   const marcador = org?.marcador_cierre ?? "Resumen:";
   const modeloTexto = org?.modelo_analisis ?? "meta-llama/llama-3.3-70b-instruct:free";
   const modeloVision = org?.modelo_vision ?? "openai/gpt-4o-mini";
+  const modeloAudio = org?.modelo_audio ?? "google/gemini-3.5-flash-lite";
 
   const mensajes = listarMensajes(orgId, conversationId);
   if (!mensajes.length) {
@@ -314,8 +380,24 @@ export async function analizarConversacion(
     return { conversationId, estado: "abierta", senal: null, justificacion: null, sellada: false };
   }
 
+  /*
+   * Las notas de voz se pasan a texto ANTES de mirar las reglas. Si se hiciera
+   * después, el analista decidiría sobre una conversación con agujeros: un
+   * «sí, mándamelo» dicho en un audio es un cierre, y sin transcribir es
+   * invisible para todas las reglas que vienen a continuación.
+   */
+  await Promise.all(
+    mensajes
+      .filter((m) => m.tipo === "audio" && !m.transcripcion && m.media_url)
+      .map((m) => transcribirAudio(orgId, modeloAudio, m)),
+  );
+
+  // Se releen: las transcripciones acaban de escribirse y la copia en memoria
+  // es anterior a ellas.
+  const conAudio = listarMensajes(orgId, conversationId);
+
   // ── Paso 3 y 4: reglas mecánicas, con visión solo si hace falta ──────────
-  const { senales, imagenSinDescribir } = await buscarPrimeraSenal(marcador, mensajes, (m) =>
+  const { senales, imagenSinDescribir } = await buscarPrimeraSenal(marcador, conAudio, (m) =>
     describirImagen(orgId, modeloVision, m),
   );
 

@@ -49,6 +49,7 @@ La cuenta de ejemplo entra en `/login` con **demo@salesdash.app** / **demo1234**
 | `npm run superadmin -- x@y.com` | Marca una cuenta como superadmin de la plataforma |
 | `npm run verificar-ia` | **Consume crédito.** Analiza conversaciones reales contra OpenRouter y comprueba el respaldo del agente |
 | `npm run verificar-vision` | **Consume crédito.** Clasifica una factura y una foto de producto reales |
+| `npm run verificar-audio -- audio.ogg` | **Consume crédito.** Transcribe un audio real. Comprueba que el modelo acepta el formato |
 
 Las dos últimas gastan tokens de verdad: son para comprobar una configuración nueva, no para el día a día. `npm test` no toca la red.
 
@@ -138,6 +139,26 @@ Las conversaciones se leen con la forma de un cliente de mensajería: la lista d
 
 El estado vive en la URL (`canal`, `chat`, `estado`), no en el navegador: un hilo se puede pasar por enlace, el botón atrás funciona, y la pantalla se sigue pintando en el servidor.
 
+### Fotos y notas de voz
+
+Se descargan del socket y se guardan en el volumen, en `<datos>/media/<orgId>/`. **Es un cambio de postura respecto a como nació el producto**, y tiene un motivo: con un proveedor había una URL temporal que el modelo podía leer y aquí no se guardaba nada; por el socket llegan bytes cifrados, así que para escuchar una nota de voz o para que la IA vea una foto, el archivo tiene que estar en algún sitio.
+
+Con tres límites que acotan lo que eso implica:
+
+- **Solo imágenes y audio.** Los documentos —facturas en PDF, contratos— no se descargan: son los que más datos personales llevan y no aportan nada que el texto del mensaje no diga ya.
+- **Cuatro megas por archivo.** Sin tope, un vídeo por conversación llena el disco en una semana.
+- **Servidos solo por `/api/media/...`, que exige sesión** y compara la organización del archivo con la de quien lo pide. Nunca por URL pública.
+
+En el hilo, **el audio se escucha** y debajo aparece su transcripción — la misma que lee la IA, así que si difieren se ve al instante. **La foto se ve**, con lo que el modelo entendió de ella debajo.
+
+La transcripción la hace un modelo aparte, configurable en Configuración → *Transcripción de notas de voz*. Son bastantes menos los modelos que oyen que los que ven, y por eso son dos listas distintas. Se hace **antes** de aplicar las reglas de cierre: un «sí, mándamelo» dicho en un audio es un cierre, y sin transcribir sería invisible.
+
+```bash
+npm run verificar-audio -- ruta/al/audio.ogg   # CONSUME CRÉDITO
+```
+
+Ese comando existe porque el punto frágil no es el código sino **el formato**: WhatsApp manda las notas de voz en ogg/opus y no todos los modelos que aceptan audio lo aceptan en ese contenedor. Sin argumento usa el último audio que haya recibido la aplicación, que es exactamente lo que verá en producción.
+
 ---
 
 ## La atribución, que es el corazón del producto
@@ -197,7 +218,7 @@ Dos consecuencias que importan:
 - **Si la conversación ya está sellada, la imagen no se procesa.** Ahí se iba la mayor parte del gasto: las facturas de trámite posterior son la mayoría. Hay una prueba que lo verifica.
 - **Si el modelo de visión falla, la conversación va a `revision`.** Nunca se asume que era una factura.
 
-El archivo **no se descarga ni se almacena**. Guardar las facturas de los clientes de tus clientes es un problema de privacidad que no queremos.
+El archivo se guarda en el volumen y se le manda al modelo incrustado en la propia petición. Ver «Fotos y notas de voz» más arriba para los límites con los que se hace.
 
 **Al conectar por QR esto tiene una consecuencia:** un proveedor daba una URL temporal que el modelo con visión podía leer; por el socket los archivos llegan como bytes cifrados, y servirlos exigiría almacenarlos. Así que hoy las imágenes **se registran pero no se clasifican**: el mensaje entra con su marca  —el conteo, la atribución y la detección de intervención humana siguen exactos— y la descripción queda como .
 

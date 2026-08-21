@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS orgs (
   marcador_cierre TEXT NOT NULL DEFAULT 'Resumen:',
   modelo_analisis TEXT NOT NULL DEFAULT 'meta-llama/llama-3.3-70b-instruct:free',
   modelo_vision TEXT NOT NULL DEFAULT 'openai/gpt-4o-mini',
+  modelo_audio TEXT NOT NULL DEFAULT 'google/gemini-3.5-flash-lite',
   suspendida INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
@@ -109,6 +110,10 @@ CREATE TABLE IF NOT EXISTS messages (
   tipo TEXT CHECK(tipo IN ('texto','imagen','audio','documento','otro')) NOT NULL DEFAULT 'texto',
   descripcion_imagen TEXT,
   categoria_imagen TEXT CHECK(categoria_imagen IN ('factura','comprobante_pago','foto_producto','otro')),
+  /* Lo que dice una nota de voz, en texto. Sin esto un audio es un agujero en
+     la conversación: ni el analista ni el agente pueden leerlo, y media venta
+     puede cerrarse hablando. */
+  transcripcion TEXT,
   media_url TEXT,
   content TEXT NOT NULL,
   created_at INTEGER NOT NULL
@@ -183,7 +188,7 @@ CREATE TABLE IF NOT EXISTS uso_modelo (
   org_id INTEGER NOT NULL REFERENCES orgs(id),
   dia TEXT NOT NULL,
   modelo TEXT NOT NULL,
-  proposito TEXT CHECK(proposito IN ('agente','analisis','vision')) NOT NULL,
+  proposito TEXT CHECK(proposito IN ('agente','analisis','vision','audio')) NOT NULL,
   exitos INTEGER NOT NULL DEFAULT 0,
   fallos INTEGER NOT NULL DEFAULT 0,
   UNIQUE(org_id, dia, modelo, proposito)
@@ -234,6 +239,52 @@ function abrir(): DB {
 function migrar(conexion: DB): void {
   const columnas = (tabla: string) =>
     (conexion.pragma(`table_info(${tabla})`) as { name: string }[]).map((c) => c.name);
+
+  /*
+   * uso_modelo: el CHECK de `proposito` no admitía 'audio'. Una restricción no
+   * se puede ampliar con ALTER en SQLite, así que se reconstruye la tabla —
+   * son estadísticas de consumo y se conservan enteras.
+   */
+  const chequeoUso = (
+    conexion.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='uso_modelo'`).get() as
+      | { sql?: string }
+      | undefined
+  )?.sql;
+
+  if (chequeoUso && !chequeoUso.includes("'audio'")) {
+    conexion.exec(`
+      ALTER TABLE uso_modelo RENAME TO uso_modelo_viejo;
+
+      CREATE TABLE uso_modelo (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        org_id INTEGER NOT NULL REFERENCES orgs(id),
+        dia TEXT NOT NULL,
+        modelo TEXT NOT NULL,
+        proposito TEXT CHECK(proposito IN ('agente','analisis','vision','audio')) NOT NULL,
+        exitos INTEGER NOT NULL DEFAULT 0,
+        fallos INTEGER NOT NULL DEFAULT 0,
+        UNIQUE(org_id, dia, modelo, proposito)
+      );
+
+      INSERT INTO uso_modelo (id, org_id, dia, modelo, proposito, exitos, fallos)
+        SELECT id, org_id, dia, modelo, proposito, exitos, fallos FROM uso_modelo_viejo;
+
+      DROP TABLE uso_modelo_viejo;
+    `);
+  }
+
+  // messages: la transcripción de las notas de voz.
+  if (!columnas("messages").includes("transcripcion")) {
+    conexion.exec(`ALTER TABLE messages ADD COLUMN transcripcion TEXT`);
+  }
+
+  // orgs: el modelo que transcribe. Se separa del de visión porque no todos
+  // los que ven imágenes oyen audio.
+  if (!columnas("orgs").includes("modelo_audio")) {
+    conexion.exec(
+      `ALTER TABLE orgs ADD COLUMN modelo_audio TEXT NOT NULL DEFAULT 'google/gemini-3.5-flash-lite'`,
+    );
+  }
 
   // conversations: la descripción del anuncio que trajo al cliente. ALTER ADD
   // COLUMN no reescribe la tabla ni toca una sola fila existente.
@@ -301,7 +352,7 @@ export type EstadoCierre = "ia" | "humano" | "abierta" | "revision";
 export interface Org {
   id: number; nombre: string; color: string;
   meta_cobertura: number; meta_efectividad: number;
-  marcador_cierre: string; modelo_analisis: string; modelo_vision: string;
+  marcador_cierre: string; modelo_analisis: string; modelo_vision: string; modelo_audio: string;
   suspendida: number; created_at: number;
 }
 
@@ -335,6 +386,7 @@ export interface Mensaje {
   id: number; org_id: number; conversation_id: number;
   whapi_message_id: string | null; emisor: Emisor; tipo: TipoMensaje;
   descripcion_imagen: string | null; categoria_imagen: CategoriaImagen | null;
+  transcripcion: string | null;
   media_url: string | null; content: string; created_at: number;
 }
 
@@ -432,7 +484,7 @@ export function obtenerOrg(orgId: number): Org | undefined {
 
 const COLUMNAS_ORG = [
   "nombre", "color", "meta_cobertura", "meta_efectividad",
-  "marcador_cierre", "modelo_analisis", "modelo_vision",
+  "marcador_cierre", "modelo_analisis", "modelo_vision", "modelo_audio",
 ] as const;
 
 export function actualizarOrg(orgId: number, campos: Partial<Org>): void {
@@ -817,6 +869,16 @@ export function ultimosMensajes(orgId: number, conversationId: number, n: number
   return filas.reverse();
 }
 
+/** El texto de una nota de voz. Lo escribe el analista una sola vez. */
+export function guardarTranscripcion(orgId: number, mensajeId: number, texto: string): void {
+  s(`UPDATE messages SET transcripcion = ? WHERE org_id = ? AND id = ?`).run(texto, orgId, mensajeId);
+}
+
+/** Deja constancia de la ruta del archivo guardado, ya descargado del socket. */
+export function guardarMediaUrl(orgId: number, mensajeId: number, url: string): void {
+  s(`UPDATE messages SET media_url = ? WHERE org_id = ? AND id = ?`).run(url, orgId, mensajeId);
+}
+
 export function guardarDescripcionImagen(orgId: number, mensajeId: number, datos: {
   descripcion: string; categoria: CategoriaImagen | null;
 }): void {
@@ -987,7 +1049,7 @@ export function resolverAnomalia(orgId: number, id: number): void {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function registrarUso(orgId: number, datos: {
-  dia: string; modelo: string; proposito: "agente" | "analisis" | "vision"; ok: boolean;
+  dia: string; modelo: string; proposito: "agente" | "analisis" | "vision" | "audio"; ok: boolean;
 }): void {
   s(
     `INSERT INTO uso_modelo (org_id, dia, modelo, proposito, exitos, fallos)

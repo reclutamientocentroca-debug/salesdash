@@ -51,10 +51,20 @@ export function hoyISO(): string {
 // Llamada con respaldo
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type Proposito = "agente" | "analisis" | "vision";
+export type Proposito = "agente" | "analisis" | "vision" | "audio";
 
-/** Un trozo de mensaje: texto suelto o una imagen por URL. */
-export type Parte = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } };
+/**
+ * Un trozo de mensaje: texto, una imagen, o un audio.
+ *
+ * El audio va incrustado en base64 y no por URL, igual que la imagen: los
+ * archivos viven en el volumen de este servidor y no son alcanzables desde
+ * internet. `format` es la extensión sin punto — WhatsApp manda las notas de
+ * voz en ogg.
+ */
+export type Parte =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } }
+  | { type: "input_audio"; input_audio: { data: string; format: string } };
 
 export interface Mensaje {
   role: "system" | "user" | "assistant";
@@ -209,6 +219,8 @@ export interface ModeloDisponible {
   contexto: number | null;
   /** Si acepta imágenes: hace falta para el modelo de visión. */
   vision: boolean;
+  /** Si acepta audio. Son bastantes menos que los que aceptan imágenes. */
+  audio: boolean;
 }
 
 interface ModeloOpenRouter {
@@ -252,6 +264,8 @@ export async function listarModelos(): Promise<ModeloDisponible[]> {
       contexto: m.context_length ?? null,
       vision:
         modalidades.includes("image") || (m.architecture?.modality ?? "").includes("image"),
+      // Bastantes menos modelos oyen que ven, por eso son dos listas.
+      audio: modalidades.includes("audio"),
     };
   });
 

@@ -20,6 +20,7 @@ export async function GET() {
       marcador_cierre: org.marcador_cierre,
       modelo_analisis: org.modelo_analisis,
       modelo_vision: org.modelo_vision,
+      modelo_audio: org.modelo_audio,
     },
     miembros: listarMiembros(s.ctx.orgId).map((u) => ({
       id: u.id,
@@ -39,6 +40,7 @@ const Cambio = z.object({
   marcador_cierre: z.string().trim().min(1, "El marcador no puede estar vacío").max(60).optional(),
   modelo_analisis: z.string().trim().min(3).max(120).optional(),
   modelo_vision: z.string().trim().min(3).max(120).optional(),
+  modelo_audio: z.string().trim().min(3).max(120).optional(),
 });
 
 export async function PATCH(req: NextRequest) {

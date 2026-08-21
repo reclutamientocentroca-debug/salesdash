@@ -363,6 +363,7 @@ export async function probarAgente(orgId: number, conversacion: { rol: "cliente"
     tipo: "texto",
     descripcion_imagen: null,
     categoria_imagen: null,
+    transcripcion: null,
     media_url: null,
     content: m.texto,
     created_at: ahora() + i,

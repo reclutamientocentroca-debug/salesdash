@@ -11,6 +11,7 @@ interface Org {
   marcador_cierre: string;
   modelo_analisis: string;
   modelo_vision: string;
+  modelo_audio: string;
 }
 
 interface Modelo {
@@ -19,6 +20,7 @@ interface Modelo {
   gratis: boolean;
   precioSalida: number | null;
   vision: boolean;
+  audio: boolean;
 }
 
 /** La misma paleta de seis que se reparte al registrarse. */
@@ -64,6 +66,7 @@ export default function FormularioConfiguracion({ orgInicial }: { orgInicial: Or
   }
 
   const conVision = modelos.filter((m) => m.vision);
+  const conAudio = modelos.filter((m) => m.audio);
 
   return (
     <div className="rejilla">
@@ -193,6 +196,30 @@ export default function FormularioConfiguracion({ orgInicial }: { orgInicial: Or
             <p className="tenue" style={{ marginTop: 6 }}>
               Solo se listan modelos que aceptan imágenes. Se usa para distinguir una factura de una
               foto de producto: sin eso, cualquier imagen del vendedor contaría como venta cerrada.
+            </p>
+          </div>
+
+          <div>
+            <label className="etiqueta-campo" htmlFor="m-audio">
+              Transcripción de notas de voz
+            </label>
+            <select
+              id="m-audio" className="campo"
+              value={org.modelo_audio}
+              onChange={(e) => cambiar("modelo_audio", e.target.value)}
+            >
+              {conAudio.length === 0 && <option value={org.modelo_audio}>{org.modelo_audio}</option>}
+              {conAudio.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.nombre}
+                  {m.gratis ? " · Gratis" : m.precioSalida !== null ? ` · $${m.precioSalida.toFixed(2)}/M` : ""}
+                </option>
+              ))}
+            </select>
+            <p className="tenue" style={{ marginTop: 6 }}>
+              Solo se listan modelos que aceptan audio, que son bastantes menos. Sin esto una nota de
+              voz es un agujero en la conversación: el analista ve «[nota de voz]» y no puede decidir
+              nada, y media venta puede cerrarse hablando.
             </p>
           </div>
         </div>

@@ -17,7 +17,8 @@
     "superadmin": "tsx scripts/hacer-superadmin.ts",
     "verificar-ia": "tsx tests/real-ia.ts",
     "verificar-vision": "tsx tests/real-vision.ts",
-    "diagnostico": "tsx scripts/diagnostico.ts"
+    "diagnostico": "tsx scripts/diagnostico.ts",
+    "verificar-audio": "tsx tests/real-audio.ts"
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4.1.11",
