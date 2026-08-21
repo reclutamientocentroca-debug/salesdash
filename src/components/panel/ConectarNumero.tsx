@@ -15,15 +15,23 @@ import { useRouter } from "next/navigation";
  * pantalla pasa sola al resumen, sin recargar.
  */
 
-type Estado = "nombre" | "iniciando" | "esperando" | "escaneando" | "conectado" | "expirado" | "error";
+/*
+ * Los estados posibles. Coinciden uno a uno con los que devuelve
+ * /api/canales/[id]/*, y esa correspondencia no es decorativa: un valor que
+ * llegue y no esté aquí deja la pantalla en blanco sin decir por qué.
+ *
+ * Ya no existe «expirado»: Baileys renueva el código solo mientras nadie lo
+ * escanea, así que no hay nada que caducar. Tampoco «escaneando»: la conexión
+ * pasa de esperando a conectado sin paso intermedio observable.
+ */
+type Estado = "nombre" | "iniciando" | "esperando" | "conectado" | "desconectado" | "error";
 
 const SONDEO_MS = 2000;
 
 const TEXTOS: Record<Exclude<Estado, "nombre" | "conectado">, { punto: string; texto: string; pulso: boolean }> = {
   iniciando: { punto: "var(--amber)", texto: "Preparando el código…", pulso: true },
   esperando: { punto: "var(--amber)", texto: "Esperando a que escanees", pulso: true },
-  escaneando: { punto: "var(--blue)", texto: "Conectando con WhatsApp…", pulso: true },
-  expirado: { punto: "var(--ink-3)", texto: "El código venció", pulso: false },
+  desconectado: { punto: "var(--ink-3)", texto: "Sin conexión. Reintentando…", pulso: true },
   error: { punto: "var(--red)", texto: "Algo salió mal", pulso: false },
 };
 
@@ -94,12 +102,8 @@ export default function ConectarNumero({ alConectar }: { alConectar: () => void 
         return;
       }
 
-      if (salud.estado === "escaneando") {
-        setEstado("escaneando");
-        return;
-      }
-
-      // Sigue esperando el escaneo: se refresca el código.
+      // Sigue esperando el escaneo: se refresca el código. Si el proceso se
+      // reinició y no hay sesión en memoria, pedir el QR es lo que la reabre.
       const rQr = await fetch(`/api/canales/${canalId}/qr`, { cache: "no-store" });
       const codigo = await rQr.json();
       if (!vivo.current) return;
@@ -109,19 +113,18 @@ export default function ConectarNumero({ alConectar }: { alConectar: () => void 
         router.refresh();
         return;
       }
-      if (codigo.estado === "expirado") {
-        setEstado("expirado");
-        setQr(null);
-        return;
-      }
       if (codigo.estado === "error") {
         setEstado("error");
         setDetalle(codigo.detalle ?? null);
         return;
       }
 
-      if (codigo.base64) {
-        setQr(codigo.base64);
+      // `imagen` es el data URL del código. El nombre importa: si no coincide
+      // con el que devuelve /api/canales/[id]/qr, esto nunca entra y la
+      // pantalla se queda en «Preparando el código…» para siempre, con el QR
+      // llegando bien y nadie mirándolo.
+      if (codigo.imagen) {
+        setQr(codigo.imagen);
         setEstado("esperando");
       } else {
         setEstado("iniciando");
@@ -133,7 +136,7 @@ export default function ConectarNumero({ alConectar }: { alConectar: () => void 
 
   useEffect(() => {
     if (!canalId) return;
-    if (estado === "conectado" || estado === "expirado" || estado === "error") return;
+    if (estado === "conectado" || estado === "error") return;
 
     void sondear();
     const id = setInterval(sondear, SONDEO_MS);
@@ -245,7 +248,7 @@ export default function ConectarNumero({ alConectar }: { alConectar: () => void 
           />
         ) : (
           <span className="tenue" style={{ maxWidth: "22ch" }}>
-            {estado === "expirado" ? "El código venció" : "Preparando el código…"}
+            {"Preparando el código…"}
           </span>
         )}
       </div>
@@ -276,7 +279,7 @@ export default function ConectarNumero({ alConectar }: { alConectar: () => void 
         </div>
       )}
 
-      {(estado === "expirado" || estado === "error") && (
+      {estado === "error" && (
         <button
           type="button"
           className="btn btn-primario"
