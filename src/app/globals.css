@@ -1,0 +1,784 @@
+@import "tailwindcss";
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SalesDash — sistema de diseño
+
+   Sin sombras y sin degradados: la jerarquía se construye con el hairline y
+   el fondo, nunca con profundidad. Dos pesos de fuente, 400 y 600. Todo
+   número lleva tabular-nums o las columnas bailan al actualizarse.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* Color base */
+  --ink: #0f1a17;
+  --ink-2: #5a6b65;
+  --ink-3: #8b9a94;
+  --ink-4: #b3bdb8;
+  --page: #f7f9f8;
+  --card: #ffffff;
+  --line: #e8edeb;
+  --line-2: #dde4e1;
+  --soft: #f1f5f3;
+
+  /* Acento de la organización. Lo sobrescribe el layout con orgs.color. */
+  --acc: #12876a;
+  /* Derivados en tiempo de ejecución: no se guardan en la base. */
+  --acc-2: color-mix(in srgb, var(--acc) 78%, white);
+  --acc-bg: color-mix(in srgb, var(--acc) 10%, white);
+
+  /* Semánticos */
+  --blue: #4c6ef5;
+  --blue-bg: #eceffd;
+  --red: #c0392b;
+  --red-bg: #fbeceb;
+  --amber: #c47f0e;
+  --amber-bg: #fdf3e2;
+
+  /* Forma */
+  --radio-tarjeta: 12px;
+  --radio-control: 9px;
+}
+
+@theme inline {
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-ink-4: var(--ink-4);
+  --color-page: var(--page);
+  --color-card: var(--card);
+  --color-line: var(--line);
+  --color-line-2: var(--line-2);
+  --color-soft: var(--soft);
+  --color-acc: var(--acc);
+  --color-acc-2: var(--acc-2);
+  --color-acc-bg: var(--acc-bg);
+  --color-blue: var(--blue);
+  --color-blue-bg: var(--blue-bg);
+  --color-red: var(--red);
+  --color-red-bg: var(--red-bg);
+  --color-amber: var(--amber);
+  --color-amber-bg: var(--amber-bg);
+  --font-sans: ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* ── Base ─────────────────────────────────────────────────────────────────── */
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* El foco siempre visible: anillo de 3px en el acento aclarado. */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--acc-bg);
+  border-color: var(--acc);
+}
+
+/* ── Tipografía ───────────────────────────────────────────────────────────── */
+
+.h1-pagina {
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.titulo-tarjeta {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.rotulo {
+  font-size: 9.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ink-3);
+}
+
+.tenue {
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Superficies ──────────────────────────────────────────────────────────── */
+
+.tarjeta {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radio-tarjeta);
+  padding: 16px 17px;
+}
+
+.rejilla {
+  display: grid;
+  gap: 14px;
+}
+
+/* ── Controles ────────────────────────────────────────────────────────────── */
+
+.campo {
+  width: 100%;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radio-control);
+  background: var(--card);
+  padding: 9px 11px;
+  font-size: 13.5px;
+  color: var(--ink);
+  transition: border-color 0.12s ease;
+}
+
+.campo::placeholder {
+  color: var(--ink-4);
+}
+
+.campo:hover:not(:focus) {
+  border-color: var(--ink-4);
+}
+
+.campo[aria-invalid="true"] {
+  border-color: var(--red);
+}
+
+.etiqueta-campo {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: var(--ink);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border-radius: var(--radio-control);
+  padding: 9px 16px;
+  font-size: 13.5px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-primario {
+  background: var(--ink);
+  color: #ffffff;
+}
+
+.btn-primario:hover:not(:disabled) {
+  background: #1b2e29;
+}
+
+.btn-acento {
+  background: var(--acc);
+  color: #ffffff;
+}
+
+.btn-acento:hover:not(:disabled) {
+  background: var(--acc-2);
+}
+
+.btn-secundario {
+  background: var(--card);
+  border-color: var(--line-2);
+  color: var(--ink);
+}
+
+.btn-secundario:hover:not(:disabled) {
+  background: var(--soft);
+}
+
+.btn-tenue {
+  background: transparent;
+  color: var(--ink-2);
+}
+
+.btn-tenue:hover:not(:disabled) {
+  background: var(--soft);
+  color: var(--ink);
+}
+
+.enlace {
+  color: var(--acc);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.enlace:hover {
+  text-decoration: underline;
+}
+
+/* ── Pastillas de estado ──────────────────────────────────────────────────── */
+
+.pastilla {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+
+.pastilla-ia {
+  background: var(--acc-bg);
+  color: var(--acc);
+}
+
+.pastilla-humano {
+  background: var(--blue-bg);
+  color: var(--blue);
+}
+
+.pastilla-abierta {
+  background: var(--soft);
+  color: var(--ink-2);
+}
+
+.pastilla-revision {
+  background: var(--amber-bg);
+  color: var(--amber);
+}
+
+/* ── Avisos ───────────────────────────────────────────────────────────────── */
+
+.aviso {
+  border-radius: var(--radio-control);
+  padding: 10px 12px;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.aviso-error {
+  background: var(--red-bg);
+  color: var(--red);
+}
+
+.aviso-ambar {
+  background: var(--amber-bg);
+  color: var(--amber);
+}
+
+.aviso-acento {
+  background: var(--acc-bg);
+  color: var(--acc);
+}
+
+/* ── Tablas ───────────────────────────────────────────────────────────────── */
+
+.tabla {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.tabla th {
+  font-size: 9.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ink-3);
+  text-align: left;
+  padding: 0 10px 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.tabla td {
+  font-size: 12.5px;
+  padding: 10px;
+  border-bottom: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+}
+
+.tabla tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.tabla-hover tbody tr:hover td {
+  background: var(--soft);
+}
+
+/* ── Pantalla partida de autenticación ────────────────────────────────────── */
+
+.auth-marco {
+  display: flex;
+  min-height: 100vh;
+}
+
+.auth-izquierda {
+  flex: 1;
+  background: var(--ink);
+  color: #ffffff;
+  padding: 44px 48px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.auth-derecha {
+  width: 466px;
+  flex-shrink: 0;
+  background: var(--page);
+  padding: 44px 40px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.auth-titular {
+  font-size: 29px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  line-height: 1.24;
+}
+
+.auth-apoyo {
+  color: #9db3ac;
+  font-size: 14px;
+  max-width: 42ch;
+}
+
+.auth-beneficio {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  color: #cfdcd8;
+  font-size: 13.5px;
+}
+
+.auth-palomita {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.09);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1px;
+}
+
+@media (max-width: 900px) {
+  .auth-izquierda {
+    display: none;
+  }
+  .auth-derecha {
+    width: 100%;
+    padding: 32px 20px;
+  }
+}
+
+/* ── Barra de pasos del registro ──────────────────────────────────────────── */
+
+.paso {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--line-2);
+  flex: 1;
+}
+
+.paso-hecho {
+  background: var(--acc);
+}
+
+/* ── Casillas del código de verificación ──────────────────────────────────── */
+
+.casilla-codigo {
+  width: 44px;
+  height: 52px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radio-control);
+  background: var(--card);
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 20px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  transition: border-color 0.12s ease;
+}
+
+.casilla-codigo:focus {
+  border-color: var(--acc);
+}
+
+/* ── Punto de estado del QR ───────────────────────────────────────────────── */
+
+.punto {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.punto-pulso {
+  animation: pulso 1.6s ease-in-out infinite;
+}
+
+@keyframes pulso {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .punto-pulso {
+    animation: none;
+  }
+  * {
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── Marco del panel ──────────────────────────────────────────────────────── */
+
+.sd-marco {
+  display: flex;
+  min-height: 100vh;
+}
+
+.sd-lateral {
+  width: 236px;
+  flex-shrink: 0;
+  background: var(--card);
+  border-right: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.sd-lateral-cuerpo {
+  padding: 18px 14px;
+  overflow-y: auto;
+}
+
+.sd-lateral-pie {
+  border-top: 1px solid var(--line);
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.sd-menu {
+  display: grid;
+  gap: 1px;
+}
+
+.sd-enlace {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  color: var(--ink-2);
+  text-decoration: none;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.sd-enlace:hover {
+  background: var(--soft);
+  color: var(--ink);
+}
+
+.sd-enlace-activo {
+  background: var(--acc-bg);
+  color: var(--acc);
+  font-weight: 600;
+}
+
+/* Los rangos no llevan icono: se alinean con el texto de los que sí. */
+.sd-rango {
+  padding-left: 35px;
+  font-size: 12.5px;
+}
+
+.sd-contador {
+  margin-left: auto;
+  background: var(--amber-bg);
+  color: var(--amber);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 20px;
+}
+
+.sd-salir {
+  background: transparent;
+  border: none;
+  color: var(--ink-3);
+  padding: 6px;
+  border-radius: 7px;
+  cursor: pointer;
+  display: flex;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.sd-salir:hover {
+  background: var(--red-bg);
+  color: var(--red);
+}
+
+.sd-contenido {
+  flex: 1;
+  min-width: 0;
+  padding: 22px 24px 40px;
+}
+
+.sd-cabecera {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+/* ── Rejillas del dashboard ───────────────────────────────────────────────── */
+
+.sd-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.sd-fila-2 {
+  display: grid;
+  grid-template-columns: 1.55fr 1fr 1fr;
+  gap: 14px;
+}
+
+.sd-fila-3 {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr;
+  gap: 14px;
+}
+
+.sd-mitades {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+@media (max-width: 1180px) {
+  .sd-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .sd-fila-2 {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 900px) {
+  .sd-kpis,
+  .sd-fila-2,
+  .sd-fila-3,
+  .sd-mitades {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Bajo 820px la barra lateral pasa a una fila de iconos arriba. */
+@media (max-width: 820px) {
+  .sd-marco {
+    flex-direction: column;
+  }
+  .sd-lateral {
+    width: 100%;
+    height: auto;
+    position: static;
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+    flex-direction: row;
+    align-items: center;
+  }
+  .sd-lateral-cuerpo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    overflow-x: auto;
+    padding: 10px 12px;
+    flex: 1;
+  }
+  .sd-menu {
+    display: flex;
+    gap: 2px;
+  }
+  .sd-enlace span,
+  .sd-contador {
+    display: none;
+  }
+  .sd-enlace {
+    padding: 9px;
+  }
+  .sd-rango {
+    padding-left: 10px;
+  }
+  .sd-rango,
+  .sd-lateral-cuerpo > .rotulo {
+    display: none;
+  }
+  .sd-lateral-pie {
+    border-top: none;
+    border-left: 1px solid var(--line);
+  }
+  .sd-lateral-pie > div:nth-child(2) {
+    display: none;
+  }
+  .sd-contenido {
+    padding: 16px 14px 32px;
+  }
+}
+
+/* ── Franja de color de las filas de canal ────────────────────────────────── */
+
+.sd-franja {
+  border-left: 3px solid var(--acc);
+  padding-left: 9px;
+}
+
+.sd-minibarra {
+  height: 3px;
+  background: var(--soft);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+/* ── Burbujas del hilo ────────────────────────────────────────────────────── */
+
+.sd-burbuja {
+  max-width: 74%;
+  padding: 9px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.sd-burbuja-cliente {
+  background: var(--card);
+  border: 1px solid var(--line);
+  align-self: flex-start;
+  border-bottom-left-radius: 4px;
+}
+
+.sd-burbuja-ia {
+  background: var(--acc);
+  color: #fff;
+  align-self: flex-end;
+  border-bottom-right-radius: 4px;
+}
+
+.sd-burbuja-humano {
+  background: var(--blue);
+  color: #fff;
+  align-self: flex-end;
+  border-bottom-right-radius: 4px;
+}
+
+.sd-hilo {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+/* ── Interruptor ──────────────────────────────────────────────────────────── */
+
+.sd-switch {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  border-radius: 12px;
+  background: var(--line-2);
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease;
+}
+
+.sd-switch[aria-checked="true"] {
+  background: var(--acc);
+}
+
+.sd-switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s ease;
+}
+
+.sd-switch[aria-checked="true"]::after {
+  transform: translateX(16px);
+}
+
+/* ── Consola de plataforma: barra oscura arriba, no lateral clara ─────────── */
+
+.sd-admin-barra {
+  background: var(--ink);
+  color: #fff;
+  padding: 12px 22px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.sd-admin-enlace {
+  color: #9db3ac;
+  text-decoration: none;
+  font-size: 13.5px;
+  padding: 5px 9px;
+  border-radius: 7px;
+}
+
+.sd-admin-enlace:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.sd-admin-activo {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+  font-weight: 600;
+}
