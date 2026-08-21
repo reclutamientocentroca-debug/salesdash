@@ -706,3 +706,25 @@ test("la factura no reasigna una venta que ya cerró un resumen", () => {
   );
   assert.equal(D.getConversation(orgId, manual)?.cerrado_por, "humano");
 });
+
+/**
+ * UN NÚMERO NACE VIGILANDO.
+ *
+ * Quien conecta su WhatsApp aquí ya tiene a alguien contestando —su propio
+ * bot— y lo que necesita es que le cuenten las ventas, no que le hablen a sus
+ * clientes. El panel contesta solo donde se le encienda el agente a propósito.
+ */
+test("un número recién conectado vigila, no contesta", () => {
+  const nuevo = D.crearCanal(orgId, {
+    nombre: "Recién conectado",
+    phone: `1809555${siguiente++}`,
+    tokenCifrado: "x",
+    webhookSecret: "s",
+    whapiChannelId: null,
+    estado: "conectado",
+  });
+
+  const canal = D.obtenerCanal(orgId, nuevo);
+  assert.equal(canal?.contesta_ia, 1, "contesta la IA del dueño y el panel mira");
+  assert.equal(canal?.agente_activo, 0, "nuestro agente no habla hasta que se le encienda");
+});

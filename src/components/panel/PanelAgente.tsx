@@ -184,8 +184,33 @@ export default function PanelAgente({
     }
   }
 
+  /**
+   * Encender el agente en un número es DECIDIR QUIÉN CONTESTA AHÍ.
+   *
+   * Por defecto el panel solo vigila: en el WhatsApp del dueño ya contesta su
+   * propia IA. Encender el nuestro le quita ese sitio, así que se pregunta —una
+   * vez, y solo cuando de verdad cambia algo—: quien no se dé cuenta se
+   * encuentra a dos vendedores escribiéndole al mismo cliente, y eso ya no se
+   * arregla.
+   */
   async function alternarCanal(id: number, activo: boolean) {
-    setCanales((cs) => cs.map((c) => (c.id === id ? { ...c, agente_activo: activo } : c)));
+    const canal = canales.find((c) => c.id === id);
+
+    if (activo && canal?.contesta_ia) {
+      const sigue = confirm(
+        `En «${canal.nombre}» contesta tu IA y el panel solo vigila.\n\n` +
+          "Si enciendes el agente del panel, el que contestará a partir de ahora es él, y tu IA " +
+          "deja de tener ese sitio. Las respuestas del número pasarán a contarse como suyas.\n\n" +
+          "¿Enciendes el agente del panel en este número?",
+      );
+      if (!sigue) return;
+    }
+
+    setCanales((cs) =>
+      cs.map((c) =>
+        c.id === id ? { ...c, agente_activo: activo, contesta_ia: activo ? false : c.contesta_ia } : c,
+      ),
+    );
 
     const r = await fetch(`/api/canales/${id}`, {
       method: "PATCH",
@@ -194,9 +219,11 @@ export default function PanelAgente({
     });
 
     if (!r.ok) {
-      setCanales((cs) => cs.map((c) => (c.id === id ? { ...c, agente_activo: !activo } : c)));
+      setCanales((cs) => cs.map((c) => (c.id === id ? { ...c, ...canal } : c)));
       setError("No se pudo cambiar el número.");
+      return;
     }
+    router.refresh();
   }
 
   async function probar() {
@@ -235,10 +262,11 @@ export default function PanelAgente({
             {canales.map((c) => (
               <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 12 }}>
                 {/*
-                  El interruptor se apaga solo en los números donde ya contesta
-                  otra IA. No es un adorno: el agente tiene su propia guarda y
-                  no habla ahí, y un interruptor que se puede encender pero no
-                  hace nada es una promesa que la pantalla no cumple.
+                  El interruptor SÍ se puede tocar en un número que solo se
+                  vigila: encenderlo es precisamente cómo se le da el sitio a
+                  nuestro agente. Lo que no se puede es dejar a los dos
+                  contestando, y de eso se encarga el servidor, que apaga uno al
+                  encender el otro.
                 */}
                 <button
                   type="button"
@@ -246,7 +274,7 @@ export default function PanelAgente({
                   aria-checked={c.agente_activo && !c.contesta_ia}
                   aria-label={`Agente en ${c.nombre}`}
                   className="sd-switch"
-                  disabled={!c.conectado || c.contesta_ia}
+                  disabled={!c.conectado}
                   onClick={() => alternarCanal(c.id, !c.agente_activo)}
                 />
                 <div style={{ flex: 1, minWidth: 0 }}>

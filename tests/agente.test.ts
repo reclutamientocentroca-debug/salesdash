@@ -57,7 +57,14 @@ function hilo(mensajes: { emisor: D.Emisor; content: string; hace: number }[]) {
   return conversacion.id;
 }
 
-const encender = (v: boolean) => D.actualizarCanal(orgId, canalId, { agente_activo: v ? 1 : 0 });
+/*
+ * Encender el agente en un número le quita el sitio a la IA del dueño, igual
+ * que hace la API: por número contesta uno solo. Un canal nace en modo vigilar
+ * —`contesta_ia = 1`—, así que sin esto todas las pruebas de silencio darían
+ * «contesta_otra_ia» y no probarían la salvaguarda que dicen probar.
+ */
+const encender = (v: boolean) =>
+  D.actualizarCanal(orgId, canalId, { agente_activo: v ? 1 : 0, contesta_ia: v ? 0 : 1 });
 
 // ── Funciones puras ─────────────────────────────────────────────────────────
 

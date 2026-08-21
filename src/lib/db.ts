@@ -71,12 +71,17 @@ CREATE TABLE IF NOT EXISTS canales (
   estado TEXT NOT NULL DEFAULT 'pendiente',
   ultimo_evento_at INTEGER,
   agente_activo INTEGER NOT NULL DEFAULT 0,
-  /* En este número contesta una IA que no es la nuestra.
-     Distinto de agente_activo, que enciende NUESTRO agente: esto no manda ni un
-     mensaje, solo dice de quién son los que salen. Sin ello, todo lo que sale de
-     un número atendido por un bot ajeno se cuenta como que intervino una
-     persona, y sus ventas se le acreditan al equipo en vez de a la IA. */
-  contesta_ia INTEGER NOT NULL DEFAULT 0,
+  /* En este número contesta una IA que no es la nuestra, y el panel solo mira.
+     ES EL MODO POR DEFECTO de todo número que se conecta: quien trae su
+     WhatsApp aquí ya tiene a alguien contestando —su propio bot— y lo que
+     necesita es que se le cuenten las ventas, no que le hablen a sus clientes.
+     El panel contesta solo donde se le encienda el agente, y encenderlo apaga
+     esto: por número contesta uno, o el otro, o una persona. Nunca dos.
+     Distinto de agente_activo: esto no manda ni un mensaje, solo dice de quién
+     son los que salen. Sin ello, todo lo que sale de un número atendido por un
+     bot ajeno se cuenta como que intervino una persona, y sus ventas se le
+     acreditan al equipo en vez de a la IA. */
+  contesta_ia INTEGER NOT NULL DEFAULT 1,
   activo INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL DEFAULT (unixepoch()),
   UNIQUE(org_id, phone)
@@ -296,7 +301,7 @@ function migrar(conexion: DB): void {
 
   // canales: en este número contesta una IA ajena.
   if (!columnas("canales").includes("contesta_ia")) {
-    conexion.exec(`ALTER TABLE canales ADD COLUMN contesta_ia INTEGER NOT NULL DEFAULT 0`);
+    conexion.exec(`ALTER TABLE canales ADD COLUMN contesta_ia INTEGER NOT NULL DEFAULT 1`);
   }
 
   // conversations: la descripción del anuncio que trajo al cliente. ALTER ADD
@@ -343,6 +348,27 @@ function migrar(conexion: DB): void {
         WHERE senal_de_cierre = 'resumen_tras_intervencion'`,
     ).run();
     conexion.exec(`PRAGMA user_version = 2`);
+  }
+
+  /*
+   * canales: los números que ya estaban conectados pasan al modo de vigilar.
+   *
+   * El `DEFAULT 1` solo vale para los que se conecten a partir de ahora. En los
+   * que ya estaban, el panel tampoco contestaba —su agente está apagado— pero
+   * seguía anotando como escritas por una persona las respuestas del bot del
+   * dueño, y acreditándole al equipo esas ventas.
+   *
+   * Solo donde nuestro agente está APAGADO. Si alguien lo tiene encendido, ahí
+   * el que contesta es él y no hay nada que suponer.
+   *
+   * Cambia cómo se cuenta lo que entre a partir de ahora; lo ya guardado se
+   * queda como está. Reescribir el histórico de todas las cuentas sin que nadie
+   * lo pida sería pasarse: eso lo hace el botón de cada número, que avisa de lo
+   * que va a recalcular antes de tocar nada.
+   */
+  if (version < 3) {
+    conexion.prepare(`UPDATE canales SET contesta_ia = 1 WHERE agente_activo = 0`).run();
+    conexion.exec(`PRAGMA user_version = 3`);
   }
 
   // anomalies: las anomalías de canal no tienen conversación.

@@ -14,6 +14,18 @@ Cada persona crea su cuenta, conecta sus números y obtiene su propio panel. Las
 
 La separación no es una convención que se pueda romper sin darse cuenta: hay una prueba que barre todo `src/` y falla si cualquier otro archivo importa la función de envío.
 
+### Un número, un modo: o vigilar, o contestar
+
+**Todo número que se conecta nace vigilando.** Quien trae su WhatsApp aquí ya tiene a alguien contestando —su propio bot— y lo que necesita es que se le cuenten las ventas, no que le hablen a sus clientes.
+
+| Modo | Quién contesta | Cómo se cuenta lo que sale del número |
+|---|---|---|
+| **Vigilar** (`contesta_ia = 1`, por defecto) | La IA del dueño, fuera del panel | Como de la IA. El resumen de pedido cierra la venta para ella |
+| **Contestar** (`agente_activo = 1`) | El agente del panel | Sus mensajes son de la IA; lo que escriba una persona, del equipo |
+| Ninguno de los dos | Personas | Como del equipo |
+
+Encender uno apaga el otro en el mismo `UPDATE`. Y que nunca hablen los dos a la vez no depende de eso: lo garantiza una guarda en `atenderConversacion`, el único camino por el que sale un mensaje. Un cliente que recibe dos respuestas de dos vendedores distintos ya no se arregla después.
+
 ```bash
 npm test    # incluye «solo el agente puede enviar mensajes a un cliente»
 ```
