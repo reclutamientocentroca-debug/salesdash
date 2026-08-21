@@ -357,6 +357,17 @@ body {
   color: transparent;
 }
 
+/* Fila de marca de la barra lateral. La línea inferior la separa de la fila de
+   la cuenta: son dos cosas distintas y tienen que leerse como dos cosas. */
+.sd-marca {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding-bottom: 15px;
+  margin-bottom: 15px;
+  border-bottom: 1px solid var(--line);
+}
+
 .marca-bloque {
   display: inline-flex;
   flex-direction: column;

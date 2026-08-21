@@ -47,7 +47,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
       <aside className="auth-izquierda">
         {/* `priority`: es la imagen más grande de la mitad visible, así que
             Next la carga sin esperar al observador de visibilidad. */}
-        <Image src={logo} alt="SalesDash" width={196} priority className="auth-logo" />
+        <Image src={logo} alt="SalesDash" width={288} priority className="auth-logo" />
 
         <div>
           <h1 className="auth-titular">
@@ -75,7 +75,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
 
       <main className="auth-derecha">
         <div className="auth-marca-movil">
-          <Image src={logo} alt="SalesDash" width={218} priority className="auth-logo" />
+          <Image src={logo} alt="SalesDash" width={252} priority className="auth-logo" />
         </div>
         {children}
       </main>

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { IconoMarca } from "@/components/IconoMarca";
 import {
   IconoAdmin,
   IconoAgente,
@@ -66,6 +67,18 @@ export default function BarraLateral({ negocio, usuario, superadmin, pendientesR
   return (
     <nav className="sd-lateral" aria-label="Menú principal">
       <div className="sd-lateral-cuerpo">
+        {/* Dos filas, y separadas a propósito: arriba el producto, abajo la
+            cuenta. Antes iban mezcladas y "SalesDash" quedaba como un
+            subtítulo del nombre del negocio, que es justo lo contrario de lo
+            que es. El azulejo es el mismo del icono de pestaña: la aplicación
+            se reconoce igual por dentro que en el navegador. */}
+        <div className="sd-marca">
+          <IconoMarca tamano={28} id="lateral" />
+          <span className="marca-texto" style={{ fontSize: 16 }}>
+            Sales<span className="marca-degradado">Dash</span>
+          </span>
+        </div>
+
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 22 }}>
           <div
             style={{
@@ -81,11 +94,7 @@ export default function BarraLateral({ negocio, usuario, superadmin, pendientesR
             <div style={{ fontSize: 13.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {negocio}
             </div>
-            {/* El avatar de arriba es la inicial del negocio: identifica la
-                cuenta. Esto identifica el producto. */}
-            <div className="tenue marca-texto" style={{ fontSize: 11.5 }}>
-              Sales<span className="marca-degradado">Dash</span>
-            </div>
+            <div className="tenue">Tu cuenta</div>
           </div>
         </div>
 

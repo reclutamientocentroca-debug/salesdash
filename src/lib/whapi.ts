@@ -263,17 +263,32 @@ export async function apuntarWebhook(token: string, url: string): Promise<void> 
     );
   }
 
-  // Se descartan las entradas que ya apunten a este mismo panel, comparando
-  // sin el secreto: al reconectar, el secreto cambia pero la ruta no.
-  const sinLaNuestra = existentes.filter((w) => {
-    const suya = (w.url ?? "").split("?")[0];
-    return suya && suya !== url.split("?")[0];
-  });
+  /*
+   * Se descartan las entradas anteriores de SalesDash, y se reconocen por la
+   * RUTA, no por el dominio.
+   *
+   * Comparar la url completa no basta: si el canal se conectó cuando APP_URL
+   * estaba mal —apuntando a localhost, el caso típico de un despliegue recién
+   * hecho— esa entrada muerta tiene otro dominio, sobreviviría al filtro y se
+   * quedaría ahí para siempre. El canal seguiría sin recibir nada y la lista
+   * de webhooks acumularía basura con cada reconexión.
+   *
+   * La ruta /api/webhook/<id> es nuestra y de nadie más.
+   */
+  const esNuestro = (u: string) => {
+    try {
+      return /^\/api\/webhook\/\d+$/.test(new URL(u).pathname);
+    } catch {
+      return false;
+    }
+  };
+
+  const deTerceros = existentes.filter((w) => w.url && !esNuestro(w.url));
 
   await pedir(`${GATE}/settings`, {
     metodo: "PATCH",
     token,
-    cuerpo: { webhooks: [...sinLaNuestra, nuestro] },
+    cuerpo: { webhooks: [...deTerceros, nuestro] },
   });
 }
 
