@@ -15,7 +15,6 @@
     "test": "node --import tsx --test tests/aislamiento.test.ts tests/conteo.test.ts tests/cierres.test.ts tests/agente.test.ts",
     "probar-correo": "tsx scripts/probar-correo.ts",
     "superadmin": "tsx scripts/hacer-superadmin.ts",
-    "verificar-cuenta": "tsx scripts/verificar-cuenta.ts",
     "verificar-ia": "tsx tests/real-ia.ts",
     "verificar-vision": "tsx tests/real-vision.ts"
   },

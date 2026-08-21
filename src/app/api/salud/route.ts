@@ -198,6 +198,22 @@ function revisarCorreo(): {
     return { utilizable: false, destinatarios: "ninguno", avisos };
   }
 
+  /*
+   * Gmail solo deja enviar como la cuenta con la que te autenticas. Si
+   * MAIL_FROM lleva otra dirección, Gmail la reescribe por la suya o rechaza
+   * el envío — y el usuario ve un fallo que no dice nada de esto.
+   */
+  const usuario = (process.env.SMTP_USER ?? "").trim().toLowerCase();
+  const direccionRemitente = (from.match(/<([^>]+)>/)?.[1] ?? from).trim().toLowerCase();
+
+  if (host.toLowerCase().includes("gmail.com") && usuario && direccionRemitente !== usuario) {
+    avisos.push(
+      `Con Gmail, MAIL_FROM tiene que ser la misma dirección con la que te autenticas ` +
+        `(${usuario}), y ahora es "${direccionRemitente}". Gmail la reescribe o rechaza el envío.`,
+    );
+    return { utilizable: false, destinatarios: "ninguno", avisos };
+  }
+
   // Remitentes de prueba de los proveedores: entregan solo a la dirección
   // dueña de la cuenta, así que sirven para comprobar el despliegue y no para
   // escribir a usuarios de verdad.
