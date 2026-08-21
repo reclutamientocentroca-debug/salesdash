@@ -185,7 +185,13 @@ UPDATE conversations SET cerrado_por = ?, fecha_cierre = ?
  WHERE org_id = ? AND id = ? AND fecha_cierre IS NULL
 ```
 
-#### La única excepción: el resumen manda sobre la factura
+#### El resumen es de quien lo escribe
+
+**Si el resumen de pedido lo mandó la IA, la venta es de la IA** — aunque un vendedor hubiera escrito antes en ese hilo. Antes bastaba un «ya te confirmo» de una persona para que el resumen que la IA mandaba media hora después contara para el equipo.
+
+Que una persona metiera mano no se pierde: se ve en `intervencion_humana`, su propia pastilla en la lista de conversaciones. **Quién cerró y si alguien tuvo que ayudar son dos preguntas distintas**, y mezclarlas hacía que la IA no se llevara ni las ventas que cerró sola de principio a fin.
+
+#### La única excepción a la regla maestra: el resumen manda sobre la factura
 
 **Si en algún punto del hilo aparece el resumen de pedido, la venta es de quien lo escribió — aunque la factura llegue antes.** Una factura solo cierra cuando en todo el hilo no hubo resumen.
 

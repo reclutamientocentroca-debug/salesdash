@@ -18,7 +18,6 @@
  * el producto, el total y el envío. Eso sí necesita el modelo.
  */
 import {
-  huboHumanoAntes,
   obtenerOrg,
   orgsParaBarrerCierres,
   reatribuirCierrePorResumen,
@@ -74,18 +73,27 @@ export interface Cierre {
 }
 
 /**
- * De quién es el cierre.
+ * De quién es el cierre. LO DECIDE QUIÉN ESCRIBIÓ EL RESUMEN, y nadie más.
  *
- * La regla de atribución del producto, entera: la venta es de la IA solo si la
- * IA la llevó sola. Si un vendedor había escrito antes, el resumen de la IA
- * está cerrando una venta que trabajó una persona, y es de esa persona.
+ * Si el resumen de pedido lo mandó la IA, la venta es de la IA. Aunque un
+ * vendedor hubiera escrito antes en ese hilo, y aunque llegue una factura
+ * después: quien cerró el pedido fue el resumen.
+ *
+ * Antes, un mensaje cualquiera de un vendedor —«ya te confirmo», «un momento»—
+ * convertía en cierre humano el resumen que la IA mandaba media hora después.
+ * Que una persona haya metido mano se sigue viendo, pero se ve donde le toca:
+ * en la pastilla de intervención, que es un dato aparte. Quién cerró y si
+ * alguien tuvo que ayudar son dos preguntas distintas y tienen dos respuestas
+ * distintas; mezclarlas hacía que la IA no se llevara ni las ventas que cerró
+ * sola de principio a fin.
+ *
+ * `resumen_tras_intervencion` ya no se produce. Se sigue reconociendo al
+ * mostrarlo porque hay conversaciones viejas selladas con esa señal.
  */
-export function duenoDelCierre(emisor: Emisor, humanoAntes: boolean): Cierre | null {
+export function duenoDelCierre(emisor: Emisor): Cierre | null {
   if (emisor === "cliente") return null;
   if (emisor === "humano") return { quien: "humano", senal: "confirmacion_texto" };
-  return humanoAntes
-    ? { quien: "humano", senal: "resumen_tras_intervencion" }
-    : { quien: "ia", senal: "resumen_ia" };
+  return { quien: "ia", senal: "resumen_ia" };
 }
 
 /**
@@ -112,7 +120,7 @@ export function registrarCierre(
   const marcador = obtenerOrg(orgId)?.marcador_cierre ?? MARCADOR_POR_DEFECTO;
   if (!contieneMarcador(mensaje.content, marcador)) return false;
 
-  const cierre = duenoDelCierre(mensaje.emisor, huboHumanoAntes(orgId, conversationId, mensaje.cuando));
+  const cierre = duenoDelCierre(mensaje.emisor);
   if (!cierre) return false;
 
   const sellado = sellarCierre(orgId, conversationId, {

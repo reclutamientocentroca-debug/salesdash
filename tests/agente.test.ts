@@ -349,7 +349,16 @@ test("una venta cerrada sin analizar sigue en la cola del analista", () => {
   assert.equal(despues.includes(id), false, "ya analizada y cerrada: no se vuelve a pagar por ella");
 });
 
-test("si un vendedor escribió antes, el resumen de la IA cierra para el equipo", () => {
+/**
+ * Aunque un vendedor haya escrito antes, el resumen que manda la IA cierra
+ * para la IA. Antes bastaba un «ya te confirmo» para que la venta que la IA
+ * cerró media hora después contara para el equipo.
+ *
+ * Que una persona metiera mano no se pierde: se ve en `intervencion_humana`,
+ * que es un dato aparte y sigue en 1. Quién cerró y si alguien ayudó son dos
+ * preguntas distintas.
+ */
+test("aunque un vendedor escribiera antes, el resumen de la IA cierra para la IA", () => {
   const id = conversacionCon([
     { emisor: "cliente", content: "hola", t: 4_000 },
     { emisor: "humano", content: "te lo dejo en 2500", t: 4_050 },
@@ -358,8 +367,9 @@ test("si un vendedor escribió antes, el resumen de la IA cierra para el equipo"
   registrarCierre(orgId, id, { emisor: "ia", content: "Resumen: 1 camisa, 2500", cuando: 4_100 });
 
   const conv = D.getConversation(orgId, id)!;
-  assert.equal(conv.cerrado_por, "humano", "la venta la trabajó una persona");
-  assert.equal(conv.senal_de_cierre, "resumen_tras_intervencion");
+  assert.equal(conv.cerrado_por, "ia", "el resumen es de la IA: la venta también");
+  assert.equal(conv.senal_de_cierre, "resumen_ia");
+  assert.equal(conv.intervencion_humana, 1, "que una persona escribiera se sigue viendo");
 });
 
 test("el vendedor cierra escribiendo el marcador desde su móvil", () => {
@@ -401,11 +411,16 @@ test("un mensaje del cliente nunca cierra una venta", () => {
   assert.equal(D.getConversation(orgId, id)!.cerrado_por, "abierta");
 });
 
+/**
+ * El resumen es de quien lo escribe. Si lo mandó la IA, la venta es de la IA:
+ * ni un vendedor que escribió antes ni una factura que llega después se la
+ * quitan. Que una persona metiera mano se ve en la pastilla de intervención,
+ * que es otro dato.
+ */
 test("la atribución del cierre es la misma regla en todas partes", () => {
-  assert.deepEqual(duenoDelCierre("ia", false), { quien: "ia", senal: "resumen_ia" });
-  assert.deepEqual(duenoDelCierre("ia", true), { quien: "humano", senal: "resumen_tras_intervencion" });
-  assert.deepEqual(duenoDelCierre("humano", false), { quien: "humano", senal: "confirmacion_texto" });
-  assert.equal(duenoDelCierre("cliente", false), null);
+  assert.deepEqual(duenoDelCierre("ia"), { quien: "ia", senal: "resumen_ia" });
+  assert.deepEqual(duenoDelCierre("humano"), { quien: "humano", senal: "confirmacion_texto" });
+  assert.equal(duenoDelCierre("cliente"), null);
 });
 
 /**

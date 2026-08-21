@@ -101,49 +101,26 @@ export async function buscarPrimeraSenal(
   describir: (m: Mensaje) => Promise<CategoriaImagen | null>,
 ): Promise<{ senales: Senal[]; imagenSinDescribir: boolean }> {
   // ── Pase 1: el resumen de pedido. Es leer texto: ni un modelo. ──────────
+  /*
+   * De quién es el resumen lo decide QUIÉN LO ESCRIBIÓ, y nada más. Si lo
+   * mandó la IA, la venta es de la IA, aunque un vendedor hubiera escrito
+   * antes en el hilo. Que una persona metiera mano se ve en la pastilla de
+   * intervención, que es un dato aparte: quién cerró y si alguien ayudó son
+   * dos preguntas distintas. Gemelo de `duenoDelCierre` en `cierre.ts`.
+   */
   const texto: Senal[] = [];
-  let humanoAntes = false;
 
   for (const m of mensajes) {
     if (texto.length && m.created_at > texto[0]!.cuando) break;
 
     const saliente = m.emisor === "ia" || m.emisor === "humano";
+    if (!saliente || !contieneMarcador(m.content, marcador)) continue;
 
-    if (saliente && contieneMarcador(m.content, marcador)) {
-      if (m.emisor === "ia" && !humanoAntes) {
-        texto.push({ quien: "ia", senal: "resumen_ia", cuando: m.created_at, mensajeId: m.id });
-      } else if (m.emisor === "ia") {
-        // La IA mandó el resumen pero un vendedor ya había escrito antes: la
-        // venta la trabajó una persona y es suya. Esto NO lo cambia la regla
-        // del resumen sobre la factura, que va de otra cosa.
-        texto.push({
-          quien: "humano",
-          senal: "resumen_tras_intervencion",
-          cuando: m.created_at,
-          mensajeId: m.id,
-        });
-      } else {
-        texto.push({
-          quien: "humano",
-          senal: "confirmacion_texto",
-          cuando: m.created_at,
-          mensajeId: m.id,
-        });
-      }
-    }
-
-    /*
-     * El estado se actualiza DESPUÉS de evaluar el mensaje: un mensaje no se
-     * precede a sí mismo.
-     *
-     * Las imágenes del vendedor no cuentan como intervención: son la factura o
-     * el comprobante, papeleo alrededor de la venta y no el trabajo de
-     * venderla. Si contaran, el vendedor que adelanta la factura le quitaría a
-     * la IA el resumen que manda después — la regla del resumen sobre la
-     * factura, burlada por la puerta de atrás. Gemela del `tipo <> 'imagen'`
-     * de `huboHumanoAntes` en `db.ts`.
-     */
-    if (m.emisor === "humano" && m.tipo !== "imagen") humanoAntes = true;
+    texto.push(
+      m.emisor === "ia"
+        ? { quien: "ia", senal: "resumen_ia", cuando: m.created_at, mensajeId: m.id }
+        : { quien: "humano", senal: "confirmacion_texto", cuando: m.created_at, mensajeId: m.id },
+    );
   }
 
   if (texto.length) return { senales: texto, imagenSinDescribir: false };

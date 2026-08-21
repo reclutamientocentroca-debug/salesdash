@@ -324,6 +324,27 @@ function migrar(conexion: DB): void {
     conexion.exec(`PRAGMA user_version = 1`);
   }
 
+  /*
+   * conversations: las ventas que cerró un resumen de la IA vuelven a la IA.
+   *
+   * `resumen_tras_intervencion` era la señal de «la IA mandó el resumen, pero
+   * un vendedor había escrito antes, así que la venta es del equipo». Esa regla
+   * se retiró: el resumen es de quien lo escribe, y que una persona metiera
+   * mano se lee en `intervencion_humana`, que es un dato aparte y no se toca
+   * aquí. Toda fila con esa señal la cerró un resumen de la IA, así que la
+   * conversión es exacta y no hay nada que adivinar.
+   *
+   * Una sola vez: después el dueño puede corregir a mano lo que quiera desde la
+   * bandeja de revisión, y no se lo vamos a pisar en el siguiente arranque.
+   */
+  if (version < 2) {
+    conexion.prepare(
+      `UPDATE conversations SET cerrado_por = 'ia', senal_de_cierre = 'resumen_ia'
+        WHERE senal_de_cierre = 'resumen_tras_intervencion'`,
+    ).run();
+    conexion.exec(`PRAGMA user_version = 2`);
+  }
+
   // anomalies: las anomalías de canal no tienen conversación.
   if (!columnas("anomalies").includes("canal_id")) {
     conexion.exec(`

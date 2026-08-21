@@ -60,7 +60,13 @@ test("factura del vendedor sin resumen previo: la venta es del vendedor", async 
   assert.equal(r.senales[0]!.senal, "imagen_factura");
 });
 
-test("si un vendedor escribió antes, el resumen de la IA no es cierre de IA", async () => {
+/**
+ * El resumen es de quien lo escribe, y punto. Un vendedor que contesta antes no
+ * le quita a la IA la venta que la IA cierra después: si hizo falta que una
+ * persona metiera mano, eso se lee en la pastilla de intervención, que es un
+ * dato aparte del de quién cerró.
+ */
+test("un vendedor que escribió antes no le quita el cierre a la IA", async () => {
   const hilo = [
     m({ emisor: "cliente", created_at: 100, content: "hola" }),
     m({ emisor: "humano", created_at: 150, content: "ya te atiendo" }),
@@ -68,8 +74,23 @@ test("si un vendedor escribió antes, el resumen de la IA no es cierre de IA", a
   ];
 
   const r = await buscarPrimeraSenal(MARCADOR, hilo, nuncaSeLlama);
+  assert.equal(r.senales[0]!.quien, "ia");
+  assert.equal(r.senales[0]!.senal, "resumen_ia");
+});
+
+/**
+ * Y al revés sigue igual: el marcador escrito por el vendedor desde su móvil
+ * cierra para el equipo. Lo que decide es de quién es el mensaje.
+ */
+test("el marcador escrito por el vendedor cierra para el equipo", async () => {
+  const hilo = [
+    m({ emisor: "cliente", created_at: 100, content: "me lo llevo" }),
+    m({ emisor: "humano", created_at: 200, content: "Resumen: 1 nevera, total 32000" }),
+  ];
+
+  const r = await buscarPrimeraSenal(MARCADOR, hilo, nuncaSeLlama);
   assert.equal(r.senales[0]!.quien, "humano");
-  assert.equal(r.senales[0]!.senal, "resumen_tras_intervencion");
+  assert.equal(r.senales[0]!.senal, "confirmacion_texto");
 });
 
 test("una foto de producto no cierra nada", async () => {

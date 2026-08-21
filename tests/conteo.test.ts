@@ -488,10 +488,12 @@ test("el barrido cuenta las ventas con resumen que nadie había sellado", () => 
 });
 
 /**
- * El barrido no le regala a la IA una venta que trabajó una persona: es la
- * misma regla de atribución del sellado en vivo, no una copia relajada.
+ * El barrido aplica la MISMA regla que el sellado en vivo, no una copia
+ * relajada: el resumen es de quien lo escribió. Un vendedor que contestó antes
+ * no le quita a la IA la venta que cerró su resumen; que metiera mano se ve en
+ * la pastilla de intervención, aparte.
  */
-test("si un vendedor escribió antes, el barrido sella la venta como suya", () => {
+test("un vendedor que escribió antes no le quita al barrido el cierre de la IA", () => {
   const hilo = nuevaConversacion();
   D.insertMessage(orgId, {
     conversationId: hilo, whapiMessageId: `mixto-${siguiente++}`, emisor: "humano",
@@ -501,12 +503,14 @@ test("si un vendedor escribió antes, el barrido sella la venta como suya", () =
     conversationId: hilo, whapiMessageId: `mixto-${siguiente++}`, emisor: "ia",
     tipo: "texto", content: "Resumen: 2 pantalones, total 4800", createdAt: 1_700_000_500,
   });
+  D.recalcularIntervencionHumana(orgId, hilo);
 
   assert.equal(sellarCierresPendientes(orgId), 1);
 
   const conv = D.getConversation(orgId, hilo);
-  assert.equal(conv?.cerrado_por, "humano");
-  assert.equal(conv?.senal_de_cierre, "resumen_tras_intervencion");
+  assert.equal(conv?.cerrado_por, "ia");
+  assert.equal(conv?.senal_de_cierre, "resumen_ia");
+  assert.equal(conv?.intervencion_humana, 1, "intervino, y se sigue viendo");
 });
 
 /**
