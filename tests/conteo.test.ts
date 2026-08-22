@@ -728,3 +728,27 @@ test("un número recién conectado vigila, no contesta", () => {
   assert.equal(canal?.contesta_ia, 1, "contesta la IA del dueño y el panel mira");
   assert.equal(canal?.agente_activo, 0, "nuestro agente no habla hasta que se le encienda");
 });
+
+/**
+ * La fila de cada número tiene que cuadrar sola.
+ *
+ * El panel enseña un conteo por WhatsApp, y esa fila se lee como un panel
+ * pequeño: si sus cuatro estados no suman sus propias conversaciones, el
+ * número está enseñando una cifra que no es.
+ */
+test("el conteo de cada número cuadra por sí solo", () => {
+  const m = calcularMetricas(orgId, RANGO);
+
+  let leads = 0;
+  for (const c of m.por_canal) {
+    assert.equal(
+      c.cierres_ia + c.cierres_humano + c.sin_cerrar + c.revision,
+      c.leads,
+      `el número «${c.nombre}» no cuadra: ${c.leads} conversaciones y otra cosa clasificada`,
+    );
+    assert.ok(c.leads_anuncio <= c.leads, "los de anuncio son un subconjunto, nunca más que el total");
+    leads += c.leads;
+  }
+
+  assert.equal(leads, m.leads, "y entre todos los números suman el total de la cuenta");
+});

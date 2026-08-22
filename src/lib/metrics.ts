@@ -105,7 +105,7 @@ export interface Metricas {
   por_canal: {
     canal_id: number; nombre: string; phone: string | null;
     leads: number; leads_anuncio: number; cierres_ia: number; cierres_humano: number;
-    revision: number; ventas: number; tasa: number;
+    sin_cerrar: number; revision: number; ventas: number; tasa: number;
   }[];
   serie_diaria: {
     dia: string; leads: number; leads_anuncio: number;
@@ -210,6 +210,7 @@ export function calcularMetricas(orgId: number, rango: Rango): Metricas {
       leads_anuncio: c.leads_anuncio,
       cierres_ia: c.cierres_ia,
       cierres_humano: c.cierres_humano,
+      sin_cerrar: c.sin_cerrar,
       revision: c.revision,
       ventas: Math.round(c.ventas * 100) / 100,
       tasa: porcentaje(c.cierres_ia + c.cierres_humano, c.leads),

@@ -1657,6 +1657,7 @@ export function metricasPorCanal(orgId: number, r: Rango) {
             SUM(CASE WHEN ${deAnuncio("c.")} THEN 1 ELSE 0 END) AS leads_anuncio,
             SUM(CASE WHEN c.cerrado_por = 'ia'       THEN 1 ELSE 0 END) AS cierres_ia,
             SUM(CASE WHEN c.cerrado_por = 'humano'   THEN 1 ELSE 0 END) AS cierres_humano,
+            SUM(CASE WHEN c.cerrado_por = 'abierta'  THEN 1 ELSE 0 END) AS sin_cerrar,
             SUM(CASE WHEN c.cerrado_por = 'revision' THEN 1 ELSE 0 END) AS revision,
             COALESCE(SUM(CASE WHEN c.cerrado_por IN ('ia','humano') THEN ${facturado('c.')} END), 0) AS ventas
        FROM canales ca
@@ -1667,7 +1668,7 @@ export function metricasPorCanal(orgId: number, r: Rango) {
   ).all(...val, orgId) as {
     canal_id: number; nombre: string; phone: string;
     leads: number; leads_anuncio: number; cierres_ia: number; cierres_humano: number;
-    revision: number; ventas: number;
+    sin_cerrar: number; revision: number; ventas: number;
   }[];
 }
 

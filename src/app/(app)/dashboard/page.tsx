@@ -367,6 +367,12 @@ export default async function Dashboard({ searchParams }: Props) {
                     </th>
                     <th style={{ textAlign: "right" }}>IA</th>
                     <th style={{ textAlign: "right" }}>Equipo</th>
+                    {/* Sin cerrar y En revisión completan el conteo de cada
+                        número: con las cuatro columnas, cada fila suma sus
+                        propias conversaciones y se puede comprobar de un
+                        vistazo que no se está perdiendo ninguna. */}
+                    <th style={{ textAlign: "right" }}>Sin cerrar</th>
+                    <th style={{ textAlign: "right" }}>Revisión</th>
                     <th style={{ textAlign: "right" }}>Tasa</th>
                     <th style={{ textAlign: "right" }}>Ventas</th>
                   </tr>
@@ -388,6 +394,10 @@ export default async function Dashboard({ searchParams }: Props) {
                       <td style={{ textAlign: "right" }}>{c.leads}</td>
                       <td style={{ textAlign: "right", color: "var(--acc)" }}>{c.cierres_ia}</td>
                       <td style={{ textAlign: "right", color: "var(--blue)" }}>{c.cierres_humano}</td>
+                      <td style={{ textAlign: "right" }}>{c.sin_cerrar}</td>
+                      <td style={{ textAlign: "right", color: c.revision > 0 ? "var(--amber)" : undefined }}>
+                        {c.revision}
+                      </td>
                       <td style={{ textAlign: "right", minWidth: 66 }}>
                         {c.tasa}%
                         <div className="sd-minibarra">
