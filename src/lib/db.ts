@@ -371,6 +371,53 @@ function migrar(conexion: DB): void {
     conexion.exec(`PRAGMA user_version = 3`);
   }
 
+  /*
+   * Y el histórico de esos números, también.
+   *
+   * La migración anterior arregló lo que ENTRARA a partir de ahora, y eso dejó
+   * un panel a medias: el número donde el dueño pulsó el botón contaba bien y
+   * los demás seguían enseñando las mismas ventas del lado del equipo, sin que
+   * nada distinguiera a unos de otros más que haber pulsado. Un panel que
+   * cuenta distinto según qué botón pulsaste no se puede leer.
+   *
+   * Es exactamente lo que hace `reatribuirCanalAIa` —el botón de cada número—,
+   * aplicado de una vez a todos los que están en modo vigilar. Y por las mismas
+   * razones: se corrige el ORIGEN, el emisor de los mensajes, y lo demás se
+   * deriva de ahí. Los cierres por foto de factura o comprobante NO se mueven:
+   * esos los manda una persona desde su móvil.
+   *
+   * Los números donde contesta nuestro agente quedan fuera: ahí cada mensaje ya
+   * tiene dueño de verdad y no hay nada que suponer.
+   *
+   * Una sola vez, detrás de `user_version`. Después, lo que el dueño corrija a
+   * mano desde la bandeja de revisión no se le vuelve a pisar en el siguiente
+   * arranque.
+   */
+  if (version < 4) {
+    const enModoVigilar = `SELECT id FROM canales WHERE contesta_ia = 1`;
+
+    conexion.prepare(
+      `UPDATE messages SET emisor = 'ia'
+        WHERE emisor = 'humano'
+          AND conversation_id IN (
+            SELECT id FROM conversations WHERE canal_id IN (${enModoVigilar}))`,
+    ).run();
+
+    conexion.prepare(
+      `UPDATE conversations SET intervencion_humana = 0
+        WHERE canal_id IN (${enModoVigilar})`,
+    ).run();
+
+    conexion.prepare(
+      `UPDATE conversations SET cerrado_por = 'ia', senal_de_cierre = 'resumen_ia'
+        WHERE canal_id IN (${enModoVigilar})
+          AND cerrado_por = 'humano'
+          AND senal_de_cierre IN ('confirmacion_texto', 'resumen_tras_intervencion')`,
+    ).run();
+
+    conexion.exec(`PRAGMA user_version = 4`);
+  }
+
   // anomalies: las anomalías de canal no tienen conversación.
   if (!columnas("anomalies").includes("canal_id")) {
     conexion.exec(`
