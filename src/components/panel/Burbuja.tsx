@@ -1,5 +1,6 @@
 import type { Mensaje } from "@/lib/db";
 import { urlServida } from "@/lib/media";
+import { esUbicacion, textoSinMarca } from "@/lib/ubicacion";
 
 /**
  * Una burbuja del hilo.
@@ -69,6 +70,37 @@ export function Burbuja({ m }: { m: Mensaje }) {
             {m.categoria_imagen && ` · ${CATEGORIAS[m.categoria_imagen] ?? m.categoria_imagen}`}
           </div>
         )}
+      </div>
+    );
+  }
+
+  /*
+   * La ubicación que manda el cliente es la dirección de entrega, así que se
+   * enseña como lo que es: el sitio, y un enlace para abrirlo en el mapa. El
+   * enlace se abre fuera —quien despacha lo quiere en su móvil, no dentro del
+   * panel— y con `noreferrer`, que no tiene por qué saber de dónde viene.
+   */
+  if (esUbicacion(m.content)) {
+    return (
+      <div className={`sd-burbuja ${clase}`} style={{ display: "flex", gap: 9, alignItems: "flex-start" }}>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"
+          style={{ flexShrink: 0, marginTop: 2, opacity: 0.85 }} aria-hidden="true">
+          <path d="M12 21s7-5.6 7-11a7 7 0 1 0-14 0c0 5.4 7 11 7 11Z" />
+          <circle cx="12" cy="10" r="2.6" />
+        </svg>
+        <span>
+          {textoSinMarca(m.content)}
+          {archivo && (
+            <a
+              href={archivo}
+              target="_blank"
+              rel="noreferrer"
+              style={{ display: "block", fontSize: 11.5, marginTop: 3, color: "inherit" }}
+            >
+              Abrir en el mapa
+            </a>
+          )}
+        </span>
       </div>
     );
   }

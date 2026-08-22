@@ -360,6 +360,7 @@ Reglas:
 - "total" y "envio" son números, sin símbolo de moneda. Si no aparecen, null.
 - "total" es TODO lo que el cliente va a pagar, con el envío dentro si lo hay. "envio" es la parte de ese total que es transporte. Si el cliente dice "2500 más 300 de envío", entonces total=2800 y envio=300.
 - "datos_faltantes" lista lo que el pedido necesita y no está (talla, color, dirección…).
+- Un mensaje que empieza por "[ubicación]" es el cliente mandando su ubicación por WhatsApp: ESO ES LA DIRECCIÓN DE ENTREGA. Si aparece, la dirección no falta, aunque nadie la haya escrito con letras.
 - "motivo_perdida" solo si la conversación no cerró; si cerró, "no aplica".${conAnuncio ? `
 - Arriba del hilo está el anuncio por el que escribió este cliente. Úsalo para "producto_vendido" cuando la venta cerró y en el hilo nadie llegó a nombrar el producto: es lo que el cliente vino a comprar.
 - Que llegara por un anuncio NO cierra nada. Si no hay señal de cierre, la conversación está abierta igual.` : ""}

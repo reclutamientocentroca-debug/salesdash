@@ -40,6 +40,7 @@ import { actualizarCanal, ahora, canalesParaReconectar, obtenerCanalSinOrg, ruta
 import { ingerir, type MensajeEntrante } from "@/lib/ingesta";
 import { esDescargable, guardar } from "@/lib/media";
 import { jidDeTelefono } from "@/lib/telefono";
+import { enlaceDeMapa, textoDeUbicacion } from "@/lib/ubicacion";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Estado
@@ -137,9 +138,12 @@ function sesionDe(canalId: number): Sesion {
 /**
  * De un mensaje de Baileys al formato propio de `ingesta.ts`.
  *
- * `mediaUrl` sale null de aquí y lo rellena quien llama, después de descargar
- * el archivo: la descarga es asíncrona y esta traducción no lo es. Solo se
+ * `mediaUrl` sale null para los archivos y lo rellena quien llama, después de
+ * descargarlos: la descarga es asíncrona y esta traducción no lo es. Solo se
  * bajan imágenes y audio; ver `media.ts` para por qué no los documentos.
+ *
+ * La excepción es la ubicación: ahí no hay archivo que bajar y `mediaUrl` sale
+ * de aquí con el enlace al mapa ya hecho.
  */
 function traducir(m: WAMessage): MensajeEntrante | null {
   const id = m.key?.id;
@@ -157,6 +161,8 @@ function traducir(m: WAMessage): MensajeEntrante | null {
     contenido;
 
   let tipo: TipoMensaje = "otro";
+  /** El enlace al mapa cuando el mensaje es una ubicación. */
+  let mapa: string | null = null;
   let texto = "";
 
   const conCaption = (marca: string, caption?: string | null) =>
@@ -181,6 +187,33 @@ function traducir(m: WAMessage): MensajeEntrante | null {
   } else if (real.videoMessage) {
     tipo = "otro";
     texto = conCaption("[video]", real.videoMessage.caption);
+  } else if (real.locationMessage || real.liveLocationMessage) {
+    /*
+     * La ubicación que manda el cliente ES la dirección de entrega. Antes caía
+     * en el cajón de «otro» y se guardaba como «[locationMessage]»: quien
+     * despacha el pedido se quedaba sin el dato, y el analista sin la
+     * dirección que tenía delante.
+     *
+     * El enlace al mapa va en `mediaUrl`. No hay nada que descargar —una
+     * ubicación no es un archivo— y esa columna la sirve tal cual quien no
+     * empieza por «local:», así que el hilo puede pintar un enlace sin una
+     * columna nueva.
+     */
+    // Las dos formas no traen lo mismo: la fija lleva nombre del sitio y
+    // dirección; la de en vivo, solo un pie de texto opcional.
+    const fija = real.locationMessage;
+    const viva = real.liveLocationMessage;
+
+    tipo = "otro";
+    texto = textoDeUbicacion({
+      nombre: fija?.name,
+      direccion: fija?.address ?? viva?.caption,
+      enVivo: !!viva,
+    });
+    mapa = enlaceDeMapa(
+      fija?.degreesLatitude ?? viva?.degreesLatitude,
+      fija?.degreesLongitude ?? viva?.degreesLongitude,
+    );
   } else {
     const clave = Object.keys(real)[0];
     tipo = "otro";
@@ -217,7 +250,7 @@ function traducir(m: WAMessage): MensajeEntrante | null {
     chatId,
     tipo,
     content: texto,
-    mediaUrl: null,
+    mediaUrl: mapa,
     cuando,
     nombre: m.pushName ?? null,
     // El anuncio de Meta llega en `contextInfo.externalAdReply`: `title` es el

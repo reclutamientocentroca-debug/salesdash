@@ -29,6 +29,7 @@ import {
   type Mensaje,
 } from "./db";
 import { calcularMetricas, formatearDuracion, type Metricas } from "./metrics";
+import { esUbicacion } from "./ubicacion";
 
 /** Todo el histórico. La copia de seguridad de medio año no es una copia. */
 const TODO = { desde: 0, hasta: 9_999_999_999 };
@@ -221,7 +222,16 @@ function hilo(c: Conversacion, mensajes: Mensaje[]): string {
         ? `<div class="extra">Nota de voz: ${esc(m.transcripcion)}</div>`
         : m.descripcion_imagen
           ? `<div class="extra">Imagen: ${esc(m.descripcion_imagen)}</div>`
-          : "";
+          : /*
+             * La ubicación que mandó el cliente es la dirección de entrega:
+             * en el informe va con su enlace al mapa, que sigue funcionando
+             * aunque este panel ya no exista. Solo `https`, y construido por
+             * nosotros a partir de coordenadas: lo que se guarda en esa
+             * columna nunca lo escribe un cliente.
+             */
+            esUbicacion(m.content) && m.media_url?.startsWith("https://")
+            ? `<div class="extra"><a href="${esc(m.media_url)}">Abrir en el mapa</a></div>`
+            : "";
 
       return `<div class="msg ${m.emisor}">
         <div class="quien">${esc(QUIEN[m.emisor])} · <span class="tenue">${esc(fecha(m.created_at))}</span></div>

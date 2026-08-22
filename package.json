@@ -12,7 +12,7 @@
     "start": "next start -H 0.0.0.0",
     "typecheck": "tsc --noEmit",
     "seed": "tsx scripts/seed.ts",
-    "test": "node --import tsx --test tests/aislamiento.test.ts tests/conteo.test.ts tests/cierres.test.ts tests/agente.test.ts tests/limites.test.ts",
+    "test": "node --import tsx --test tests/aislamiento.test.ts tests/conteo.test.ts tests/cierres.test.ts tests/agente.test.ts tests/limites.test.ts tests/ubicacion.test.ts",
     "probar-correo": "tsx scripts/probar-correo.ts",
     "superadmin": "tsx scripts/hacer-superadmin.ts",
     "verificar-ia": "tsx tests/real-ia.ts",
