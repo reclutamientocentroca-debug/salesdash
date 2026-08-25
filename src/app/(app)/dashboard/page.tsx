@@ -18,18 +18,18 @@ import {
 } from "@/components/panel/Iconos";
 import { contarCanales, contarRevisiones, listarAnomalias } from "@/lib/db";
 import { calcularMetricas, formatearDuracion } from "@/lib/metrics";
-import { rangoAEpochs, requerirSesion } from "@/lib/tenant";
+import { rangoDesdeQuery, requerirSesion } from "@/lib/tenant";
 
 export const metadata = { title: "Dashboard · SalesDash" };
 export const dynamic = "force-dynamic";
 
 interface Props {
-  searchParams: Promise<{ rango?: string; solo?: string }>;
+  searchParams: Promise<{ rango?: string; solo?: string; desde?: string; hasta?: string }>;
 }
 
 export default async function Dashboard({ searchParams }: Props) {
   const ctx = await requerirSesion();
-  const { rango: clave = "7d", solo } = await searchParams;
+  const { rango: clave = "7d", solo, desde, hasta } = await searchParams;
 
   /*
    * El filtro vive en la URL y no en un estado del cliente: así el panel se
@@ -39,7 +39,21 @@ export default async function Dashboard({ searchParams }: Props) {
    */
   const soloAnuncio = solo === "anuncio";
 
-  const rango = { ...rangoAEpochs(clave), soloAnuncio };
+  /*
+   * Fechas exactas por encima de la clave de rango.
+   *
+   * Los rangos de la barra lateral —hoy, 7 días, este mes— resuelven casi
+   * todo, pero no «desde el martes pasado». `?desde=…&hasta=…` en segundos sí,
+   * y como vive en la URL, ese periodo se puede guardar en marcadores, mandar
+   * por chat y descargar, que es de donde salió la necesidad.
+   */
+  const parametros = new URLSearchParams();
+  parametros.set("rango", clave);
+  if (desde) parametros.set("desde", desde);
+  if (hasta) parametros.set("hasta", hasta);
+  if (soloAnuncio) parametros.set("solo", "anuncio");
+
+  const rango = { ...rangoDesdeQuery(parametros), soloAnuncio };
   const m = calcularMetricas(ctx.orgId, rango);
   const anomalias = listarAnomalias(ctx.orgId);
   const enRevision = contarRevisiones(ctx.orgId);
@@ -79,12 +93,32 @@ export default async function Dashboard({ searchParams }: Props) {
             esconde las que ya estaban.
           */}
           <Link
-            href={soloAnuncio ? `/dashboard?rango=${clave}` : `/dashboard?rango=${clave}&solo=anuncio`}
+            href={(() => {
+              const p = new URLSearchParams(parametros);
+              if (soloAnuncio) p.delete("solo");
+              else p.set("solo", "anuncio");
+              return `/dashboard?${p.toString()}`;
+            })()}
             className={`btn ${soloAnuncio ? "btn-acento" : "btn-secundario"}`}
             style={{ textDecoration: "none" }}
             aria-pressed={soloAnuncio}
           >
             {soloAnuncio ? "Solo leads de anuncio" : "Contando a todos"}
+          </Link>
+
+          {/*
+            El panel que se está viendo, en un archivo. Lleva los MISMOS
+            parámetros que la página —el rango, las fechas exactas si las hay y
+            el filtro—, así que lo que se baja es lo que hay en pantalla y no
+            otra cosa parecida. Un resumen que no coincide con el panel del que
+            salió no se puede enseñar a nadie.
+          */}
+          <Link
+            href={`/api/informe?${parametros.toString()}`}
+            className="btn btn-secundario"
+            style={{ textDecoration: "none" }}
+          >
+            Descargar resumen
           </Link>
 
           {enRevision > 0 && (

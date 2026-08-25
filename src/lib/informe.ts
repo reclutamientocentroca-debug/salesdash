@@ -176,14 +176,21 @@ function tablaDias(m: Metricas): string {
   </table>`;
 }
 
-function tablaConversaciones(convs: Conversacion[]): string {
-  if (convs.length === 0) return `<p class="vacio">Este número no llegó a tener conversaciones.</p>`;
+/**
+ * `conHilos` decide si el nombre del cliente enlaza a su conversación. En el
+ * resumen de la cuenta no hay hilos transcritos: un enlace que no lleva a
+ * ninguna parte es peor que un nombre a secas.
+ */
+function tablaConversaciones(convs: Conversacion[], conHilos = true): string {
+  if (convs.length === 0) return `<p class="vacio">No hubo conversaciones en este periodo.</p>`;
 
   const filas = convs
     .map(
       (c) => `<tr>
         <td>
-          <a href="#hilo-${c.id}">${esc(c.cliente_nombre ?? "Sin nombre")}</a>
+          ${conHilos
+            ? `<a href="#hilo-${c.id}">${esc(c.cliente_nombre ?? "Sin nombre")}</a>`
+            : esc(c.cliente_nombre ?? "Sin nombre")}
           <div class="tenue num">+${esc(c.cliente_phone)}</div>
         </td>
         <td>${esc(ESTADOS[c.cerrado_por] ?? c.cerrado_por)}</td>
@@ -301,8 +308,55 @@ const ESTILO = `
   }
 `;
 
+/** La tabla por número. Solo tiene sentido en el informe de la cuenta entera. */
+function tablaCanales(m: Metricas): string {
+  if (m.por_canal.length === 0) return `<p class="vacio">No hay números conectados.</p>`;
+
+  const filas = m.por_canal
+    .map(
+      (c) => `<tr>
+        <td>${esc(c.nombre)}<div class="tenue num">${esc(c.phone ? `+${c.phone}` : "sin vincular")}</div></td>
+        <td class="num">${c.leads_anuncio}</td>
+        <td class="num">${c.leads}</td>
+        <td class="num">${c.cierres_ia}</td>
+        <td class="num">${c.cierres_humano}</td>
+        <td class="num">${c.sin_cerrar}</td>
+        <td class="num">${c.revision}</td>
+        <td class="num">${c.tasa}%</td>
+        <td class="num">${dinero(c.ventas)}</td>
+      </tr>`,
+    )
+    .join("");
+
+  return `<table class="rejilla">
+    <thead><tr>
+      <th>Número</th><th class="num">Por anuncio</th><th class="num">Conversaciones</th>
+      <th class="num">IA</th><th class="num">Equipo</th><th class="num">Sin cerrar</th>
+      <th class="num">Revisión</th><th class="num">Tasa</th><th class="num">Facturado</th>
+    </tr></thead>
+    <tbody>${filas}</tbody>
+  </table>`;
+}
+
+/** «desde el 18/08/2026 hasta el 25/08/2026», o «todo el histórico». */
+function periodo(r: { desde: number; hasta: number }): string {
+  if (r.desde <= 0 && r.hasta >= 9_999_999_999) return "todo el histórico";
+  const dia = (e: number) =>
+    new Date(e * 1000).toLocaleDateString("es-DO", { day: "2-digit", month: "2-digit", year: "numeric" });
+  return `del ${dia(r.desde)} al ${dia(r.hasta)}`;
+}
+
 /**
- * El informe entero de un número, en un archivo.
+ * El informe, en un archivo.
+ *
+ * Sirve para dos cosas que se parecen lo justo: llevarse un número entero
+ * antes de desconectarlo, y bajarse el resumen de un periodo —de la cuenta o
+ * de un número— para mandarlo, imprimirlo o guardarlo.
+ *
+ * Por eso el rango es un parámetro y no una constante: sin él solo se podía
+ * exportar todo el histórico, y quien quiere el resumen de esta semana no
+ * quiere el de tres meses. Sin rango sale todo, que es lo que hace falta cuando
+ * el informe es una copia de seguridad.
  *
  * `LIMITE_HILOS` no es un capricho: transcribir cien mil mensajes en una sola
  * página deja un archivo que ningún navegador abre, y un informe que no se
@@ -313,16 +367,17 @@ const ESTILO = `
 export function informeDeCanal(
   orgId: number,
   canal: Canal,
-  opciones: { hilos?: number; ahora?: Date } = {},
+  opciones: { hilos?: number; ahora?: Date; rango?: { desde: number; hasta: number } } = {},
 ): { nombre: string; html: string } {
   const limiteHilos = opciones.hilos ?? 400;
   const hoy = opciones.ahora ?? new Date();
+  const rango = opciones.rango ?? TODO;
 
   const org = obtenerOrg(orgId);
-  const m = calcularMetricas(orgId, { ...TODO, canalId: canal.id });
+  const m = calcularMetricas(orgId, { ...rango, canalId: canal.id });
 
   const conversaciones = listarConversaciones(orgId, {
-    ...TODO,
+    ...rango,
     canalId: canal.id,
     limite: LIMITE_CONVERSACIONES,
   });
@@ -356,7 +411,7 @@ export function informeDeCanal(
     <h1>${esc(canal.nombre)}</h1>
     <p class="tenue num">${esc(telefono)} · ${esc(org?.nombre ?? "")}</p>
     <p class="tenue">Informe generado el ${esc(fecha(Math.floor(hoy.getTime() / 1000)))}
-      Recoge TODO el histórico de este número:
+      Recoge ${esc(periodo(rango))} de este número:
       ${conversaciones.length} ${conversaciones.length === 1 ? "conversación" : "conversaciones"},
       con sus cifras, sus anuncios y sus hilos.</p>
     <div class="aviso">
@@ -390,4 +445,87 @@ export function informeDeCanal(
 </html>`;
 
   return { nombre: nombreDeArchivo(canal, hoy), html };
+}
+
+/**
+ * El resumen de la cuenta entera, con todos sus números, para un periodo.
+ *
+ * Es lo que se ve en el dashboard, en un archivo: las mismas cifras, la misma
+ * tabla por número y los mismos productos que traen leads, más la lista de
+ * conversaciones del periodo. Sin los hilos: aquí la pregunta es «cómo fue la
+ * semana», y cuatro mil mensajes no la responden — para eso está el informe de
+ * cada número, que sí los lleva.
+ *
+ * Las cifras salen de `calcularMetricas`, el mismo módulo que pinta el panel.
+ * Si el archivo dijera algo distinto de la pantalla, uno de los dos estaría
+ * mintiendo.
+ */
+export function informeDeCuenta(
+  orgId: number,
+  opciones: { rango?: { desde: number; hasta: number }; ahora?: Date; soloAnuncio?: boolean } = {},
+): { nombre: string; html: string } {
+  const hoy = opciones.ahora ?? new Date();
+  const rango = opciones.rango ?? TODO;
+  const soloAnuncio = opciones.soloAnuncio === true;
+
+  const org = obtenerOrg(orgId);
+  const m = calcularMetricas(orgId, { ...rango, soloAnuncio });
+
+  const conversaciones = listarConversaciones(orgId, {
+    ...rango,
+    limite: LIMITE_CONVERSACIONES,
+  });
+
+  const enUnDia = (e: number) => new Date(e * 1000).toISOString().slice(0, 10);
+  const sufijo =
+    rango.desde <= 0 && rango.hasta >= 9_999_999_999
+      ? enUnDia(Math.floor(hoy.getTime() / 1000))
+      : `${enUnDia(rango.desde)}_${enUnDia(rango.hasta)}`;
+
+  const html = `<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Resumen ${esc(periodo(rango))} · ${esc(org?.nombre ?? "SalesDash")}</title>
+<style>${ESTILO}</style>
+</head>
+<body>
+<main>
+  <div class="cabecera">
+    <h1>${esc(org?.nombre ?? "Resumen")}</h1>
+    <p class="tenue">Resumen ${esc(periodo(rango))}, con todos los números conectados.</p>
+    <p class="tenue">Generado el ${esc(fecha(Math.floor(hoy.getTime() / 1000)))}
+      ${soloAnuncio
+        ? "Cuenta SOLO a los clientes que llegaron por un anuncio; quien escribió por su cuenta no entra en ninguna cifra."
+        : ""}</p>
+    <div class="aviso">
+      Son las mismas cifras que enseña el panel para ese periodo. Este documento se abre en cualquier
+      navegador, sin internet, y se imprime a PDF desde el propio navegador.
+      ${conversaciones.length >= LIMITE_CONVERSACIONES
+        ? `<br><br><strong>La lista de conversaciones se corta en ${LIMITE_CONVERSACIONES}.</strong>
+           Las cifras de arriba están completas: solo se recorta la lista.`
+        : ""}
+    </div>
+  </div>
+
+  <h2>Cómo fue el periodo</h2>
+  ${tablaResumen(m, m.cobertura_ia.meta, m.efectividad_humana.meta)}
+
+  <h2>Cada número</h2>
+  ${tablaCanales(m)}
+
+  <h2>Productos que trajeron leads</h2>
+  ${tablaProductos(m)}
+
+  <h2>Día a día</h2>
+  ${tablaDias(m)}
+
+  <h2>Conversaciones del periodo</h2>
+  ${tablaConversaciones(conversaciones, false)}
+</main>
+</body>
+</html>`;
+
+  return { nombre: `resumen-${sufijo}.html`, html };
 }

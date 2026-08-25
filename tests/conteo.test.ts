@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import * as D from "../src/lib/db";
 import { llegoPorAnuncio, anuncioParaModelo } from "../src/lib/anuncio";
 import { registrarCierre, sellarCierresPendientes } from "../src/lib/cierre";
-import { informeDeCanal } from "../src/lib/informe";
+import { informeDeCanal, informeDeCuenta } from "../src/lib/informe";
 import { calcularMetricas, rellenarDias } from "../src/lib/metrics";
 
 /**
@@ -751,4 +751,44 @@ test("el conteo de cada número cuadra por sí solo", () => {
   }
 
   assert.equal(leads, m.leads, "y entre todos los números suman el total de la cuenta");
+});
+
+/**
+ * EL RESUMEN DE UN PERIODO.
+ *
+ * «Descárgame lo de esta semana» no se responde con el histórico entero. El
+ * rango tiene que llegar hasta el archivo: si el documento dice «del 18 al 25»
+ * pero cuenta desde el principio de los tiempos, es peor que no tenerlo,
+ * porque se manda a alguien creyendo que dice otra cosa.
+ */
+test("el resumen de la cuenta cuenta solo el periodo que se le pide", () => {
+  const viejo = 1_600_000_000; // muy anterior a las conversaciones de arriba
+  const reciente = D.getOrCreateConversation(orgId, canalId, `1809444${siguiente++}`, {
+    cuando: 1_800_000_000,
+  }).conversacion.id;
+  assert.ok(reciente);
+
+  const todo = informeDeCuenta(orgId, { ahora: new Date("2026-08-25T12:00:00Z") });
+  const soloReciente = informeDeCuenta(orgId, {
+    rango: { desde: 1_799_000_000, hasta: 1_801_000_000 },
+    ahora: new Date("2026-08-25T12:00:00Z"),
+  });
+
+  const filas = (html: string) => (html.match(/<tbody>|<\/tr>/g) ?? []).length;
+  assert.ok(filas(soloReciente.html) < filas(todo.html), "el periodo corto trae menos");
+
+  assert.ok(todo.html.includes("todo el histórico"), "sin rango, el documento lo dice");
+  assert.ok(soloReciente.html.includes("del "), "con rango, enseña las fechas del periodo");
+
+  // El nombre del archivo lleva el periodo: dos resúmenes distintos no pueden
+  // llamarse igual en la carpeta de descargas.
+  assert.match(soloReciente.nombre, /^resumen-\d{4}-\d{2}-\d{2}_\d{4}-\d{2}-\d{2}\.html$/);
+  assert.notEqual(soloReciente.nombre, todo.nombre);
+
+  // El resumen de la cuenta trae la tabla por número y NO transcribe hilos:
+  // la pregunta es cómo fue el periodo, no qué se dijo en cada chat.
+  assert.ok(soloReciente.html.includes("<th>Número</th>"));
+  assert.equal(/class="hilo"/.test(soloReciente.html), false);
+
+  assert.ok(viejo < 1_700_000_000);
 });
