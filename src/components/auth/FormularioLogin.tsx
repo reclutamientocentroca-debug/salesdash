@@ -16,13 +16,35 @@ export default function FormularioLogin() {
     setError(null);
     setCargando(true);
 
+    /*
+     * Tres finales distintos, y hay que distinguirlos.
+     *
+     * Antes cualquier cosa que fallara decía «revisa tu internet»: también
+     * cuando el servidor respondía con un error, porque leer un JSON que no
+     * llega revienta dentro del mismo `try`. Es el peor error posible en una
+     * pantalla de entrada — manda a mirar el wifi a alguien cuyo problema está
+     * en el servidor, y ahí se pierde media tarde.
+     */
     try {
       const r = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
-      const datos = await r.json();
+
+      // El servidor CONTESTÓ. Si lo que mandó no es un JSON con su explicación,
+      // es que se rompió por dentro, y eso se dice tal cual: con el código, que
+      // es lo primero que pregunta cualquiera que pueda ayudar.
+      const datos = await r.json().catch(() => null);
+
+      if (!datos) {
+        setError(
+          `El servidor respondió con un error (${r.status}). No es tu conexión: el panel no está bien. ` +
+            "Vuelve a intentarlo en un minuto y, si sigue igual, hay que mirar el servidor.",
+        );
+        setCargando(false);
+        return;
+      }
 
       if (!r.ok) {
         setError(datos.error ?? "No pudimos entrar. Intenta de nuevo.");
@@ -31,7 +53,11 @@ export default function FormularioLogin() {
       }
       router.push(datos.superadmin ? "/admin" : "/dashboard");
     } catch {
-      setError("No hay conexión con el servidor. Revisa tu internet e intenta de nuevo.");
+      // Aquí sí: la petición no llegó a ninguna parte.
+      setError(
+        "No se pudo hablar con el servidor. Puede ser tu internet o que el panel esté caído o " +
+          "reiniciándose; si acabas de desplegar, espera un minuto y vuelve a intentarlo.",
+      );
       setCargando(false);
     }
   }

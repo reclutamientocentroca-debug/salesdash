@@ -18,23 +18,33 @@ export async function register(): Promise<void> {
   if (process.env.NEXT_PHASE === "phase-production-build") return;
 
   /*
-   * Primero las ventas, después las sesiones.
+   * El barrido de ventas NO se espera aquí.
    *
-   * Un resumen de pedido que se mandó ayer es una venta cerrada ayer, y hasta
-   * que no se sella el panel enseña esa conversación como abierta y no la
-   * cuenta. Sellar es mecánico —leer el marcador— y no depende de que WhatsApp
-   * conecte, así que va delante: si la reconexión tarda o falla, las cifras del
-   * panel ya están bien igual.
+   * `register()` corre ANTES de que el servidor atienda la primera petición, y
+   * lo que se ponga dentro retrasa el momento en que el panel empieza a
+   * responder. El barrido recorre los mensajes de todos los hilos sin cerrar:
+   * en una base con meses de conversaciones eso son segundos de reloj con el
+   * proceso ocupado y nadie contestando, justo cuando la plataforma comprueba
+   * si el contenedor está vivo. Un despliegue que tarda en responder se
+   * reinicia solo, y vuelta a empezar.
+   *
+   * Se lanza sin esperarlo, un segundo después: el panel abre de inmediato y
+   * las ventas viejas quedan selladas enseguida, sin que nadie note la
+   * diferencia. Sellar tarde es un inconveniente; no arrancar es una avería.
    */
-  try {
-    const { barrerCierresPendientes } = await import("@/lib/cierre");
-    const selladas = barrerCierresPendientes();
-    if (selladas > 0) {
-      console.log(`[arranque] ${selladas} venta(s) con resumen de pedido que estaban sin contar`);
-    }
-  } catch (e) {
-    console.error("[arranque] no se pudo barrer los cierres pendientes", e);
-  }
+  setTimeout(() => {
+    void (async () => {
+      try {
+        const { barrerCierresPendientes } = await import("@/lib/cierre");
+        const selladas = barrerCierresPendientes();
+        if (selladas > 0) {
+          console.log(`[arranque] ${selladas} venta(s) con resumen de pedido que estaban sin contar`);
+        }
+      } catch (e) {
+        console.error("[arranque] no se pudo barrer los cierres pendientes", e);
+      }
+    })();
+  }, 1_000);
 
   try {
     const { rehidratar } = await import("@/lib/wa");
