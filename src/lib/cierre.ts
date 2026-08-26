@@ -57,14 +57,33 @@ export function contieneMarcador(texto: string, marcador: string): boolean {
   if (!raiz) return texto.includes(":");
 
   const escapada = raiz.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const hastaSeisPalabras = `(?:[ \\t]+[\\p{L}\\p{N}]+){0,6}`;
 
   /*
-   * «Resumen:», «Resumen de su pedido:», «Resumen del pedido de hoy:». Hasta
-   * seis palabras entre la raíz y los dos puntos, y ni una línea nueva en
-   * medio: dos puntos que aparecen tres párrafos más abajo no son los de este
-   * marcador, son los de otra frase.
+   * Dos formas de escribir lo mismo, y las dos son un resumen de pedido.
+   *
+   * CON DOS PUNTOS, en cualquier parte del mensaje: «Resumen:», «Resumen de su
+   * pedido:». Los dos puntos tienen que estar en la MISMA línea que la raíz —
+   * unos que aparecen tres párrafos más abajo son de otra frase.
    */
-  return new RegExp(`${escapada}(?:[ \\t]+[\\p{L}\\p{N}]+){0,6}[ \\t]*:`, "iu").test(texto);
+  const conDosPuntos = new RegExp(`${escapada}${hastaSeisPalabras}[ \\t]*:`, "iu");
+
+  /*
+   * COMO TÍTULO: una línea que empieza por la raíz y no dice nada más, que es
+   * como lo escriben casi todos los agentes — «📋 RESUMEN DEL PEDIDO» y debajo
+   * el pedido. Sin esto, una venta con su producto, su total y su dirección
+   * escritos en el hilo se quedaba abierta para siempre por no llevar dos
+   * puntos.
+   *
+   * Empezar la línea es la condición que lo hace seguro: delante y detrás solo
+   * se admite adorno —emojis, viñetas, los asteriscos de las negritas de
+   * WhatsApp—, nunca más palabras. «Ahora le paso el resumen» no empieza por la
+   * raíz, así que sigue sin cerrar nada: es una promesa, no un pedido.
+   */
+  const adorno = `[^\\p{L}\\p{N}\\n]*`;
+  const comoTitulo = new RegExp(`^${adorno}${escapada}${hastaSeisPalabras}${adorno}$`, "imu");
+
+  return conDosPuntos.test(texto) || comoTitulo.test(texto);
 }
 
 export interface Cierre {

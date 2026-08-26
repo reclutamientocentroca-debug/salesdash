@@ -354,7 +354,7 @@ Responde SOLO con este JSON, sin texto adicional y sin backticks:
 {"estado":"cerrada_ia|cerrada_humano|abierta|revision","senal_de_cierre":"resumen_ia|imagen_factura|confirmacion_texto|ninguna","justificacion":"una línea explicando qué señal usaste","resumen_pedido":"producto, cantidad, talla, total, envío","producto_vendido":"nombre normalizado","total":null,"envio":null,"datos_faltantes":[],"cliente_sin_respuesta":false,"motivo_perdida":"precio|falta de foto|costo de envío|sin respuesta|duda no resuelta|no aplica"}
 
 Reglas:
-- El mensaje de cierre de la IA contiene el marcador "${marcador}", con o sin palabras en medio: "${marcador}" y "${marcador.replace(/:\s*$/, "")} de su pedido:" son la misma señal.
+- El mensaje de cierre de la IA lleva el marcador "${marcador}", y valen sus variantes: con palabras en medio ("${marcador.replace(/:\s*$/, "")} de su pedido:") o como título de una línea, sin dos puntos ("${marcador.replace(/:\s*$/, "").toUpperCase()} DEL PEDIDO"). Las tres son la misma señal.
 - El resumen de pedido MANDA sobre la factura: si en algún punto del hilo aparece el resumen, la venta es de quien lo escribió, aunque la foto de factura llegue antes o después. La factura solo cierra si en todo el hilo no hubo resumen.
 - Entre dos señales del mismo tipo gana la PRIMERA, en orden.
 - "total" y "envio" son números, sin símbolo de moneda. Si no aparecen, null.

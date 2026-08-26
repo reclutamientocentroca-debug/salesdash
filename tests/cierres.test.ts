@@ -191,10 +191,47 @@ test("hablar del resumen no cierra nada", () => {
     "sin los dos puntos no hay pedido, hay una promesa",
   );
   assert.equal(
-    contieneMarcador("Resumen\n\nde su pedido: x", MARCADOR),
+    contieneMarcador("Te mando el resumen\n\nde tu compra: ya mismo", MARCADOR),
     false,
     "unos dos puntos dos párrafos más abajo son de otra frase",
   );
+});
+
+/**
+ * EL RESUMEN COMO TÍTULO, SIN DOS PUNTOS.
+ *
+ * Es como lo escribe casi todo agente: una línea de título y debajo el pedido.
+ * Este mensaje es de producción, de un número donde no se contaba ni una venta:
+ * tenía el producto, el total y la dirección dentro, y el panel lo enseñaba
+ * abierto por no llevar dos puntos detrás de «RESUMEN».
+ */
+test("«RESUMEN DEL PEDIDO» como título cierra la venta", () => {
+  const real = [
+    "📋 RESUMEN DEL PEDIDO",
+    "",
+    "Producto: Combo 2 en 1 (cepillo secador + plancha alisadora)",
+    "Precio: RD$1,690",
+    "Envio: RD$250",
+    "TOTAL A PAGAR: RD$1,940",
+    "Direccion: Esperilla 46 don bosco",
+    "",
+    "✅ PEDIDO REGISTRADO",
+  ].join("\n");
+
+  assert.equal(contieneMarcador(real, MARCADOR), true, "el mensaje real de producción");
+  assert.equal(contieneMarcador("Resumen del pedido", MARCADOR), true);
+  assert.equal(contieneMarcador("*RESUMEN*", MARCADOR), true, "con negritas de WhatsApp delante");
+});
+
+/**
+ * Y el título tiene que EMPEZAR la línea. Es lo que separa un encabezado de
+ * una frase que menciona la palabra de pasada: si cualquier «resumen» suelto
+ * cerrara la venta, el panel contaría ventas donde solo hubo una promesa.
+ */
+test("mencionar el resumen a mitad de una frase no cierra nada", () => {
+  assert.equal(contieneMarcador("ahora le paso el resumen", MARCADOR), false);
+  assert.equal(contieneMarcador("en cuanto tenga todo le mando el resumen del pedido", MARCADOR), false);
+  assert.equal(contieneMarcador("¿le hago el resumen?", MARCADOR), false);
 });
 
 /**
