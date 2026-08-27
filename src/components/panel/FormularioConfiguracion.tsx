@@ -103,7 +103,7 @@ export default function FormularioConfiguracion({ orgInicial }: { orgInicial: Or
           <h2 className="titulo-tarjeta" style={{ marginBottom: 12 }}>Tus metas</h2>
 
           <label className="etiqueta-campo" htmlFor="cobertura">
-            Cobertura de la IA — cuánto de lo que se vende quieres que cierre sola
+            Cobertura automatizada — cuánto de lo que se vende quieres que cierre sola
           </label>
           <input
             id="cobertura" className="campo num" type="number" min={0} max={100}
@@ -113,7 +113,7 @@ export default function FormularioConfiguracion({ orgInicial }: { orgInicial: Or
           />
 
           <label className="etiqueta-campo" htmlFor="efectividad">
-            Efectividad del equipo — de los hilos que toca un vendedor, cuántos deben cerrar
+            Efectividad asistida — de los hilos que toca un vendedor, cuántos deben cerrar
           </label>
           <input
             id="efectividad" className="campo num" type="number" min={0} max={100}

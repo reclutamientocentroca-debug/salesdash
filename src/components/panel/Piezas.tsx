@@ -9,8 +9,8 @@ import type { EstadoCierre } from "@/lib/db";
 // ─────────────────────────────────────────────────────────────────────────────
 
 const ETIQUETAS: Record<EstadoCierre, { texto: string; clase: string }> = {
-  ia: { texto: "IA", clase: "pastilla-ia" },
-  humano: { texto: "Humano", clase: "pastilla-humano" },
+  ia: { texto: "Automatizada", clase: "pastilla-ia" },
+  humano: { texto: "Asistida", clase: "pastilla-humano" },
   abierta: { texto: "Abierta", clase: "pastilla-abierta" },
   revision: { texto: "Revisión", clase: "pastilla-revision" },
 };
@@ -38,12 +38,21 @@ export function Kpi({
   etiqueta,
   valor,
   pie,
+  cuerpo,
   icono,
   tono = "neutro",
 }: {
   etiqueta: string;
   valor: string | number;
   pie?: React.ReactNode;
+  /**
+   * Detalle que va debajo de la cifra a ancho completo y SIN el gris del pie.
+   *
+   * El pie es una línea de contexto; esto es contenido —un desglose, una lista—
+   * que necesita todo el ancho de la tarjeta y su propio contraste. Meterlo en
+   * `pie` lo dejaba encogido contra el icono y en color tenue.
+   */
+  cuerpo?: React.ReactNode;
   icono: React.ReactNode;
   tono?: TonoKpi;
 }) {
@@ -58,12 +67,13 @@ export function Kpi({
       >
         {icono}
       </div>
-      <div style={{ minWidth: 0 }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
         <div className="num" style={{ fontSize: 26, fontWeight: 700, letterSpacing: "-0.035em", lineHeight: 1.15 }}>
           {valor}
         </div>
         <div style={{ fontSize: 12, color: "var(--ink-2)" }}>{etiqueta}</div>
         {pie && <div className="tenue" style={{ marginTop: 3 }}>{pie}</div>}
+        {cuerpo}
       </div>
     </div>
   );
@@ -255,8 +265,8 @@ export function LeyendaGrafico({ soloAnuncio = false }: { soloAnuncio?: boolean 
     ...(soloAnuncio
       ? []
       : [{ color: "var(--amber)", texto: "Leads por anuncio", guion: false }]),
-    { color: "var(--acc)", texto: "Cierres de la IA", guion: true },
-    { color: "var(--blue)", texto: "Cierres humanos", guion: false },
+    { color: "var(--acc)", texto: "Cierres automatizados", guion: true },
+    { color: "var(--blue)", texto: "Cierres asistidos", guion: false },
   ];
 
   return (

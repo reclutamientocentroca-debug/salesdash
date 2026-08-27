@@ -193,7 +193,7 @@ export default async function Dashboard({ searchParams }: Props) {
           «¿qué me está dejando esto?» sin tener que cruzar dos tarjetas.
         */}
         <Kpi
-          etiqueta="Cerró la IA"
+          etiqueta="Automatizada"
           valor={m.cierres_ia}
           icono={<IconoRayo tam={17} />}
           tono="acento"
@@ -209,7 +209,7 @@ export default async function Dashboard({ searchParams }: Props) {
             dos números en pantalla no se puede comparar, que es justo lo que se
             quiere saber cuando se mira esta fila. */}
         <Kpi
-          etiqueta="Cerró el equipo"
+          etiqueta="Asistida"
           valor={m.cierres_humano}
           icono={<IconoPersona tam={17} />}
           tono="azul"
@@ -226,6 +226,12 @@ export default async function Dashboard({ searchParams }: Props) {
           mensajero, así que sumarlo aquí inflaría la cifra justo con el dinero
           que el negocio no se queda. Va en el pie para que el total siga
           cuadrando con lo que el dueño ve en su cuenta.
+
+          Arriba el total de la cuenta entera y debajo canal por canal, porque
+          con un solo número no se sabe si el mes lo sostiene una tienda o si
+          está repartido —y eso cambia qué se hace con él—. Los canales en cero
+          se enseñan igual: están conectados y no están vendiendo, que es
+          exactamente lo que hay que ver.
         */}
         <Kpi
           etiqueta="Facturado"
@@ -233,6 +239,7 @@ export default async function Dashboard({ searchParams }: Props) {
           icono={<IconoMoneda tam={17} />}
           tono="ambar"
           pie={`${dinero(m.valor_promedio_venta)} por pedido · ${dinero(m.envios_cobrados)} de envíos aparte`}
+          cuerpo={<FacturadoPorCanal canales={m.facturado_por_canal} />}
         />
       </div>
 
@@ -247,10 +254,10 @@ export default async function Dashboard({ searchParams }: Props) {
           <h2 className="titulo-tarjeta" style={{ marginBottom: 12 }}>Quién cerró</h2>
           <Donut
             centro={`${m.cobertura_ia.valor}%`}
-            pie="lo cerró la IA"
+            pie="automatizada"
             porciones={[
-              { etiqueta: "IA", valor: m.cierres_ia, color: "var(--acc)" },
-              { etiqueta: "Equipo", valor: m.cierres_humano, color: "var(--blue)" },
+              { etiqueta: "Automatizada", valor: m.cierres_ia, color: "var(--acc)" },
+              { etiqueta: "Asistida", valor: m.cierres_humano, color: "var(--blue)" },
             ]}
           />
 
@@ -276,13 +283,13 @@ export default async function Dashboard({ searchParams }: Props) {
               </span>
             </div>
             <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-              <span style={{ flex: 1, color: "var(--ink-2)" }}>Lo cerró la IA</span>
+              <span style={{ flex: 1, color: "var(--ink-2)" }}>Automatizada</span>
               <span className="num" style={{ fontWeight: 600, color: "var(--acc)" }}>
                 {dinero(m.facturado_ia)}
               </span>
             </div>
             <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-              <span style={{ flex: 1, color: "var(--ink-2)" }}>Lo cerró el equipo</span>
+              <span style={{ flex: 1, color: "var(--ink-2)" }}>Asistida</span>
               <span className="num" style={{ fontWeight: 600, color: "var(--blue)" }}>
                 {dinero(m.facturado_humano)}
               </span>
@@ -298,13 +305,13 @@ export default async function Dashboard({ searchParams }: Props) {
 
           <div style={{ display: "grid", gap: 12, marginBottom: 16 }}>
             <Meta
-              etiqueta="Cobertura de la IA"
+              etiqueta="Cobertura automatizada"
               valor={m.cobertura_ia.valor}
               meta={m.cobertura_ia.meta}
               estado={m.cobertura_ia.estado}
             />
             <Meta
-              etiqueta="Efectividad del equipo"
+              etiqueta="Efectividad asistida"
               valor={m.efectividad_humana.valor}
               meta={m.efectividad_humana.meta}
               estado={m.efectividad_humana.estado}
@@ -314,12 +321,12 @@ export default async function Dashboard({ searchParams }: Props) {
           <ul style={{ display: "grid", gap: 9 }}>
             <FilaResumen
               icono={<IconoReloj tam={15} />}
-              etiqueta="La IA tarda"
+              etiqueta="Automatizada tarda"
               valor={formatearDuracion(m.tiempo_promedio_ia)}
             />
             <FilaResumen
               icono={<IconoPersona tam={15} />}
-              etiqueta="El equipo tarda"
+              etiqueta="Asistida tarda"
               valor={formatearDuracion(m.tiempo_promedio_humano)}
             />
             <FilaResumen
@@ -399,8 +406,8 @@ export default async function Dashboard({ searchParams }: Props) {
                     <th style={{ textAlign: "right" }}>
                       {soloAnuncio ? "Leads de anuncio" : "Conversaciones"}
                     </th>
-                    <th style={{ textAlign: "right" }}>IA</th>
-                    <th style={{ textAlign: "right" }}>Equipo</th>
+                    <th style={{ textAlign: "right" }}>Automatizada</th>
+                    <th style={{ textAlign: "right" }}>Asistida</th>
                     {/* Sin cerrar y En revisión completan el conteo de cada
                         número: con las cuatro columnas, cada fila suma sus
                         propias conversaciones y se puede comprobar de un
@@ -476,6 +483,69 @@ export default async function Dashboard({ searchParams }: Props) {
         </section>
       </div>
     </>
+  );
+}
+
+/**
+ * El desglose de lo facturado, un canal por línea.
+ *
+ * La lista tiene su propio scroll y no crece con la cuenta: la tarjeta vive en
+ * la rejilla de cuatro KPIs de arriba, y una cuenta con veinte canales —el tope
+ * que soporta el panel— estiraría esa fila hasta empujar el resto del dashboard
+ * fuera de la pantalla. Con la altura fija, la fila mide lo mismo con un canal
+ * que con veinte y el desglose se recorre dentro.
+ */
+function FacturadoPorCanal({
+  canales,
+}: {
+  canales: { canal_id: number; nombre: string; facturado: number }[];
+}) {
+  if (canales.length === 0) {
+    return (
+      <div className="tenue" style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--line)" }}>
+        Sin canales conectados
+      </div>
+    );
+  }
+
+  return (
+    <ul
+      style={{
+        marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--line)",
+        display: "grid", gap: 5, maxHeight: 104, overflowY: "auto",
+      }}
+    >
+      {canales.map((c) => (
+        <li
+          key={c.canal_id}
+          style={{ display: "flex", alignItems: "baseline", gap: 8, fontSize: 12 }}
+        >
+          <span
+            style={{
+              flex: 1, minWidth: 0, color: "var(--ink-2)",
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            }}
+            title={c.nombre}
+          >
+            {c.nombre}
+          </span>
+          {/*
+            El cero se pinta apagado en vez de esconderse: la fila sigue ahí
+            para decir que el canal existe, pero no compite con los que sí
+            facturaron cuando se recorre la lista de un vistazo.
+          */}
+          <span
+            className="num"
+            style={{
+              fontWeight: 600,
+              color: c.facturado > 0 ? "var(--amber)" : "var(--ink-4)",
+            }}
+          >
+            {dinero(c.facturado)}
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }
 

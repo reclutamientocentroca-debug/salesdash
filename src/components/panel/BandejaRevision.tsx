@@ -97,7 +97,7 @@ export default function BandejaRevision({ filas }: { filas: FilaRevision[] }) {
                   disabled={ocupado === f.id}
                   onClick={() => resolver(f.id, "ia")}
                 >
-                  Fue de la IA
+                  Fue automatizada
                 </button>
                 <button
                   type="button"
@@ -106,7 +106,7 @@ export default function BandejaRevision({ filas }: { filas: FilaRevision[] }) {
                   disabled={ocupado === f.id}
                   onClick={() => resolver(f.id, "humano")}
                 >
-                  Fue del vendedor
+                  Fue asistida
                 </button>
               </div>
             </div>

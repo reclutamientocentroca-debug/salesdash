@@ -34,8 +34,8 @@ export const dynamic = "force-dynamic";
 
 const FILTROS: { clave: string; texto: string }[] = [
   { clave: "", texto: "Todas" },
-  { clave: "ia", texto: "Cerró la IA" },
-  { clave: "humano", texto: "Cerró el equipo" },
+  { clave: "ia", texto: "Automatizada" },
+  { clave: "humano", texto: "Asistida" },
   { clave: "abierta", texto: "Sin cerrar" },
   { clave: "revision", texto: "En revisión" },
 ];

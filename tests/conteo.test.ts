@@ -584,7 +584,7 @@ test("el informe de un número trae sus cifras, sus hilos y lo que se dijo", () 
 
   assert.ok(html.includes(`<td class="fuerte">${m.leads}</td>`), "las conversaciones del número");
   assert.ok(html.includes("Facturado sin envío"), "el dinero, sin el envío");
-  assert.ok(html.includes("Cobertura de la IA"), "los porcentajes con su meta");
+  assert.ok(html.includes("Cobertura automatizada"), "los porcentajes con su meta");
   assert.ok(html.includes("¿tienen la cartera roja?"), "y lo que el cliente escribió");
 
   /*

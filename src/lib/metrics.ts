@@ -102,6 +102,17 @@ export interface Metricas {
   efectividad_humana: { valor: number; meta: number; estado: Semaforo };
 
   top_productos: { producto: string; unidades: number; monto: number }[];
+  /**
+   * Lo facturado en el periodo, canal por canal y de mayor a menor.
+   *
+   * Salen TODOS los canales conectados de la cuenta, también los que no
+   * facturaron nada: un canal en cero es información —está conectado y no está
+   * vendiendo—, y esconderlo hace que la tarjeta parezca decir que no existe.
+   *
+   * La suma de esta lista es exactamente `facturado`: las dos cifras salen del
+   * mismo filtro de periodo y de la misma resta del envío.
+   */
+  facturado_por_canal: { canal_id: number; nombre: string; facturado: number }[];
   por_canal: {
     canal_id: number; nombre: string; phone: string | null;
     leads: number; leads_anuncio: number; cierres_ia: number; cierres_humano: number;
@@ -129,6 +140,14 @@ export function calcularMetricas(orgId: number, rango: Rango): Metricas {
   const anuncio = resumenDeAnuncio(orgId, rango);
 
   const cierresTotales = estados.ia + estados.humano;
+
+  /*
+   * Una sola pasada por canal para las dos cosas que la usan: la tabla de
+   * rendimiento y el desglose de la tarjeta de facturado. La consulta ya sale
+   * de `canales` con un LEFT JOIN, así que trae los canales sin actividad con
+   * sus ceros y respeta el aislamiento por cuenta y el filtro de periodo.
+   */
+  const canales = metricasPorCanal(orgId, rango);
 
   // ── Top de productos ──────────────────────────────────────────────────────
   // Se agrupa por el nombre normalizado, no por el que devolvió el modelo.
@@ -202,7 +221,12 @@ export function calcularMetricas(orgId: number, rango: Rango): Metricas {
     },
 
     top_productos,
-    por_canal: metricasPorCanal(orgId, rango).map((c) => ({
+    facturado_por_canal: canales
+      .map((c) => ({ canal_id: c.canal_id, nombre: c.nombre, facturado: redondear(c.ventas) }))
+      // De mayor a menor, y con el nombre como desempate para que dos canales
+      // en cero no se intercambien de sitio entre una recarga y la siguiente.
+      .sort((a, b) => b.facturado - a.facturado || a.nombre.localeCompare(b.nombre)),
+    por_canal: canales.map((c) => ({
       canal_id: c.canal_id,
       nombre: c.nombre,
       phone: c.phone.startsWith("pendiente:") ? null : c.phone,

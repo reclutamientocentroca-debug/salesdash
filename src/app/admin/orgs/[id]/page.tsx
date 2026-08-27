@@ -58,8 +58,8 @@ export default async function FichaOrganizacion({ params }: Props) {
           <dl style={{ display: "grid", gap: 8, fontSize: 12.5 }}>
             <Fila etiqueta="Leads por anuncio" valor={String(f.metricas.leads_anuncio)} />
             <Fila etiqueta="Conversaciones" valor={String(f.metricas.leads)} />
-            <Fila etiqueta="Cerró la IA" valor={String(f.metricas.cierres_ia)} />
-            <Fila etiqueta="Cerró el equipo" valor={String(f.metricas.cierres_humano)} />
+            <Fila etiqueta="Automatizada" valor={String(f.metricas.cierres_ia)} />
+            <Fila etiqueta="Asistida" valor={String(f.metricas.cierres_humano)} />
             <Fila etiqueta="Sin cerrar" valor={String(f.metricas.abiertas)} />
             <Fila etiqueta="En revisión" valor={String(f.metricas.revision)} />
             <Fila etiqueta="Facturado (sin envíos)" valor={dinero(f.metricas.ventas)} />

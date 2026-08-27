@@ -53,14 +53,14 @@ export default async function PaginaVentas({ searchParams }: Props) {
         />
         <Kpi etiqueta="Promedio por pedido" valor={dinero(m.valor_promedio_venta)} icono={<IconoVentas tam={17} />} tono="neutro" />
         <Kpi
-          etiqueta="Cerró la IA"
+          etiqueta="Automatizada"
           valor={m.cierres_ia}
           icono={<IconoRayo tam={17} />}
           tono="acento"
           pie={`${dinero(m.facturado_ia)} facturados`}
         />
         <Kpi
-          etiqueta="Cerró el equipo"
+          etiqueta="Asistida"
           valor={m.cierres_humano}
           icono={<IconoPersona tam={17} />}
           tono="azul"

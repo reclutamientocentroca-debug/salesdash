@@ -38,8 +38,8 @@ const TODO = { desde: 0, hasta: 9_999_999_999 };
 const LIMITE_CONVERSACIONES = 5_000;
 
 const ESTADOS: Record<string, string> = {
-  ia: "La cerró la IA",
-  humano: "La cerró el equipo",
+  ia: "Automatizada",
+  humano: "Asistida",
   abierta: "Sin cerrar",
   revision: "En revisión",
 };
@@ -108,19 +108,19 @@ function tablaResumen(m: Metricas, metaCobertura: number, metaEfectividad: numbe
       ${fila("Conversaciones en total", String(m.leads), true)}
       ${fila("Leads por anuncio", `${m.leads_anuncio} (${m.tasa_cierre_anuncio}% cerrados)`, true)}
       ${fila("Escribieron por su cuenta", String(m.escribieron_por_su_cuenta))}
-      ${fila("La cerró la IA", `${m.cierres_ia} · ${m.tasa_cierre_ia}% de las conversaciones`)}
-      ${fila("La cerró el equipo", String(m.cierres_humano))}
+      ${fila("Automatizada", `${m.cierres_ia} · ${m.tasa_cierre_ia}% de las conversaciones`)}
+      ${fila("Asistida", String(m.cierres_humano))}
       ${fila("Sin cerrar", String(m.sin_cerrar))}
       ${fila("En revisión", String(m.revision))}
       ${fila("Facturado sin envío", dinero(m.facturado), true)}
-      ${fila("De eso, lo cerró la IA", dinero(m.facturado_ia))}
-      ${fila("De eso, lo cerró el equipo", dinero(m.facturado_humano))}
+      ${fila("De eso, automatizada", dinero(m.facturado_ia))}
+      ${fila("De eso, asistida", dinero(m.facturado_humano))}
       ${fila("Envíos cobrados, fuera de la facturación", dinero(m.envios_cobrados))}
       ${fila("Promedio por pedido", dinero(m.valor_promedio_venta))}
-      ${fila("Cobertura de la IA", `${m.cobertura_ia.valor}% (meta ${metaCobertura}%)`)}
-      ${fila("Efectividad del equipo", `${m.efectividad_humana.valor}% (meta ${metaEfectividad}%)`)}
-      ${fila("La IA tarda en cerrar", formatearDuracion(m.tiempo_promedio_ia))}
-      ${fila("El equipo tarda en cerrar", formatearDuracion(m.tiempo_promedio_humano))}
+      ${fila("Cobertura automatizada", `${m.cobertura_ia.valor}% (meta ${metaCobertura}%)`)}
+      ${fila("Efectividad asistida", `${m.efectividad_humana.valor}% (meta ${metaEfectividad}%)`)}
+      ${fila("Automatizada tarda en cerrar", formatearDuracion(m.tiempo_promedio_ia))}
+      ${fila("Asistida tarda en cerrar", formatearDuracion(m.tiempo_promedio_humano))}
       ${fila("Los números cuadran", m.cuadra ? "Sí" : "NO — falta alguna conversación por clasificar")}
     </table>`;
 }
@@ -170,7 +170,7 @@ function tablaDias(m: Metricas): string {
   return `<table class="rejilla">
     <thead><tr>
       <th class="num">Día</th><th class="num">Conversaciones</th><th class="num">Por anuncio</th>
-      <th class="num">Cerró la IA</th><th class="num">Cerró el equipo</th>
+      <th class="num">Automatizada</th><th class="num">Asistida</th>
     </tr></thead>
     <tbody>${filas}</tbody>
   </table>`;
@@ -331,7 +331,7 @@ function tablaCanales(m: Metricas): string {
   return `<table class="rejilla">
     <thead><tr>
       <th>Número</th><th class="num">Por anuncio</th><th class="num">Conversaciones</th>
-      <th class="num">IA</th><th class="num">Equipo</th><th class="num">Sin cerrar</th>
+      <th class="num">Automatizada</th><th class="num">Asistida</th><th class="num">Sin cerrar</th>
       <th class="num">Revisión</th><th class="num">Tasa</th><th class="num">Facturado</th>
     </tr></thead>
     <tbody>${filas}</tbody>

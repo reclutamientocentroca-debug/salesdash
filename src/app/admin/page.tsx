@@ -60,8 +60,8 @@ export default async function PaginaAdmin() {
                   <th style={{ textAlign: "right" }}>Números</th>
                   <th style={{ textAlign: "right" }}>Leads (30 d)</th>
                   <th style={{ textAlign: "right" }}>Conversaciones</th>
-                  <th style={{ textAlign: "right" }}>IA</th>
-                  <th style={{ textAlign: "right" }}>Equipo</th>
+                  <th style={{ textAlign: "right" }}>Automatizada</th>
+                  <th style={{ textAlign: "right" }}>Asistida</th>
                   <th style={{ textAlign: "right" }}>Tasa</th>
                   <th style={{ textAlign: "right", paddingRight: 17 }}>Actividad</th>
                 </tr>
