@@ -33,6 +33,7 @@ import {
   type Agente,
   type Mensaje,
   type Producto,
+  type Conversacion,
 } from "./db";
 import { descifrar } from "./auth";
 import { anuncioParaModelo, type DatosAnuncio } from "./anuncio";
@@ -221,6 +222,12 @@ export async function generarRespuesta(
   mensajes: Mensaje[],
   /** El anuncio del hilo, si lo trajo uno. El chat de prueba no tiene. */
   anuncio: DatosAnuncio | null = null,
+  /**
+   * Qué se puede cotizar en este hilo, según el catálogo. Va DESPUÉS del prompt
+   * normal a propósito: lo último que lee el modelo es lo que más pesa, y esta
+   * es la regla que no puede saltarse.
+   */
+  reglaPrecio: string | null = null,
 ): Promise<RespuestaGenerada> {
   const org = obtenerOrg(orgId);
   const agente = obtenerAgente(orgId);
@@ -234,13 +241,14 @@ export async function generarRespuesta(
     mensajes: [
       {
         role: "system",
-        content: armarSistema(
-          org?.nombre ?? "el negocio",
-          agente,
-          catalogo,
-          anuncio,
-          org?.marcador_cierre ?? MARCADOR_POR_DEFECTO,
-        ),
+        content:
+          armarSistema(
+            org?.nombre ?? "el negocio",
+            agente,
+            catalogo,
+            anuncio,
+            org?.marcador_cierre ?? MARCADOR_POR_DEFECTO,
+          ) + (reglaPrecio ? `\n\n${reglaPrecio}` : ""),
       },
       ...aHistorial(mensajes),
     ],
@@ -259,6 +267,45 @@ export async function generarRespuesta(
 // ─────────────────────────────────────────────────────────────────────────────
 // Atender una conversación
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * QUÉ PUEDE COTIZAR EL AGENTE EN ESTE HILO.
+ *
+ * El precio sale del catálogo, NUNCA del modelo. Cuando el cliente llegó por un
+ * anuncio de Meta, ese anuncio tiene que estar vinculado a un producto: de ahí
+ * sale el precio bueno. Si no lo está, el agente no cotiza — dice que le
+ * atiende alguien del equipo y se calla.
+ *
+ * El `meta_ad_id` se guardó en el PRIMER mensaje del hilo, que es el único que
+ * lo trae. Leerlo aquí en cada respuesta es la «reinyección»: el anuncio sigue
+ * pesando en la conversación número veinte igual que en la primera.
+ *
+ * Devuelve null cuando no hay nada que añadir —WhatsApp, o Meta sin anuncio—.
+ * Ahí manda el prompt de siempre, que ya prohíbe inventar precios.
+ *
+ * La anomalía se crea una sola vez por hilo: sin la guarda, cada mensaje del
+ * cliente generaría otra y la bandeja de revisión quedaría inservible.
+ */
+async function reglaDePrecio(orgId: number, conv: Conversacion): Promise<string | null> {
+  if (!conv.meta_ad_id) return null;
+
+  const { resolverAnuncio, anuncioParaPrompt, explicarMotivo } = await import(
+    "@/lib/meta/contexto-anuncio"
+  );
+
+  const contexto = resolverAnuncio(orgId, conv.meta_ad_id, conv.producto_anuncio);
+
+  if (!contexto.puedeCotizar && !hayAnomaliaAbierta(orgId, conv.id, "anuncio_sin_producto")) {
+    crearAnomalia(orgId, {
+      conversationId: conv.id,
+      tipo: "anuncio_sin_producto",
+      severidad: "alta",
+      detalle: explicarMotivo(contexto),
+    });
+  }
+
+  return anuncioParaPrompt(contexto);
+}
 
 export type Resultado =
   | { atendida: false; motivo: MotivoSilencio }
@@ -351,7 +398,7 @@ export async function atenderConversacion(
   try {
     // `conv` lleva el anuncio que abrió el hilo: producto y promesa. Es lo que
     // el agente necesita para no preguntar lo que el cliente ya vino a pedir.
-    respuesta = await generarRespuesta(orgId, historial, conv);
+    respuesta = await generarRespuesta(orgId, historial, conv, await reglaDePrecio(orgId, conv));
   } catch (e) {
     /*
      * El modelo falló y su respaldo también, o no había respaldo.
@@ -375,9 +422,26 @@ export async function atenderConversacion(
   if (!respuesta.texto) return { atendida: false, motivo: "fallo_modelo", detalle: "respuesta vacía" };
 
   // ── Enviar ──────────────────────────────────────────────────────────────
+  /*
+   * Cada canal por su transporte. Es el ÚNICO sitio del código donde se elige,
+   * y sigue siendo el único camino por el que sale un mensaje: la regla no era
+   * «solo existe wa.ts», era «solo agent.ts envía».
+   *
+   * Un comentario se responde colgado del comentario, en público, porque es
+   * donde preguntó el cliente. Contestar solo por privado deja la pregunta a la
+   * vista y sin respuesta, y el siguiente que la lea se va.
+   */
   let messageId: string;
   try {
-    messageId = await enviarTexto(canal.id, conv.cliente_phone, respuesta.texto);
+    if (canal.tipo === "meta") {
+      const { enviarMensajeMeta, responderComentarioMeta } = await import("@/lib/meta/send");
+      messageId =
+        conv.superficie === "comentario"
+          ? await responderComentarioMeta(canal, ultimo.whapi_message_id ?? "", respuesta.texto)
+          : await enviarMensajeMeta(canal, conv.cliente_phone, respuesta.texto);
+    } else {
+      messageId = await enviarTexto(canal.id, conv.cliente_phone, respuesta.texto);
+    }
   } catch (e) {
     crearAnomalia(orgId, {
       conversationId,

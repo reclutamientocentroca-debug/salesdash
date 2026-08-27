@@ -50,6 +50,13 @@ export const IconoConversaciones = (p: Props) => (
   </Svg>
 );
 
+export const IconoMessenger = (p: Props) => (
+  <Svg {...p}>
+    <path d="M12 3.2c-4.9 0-8.8 3.6-8.8 8.1 0 2.5 1.2 4.7 3.2 6.2v3.3l3-1.6c.8.2 1.7.35 2.6.35 4.9 0 8.8-3.6 8.8-8.1S16.9 3.2 12 3.2Z" />
+    <path d="m7.4 14.2 3.1-3.3 2 2.1 3.1-3.3" />
+  </Svg>
+);
+
 export const IconoAgente = (p: Props) => (
   <Svg {...p}>
     <rect x="4" y="8" width="16" height="12" rx="3" />

@@ -67,6 +67,22 @@ export interface MensajeEntrante {
   productoAnuncio: string | null;
   /** Lo que prometía el anuncio. Explica la conversación que viene detrás. */
   descripcionAnuncio: string | null;
+  /**
+   * Por dónde entró: 'messenger', 'instagram', 'comentario'. Nulo en WhatsApp,
+   * que es de donde viene todo lo que no lo dice.
+   *
+   * Va en el mensaje y no en el canal porque UNA página de Meta produce las
+   * tres cosas, y son el mismo canal con tres conversaciones distintas.
+   */
+  superficie?: string | null;
+  /**
+   * El anuncio de Meta que trajo al cliente.
+   *
+   * Llega SOLO en el primer evento del hilo. Se guarda en la conversación en
+   * cuanto se ve, porque a partir del segundo mensaje ya no viene y no hay
+   * forma de recuperarlo.
+   */
+  metaAdId?: string | null;
 }
 
 export interface Resultado {
@@ -137,6 +153,8 @@ export async function ingerir(
         nombre: m.deMi ? null : m.nombre,
         cuando: m.cuando,
         origen: m.deAnuncio ? "anuncio" : null,
+        superficie: m.superficie ?? null,
+        metaAdId: m.metaAdId ?? null,
         productoAnuncio: m.productoAnuncio,
         descripcionAnuncio: m.descripcionAnuncio,
       });

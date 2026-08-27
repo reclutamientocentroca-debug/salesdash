@@ -153,10 +153,18 @@ test("solo el agente puede enviar mensajes a un cliente", async () => {
 
   const culpables = archivos.filter((f) => {
     if (f.endsWith(join("lib", "agent.ts")) || f.endsWith(join("lib", "wa.ts"))) return false;
+    // El transporte de Meta se rige por la MISMA regla: solo agent.ts envia.
+    // Sin esta rama, el canal nuevo abria una segunda puerta y la garantia
+    // dejaba de valer justo donde se acababa de ampliar el producto.
+    if (f.endsWith(join("meta", "send.ts"))) return false;
     const fuente = readFileSync(f, "utf8");
     // Cualquier forma de traerse la función de envío desde el transporte.
+    const deMeta = /meta\/send/;
     return /enviarTexto[^\n]*from\s+["'][^"']*wa["']/.test(fuente) ||
-      /from\s+["'][^"']*wa["'][^\n]*enviarTexto/.test(fuente);
+      /from\s+["'][^"']*wa["'][^\n]*enviarTexto/.test(fuente) ||
+      // El envio de Meta entra por import dinamico dentro de agent.ts, asi que
+      // basta con que ningun OTRO archivo nombre ese modulo.
+      deMeta.test(fuente);
   });
 
   assert.deepEqual(
@@ -189,6 +197,18 @@ test("ninguna función de lectura de db.ts omite el orgId", async () => {
     "orgsParaBarrerCierres",
     // Ruta del disco, no una consulta.
     "rutaDatos",
+    // El webhook de Meta no trae sesion: la cuenta se DEDUCE de la pagina o de
+    // la cuenta de Instagram, que es lo unico que manda Meta. Misma clase que
+    // canalPorWebhook, y a partir de ahi todo vuelve a ir con orgId.
+    "canalMetaPorDestino",
+    // Registra el evento ANTES de saber de quien es: un webhook de una pagina
+    // que nadie conecto tambien se guarda, y es justo el que hace falta mirar
+    // cuando alguien dice que conecto la pagina y no le llega nada. El orgId va
+    // dentro del objeto y puede ser null a proposito.
+    "registrarEventoMeta",
+    // Por definicion no pertenecen a ninguna cuenta: son los eventos sin dueno.
+    // Solo los mira el superadmin.
+    "eventosMetaHuerfanos",
   ]);
 
   const infractoras: string[] = [];

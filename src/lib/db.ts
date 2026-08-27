@@ -100,6 +100,10 @@ CREATE TABLE IF NOT EXISTS conversations (
      dice qué se le prometió, que es lo que hay que leer para entender la
      conversación que viene detrás. */
   descripcion_anuncio TEXT,
+  /* El anuncio de Meta que trajo al cliente. Llega solo en el primer evento
+     del hilo, asi que se guarda al vuelo o se pierde. De aqui sale el precio
+     del catalogo en cada respuesta posterior. */
+  meta_ad_id TEXT,
   intervencion_humana INTEGER NOT NULL DEFAULT 0,
   cerrado_por TEXT CHECK(cerrado_por IN ('ia','humano','abierta','revision')) NOT NULL DEFAULT 'abierta',
   senal_de_cierre TEXT,
@@ -120,7 +124,7 @@ CREATE TABLE IF NOT EXISTS messages (
   conversation_id INTEGER NOT NULL REFERENCES conversations(id),
   whapi_message_id TEXT UNIQUE,
   emisor TEXT CHECK(emisor IN ('cliente','ia','humano')) NOT NULL,
-  tipo TEXT CHECK(tipo IN ('texto','imagen','audio','documento','otro')) NOT NULL DEFAULT 'texto',
+  tipo TEXT CHECK(tipo IN ('texto','imagen','audio','documento','comentario','otro')) NOT NULL DEFAULT 'texto',
   descripcion_imagen TEXT,
   categoria_imagen TEXT CHECK(categoria_imagen IN ('factura','comprobante_pago','foto_producto','otro')),
   /* Lo que dice una nota de voz, en texto. Sin esto un audio es un agujero en
@@ -170,6 +174,52 @@ CREATE INDEX IF NOT EXISTS idx_catalogo_org ON catalogo(org_id);
  * debajo de su promedio), que no pertenecen a ninguna conversación. Dos de las
  * seis reglas obligatorias son de ese tipo.
  */
+/*
+ * ANUNCIO -> PRODUCTO DEL CATÁLOGO.
+ *
+ * Es la tabla que sostiene la regla del precio. El cliente llega por un anuncio
+ * y el anuncio trae un ad_id; de ahí sale el producto, y del producto sale el
+ * precio. Sin esta fila el agente NO cotiza: pasa el hilo a una persona.
+ *
+ * El precio no se guarda aquí a propósito. Vive en catalogo y se lee cuando
+ * hace falta: un precio copiado es un precio que se queda viejo, y el día que
+ * el dueño lo cambie el anuncio seguiría cotizando el de antes.
+ */
+CREATE TABLE IF NOT EXISTS anuncios_meta (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id INTEGER NOT NULL REFERENCES orgs(id),
+  ad_id TEXT NOT NULL,
+  producto_id INTEGER REFERENCES catalogo(id),
+  titulo TEXT,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  UNIQUE(org_id, ad_id)
+);
+CREATE INDEX IF NOT EXISTS idx_anuncios_org ON anuncios_meta(org_id);
+
+/*
+ * Lo que llegó por el webhook, tal cual, antes de interpretarlo.
+ *
+ * Se guarda ANTES de procesar y por eso org_id es nulo: un evento de una
+ * página que no está conectada también se registra, y es justo el que hay que
+ * poder mirar cuando alguien dice «conecté la página y no llega nada». Sin este
+ * registro, un webhook que se descarta no deja ni rastro y no hay forma de
+ * distinguir «Meta no manda» de «llega y lo tiramos».
+ */
+CREATE TABLE IF NOT EXISTS eventos_meta (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id INTEGER REFERENCES orgs(id),
+  canal_id INTEGER REFERENCES canales(id),
+  objeto TEXT NOT NULL,
+  page_id TEXT,
+  firma_ok INTEGER NOT NULL,
+  procesado INTEGER NOT NULL DEFAULT 0,
+  mensajes INTEGER NOT NULL DEFAULT 0,
+  detalle TEXT,
+  cuerpo TEXT NOT NULL,
+  recibido_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+CREATE INDEX IF NOT EXISTS idx_eventos_meta_recibido ON eventos_meta(recibido_at DESC);
+
 CREATE TABLE IF NOT EXISTS anomalies (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   org_id INTEGER NOT NULL REFERENCES orgs(id),
@@ -308,6 +358,105 @@ function migrar(conexion: DB): void {
   // COLUMN no reescribe la tabla ni toca una sola fila existente.
   if (!columnas("conversations").includes("descripcion_anuncio")) {
     conexion.exec(`ALTER TABLE conversations ADD COLUMN descripcion_anuncio TEXT`);
+  }
+
+  /*
+   * canales: de qué es este canal.
+   *
+   * Una página de Meta ES un canal, no una tabla aparte. Esa decisión es la que
+   * hace que todo lo demás salga gratis: métricas por canal, la tabla del
+   * dashboard, el interruptor del agente, contesta_ia y el aislamiento por
+   * cuenta ya están escritos contra `canales` y funcionan igual con una página
+   * que con un número.
+   *
+   * En un canal de Meta, `phone` guarda el ID de la página. Encaja sin forzar
+   * nada: es numérico, y UNIQUE(org_id, phone) sigue diciendo lo mismo —una
+   * página no se conecta dos veces en la misma cuenta—.
+   */
+  if (!columnas("canales").includes("tipo")) {
+    conexion.exec(`ALTER TABLE canales ADD COLUMN tipo TEXT NOT NULL DEFAULT 'whatsapp'`);
+  }
+
+  /*
+   * canales: la cuenta de Instagram enlazada a la página.
+   *
+   * Los mensajes de Instagram llegan con el ID de la cuenta de IG, no con el de
+   * la página, aunque los mande el mismo webhook. Sin esta columna no hay forma
+   * de saber a qué canal pertenece un mensaje directo de Instagram.
+   */
+  if (!columnas("canales").includes("meta_ig_id")) {
+    conexion.exec(`ALTER TABLE canales ADD COLUMN meta_ig_id TEXT`);
+  }
+
+  /*
+   * conversations: por dónde entró este hilo.
+   *
+   * Va en la conversación y no en el canal porque UNA página produce las tres
+   * cosas: mensajes de Messenger, mensajes directos de Instagram y comentarios
+   * de anuncios. Son el mismo canal y tres conversaciones distintas.
+   */
+  if (!columnas("conversations").includes("superficie")) {
+    conexion.exec(`ALTER TABLE conversations ADD COLUMN superficie TEXT`);
+  }
+
+  /*
+   * conversations: el identificador del anuncio que trajo al cliente.
+   *
+   * EL REFERRAL LLEGA UNA SOLA VEZ. Meta lo manda en el PRIMER evento del hilo
+   * y en ninguno más: a partir del segundo mensaje, el anuncio ha desaparecido
+   * del evento. Si no se guarda aquí en ese instante, se pierde para siempre —y
+   * con él, el único vínculo entre el cliente y el producto que vino buscando—.
+   *
+   * De esta columna sale el precio en cada respuesta posterior del agente. Es
+   * la que sostiene la regla del catálogo.
+   */
+  if (!columnas("conversations").includes("meta_ad_id")) {
+    conexion.exec(`ALTER TABLE conversations ADD COLUMN meta_ad_id` + " TEXT");
+  }
+
+  /*
+   * messages: `tipo` tiene que admitir 'comentario'.
+   *
+   * Un CHECK no se amplía con ALTER en SQLite, así que la tabla se reconstruye
+   * —mismo procedimiento que se usó con uso_modelo—. Se copia entera: son los
+   * mensajes de todos los hilos y no se pierde ni uno.
+   */
+  const chequeoMensajes = (
+    conexion.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='messages'`).get() as
+      | { sql?: string }
+      | undefined
+  )?.sql;
+
+  if (chequeoMensajes && !chequeoMensajes.includes("'comentario'")) {
+    conexion.exec(`
+      ALTER TABLE messages RENAME TO messages_viejo;
+
+      CREATE TABLE messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        org_id INTEGER NOT NULL REFERENCES orgs(id),
+        conversation_id INTEGER NOT NULL REFERENCES conversations(id),
+        whapi_message_id TEXT UNIQUE,
+        emisor TEXT CHECK(emisor IN ('cliente','ia','humano')) NOT NULL,
+        tipo TEXT CHECK(tipo IN ('texto','imagen','audio','documento','comentario','otro')) NOT NULL DEFAULT 'texto',
+        descripcion_imagen TEXT,
+        categoria_imagen TEXT CHECK(categoria_imagen IN ('factura','comprobante_pago','foto_producto','otro')),
+        transcripcion TEXT,
+        media_url TEXT,
+        content TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+
+      INSERT INTO messages
+        (id, org_id, conversation_id, whapi_message_id, emisor, tipo,
+         descripcion_imagen, categoria_imagen, transcripcion, media_url, content, created_at)
+        SELECT id, org_id, conversation_id, whapi_message_id, emisor, tipo,
+               descripcion_imagen, categoria_imagen, transcripcion, media_url, content, created_at
+          FROM messages_viejo;
+
+      DROP TABLE messages_viejo;
+
+      CREATE INDEX IF NOT EXISTS idx_msg_conv ON messages(conversation_id, created_at);
+    `);
   }
 
   /*
@@ -493,6 +642,10 @@ export interface Canal {
   token_cifrado: string; webhook_secret: string;
   whapi_channel_id: string | null; estado: string; ultimo_evento_at: number | null;
   agente_activo: number; contesta_ia: number; activo: number; created_at: number;
+  /** 'whatsapp' o 'meta'. En un canal de Meta, `phone` es el ID de la página. */
+  tipo: string;
+  /** Cuenta de Instagram enlazada a la página, si la hay. */
+  meta_ig_id: string | null;
 }
 
 export interface Conversacion {
@@ -506,6 +659,10 @@ export interface Conversacion {
   justificacion: string | null; datos_faltantes: string | null;
   motivo_perdida: string | null; analizada_at: number | null;
   fecha_inicio: number; fecha_cierre: number | null; last_message_at: number | null;
+  /** Por dónde entró: 'whatsapp', 'messenger', 'instagram' o 'comentario'. */
+  superficie: string | null;
+  /** El anuncio de Meta que lo trajo. Se guarda del primer evento y no cambia. */
+  meta_ad_id: string | null;
 }
 
 export interface Mensaje {
@@ -660,6 +817,7 @@ export function crearCanal(orgId: number, datos: {
 const COLUMNAS_CANAL = [
   "nombre", "phone", "token_cifrado", "whapi_channel_id",
   "estado", "ultimo_evento_at", "agente_activo", "contesta_ia", "activo",
+  "meta_ig_id",
 ] as const;
 
 export function actualizarCanal(orgId: number, id: number, campos: Partial<Canal>): void {
@@ -737,6 +895,7 @@ export function getOrCreateConversation(
   datos: {
     nombre?: string | null; origen?: string | null;
     productoAnuncio?: string | null; descripcionAnuncio?: string | null; cuando?: number;
+    superficie?: string | null; metaAdId?: string | null;
   } = {},
 ): { conversacion: Conversacion; nueva: boolean } {
   const existente = s(
@@ -763,6 +922,10 @@ export function getOrCreateConversation(
      */
     const anuncio: Record<string, string> = {};
     if (datos.origen && !existente.origen) anuncio.origen = datos.origen;
+    // La superficie tampoco se pisa: un hilo que empezó como comentario y
+    // siguió por privado se cuenta por donde llegó el cliente la primera vez.
+    if (datos.superficie && !existente.superficie) anuncio.superficie = datos.superficie;
+    if (datos.metaAdId && !existente.meta_ad_id) anuncio.meta_ad_id = datos.metaAdId;
     if (datos.productoAnuncio && !existente.producto_anuncio) {
       anuncio.producto_anuncio = datos.productoAnuncio;
     }
@@ -785,11 +948,12 @@ export function getOrCreateConversation(
   const cuando = datos.cuando ?? ahora();
   const r = s(
     `INSERT INTO conversations
-       (org_id, canal_id, cliente_phone, cliente_nombre, origen, producto_anuncio, descripcion_anuncio, fecha_inicio, last_message_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (org_id, canal_id, cliente_phone, cliente_nombre, origen, producto_anuncio, descripcion_anuncio, superficie, meta_ad_id, fecha_inicio, last_message_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     orgId, canalId, clientePhone, datos.nombre ?? null,
-    datos.origen ?? null, datos.productoAnuncio ?? null, datos.descripcionAnuncio ?? null, cuando, cuando,
+    datos.origen ?? null, datos.productoAnuncio ?? null, datos.descripcionAnuncio ?? null,
+    datos.superficie ?? null, datos.metaAdId ?? null, cuando, cuando,
   );
 
   return {
@@ -1669,6 +1833,171 @@ export function metricasPorCanal(orgId: number, r: Rango) {
     canal_id: number; nombre: string; phone: string;
     leads: number; leads_anuncio: number; cierres_ia: number; cierres_humano: number;
     sin_cerrar: number; revision: number; ventas: number;
+  }[];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Canales de Meta: páginas, anuncios y eventos
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Las páginas conectadas de una cuenta. Un canal de Meta ES una página. */
+export function listarPaginasMeta(orgId: number): Canal[] {
+  return s(
+    `SELECT * FROM canales WHERE org_id = ? AND tipo = 'meta' ORDER BY created_at ASC`,
+  ).all(orgId) as Canal[];
+}
+
+export function contarPaginasMeta(orgId: number): number {
+  return (
+    s(`SELECT COUNT(*) AS n FROM canales WHERE org_id = ? AND tipo = 'meta'`).get(orgId) as {
+      n: number;
+    }
+  ).n;
+}
+
+export function crearPaginaMeta(orgId: number, datos: {
+  pageId: string; nombre: string; tokenCifrado: string; webhookSecret: string;
+  igUserId: string | null;
+}): number {
+  const r = s(
+    `INSERT INTO canales
+       (org_id, nombre, phone, token_cifrado, webhook_secret, tipo, meta_ig_id, estado, contesta_ia)
+     VALUES (?, ?, ?, ?, ?, 'meta', ?, 'conectado', 1)`,
+  ).run(orgId, datos.nombre, datos.pageId, datos.tokenCifrado, datos.webhookSecret, datos.igUserId);
+  return Number(r.lastInsertRowid);
+}
+
+/**
+ * EXCEPCIÓN a la regla de aislamiento, y la misma que ya tiene
+ * `canalPorWebhook`: el webhook no trae sesión ni org_id. La cuenta se DEDUCE
+ * de la página, que es lo único que manda Meta, y a partir de ahí todo vuelve a
+ * ir con `org_id`. Sin esta función no hay forma de saber de quién es un evento.
+ *
+ * Busca por ID de página y también por cuenta de Instagram: los mensajes
+ * directos de Instagram llegan con el ID de la cuenta de IG, no con el de la
+ * página, aunque los mande el mismo webhook y sean el mismo canal.
+ */
+export function canalMetaPorDestino(destinoId: string): Canal | undefined {
+  return s(
+    `SELECT * FROM canales
+      WHERE tipo = 'meta' AND activo = 1 AND (phone = ? OR meta_ig_id = ?)
+      LIMIT 1`,
+  ).get(destinoId, destinoId) as Canal | undefined;
+}
+
+// ── Anuncios vinculados a un producto ───────────────────────────────────────
+
+export interface AnuncioMeta {
+  id: number; org_id: number; ad_id: string;
+  producto_id: number | null; titulo: string | null; created_at: number;
+}
+
+export function listarAnunciosMeta(orgId: number) {
+  return s(
+    `SELECT a.*, c.nombre AS producto_nombre, c.precio AS producto_precio,
+            c.variantes AS producto_variantes
+       FROM anuncios_meta a
+       LEFT JOIN catalogo c ON c.id = a.producto_id AND c.org_id = a.org_id
+      WHERE a.org_id = ?
+      ORDER BY a.created_at DESC`,
+  ).all(orgId) as (AnuncioMeta & {
+    producto_nombre: string | null; producto_precio: number | null;
+    producto_variantes: string | null;
+  })[];
+}
+
+/**
+ * El anuncio con su producto, o undefined.
+ *
+ * Devolver undefined es una respuesta válida y significativa: es el caso «este
+ * anuncio no está vinculado», y de él depende que el agente no cotice.
+ */
+export function anuncioMetaPorAdId(orgId: number, adId: string) {
+  return s(
+    `SELECT a.*, c.nombre AS producto_nombre, c.precio AS producto_precio,
+            c.variantes AS producto_variantes, c.activo AS producto_activo
+       FROM anuncios_meta a
+       LEFT JOIN catalogo c ON c.id = a.producto_id AND c.org_id = a.org_id
+      WHERE a.org_id = ? AND a.ad_id = ?`,
+  ).get(orgId, adId) as
+    | (AnuncioMeta & {
+        producto_nombre: string | null; producto_precio: number | null;
+        producto_variantes: string | null; producto_activo: number | null;
+      })
+    | undefined;
+}
+
+/**
+ * Deja constancia del anuncio en cuanto se ve, aunque nadie lo haya vinculado.
+ *
+ * El `ad_id` llega en el referral del primer mensaje y solo ahí. Si no se guarda
+ * en ese momento, el dueño no tiene forma de vincularlo: tendría que adivinar
+ * el identificador de un anuncio que ya pasó. Guardarlo sin producto es
+ * exactamente lo que llena la lista de «anuncios por vincular».
+ */
+export function registrarAnuncioVisto(orgId: number, adId: string, titulo: string | null): void {
+  s(
+    `INSERT INTO anuncios_meta (org_id, ad_id, titulo) VALUES (?, ?, ?)
+     ON CONFLICT(org_id, ad_id) DO UPDATE SET titulo = COALESCE(anuncios_meta.titulo, excluded.titulo)`,
+  ).run(orgId, adId, titulo);
+}
+
+export function vincularAnuncioAProducto(orgId: number, adId: string, productoId: number | null): void {
+  s(`UPDATE anuncios_meta SET producto_id = ? WHERE org_id = ? AND ad_id = ?`)
+    .run(productoId, orgId, adId);
+}
+
+// ── Registro de eventos del webhook ─────────────────────────────────────────
+
+/**
+ * EXCEPCIÓN a la regla de aislamiento: `orgId` puede ser nulo a propósito.
+ *
+ * Un evento de una página que NO está conectada también se guarda, y es el más
+ * útil de todos: es el que contesta «conecté la página y no llega nada». Si
+ * solo se registraran los eventos con dueño, ese caso no dejaría rastro.
+ */
+export function registrarEventoMeta(datos: {
+  orgId: number | null; canalId: number | null; objeto: string; pageId: string | null;
+  firmaOk: boolean; procesado: boolean; mensajes: number; detalle: string | null; cuerpo: string;
+}): number {
+  const r = s(
+    `INSERT INTO eventos_meta
+       (org_id, canal_id, objeto, page_id, firma_ok, procesado, mensajes, detalle, cuerpo)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    datos.orgId, datos.canalId, datos.objeto, datos.pageId,
+    datos.firmaOk ? 1 : 0, datos.procesado ? 1 : 0, datos.mensajes,
+    datos.detalle, datos.cuerpo.slice(0, 20_000),
+  );
+  return Number(r.lastInsertRowid);
+}
+
+/** Los últimos eventos de una cuenta. Para el diagnóstico del apartado. */
+export function ultimosEventosMeta(orgId: number, limite = 20) {
+  return s(
+    `SELECT id, objeto, page_id, firma_ok, procesado, mensajes, detalle, recibido_at
+       FROM eventos_meta WHERE org_id = ?
+      ORDER BY recibido_at DESC, id DESC LIMIT ?`,
+  ).all(orgId, limite) as {
+    id: number; objeto: string; page_id: string | null; firma_ok: number;
+    procesado: number; mensajes: number; detalle: string | null; recibido_at: number;
+  }[];
+}
+
+/**
+ * Los eventos que llegaron SIN dueño, para toda la plataforma.
+ *
+ * No lleva orgId porque, por definición, no pertenecen a ninguna cuenta: son
+ * los de páginas que nadie conectó. Solo los mira el superadmin.
+ */
+export function eventosMetaHuerfanos(limite = 20) {
+  return s(
+    `SELECT id, objeto, page_id, firma_ok, detalle, recibido_at
+       FROM eventos_meta WHERE org_id IS NULL
+      ORDER BY recibido_at DESC, id DESC LIMIT ?`,
+  ).all(limite) as {
+    id: number; objeto: string; page_id: string | null;
+    firma_ok: number; detalle: string | null; recibido_at: number;
   }[];
 }
 

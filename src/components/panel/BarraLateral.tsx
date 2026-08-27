@@ -10,6 +10,7 @@ import {
   IconoConversaciones,
   IconoDashboard,
   IconoEquipo,
+  IconoMessenger,
   IconoNumeros,
   IconoProductos,
   IconoRevision,
@@ -20,6 +21,7 @@ import {
 const MENU = [
   { href: "/dashboard", texto: "Dashboard", Icono: IconoDashboard },
   { href: "/numeros", texto: "Números", Icono: IconoNumeros },
+  { href: "/canales/meta", texto: "Messenger", Icono: IconoMessenger },
   { href: "/conversaciones", texto: "Conversaciones", Icono: IconoConversaciones },
   { href: "/revision", texto: "Revisión", Icono: IconoRevision },
   { href: "/agente", texto: "Agente de IA", Icono: IconoAgente },
