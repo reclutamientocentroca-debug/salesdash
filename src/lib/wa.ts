@@ -266,6 +266,23 @@ function traducir(m: WAMessage): MensajeEntrante | null {
     deAnuncio: !!anuncio,
     productoAnuncio: anuncio?.title ?? null,
     descripcionAnuncio: anuncio?.body ?? null,
+    /*
+     * EL IDENTIFICADOR DEL ANUNCIO, que hasta ahora se tiraba.
+     *
+     * `sourceId` es el anuncio de Facebook o Instagram que trajo al cliente.
+     * Sin él, un lead de WhatsApp llegaba sabiendo el título del anuncio pero
+     * no CUÁL era, así que no se podía vincular a un producto del catálogo ni
+     * sacar de ahí el precio bueno: toda esa maquinaria solo funcionaba para
+     * los canales de Meta. Es el mismo dato y llega en el mismo sitio.
+     */
+    metaAdId: anuncio?.sourceId ?? null,
+    /*
+     * Y la creatividad. En estos anuncios el precio y los colores van ESCRITOS
+     * ENCIMA de la imagen muchísimas veces —no en el texto—, y ahí no los ve
+     * nadie: el cliente escribe «quiero la del anuncio» y el agente no sabe de
+     * qué habla. WhatsApp manda esa miniatura en el mismo mensaje.
+     */
+    imagenAnuncio: anuncio?.thumbnail ? Buffer.from(anuncio.thumbnail) : null,
   };
 }
 

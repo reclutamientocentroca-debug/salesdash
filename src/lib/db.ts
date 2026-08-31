@@ -47,6 +47,10 @@ import { dirname, resolve } from "node:path";
 export const MODELO_AGENTE = "anthropic/claude-opus-5";
 export const MODELO_RESPALDO = "anthropic/claude-sonnet-5";
 export const MODELO_ANALISIS = "anthropic/claude-sonnet-5";
+/** Para leer imágenes: facturas, comprobantes y la creatividad del anuncio. */
+export const MODELO_VISION = "openai/gpt-4o-mini";
+/** Para oír las notas de voz. Bastantes menos modelos oyen que ven. */
+export const MODELO_AUDIO = "google/gemini-3.5-flash-lite";
 
 /** El que se retiró. Solo lo usa la migración, para saber a quién rescatar. */
 const MODELO_RETIRADO = "meta-llama/llama-3.3-70b-instruct:free";
@@ -69,8 +73,8 @@ CREATE TABLE IF NOT EXISTS orgs (
   meta_efectividad INTEGER NOT NULL DEFAULT 85,
   marcador_cierre TEXT NOT NULL DEFAULT 'Resumen:',
   modelo_analisis TEXT NOT NULL DEFAULT '${MODELO_ANALISIS}',
-  modelo_vision TEXT NOT NULL DEFAULT 'openai/gpt-4o-mini',
-  modelo_audio TEXT NOT NULL DEFAULT 'google/gemini-3.5-flash-lite',
+  modelo_vision TEXT NOT NULL DEFAULT '${MODELO_VISION}',
+  modelo_audio TEXT NOT NULL DEFAULT '${MODELO_AUDIO}',
   suspendida INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
@@ -183,11 +187,49 @@ CREATE TABLE IF NOT EXISTS ai_sent_ids (
 CREATE TABLE IF NOT EXISTS agentes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   org_id INTEGER NOT NULL REFERENCES orgs(id),
+  /* DE QUÉ CANAL ES ESTE AGENTE. 0 = la plantilla de la cuenta.
+
+     Un negocio con un WhatsApp en República Dominicana, otro en Costa Rica y
+     otro en Panamá no tiene un vendedor: tiene tres. Cada uno con su país, su
+     moneda, su forma de dar una dirección, su guion y hasta su modelo. Cuando
+     esto era una fila por cuenta, cambiarle el tono al de Panamá se lo cambiaba
+     a los tres.
+
+     El 0 no es un canal: es de dónde SALE un agente nuevo. Al encender el
+     agente en un canal recién conectado se copia esa fila entera, así que el
+     guion que ya estaba escrito no hay que volver a escribirlo. No es una clave
+     foránea justamente por eso —no apunta a ninguna fila de canales— y por
+     eso el UNIQUE de abajo funciona: en SQLite dos NULL no chocan, dos ceros
+     sí. */
+  canal_id INTEGER NOT NULL DEFAULT 0,
   nombre TEXT NOT NULL DEFAULT 'Asistente',
   tono TEXT NOT NULL DEFAULT 'cercano',
   instrucciones TEXT NOT NULL DEFAULT '',
+  /* EL PAÍS EN EL QUE VENDE ESTE CANAL. Código ISO de dos letras, o vacío.
+     De aquí sale la moneda, el trato, cómo se dan las direcciones, con qué se
+     paga y la caja con la que se valida un pin del mapa. Ver paises.ts. */
+  pais TEXT NOT NULL DEFAULT '',
+  /* LO QUE VENDE ESTE CANAL, ESCRITO A MANO. Es el catálogo de quien no tiene
+     catálogo: la mayoría de estas tiendas vende diez artículos y no va a
+     cargarlos uno a uno en una tabla. Vale lo mismo que el catálogo —lo escribe
+     el dueño— y por eso el agente puede cotizar con esto delante. Ver
+     armarSistema en agent.ts. */
+  conocimiento TEXT NOT NULL DEFAULT '',
+  /* Si además de lo anterior mira el catálogo de la cuenta. */
+  usar_catalogo INTEGER NOT NULL DEFAULT 1,
+  /* QUÉ ENTIENDE. Mirar una foto y oír una nota de voz cuestan una llamada al
+     modelo por mensaje, así que se pueden apagar por canal. Apagados, el agente
+     ve «[imagen]» y «[nota de voz]», que es como estaba antes. */
+  ver_imagenes INTEGER NOT NULL DEFAULT 1,
+  oir_audios INTEGER NOT NULL DEFAULT 1,
+  /* Validar el pin del mapa contra el país antes de darlo por dirección. */
+  validar_mapa INTEGER NOT NULL DEFAULT 1,
   modelo TEXT NOT NULL DEFAULT '${MODELO_AGENTE}',
   modelo_respaldo TEXT DEFAULT '${MODELO_RESPALDO}',
+  /* Nulos = los de la cuenta. Se pueden elegir por canal porque el que ve y el
+     que oye no tienen por qué ser el mismo que el que habla. */
+  modelo_vision TEXT,
+  modelo_audio TEXT,
   pasar_a_humano INTEGER NOT NULL DEFAULT 1,
   silenciar_si_humano INTEGER NOT NULL DEFAULT 1,
   horario_activo INTEGER NOT NULL DEFAULT 0,
@@ -204,7 +246,7 @@ CREATE TABLE IF NOT EXISTS agentes (
   recordatorio_entrega INTEGER NOT NULL DEFAULT 1,
   recordatorio_entrega_horas INTEGER NOT NULL DEFAULT 18,
   updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
-  UNIQUE(org_id)
+  UNIQUE(org_id, canal_id)
 );
 
 /* Un seguimiento por conversacion y tipo, y no mas: el UNIQUE es lo que
@@ -251,6 +293,16 @@ CREATE TABLE IF NOT EXISTS anuncios_meta (
   ad_id TEXT NOT NULL,
   producto_id INTEGER REFERENCES catalogo(id),
   titulo TEXT,
+  /* El texto del anuncio, tal cual lo escribio el negocio. Es donde suele estar
+     el precio cuando el anuncio no esta vinculado a un producto. */
+  texto TEXT,
+  /* La imagen del anuncio y lo que se ve en ella. La creatividad de Facebook
+     lleva el precio y los colores ESCRITOS ENCIMA muchisimas veces, y ahi no
+     los ve nadie: el cliente escribe "quiero la del anuncio" y el agente no
+     sabe de que habla. Se describe UNA vez por anuncio y se reutiliza para
+     todos los leads que traiga, que pueden ser cientos. */
+  imagen TEXT,
+  descripcion_imagen TEXT,
   created_at INTEGER NOT NULL DEFAULT (unixepoch()),
   UNIQUE(org_id, ad_id)
 );
@@ -493,6 +545,21 @@ function migrar(conexion: DB): void {
    * agente ya está contestando, que es una decisión que el dueño ya tomó a
    * mano. En un número que solo se vigila no sale ni uno.
    */
+  /*
+   * anuncios_meta: el texto y la imagen del anuncio, para poder leerlos.
+   *
+   * Una columna, una guarda. Varios ALTER en un solo `exec` NO son atómicos en
+   * SQLite: cada uno confirma por su cuenta, así que si el proceso se cae entre
+   * el primero y el segundo, la tabla queda con `texto` y sin `imagen` — y una
+   * guarda que pregunte solo por `imagen` vuelve a intentar añadir `texto` y
+   * revienta el arranque con «duplicate column name». Pasó de verdad.
+   */
+  for (const columna of ["texto", "imagen", "descripcion_imagen"]) {
+    if (!columnas("anuncios_meta").includes(columna)) {
+      conexion.exec(`ALTER TABLE anuncios_meta ADD COLUMN ${columna} TEXT`);
+    }
+  }
+
   if (!columnas("agentes").includes("recordatorio_visto")) {
     conexion.exec(`
       ALTER TABLE agentes ADD COLUMN recordatorio_visto INTEGER NOT NULL DEFAULT 1;
@@ -500,6 +567,117 @@ function migrar(conexion: DB): void {
       ALTER TABLE agentes ADD COLUMN recordatorio_entrega INTEGER NOT NULL DEFAULT 1;
       ALTER TABLE agentes ADD COLUMN recordatorio_entrega_horas INTEGER NOT NULL DEFAULT 18;
     `);
+  }
+
+  /*
+   * DE UN AGENTE POR CUENTA A UN AGENTE POR CANAL.
+   *
+   * Las columnas nuevas entran con ALTER, pero el `UNIQUE(org_id)` de la tabla
+   * vieja no se puede ampliar en SQLite: hay que reconstruirla, igual que se
+   * hizo con `messages` y con `uso_modelo`.
+   *
+   * LA FILA QUE YA EXISTÍA NO SE TOCA. Pasa a ser la plantilla de la cuenta
+   * (`canal_id = 0`) con su nombre, su tono y —sobre todo— sus instrucciones
+   * intactas: ahí está el guion de venta que alguien escribió a mano, y es lo
+   * último que puede perderse en una migración. Los agentes de cada canal nacen
+   * de esa fila, así que al abrir el panel después de actualizar cada número se
+   * encuentra al mismo vendedor que tenía, y desde ahí se le cambia lo que
+   * distingue a su país.
+   */
+  if (!columnas("agentes").includes("canal_id")) {
+    /*
+     * TODO ESTO VA EN UNA TRANSACCION, y es la migracion donde mas importa.
+     *
+     * SQLite confirma cada sentencia de un `exec` por su cuenta. Sin
+     * transaccion, un corte entre el RENAME y el CREATE deja la base con los
+     * agentes guardados en `agentes_viejo` y sin tabla `agentes`; al volver a
+     * arrancar, el `CREATE TABLE IF NOT EXISTS` del esquema crea una vacia, la
+     * guarda de aqui arriba ve que ya tiene `canal_id` y se salta la copia. El
+     * resultado es un panel entero con el guion de venta en blanco y los datos
+     * vivos en una tabla que ya no mira nadie.
+     *
+     * Un reinicio a mitad de despliegue no es una hipotesis: es como se
+     * despliega. Envuelto, o pasa entero o no pasa nada.
+     */
+    conexion.transaction(() => {
+    conexion.exec(`
+      ALTER TABLE agentes RENAME TO agentes_viejo;
+
+      CREATE TABLE agentes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        org_id INTEGER NOT NULL REFERENCES orgs(id),
+        canal_id INTEGER NOT NULL DEFAULT 0,
+        nombre TEXT NOT NULL DEFAULT 'Asistente',
+        tono TEXT NOT NULL DEFAULT 'cercano',
+        instrucciones TEXT NOT NULL DEFAULT '',
+        pais TEXT NOT NULL DEFAULT '',
+        conocimiento TEXT NOT NULL DEFAULT '',
+        usar_catalogo INTEGER NOT NULL DEFAULT 1,
+        ver_imagenes INTEGER NOT NULL DEFAULT 1,
+        oir_audios INTEGER NOT NULL DEFAULT 1,
+        validar_mapa INTEGER NOT NULL DEFAULT 1,
+        modelo TEXT NOT NULL DEFAULT '${MODELO_AGENTE}',
+        modelo_respaldo TEXT DEFAULT '${MODELO_RESPALDO}',
+        modelo_vision TEXT,
+        modelo_audio TEXT,
+        pasar_a_humano INTEGER NOT NULL DEFAULT 1,
+        silenciar_si_humano INTEGER NOT NULL DEFAULT 1,
+        horario_activo INTEGER NOT NULL DEFAULT 0,
+        horario_desde TEXT, horario_hasta TEXT,
+        recordatorio_visto INTEGER NOT NULL DEFAULT 1,
+        recordatorio_visto_horas INTEGER NOT NULL DEFAULT 3,
+        recordatorio_entrega INTEGER NOT NULL DEFAULT 1,
+        recordatorio_entrega_horas INTEGER NOT NULL DEFAULT 18,
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        UNIQUE(org_id, canal_id)
+      );
+
+      INSERT INTO agentes (
+        id, org_id, canal_id, nombre, tono, instrucciones,
+        modelo, modelo_respaldo, pasar_a_humano, silenciar_si_humano,
+        horario_activo, horario_desde, horario_hasta,
+        recordatorio_visto, recordatorio_visto_horas,
+        recordatorio_entrega, recordatorio_entrega_horas, updated_at
+      )
+      SELECT
+        id, org_id, 0, nombre, tono, instrucciones,
+        modelo, modelo_respaldo, pasar_a_humano, silenciar_si_humano,
+        horario_activo, horario_desde, horario_hasta,
+        recordatorio_visto, recordatorio_visto_horas,
+        recordatorio_entrega, recordatorio_entrega_horas, updated_at
+      FROM agentes_viejo;
+
+      DROP TABLE agentes_viejo;
+    `);
+
+    /*
+     * Y cada canal que ya existe estrena su copia, con el guion de la cuenta
+     * dentro. Sin esto, el dueño abriría el panel y se encontraría tres canales
+     * con un agente en blanco cada uno: técnicamente correcto, y exactamente
+     * igual de inservible que haber perdido las instrucciones.
+     */
+    conexion.exec(`
+      INSERT INTO agentes (
+        org_id, canal_id, nombre, tono, instrucciones, pais, conocimiento,
+        usar_catalogo, ver_imagenes, oir_audios, validar_mapa,
+        modelo, modelo_respaldo, modelo_vision, modelo_audio,
+        pasar_a_humano, silenciar_si_humano,
+        horario_activo, horario_desde, horario_hasta,
+        recordatorio_visto, recordatorio_visto_horas,
+        recordatorio_entrega, recordatorio_entrega_horas
+      )
+      SELECT
+        c.org_id, c.id, a.nombre, a.tono, a.instrucciones, a.pais, a.conocimiento,
+        a.usar_catalogo, a.ver_imagenes, a.oir_audios, a.validar_mapa,
+        a.modelo, a.modelo_respaldo, a.modelo_vision, a.modelo_audio,
+        a.pasar_a_humano, a.silenciar_si_humano,
+        a.horario_activo, a.horario_desde, a.horario_hasta,
+        a.recordatorio_visto, a.recordatorio_visto_horas,
+        a.recordatorio_entrega, a.recordatorio_entrega_horas
+      FROM canales c
+      JOIN agentes a ON a.org_id = c.org_id AND a.canal_id = 0
+    `);
+    })();
   }
 
   /*
@@ -795,8 +973,23 @@ export interface Mensaje {
 }
 
 export interface Agente {
-  id: number; org_id: number; nombre: string; tono: string;
-  instrucciones: string; modelo: string; modelo_respaldo: string | null;
+  id: number; org_id: number;
+  /** El canal al que atiende. 0 es la plantilla de la cuenta. */
+  canal_id: number;
+  nombre: string; tono: string;
+  instrucciones: string;
+  /** Código ISO del país en el que vende este canal, o vacío. Ver `paises.ts`. */
+  pais: string;
+  /** Lo que vende, escrito a mano. El catálogo de quien no tiene catálogo. */
+  conocimiento: string;
+  usar_catalogo: number;
+  /** Si mira las fotos y oye las notas de voz antes de contestar. */
+  ver_imagenes: number; oir_audios: number;
+  /** Si valida el pin del mapa contra el país antes de darlo por dirección. */
+  validar_mapa: number;
+  modelo: string; modelo_respaldo: string | null;
+  /** Nulos = los de la cuenta. */
+  modelo_vision: string | null; modelo_audio: string | null;
   pasar_a_humano: number; silenciar_si_humano: number;
   horario_activo: number; horario_desde: string | null; horario_hasta: string | null;
   /** Recordatorio al cliente que dejó la conversación a medias. */
@@ -962,6 +1155,9 @@ export function eliminarCanal(orgId: number, id: number): void {
     s(`DELETE FROM anomalies WHERE org_id = ? AND conversation_id IN
          (SELECT id FROM conversations WHERE org_id = ? AND canal_id = ?)`).run(orgId, orgId, id);
     s(`DELETE FROM conversations WHERE org_id = ? AND canal_id = ?`).run(orgId, id);
+    // El agente del canal se va con él. La plantilla de la cuenta (canal_id 0)
+    // no se toca nunca: de ella nacen los que vengan después.
+    s(`DELETE FROM agentes WHERE org_id = ? AND canal_id = ?`).run(orgId, id);
     s(`DELETE FROM canales WHERE org_id = ? AND id = ?`).run(orgId, id);
   });
   tx();
@@ -1583,29 +1779,85 @@ export function corregirEmisorAIa(orgId: number, whapiMessageId: string): number
 // Agente vendedor y catálogo
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function obtenerAgente(orgId: number): Agente {
-  let fila = s(`SELECT * FROM agentes WHERE org_id = ?`).get(orgId) as Agente | undefined;
-  if (!fila) {
-    s(`INSERT INTO agentes (org_id, modelo, modelo_respaldo) VALUES (?, ?, ?)`)
+/** El identificador con el que se pide la plantilla de la cuenta. */
+export const AGENTE_DE_LA_CUENTA = 0;
+
+/** Todo lo que se copia de un agente a otro al crear el de un canal nuevo. */
+const HEREDABLES = `nombre, tono, instrucciones, pais, conocimiento,
+  usar_catalogo, ver_imagenes, oir_audios, validar_mapa,
+  modelo, modelo_respaldo, modelo_vision, modelo_audio,
+  pasar_a_humano, silenciar_si_humano, horario_activo, horario_desde, horario_hasta,
+  recordatorio_visto, recordatorio_visto_horas,
+  recordatorio_entrega, recordatorio_entrega_horas`;
+
+/**
+ * El agente de un canal, creándolo la primera vez que se pide.
+ *
+ * `canalId = 0` es la plantilla de la cuenta: la que se copia al conectar un
+ * número nuevo y la que ve quien todavía no tiene ninguno. Ese es el
+ * comportamiento de antes, así que quien llame sin canal sigue obteniendo lo
+ * mismo que obtenía.
+ *
+ * UN AGENTE NUEVO NACE COPIADO, no en blanco. El guion de venta es lo que más
+ * trabajo cuesta escribir de todo el panel: conectar el cuarto número y
+ * encontrarse un cuadro de instrucciones vacío es la diferencia entre encender
+ * un canal en un minuto y no encenderlo. Lo que cambia entre países —el país,
+ * el conocimiento, el modelo— se cambia después, encima de la copia.
+ */
+export function obtenerAgente(orgId: number, canalId: number = AGENTE_DE_LA_CUENTA): Agente {
+  const leer = (id: number) =>
+    s(`SELECT * FROM agentes WHERE org_id = ? AND canal_id = ?`).get(orgId, id) as
+      | Agente
+      | undefined;
+
+  const fila = leer(canalId);
+  if (fila) return fila;
+
+  // La plantilla primero: de ella sale la copia. Si tampoco existe, nace con
+  // los valores por defecto de la tabla.
+  if (canalId !== AGENTE_DE_LA_CUENTA && !leer(AGENTE_DE_LA_CUENTA)) {
+    s(`INSERT INTO agentes (org_id, canal_id, modelo, modelo_respaldo) VALUES (?, 0, ?, ?)`)
       .run(orgId, MODELO_AGENTE, MODELO_RESPALDO);
-    fila = s(`SELECT * FROM agentes WHERE org_id = ?`).get(orgId) as Agente;
   }
-  return fila;
+
+  if (canalId === AGENTE_DE_LA_CUENTA) {
+    s(`INSERT INTO agentes (org_id, canal_id, modelo, modelo_respaldo) VALUES (?, 0, ?, ?)`)
+      .run(orgId, MODELO_AGENTE, MODELO_RESPALDO);
+  } else {
+    s(
+      `INSERT INTO agentes (org_id, canal_id, ${HEREDABLES})
+       SELECT ?, ?, ${HEREDABLES} FROM agentes WHERE org_id = ? AND canal_id = 0`,
+    ).run(orgId, canalId, orgId);
+  }
+
+  return leer(canalId)!;
+}
+
+/** Los agentes de una cuenta, plantilla incluida. Para el panel. */
+export function listarAgentes(orgId: number): Agente[] {
+  return s(`SELECT * FROM agentes WHERE org_id = ? ORDER BY canal_id`).all(orgId) as Agente[];
 }
 
 const COLUMNAS_AGENTE = [
-  "nombre", "tono", "instrucciones", "modelo", "modelo_respaldo",
+  "nombre", "tono", "instrucciones", "pais", "conocimiento", "usar_catalogo",
+  "ver_imagenes", "oir_audios", "validar_mapa",
+  "modelo", "modelo_respaldo", "modelo_vision", "modelo_audio",
   "pasar_a_humano", "silenciar_si_humano", "horario_activo",
   "horario_desde", "horario_hasta",
   "recordatorio_visto", "recordatorio_visto_horas",
   "recordatorio_entrega", "recordatorio_entrega_horas",
 ] as const;
 
-export function actualizarAgente(orgId: number, campos: Partial<Agente>): void {
-  obtenerAgente(orgId);
+export function actualizarAgente(
+  orgId: number,
+  campos: Partial<Agente>,
+  canalId: number = AGENTE_DE_LA_CUENTA,
+): void {
+  obtenerAgente(orgId, canalId);
   const { sql, valores } = armarSet(campos, COLUMNAS_AGENTE);
   if (!sql) return;
-  s(`UPDATE agentes SET ${sql}, updated_at = unixepoch() WHERE org_id = ?`).run(...valores, orgId);
+  s(`UPDATE agentes SET ${sql}, updated_at = unixepoch() WHERE org_id = ? AND canal_id = ?`)
+    .run(...valores, orgId, canalId);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1654,11 +1906,14 @@ export function conversacionesEnVisto(
   orgId: number,
   ventana: { desde: number; hasta: number },
   limite = 20,
+  /** Un solo canal. El barrido va canal por canal: cada uno tiene sus horas. */
+  canalId?: number,
 ): Conversacion[] {
   return s(
     `SELECT c.* FROM conversations c
        JOIN canales ca ON ca.id = c.canal_id
       WHERE c.org_id = ?
+        AND (? = 0 OR c.canal_id = ?)
         AND c.cerrado_por = 'abierta'
         AND ca.activo = 1 AND ca.agente_activo = 1 AND ca.contesta_ia = 0
         AND c.last_message_at BETWEEN ? AND ?
@@ -1678,7 +1933,7 @@ export function conversacionesEnVisto(
         )
       ORDER BY c.last_message_at ASC
       LIMIT ?`,
-  ).all(orgId, ventana.desde, ventana.hasta, limite) as Conversacion[];
+  ).all(orgId, canalId ?? 0, canalId ?? 0, ventana.desde, ventana.hasta, limite) as Conversacion[];
 }
 
 /**
@@ -1691,11 +1946,14 @@ export function ventasParaRecordar(
   orgId: number,
   ventana: { desde: number; hasta: number },
   limite = 20,
+  /** Un solo canal. Ver la nota de `conversacionesEnVisto`. */
+  canalId?: number,
 ): Conversacion[] {
   return s(
     `SELECT c.* FROM conversations c
        JOIN canales ca ON ca.id = c.canal_id
       WHERE c.org_id = ?
+        AND (? = 0 OR c.canal_id = ?)
         AND c.cerrado_por IN ('ia', 'humano')
         AND c.fecha_cierre BETWEEN ? AND ?
         AND ca.activo = 1 AND ca.agente_activo = 1 AND ca.contesta_ia = 0
@@ -1705,7 +1963,7 @@ export function ventasParaRecordar(
         )
       ORDER BY c.fecha_cierre ASC
       LIMIT ?`,
-  ).all(orgId, ventana.desde, ventana.hasta, limite) as Conversacion[];
+  ).all(orgId, canalId ?? 0, canalId ?? 0, ventana.desde, ventana.hasta, limite) as Conversacion[];
 }
 
 /**
@@ -2150,6 +2408,8 @@ export function canalMetaPorDestino(destinoId: string): Canal | undefined {
 export interface AnuncioMeta {
   id: number; org_id: number; ad_id: string;
   producto_id: number | null; titulo: string | null; created_at: number;
+  /** El texto del anuncio y lo que se ve en su imagen. Ver el esquema. */
+  texto: string | null; imagen: string | null; descripcion_imagen: string | null;
 }
 
 export function listarAnunciosMeta(orgId: number) {
@@ -2195,11 +2455,41 @@ export function anuncioMetaPorAdId(orgId: number, adId: string) {
  * el identificador de un anuncio que ya pasó. Guardarlo sin producto es
  * exactamente lo que llena la lista de «anuncios por vincular».
  */
-export function registrarAnuncioVisto(orgId: number, adId: string, titulo: string | null): void {
+export function registrarAnuncioVisto(
+  orgId: number,
+  adId: string,
+  titulo: string | null,
+  /** El texto y la imagen del anuncio, cuando el mensaje los trae. */
+  extra: { texto?: string | null; imagen?: string | null } = {},
+): void {
   s(
-    `INSERT INTO anuncios_meta (org_id, ad_id, titulo) VALUES (?, ?, ?)
-     ON CONFLICT(org_id, ad_id) DO UPDATE SET titulo = COALESCE(anuncios_meta.titulo, excluded.titulo)`,
-  ).run(orgId, adId, titulo);
+    `INSERT INTO anuncios_meta (org_id, ad_id, titulo, texto, imagen) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(org_id, ad_id) DO UPDATE SET
+       titulo = COALESCE(anuncios_meta.titulo, excluded.titulo),
+       texto  = COALESCE(anuncios_meta.texto,  excluded.texto),
+       imagen = COALESCE(anuncios_meta.imagen, excluded.imagen)`,
+  ).run(orgId, adId, titulo, extra.texto ?? null, extra.imagen ?? null);
+}
+
+/**
+ * Lo que se ve en la imagen del anuncio, escrito por el modelo de visión.
+ *
+ * Se guarda en el anuncio y no en la conversación a propósito: un anuncio trae
+ * decenas de clientes y la imagen es la misma para todos. Describirla una vez
+ * y reutilizarla es la diferencia entre una llamada al modelo y cien.
+ */
+export function guardarDescripcionAnuncio(orgId: number, adId: string, descripcion: string): void {
+  s(`UPDATE anuncios_meta SET descripcion_imagen = ? WHERE org_id = ? AND ad_id = ?`)
+    .run(descripcion, orgId, adId);
+}
+
+/** Anuncios con imagen guardada y sin describir todavía. */
+export function anunciosPorDescribir(orgId: number, limite = 5) {
+  return s(
+    `SELECT ad_id, imagen FROM anuncios_meta
+      WHERE org_id = ? AND imagen IS NOT NULL AND descripcion_imagen IS NULL
+      ORDER BY created_at DESC LIMIT ?`,
+  ).all(orgId, limite) as { ad_id: string; imagen: string }[];
 }
 
 export function vincularAnuncioAProducto(orgId: number, adId: string, productoId: number | null): void {

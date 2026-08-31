@@ -29,6 +29,7 @@
  */
 import {
   conversacionesEnVisto,
+  listarCanales,
   obtenerAgente,
   orgsConAgente,
   ventasParaRecordar,
@@ -55,36 +56,58 @@ export interface ResumenBarrido {
 }
 
 /**
- * Un barrido de una cuenta. Devuelve cuántos mensajes salieron de cada tipo.
+ * Un barrido de una cuenta, CANAL POR CANAL.
+ *
+ * Los interruptores y las horas son de cada canal, no de la cuenta: el número
+ * de Panamá puede recordar a las 3 horas y el de Costa Rica a las 12, o no
+ * recordar en absoluto. Cuando esto leía un solo agente por cuenta, encender el
+ * recordatorio en un número lo encendía en los tres —y a horas que no eran las
+ * suyas, en husos que tampoco.
+ *
+ * Un canal que falle no puede llevarse a los demás: cada uno va en su try.
  */
 export async function seguimientosDeCuenta(orgId: number): Promise<ResumenBarrido> {
-  const agente = obtenerAgente(orgId);
   const t = ahora();
   const salida: ResumenBarrido = { visto: 0, entrega: 0 };
 
-  if (agente.recordatorio_visto === 1) {
-    const corte = t - Math.max(agente.recordatorio_visto_horas, 1) * 3600;
-    const pendientes = conversacionesEnVisto(
-      orgId,
-      { desde: corte - VENTANA, hasta: corte },
-      MAX_POR_VUELTA,
-    );
+  for (const canal of listarCanales(orgId)) {
+    // Donde el agente no contesta tampoco insiste. La consulta lo vuelve a
+    // exigir en SQL; esto solo evita pasearse por canales que no pueden dar
+    // nada.
+    if (canal.activo !== 1 || canal.agente_activo !== 1 || canal.contesta_ia === 1) continue;
 
-    for (const c of pendientes) {
-      if (await enviarSeguimiento(orgId, c.id, "visto")) salida.visto++;
-    }
-  }
+    const agente = obtenerAgente(orgId, canal.id);
 
-  if (agente.recordatorio_entrega === 1) {
-    const corte = t - Math.max(agente.recordatorio_entrega_horas, 1) * 3600;
-    const pendientes = ventasParaRecordar(
-      orgId,
-      { desde: corte - VENTANA, hasta: corte },
-      MAX_POR_VUELTA,
-    );
+    try {
+      if (agente.recordatorio_visto === 1) {
+        const corte = t - Math.max(agente.recordatorio_visto_horas, 1) * 3600;
+        const pendientes = conversacionesEnVisto(
+          orgId,
+          { desde: corte - VENTANA, hasta: corte },
+          MAX_POR_VUELTA,
+          canal.id,
+        );
 
-    for (const c of pendientes) {
-      if (await enviarSeguimiento(orgId, c.id, "entrega")) salida.entrega++;
+        for (const c of pendientes) {
+          if (await enviarSeguimiento(orgId, c.id, "visto")) salida.visto++;
+        }
+      }
+
+      if (agente.recordatorio_entrega === 1) {
+        const corte = t - Math.max(agente.recordatorio_entrega_horas, 1) * 3600;
+        const pendientes = ventasParaRecordar(
+          orgId,
+          { desde: corte - VENTANA, hasta: corte },
+          MAX_POR_VUELTA,
+          canal.id,
+        );
+
+        for (const c of pendientes) {
+          if (await enviarSeguimiento(orgId, c.id, "entrega")) salida.entrega++;
+        }
+      }
+    } catch (e) {
+      console.error(`[seguimiento] falló el barrido del canal ${canal.id}`, e);
     }
   }
 

@@ -25,6 +25,7 @@ import {
   usoDelDia,
 } from "../src/lib/db";
 import { hoyISO } from "../src/lib/ia";
+import { obtenerPais } from "../src/lib/paises";
 
 const hace = (t: number | null) => {
   if (!t) return "nunca";
@@ -164,23 +165,62 @@ async function main() {
      * modo vigilar—. Cada una de esas cuatro se ve desde aquí, y ninguna deja
      * rastro en la pantalla del dueño.
      */
-    const agente = obtenerAgente(org.id);
     const uso = usoDelDia(org.id, hoyISO()).filter((u) => u.proposito === "agente");
     const exitos = uso.reduce((n, u) => n + u.exitos, 0);
     const fallos = uso.reduce((n, u) => n + u.fallos, 0);
 
     console.log("\n  agente de IA");
     console.log(`     clave del modelo ${process.env.OPENROUTER_API_KEY ? "puesta" : "✗ FALTA OPENROUTER_API_KEY: no puede responder"}`);
-    console.log(`     modelo           ${agente.modelo}${agente.modelo.endsWith(":free") ? " (gratuito: cupo diario limitado)" : ""}`);
-    console.log(`     respaldo         ${agente.modelo_respaldo ?? "ninguno"}`);
-    console.log(
-      `     horario          ${
-        agente.horario_activo
-          ? `solo de ${agente.horario_desde ?? "?"} a ${agente.horario_hasta ?? "?"} · fuera de esa franja NO contesta`
-          : "siempre"
-      }`,
-    );
-    console.log(`     hoy              ${exitos} respuesta(s), ${fallos} fallo(s)`);
+    console.log(`     hoy              ${exitos} respuesta(s), ${fallos} fallo(s) · toda la cuenta`);
+
+    /*
+     * UN AGENTE POR NÚMERO, así que esto va número a número.
+     *
+     * El modelo, el horario y el país son de cada canal: enseñar «el modelo de
+     * la cuenta» aquí sería enseñar el de ninguno de los tres, y este
+     * diagnóstico existe justo para responder por qué NO contesta uno concreto.
+     */
+    for (const c of canales) {
+      const a = obtenerAgente(org.id, c.id);
+      const pais = obtenerPais(a.pais);
+
+      console.log(`\n     ${c.nombre} (+${c.phone})`);
+      console.log(
+        `       contesta       ${
+          c.contesta_ia === 1
+            ? "✗ tu IA, el panel solo vigila"
+            : c.agente_activo === 1
+              ? "el agente del panel"
+              : "✗ nadie: el agente está apagado en este número"
+        }`,
+      );
+      console.log(
+        `       país           ${pais ? `${pais.nombre} · ${pais.moneda.simbolo}` : "✗ sin país: habla en neutro y no valida mapas"}`,
+      );
+      console.log(`       modelo         ${a.modelo}${a.modelo.endsWith(":free") ? " (gratuito: cupo diario limitado)" : ""}`);
+      console.log(`       respaldo       ${a.modelo_respaldo ?? "ninguno"}`);
+      console.log(
+        `       horario        ${
+          a.horario_activo
+            ? `solo de ${a.horario_desde ?? "?"} a ${a.horario_hasta ?? "?"} · fuera de esa franja NO contesta`
+            : "siempre"
+        }`,
+      );
+      console.log(
+        `       entiende       ${
+          [a.ver_imagenes === 1 && "fotos", a.oir_audios === 1 && "audios", a.validar_mapa === 1 && "mapas"]
+            .filter(Boolean)
+            .join(", ") || "solo texto"
+        }`,
+      );
+      console.log(
+        `       vende con      ${
+          [a.usar_catalogo === 1 && "el catálogo", a.conocimiento.trim() && "lo escrito en el canal"]
+            .filter(Boolean)
+            .join(" y ") || "✗ nada: no tiene de dónde sacar precios"
+        }`,
+      );
+    }
 
     if (fallos > 0 && exitos === 0) {
       console.log("     ✗ todas las llamadas al modelo fallaron hoy.");

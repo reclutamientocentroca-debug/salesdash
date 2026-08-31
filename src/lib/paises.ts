@@ -1,0 +1,374 @@
+/**
+ * SalesDash — lo que el agente sabe del país en el que vende.
+ *
+ * UN AGENTE POR CANAL, Y CADA CANAL EN SU PAÍS
+ *
+ * El mismo negocio tiene un WhatsApp en República Dominicana, otro en Costa
+ * Rica y otro en Panamá. No son tres copias del mismo vendedor: son tres
+ * vendedores distintos, y lo que los separa no es el idioma sino todo lo demás.
+ *
+ * Un agente que le dice «son 1.500 pesos» a un tico, o que le pide «la calle y
+ * el número» a alguien de San José —donde las direcciones se dan por
+ * referencias, «200 metros norte de la iglesia»—, o que ofrece pagar contra
+ * entrega en Costa Rica cuando ahí se cobra por SINPE por adelantado, se delata
+ * en el primer mensaje. El cliente no piensa «qué mal configurado está el bot»:
+ * piensa que la tienda no es de aquí, y no compra.
+ *
+ * Todo eso vive AQUÍ, escrito una vez, y no en las instrucciones que escribe el
+ * dueño. Las instrucciones son de su negocio —qué vende, cómo cobra, qué no
+ * puede prometer— y no tienen por qué repetir cómo se llama la moneda o cómo
+ * se dan las direcciones en su propio país. Elegir el país en el canal es lo
+ * único que hace falta.
+ *
+ * Lo que hay aquí es DESCRIPTIVO, no normativo: le dice al modelo cómo se
+ * habla y se compra en ese país para que suene natural. El precio, el envío y
+ * las condiciones siguen saliendo del catálogo y de las instrucciones del
+ * negocio, y ninguna línea de este archivo autoriza a inventarse ninguno.
+ */
+
+/** Un punto conocido del país, para poder situar un pin del mapa. */
+interface Ciudad {
+  nombre: string;
+  lat: number;
+  lng: number;
+}
+
+export interface Pais {
+  /** ISO 3166-1 alfa-2, en minúsculas. */
+  codigo: string;
+  nombre: string;
+  bandera: string;
+  moneda: {
+    codigo: string;
+    /** Como lo escribe la gente del país, no como lo escribe un banco. */
+    simbolo: string;
+    nombre: string;
+    /** Un importe de ejemplo, ya escrito como allí se escribe. */
+    ejemplo: string;
+  };
+  /** Prefijo internacional, para reconocer un número de casa. */
+  prefijo: string;
+  husoHorario: string;
+  /** De usted, de tú o de vos. Es lo primero que delata a un agente de fuera. */
+  tratamiento: string;
+  /** Cómo se habla ahí. Sirve para sonar natural, no para imitar un acento. */
+  expresiones: string[];
+  /** Provincias, cantones y barrios que se nombran al dar una dirección. */
+  zonas: string[];
+  /** Cómo se dan las direcciones. En Costa Rica esto lo cambia TODO. */
+  direcciones: string;
+  /** Cómo llega un pedido y quién lo lleva. */
+  entrega: string[];
+  /** Con qué paga la gente. Yappy, SINPE y tPago no son intercambiables. */
+  pagos: string[];
+  /** La caja que contiene al país, para validar un pin del mapa. */
+  caja: { latMin: number; latMax: number; lngMin: number; lngMax: number };
+  ciudades: Ciudad[];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Los tres países
+// ─────────────────────────────────────────────────────────────────────────────
+
+const REPUBLICA_DOMINICANA: Pais = {
+  codigo: "do",
+  nombre: "República Dominicana",
+  bandera: "🇩🇴",
+  moneda: {
+    codigo: "DOP",
+    simbolo: "RD$",
+    nombre: "peso dominicano",
+    ejemplo: "RD$1,500",
+  },
+  prefijo: "+1 (809 / 829 / 849)",
+  husoHorario: "America/Santo_Domingo",
+  tratamiento:
+    "Se tutea con naturalidad, incluso vendiendo. El usted suena distante salvo con gente mayor.",
+  expresiones: [
+    "«dime» o «dime a ver» para invitar a que sigan hablando",
+    "«a la orden» al despedirse o al confirmar",
+    "«ahora mismo» o «ahorita» para algo inmediato",
+    "«claro que sí» para confirmar",
+    "«chequea» para pedir que revisen algo",
+  ],
+  zonas: [
+    "Distrito Nacional",
+    "Santo Domingo Este",
+    "Santo Domingo Norte",
+    "Santo Domingo Oeste",
+    "Santiago",
+    "La Vega",
+    "San Cristóbal",
+    "Puerto Plata",
+    "San Pedro de Macorís",
+    "La Romana",
+    "Higüey",
+    "Punta Cana y Bávaro",
+    "Moca",
+    "Bonao",
+    "Baní",
+    "San Francisco de Macorís",
+  ],
+  direcciones:
+    "Se dan por calle y número, con el sector detrás: «calle Duarte #45, Los Prados, Santo " +
+    "Domingo». El SECTOR es el dato que no puede faltar: sin él, dos calles con el mismo nombre " +
+    "están a media hora una de otra. En los edificios hace falta el nombre y el apartamento.",
+  entrega: [
+    "En el Gran Santo Domingo y Santiago, mensajero propio en 24–48 horas",
+    "Al interior, por Caribe Express, Vimenca o Deprisa: el cliente retira en la sucursal de su pueblo",
+    "El pago contra entrega es lo normal y el cliente lo da por hecho",
+  ],
+  pagos: [
+    "Efectivo contra entrega, lo más común",
+    "Transferencia bancaria (Banreservas, Popular, BHD)",
+    "tPago",
+    "Tarjeta de crédito",
+  ],
+  caja: { latMin: 17.4, latMax: 20.1, lngMin: -72.1, lngMax: -68.2 },
+  ciudades: [
+    { nombre: "Santo Domingo", lat: 18.4861, lng: -69.9312 },
+    { nombre: "Santiago de los Caballeros", lat: 19.4517, lng: -70.697 },
+    { nombre: "San Cristóbal", lat: 18.4167, lng: -70.1 },
+    { nombre: "La Vega", lat: 19.2214, lng: -70.5288 },
+    { nombre: "San Pedro de Macorís", lat: 18.4539, lng: -69.297 },
+    { nombre: "La Romana", lat: 18.4273, lng: -68.9728 },
+    { nombre: "Higüey", lat: 18.6157, lng: -68.708 },
+    { nombre: "Punta Cana", lat: 18.5601, lng: -68.3725 },
+    { nombre: "Puerto Plata", lat: 19.7934, lng: -70.6884 },
+    { nombre: "San Francisco de Macorís", lat: 19.3009, lng: -70.2529 },
+    { nombre: "Barahona", lat: 18.2085, lng: -71.1008 },
+  ],
+};
+
+const COSTA_RICA: Pais = {
+  codigo: "cr",
+  nombre: "Costa Rica",
+  bandera: "🇨🇷",
+  moneda: {
+    codigo: "CRC",
+    simbolo: "₡",
+    nombre: "colón",
+    // El punto separa los miles, no la coma: ₡25.000, nunca ₡25,000.
+    ejemplo: "₡25.000",
+  },
+  prefijo: "+506 (ocho dígitos)",
+  husoHorario: "America/Costa_Rica",
+  tratamiento:
+    "Se habla de USTED casi siempre, incluso con confianza; el vos aparece entre conocidos. " +
+    "Tutear suena a extranjero.",
+  expresiones: [
+    "«con mucho gusto» en lugar de «de nada»: es la muletilla nacional",
+    "«pura vida» para saludar, agradecer y despedirse",
+    "«diay» al empezar una frase",
+    "«¿me confirma?» para pedir un dato",
+    "«ocupo» en lugar de «necesito»",
+  ],
+  zonas: [
+    "San José",
+    "Alajuela",
+    "Cartago",
+    "Heredia",
+    "Guanacaste (Liberia, Nicoya, Santa Cruz)",
+    "Puntarenas (Jacó, Quepos)",
+    "Limón",
+    "Pérez Zeledón",
+    "Desamparados",
+    "Escazú",
+    "Santa Ana",
+    "Curridabat",
+  ],
+  direcciones:
+    "EN COSTA RICA NO HAY CALLE Y NÚMERO. Las direcciones se dan por referencias y distancias " +
+    "desde un punto conocido: «200 metros norte y 50 este de la iglesia de Santa Ana, casa color " +
+    "verde». Cien metros es una cuadra. Pedir «la calle y el número» delata al instante que quien " +
+    "escribe no es de aquí: se pide el CANTÓN y el DISTRITO, y después las señas.",
+  entrega: [
+    "Correos de Costa Rica al país entero, con guía de rastreo",
+    "Mensajería propia o Uber Flash en el Gran Área Metropolitana, el mismo día",
+    "El pago contra entrega NO es lo habitual: se cobra por adelantado por SINPE y luego se envía",
+  ],
+  pagos: [
+    "SINPE Móvil, la forma más común: se paga al número de teléfono",
+    "Transferencia bancaria (BAC, Banco Nacional, BCR)",
+    "Tarjeta",
+    "Efectivo al entregar en mano",
+  ],
+  caja: { latMin: 7.9, latMax: 11.3, lngMin: -86.0, lngMax: -82.5 },
+  ciudades: [
+    { nombre: "San José", lat: 9.9281, lng: -84.0907 },
+    { nombre: "Alajuela", lat: 10.0162, lng: -84.2116 },
+    { nombre: "Heredia", lat: 9.9981, lng: -84.1197 },
+    { nombre: "Cartago", lat: 9.8644, lng: -83.9194 },
+    { nombre: "Liberia", lat: 10.6346, lng: -85.4377 },
+    { nombre: "Puntarenas", lat: 9.9763, lng: -84.8384 },
+    { nombre: "Limón", lat: 9.9907, lng: -83.0359 },
+    { nombre: "San Isidro de El General", lat: 9.3667, lng: -83.7 },
+    { nombre: "Nicoya", lat: 10.1483, lng: -85.4522 },
+  ],
+};
+
+const PANAMA: Pais = {
+  codigo: "pa",
+  nombre: "Panamá",
+  bandera: "🇵🇦",
+  moneda: {
+    codigo: "PAB",
+    simbolo: "B/.",
+    nombre: "balboa, a la par con el dólar",
+    ejemplo: "B/. 25.00",
+  },
+  prefijo: "+507 (ocho dígitos)",
+  husoHorario: "America/Panama",
+  tratamiento:
+    "De usted al vender, cordial y directo. El tuteo se usa con clientes jóvenes o de confianza.",
+  expresiones: [
+    "«a la orden» para ofrecerse y para cerrar",
+    "«listo» para confirmar",
+    "«¿me confirma?» al pedir un dato",
+    "«ahí mismo» o «de una» para algo inmediato",
+    "«chuzo» y «xopá» son de calle: no van en una venta",
+  ],
+  zonas: [
+    "Ciudad de Panamá (Bella Vista, Betania, Juan Díaz, Costa del Este, San Francisco)",
+    "San Miguelito",
+    "Tocumen y 24 de Diciembre",
+    "Panamá Oeste (Arraiján, La Chorrera, Capira)",
+    "Colón",
+    "Chiriquí (David, Boquete)",
+    "Veraguas (Santiago)",
+    "Herrera (Chitré)",
+    "Los Santos (Las Tablas)",
+    "Coclé (Penonomé, Aguadulce)",
+    "Bocas del Toro",
+    "Darién",
+  ],
+  direcciones:
+    "Se dan por corregimiento, barriada y casa o edificio: «Villa Lucre, calle 3, casa 12» o «PH " +
+    "Torres del Mar, apto 14-B, Costa del Este». El CORREGIMIENTO es el dato que sitúa todo lo " +
+    "demás. En los edificios hay que pedir el número de apartamento, o el pedido llega al lobby y " +
+    "ahí se queda.",
+  entrega: [
+    "En ciudad de Panamá y Panamá Oeste, mensajero propio en 24–48 horas",
+    "Al interior, por Uno Express o encomienda de bus: el cliente retira en la terminal de su provincia",
+    "El pago contra entrega es lo normal en la ciudad",
+  ],
+  pagos: [
+    "Yappy, la forma más común entre particulares",
+    "Efectivo contra entrega",
+    "Transferencia o ACH (Banco General, Banistmo)",
+    "Tarjeta",
+  ],
+  caja: { latMin: 7.1, latMax: 9.7, lngMin: -83.1, lngMax: -77.1 },
+  ciudades: [
+    { nombre: "Ciudad de Panamá", lat: 8.9824, lng: -79.5199 },
+    { nombre: "San Miguelito", lat: 9.0333, lng: -79.5 },
+    { nombre: "Arraiján", lat: 8.95, lng: -79.6667 },
+    { nombre: "La Chorrera", lat: 8.88, lng: -79.7833 },
+    { nombre: "Colón", lat: 9.3592, lng: -79.9014 },
+    { nombre: "David", lat: 8.4333, lng: -82.4333 },
+    { nombre: "Santiago de Veraguas", lat: 8.1, lng: -80.9833 },
+    { nombre: "Chitré", lat: 7.9614, lng: -80.4292 },
+    { nombre: "Penonomé", lat: 8.5194, lng: -80.3572 },
+    { nombre: "Las Tablas", lat: 7.7667, lng: -80.2833 },
+    { nombre: "Changuinola", lat: 9.43, lng: -82.52 },
+  ],
+};
+
+/** Los países que el panel sabe atender, en el orden en que se enseñan. */
+export const PAISES: Pais[] = [REPUBLICA_DOMINICANA, COSTA_RICA, PANAMA];
+
+/**
+ * El país de un canal, o null si no se le puso ninguno.
+ *
+ * Null NO es un error: un canal sin país es un canal que vende en un sitio que
+ * este archivo no conoce, y ahí el agente trabaja sin este bloque, exactamente
+ * igual que antes de que existiera.
+ */
+export function obtenerPais(codigo: string | null | undefined): Pais | null {
+  if (!codigo) return null;
+  return PAISES.find((p) => p.codigo === codigo.toLowerCase().trim()) ?? null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// El bloque que lee el modelo
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Lo que el agente sabe del país, escrito para que lo lea un modelo.
+ *
+ * Es CONTEXTO, no permiso. La última línea existe porque sin ella un modelo al
+ * que se le acaba de contar cómo se paga y cuánto tarda un envío en ese país
+ * empieza a prometer plazos y formas de pago que el negocio no ofrece: esto
+ * sirve para ENTENDER al cliente, no para prometerle nada.
+ */
+export function bloqueDePais(pais: Pais): string {
+  return [
+    `DÓNDE VENDES — ${pais.nombre}. Este WhatsApp atiende a clientes de ahí, y tienes que sonar de ahí.`,
+    "",
+    `Moneda: ${pais.moneda.nombre} (${pais.moneda.codigo}). Se escribe «${pais.moneda.simbolo}» y un importe se ve así: ${pais.moneda.ejemplo}. Todo precio que digas va en esta moneda y escrito de esta forma.`,
+    `Trato: ${pais.tratamiento}`,
+    `Así habla la gente ahí:\n${pais.expresiones.map((e) => `- ${e}`).join("\n")}`,
+    "",
+    `CÓMO SE DAN LAS DIRECCIONES AQUÍ: ${pais.direcciones}`,
+    `Zonas que vas a oír nombrar: ${pais.zonas.join(", ")}.`,
+    "",
+    `Cómo llegan los pedidos en este país:\n${pais.entrega.map((e) => `- ${e}`).join("\n")}`,
+    `Con qué paga la gente aquí:\n${pais.pagos.map((e) => `- ${e}`).join("\n")}`,
+    "",
+    "Todo esto es para que ENTIENDAS al cliente y suenes de su país, no para prometerle nada. Los " +
+      "precios, los plazos y las formas de pago que puedes ofrecer son solo los del catálogo y los " +
+      "de las instrucciones del negocio. Si el cliente propone una forma de pago o un envío que no " +
+      "está ahí, no lo confirmes: dile que lo revisas con el equipo.",
+  ].join("\n");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Situar un punto del mapa
+// ─────────────────────────────────────────────────────────────────────────────
+
+const RADIO_TIERRA_KM = 6371;
+
+/** Distancia en línea recta entre dos puntos, en kilómetros. */
+export function distanciaKm(
+  a: { lat: number; lng: number },
+  b: { lat: number; lng: number },
+): number {
+  const rad = (g: number) => (g * Math.PI) / 180;
+  const dLat = rad(b.lat - a.lat);
+  const dLng = rad(b.lng - a.lng);
+
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
+
+  return 2 * RADIO_TIERRA_KM * Math.asin(Math.sqrt(h));
+}
+
+/** ¿El punto cae dentro de la caja del país? */
+export function dentroDelPais(pais: Pais, lat: number, lng: number): boolean {
+  const c = pais.caja;
+  return lat >= c.latMin && lat <= c.latMax && lng >= c.lngMin && lng <= c.lngMax;
+}
+
+/**
+ * La ciudad conocida más cercana al punto, con su distancia.
+ *
+ * No es geocodificación —no hay una calle detrás— y no pretende serlo: sirve
+ * para decir «esto está por Santiago, a unos 8 km», que es lo que necesita
+ * saber quien va a despachar el pedido y lo que le permite al agente confirmar
+ * la zona en vez de repreguntar la dirección entera.
+ */
+export function ciudadMasCercana(
+  pais: Pais,
+  lat: number,
+  lng: number,
+): { nombre: string; km: number } | null {
+  let mejor: { nombre: string; km: number } | null = null;
+
+  for (const c of pais.ciudades) {
+    const km = distanciaKm({ lat, lng }, { lat: c.lat, lng: c.lng });
+    if (!mejor || km < mejor.km) mejor = { nombre: c.nombre, km };
+  }
+
+  return mejor;
+}

@@ -1160,3 +1160,100 @@ body {
   background: rgba(255, 255, 255, 0.12);
   font-weight: 600;
 }
+
+/* ── El agente, canal por canal ───────────────────────────────────────────────
+
+   Un negocio con tres numeros —Republica Dominicana, Costa Rica, Panama— tiene
+   tres agentes, no uno. La barra de canales es la que dice cual se esta
+   configurando: sin ella, el panel entero seria ambiguo y el dueno cambiaria el
+   tono del de Panama creyendo que cambia el de los tres.
+
+   Es una fila de fichas y no un desplegable a proposito: los tres numeros
+   tienen que verse a la vez, con su estado, para saber de un vistazo cual falta
+   por encender. */
+
+.sd-canales {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.sd-canal {
+  flex: 0 0 auto;
+  min-width: 168px;
+  text-align: left;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radio-tarjeta);
+  padding: 10px 12px;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  display: grid;
+  gap: 3px;
+}
+
+.sd-canal:hover {
+  border-color: var(--line-2);
+  background: var(--soft);
+}
+
+.sd-canal-activo,
+.sd-canal-activo:hover {
+  border-color: var(--acc);
+  background: var(--acc-bg);
+}
+
+.sd-canal-nombre {
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Cabecera de seccion dentro de una tarjeta larga: un numero, un titulo y una
+   linea que explica para que sirve. Es lo que hace legible una pantalla con
+   ocho apartados sin partirla en ocho tarjetas sueltas. */
+.sd-apartado {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  margin-bottom: 12px;
+}
+
+.sd-apartado-num {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  background: var(--soft);
+  color: var(--ink-2);
+  font-size: 11px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Lo que el agente sabe del pais, en dos columnas de dato y valor. Es una
+   lectura, no un formulario: se ensena para que el dueno sepa que se le esta
+   contando al modelo por haber elegido ese pais. */
+.sd-pais-datos {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 5px 14px;
+  font-size: 12px;
+  align-items: baseline;
+}
+
+.sd-pais-datos dt {
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.sd-pais-datos dd {
+  margin: 0;
+  color: var(--ink-2);
+}

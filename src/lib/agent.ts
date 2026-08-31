@@ -42,6 +42,9 @@ import { descifrar } from "./auth";
 import { anuncioParaModelo, type DatosAnuncio } from "./anuncio";
 import { MARCADOR_POR_DEFECTO, registrarCierre } from "./cierre";
 import { completar, ErrorIA, hoyISO } from "./ia";
+import { bloqueDePais, obtenerPais } from "./paises";
+import { conLoVistoYOido, modelosDePercepcion, percibir } from "./percepcion";
+import { ubicacionParaModelo, validarUbicacion, type UbicacionValidada } from "./ubicacion";
 
 /** Ventana en la que un mensaje de vendedor silencia al agente. */
 const SILENCIO_TRAS_HUMANO = 2 * 60 * 60;
@@ -167,7 +170,33 @@ export function revisarAgente(orgId: number, canalId: number): RevisionAgente {
     );
   }
 
-  const agente = obtenerAgente(orgId);
+  const agente = obtenerAgente(orgId, canalId);
+
+  /*
+   * Sin país, el agente vende en neutro: no sabe en qué moneda cobrar, cómo se
+   * dan las direcciones ahí ni con qué paga la gente, y no puede comprobar si
+   * un pin del mapa cae donde este número entrega. Funciona —así funcionó
+   * siempre— pero suena a tienda de fuera, así que se dice.
+   */
+  if (!agente.pais) {
+    avisos.push(
+      "Este número no tiene país. El agente contestará, pero en neutro: sin moneda propia, sin la " +
+        "forma de pedir una dirección de ese país y sin poder avisar cuando una ubicación cae fuera.",
+    );
+  }
+
+  /*
+   * Y sin nada que vender no puede cotizar: contesta, pero a todo lo que sea un
+   * precio responde que lo confirma con el equipo. Es la avería más silenciosa
+   * de todas, porque el agente parece estar funcionando.
+   */
+  const sinCatalogo = agente.usar_catalogo !== 1 || listarCatalogo(orgId, true).length === 0;
+  if (sinCatalogo && !agente.conocimiento.trim()) {
+    avisos.push(
+      "Este número no tiene de dónde sacar precios: ni catálogo ni artículos escritos. El agente " +
+        "atenderá, pero a cada pregunta de precio dirá que lo confirma con el equipo.",
+    );
+  }
 
   if (agente.horario_activo === 1 && !dentroDeHorario(agente.horario_desde, agente.horario_hasta)) {
     avisos.push(
@@ -247,17 +276,51 @@ export function armarSistema(
    * sin un dato con el que llamar al cliente si el mensajero no lo encuentra.
    */
   cliente: { telefono: string; nombre: string | null } | null = null,
+  /**
+   * El pin que acaba de mandar el cliente, ya comprobado contra el país. Ver
+   * `ubicacionParaModelo`. Null en todo mensaje que no sea una ubicación.
+   */
+  ubicacion: UbicacionValidada | null = null,
 ): string {
-  const productos = catalogo.length
-    ? catalogo
-        .map((p) => {
-          const partes = [p.nombre];
-          if (p.variantes) partes.push(`(${p.variantes})`);
-          if (p.precio !== null) partes.push(`— ${p.precio}`);
-          return `- ${partes.join(" ")}`;
-        })
-        .join("\n")
-    : "(sin catálogo cargado)";
+  /*
+   * QUÉ PUEDE VENDER — de dos sitios, y los dos los escribió el negocio.
+   *
+   * El catálogo es una tabla con precios. «Lo que vendes» es texto escrito a
+   * mano en el canal, y existe porque la mayoría de estas tiendas vende diez
+   * artículos y no va a cargarlos uno a uno: escribirlos en cuatro líneas es lo
+   * que de verdad hacen. Los dos valen igual —los dos los escribió el dueño— y
+   * por eso el agente puede cotizar con cualquiera de los dos delante.
+   *
+   * Lo que NO cambia es la regla: lo que no esté en ninguno de los dos no se
+   * promete. Vender sin catálogo es vender con otra fuente, no vender a ciegas.
+   */
+  const productos = catalogo
+    .map((p) => {
+      const partes = [p.nombre];
+      if (p.variantes) partes.push(`(${p.variantes})`);
+      if (p.precio !== null) partes.push(`— ${p.precio}`);
+      return `- ${partes.join(" ")}`;
+    })
+    .join("\n");
+
+  const conocimiento = agente.conocimiento?.trim() ?? "";
+  const conCatalogo = agente.usar_catalogo !== 0 && productos.length > 0;
+
+  const queVende = [
+    conCatalogo ? `Catálogo:\n${productos}` : "",
+    conocimiento
+      ? `LO QUE VENDES (lo escribió el negocio; vale exactamente igual que el catálogo, y de aquí salen precios y condiciones):\n${conocimiento}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n") || "Catálogo:\n(sin catálogo cargado)";
+
+  /*
+   * EL PAÍS DEL CANAL. Ver `paises.ts`: la moneda, el trato, cómo se dan las
+   * direcciones y con qué paga la gente. Es lo que separa al vendedor de Santo
+   * Domingo del de San José, y sin ello los tres suenan al mismo extranjero.
+   */
+  const pais = obtenerPais(agente.pais);
 
   /*
    * El anuncio que trajo al cliente entra en el prompt, y esto no es un lujo.
@@ -275,8 +338,8 @@ export function armarSistema(
 
 ${TONOS[agente.tono] ?? TONOS.cercano}
 
-Catálogo:
-${productos}
+${pais ? `${bloqueDePais(pais)}\n` : ""}
+${queVende}
 
 ${deAnuncio ? `${deAnuncio}\n` : ""}
 ${agente.instrucciones ? `Instrucciones del negocio:\n${agente.instrucciones}\n` : ""}
@@ -295,6 +358,11 @@ Reglas que no puedes romper:
 - Si el cliente pide hablar con una persona, dile que ya avisas a alguien del equipo y no sigas vendiendo.
 - Escribe solo el mensaje que va a leer el cliente. Sin comillas, sin explicaciones, sin firmar.
 
+LO QUE EL CLIENTE MANDA SIN ESCRIBIRLO:
+- Una FOTO llega descrita entre paréntesis, así: «(imagen que manda el cliente: …)». Eso lo mandó él. Si es el artículo que quiere, dalo por dicho y sigue desde ahí: no le preguntes qué producto le interesa, que ya te lo enseñó. Si es un comprobante de pago, agradécelo y dile que se verifica; NUNCA des un pago por recibido tú mismo ni confirmes que el dinero entró.
+- Una NOTA DE VOZ llega ya transcrita, marcada «(nota de voz)». Es su mensaje, tal cual lo dijo: contéstalo como si lo hubiera escrito, y no le pidas que lo repita por escrito.
+- Si algo llega como «[imagen]» o «[nota de voz]» y nada más, es que no se pudo leer. Ahí sí: pídele con naturalidad que te lo diga por escrito, sin dar excusas técnicas ni hablar de errores.
+
 CÓMO SE CIERRA UNA VENTA:
 Cuando el cliente ya confirmó qué lleva y cómo lo paga, y no falta ningún dato del pedido, manda un último mensaje que EMPIECE con "${marcador}".
 Ese mensaje es lo que registra la venta en el sistema. Si no lo mandas, para el negocio la venta no existe.
@@ -304,16 +372,37 @@ ${
     : `Sigue con el pedido en una línea: producto, cantidad, total y envío.
 Ejemplo: ${marcador} 2 camisas talla M — 2500 en total, 300 de envío incluido.`
 }
-No escribas "${marcador}" en ningún otro momento: ni para resumir lo que llevan hablado, ni para repetir una lista de precios. Solo cierra pedidos confirmados.`;
+No escribas "${marcador}" en ningún otro momento: ni para resumir lo que llevan hablado, ni para repetir una lista de precios. Solo cierra pedidos confirmados.${
+    /*
+     * EL PIN DEL MAPA VA AL FINAL, y no es un capricho de orden.
+     *
+     * Lo último que lee el modelo es lo que más pesa, y esto solo aparece en el
+     * mensaje en el que el cliente acaba de mandar su ubicación: es una
+     * instrucción para ESTA respuesta, no una regla permanente. Puesta arriba,
+     * con el resto del prompt, se diluye entre veinte líneas que siempre están.
+     */
+    ubicacion ? `\n\n${ubicacionParaModelo(ubicacion, pais?.nombre ?? null)}` : ""
+  }`;
 }
 
+/**
+ * El hilo, escrito como lo tiene que leer el modelo.
+ *
+ * Lo que el cliente mandó sin escribir —una foto, una nota de voz— entra aquí
+ * ya en palabras: en el historial de un modelo de texto solo caben palabras, y
+ * un «[imagen]» a secas es exactamente el agujero por el que el agente
+ * preguntaba «¿qué artículo te interesa?» a quien acababa de enseñárselo. Ver
+ * `conLoVistoYOido` en `percepcion.ts`.
+ */
 function aHistorial(mensajes: Mensaje[]) {
   return mensajes.map((m) => ({
     role: m.emisor === "cliente" ? ("user" as const) : ("assistant" as const),
     content:
       m.emisor === "humano"
         ? `(mensaje de un compañero del equipo) ${m.content}`
-        : m.content,
+        : m.emisor === "cliente"
+          ? conLoVistoYOido(m)
+          : m.content,
   }));
 }
 
@@ -332,6 +421,13 @@ export interface RespuestaGenerada {
  */
 export async function generarRespuesta(
   orgId: number,
+  /**
+   * De qué canal contesta. Cada canal tiene su propio agente —su país, su
+   * guion, su modelo—, así que sin esto no se sabe cuál de los tres habla.
+   * `AGENTE_DE_LA_CUENTA` (0) es la plantilla, que es lo que usa el chat de
+   * prueba cuando todavía no hay ningún número conectado.
+   */
+  canalId: number,
   mensajes: Mensaje[],
   /** El anuncio del hilo, si lo trajo uno. El chat de prueba no tiene. */
   anuncio: DatosAnuncio | null = null,
@@ -343,9 +439,11 @@ export async function generarRespuesta(
   reglaPrecio: string | null = null,
   /** Quién escribe. El chat de prueba no tiene cliente de verdad. */
   cliente: { telefono: string; nombre: string | null } | null = null,
+  /** El pin que acaba de mandar el cliente, ya comprobado contra el país. */
+  ubicacion: UbicacionValidada | null = null,
 ): Promise<RespuestaGenerada> {
   const org = obtenerOrg(orgId);
-  const agente = obtenerAgente(orgId);
+  const agente = obtenerAgente(orgId, canalId);
   const catalogo = listarCatalogo(orgId, true);
 
   /*
@@ -385,6 +483,7 @@ export async function generarRespuesta(
             anuncio,
             org?.marcador_cierre ?? MARCADOR_POR_DEFECTO,
             cliente,
+            ubicacion,
           ) + (reglaPrecio ? `\n\n${reglaPrecio}` : ""),
       },
       ...aHistorial(mensajes),
@@ -513,11 +612,12 @@ export async function atenderConversacion(
   const conv = getConversation(orgId, conversationId);
   if (!conv) return { atendida: false, motivo: "canal_apagado" };
 
-  const agente = obtenerAgente(orgId);
+  // El agente de ESTE canal: su país, su guion y su modelo son suyos.
+  const agente = obtenerAgente(orgId, canalId);
   const t = ahora();
 
   // ── Nunca responder a algo que no escribió el cliente ───────────────────
-  const historial = ultimosMensajes(orgId, conversationId, MAX_MENSAJES_CONTEXTO);
+  let historial = ultimosMensajes(orgId, conversationId, MAX_MENSAJES_CONTEXTO);
   const ultimo = historial[historial.length - 1];
   if (!ultimo || ultimo.emisor !== "cliente") {
     return { atendida: false, motivo: "ultimo_no_es_cliente" };
@@ -574,15 +674,61 @@ export async function atenderConversacion(
     return { atendida: false, motivo: "limite_por_hora" };
   }
 
+  /*
+   * ── MIRAR Y ESCUCHAR ANTES DE CONTESTAR ─────────────────────────────────
+   *
+   * Va DESPUÉS de todas las guardas de silencio, y eso es a propósito: mirar
+   * una foto cuesta una llamada al modelo, y no se paga por una conversación en
+   * la que el agente ni va a abrir la boca porque es de madrugada o porque hay
+   * un vendedor dentro.
+   *
+   * Si esto falla, la respuesta sigue adelante con lo que haya. El agente
+   * contestando sin haber visto la foto es peor que con ella, pero callarse
+   * porque el modelo de visión está caído es peor que las dos cosas.
+   */
+  const { modeloVision, modeloAudio } = modelosDePercepcion(agente, obtenerOrg(orgId) ?? null);
+
+  if (agente.ver_imagenes === 1 || agente.oir_audios === 1) {
+    try {
+      historial = await percibir(orgId, historial, {
+        ver: agente.ver_imagenes === 1,
+        oir: agente.oir_audios === 1,
+        modeloVision,
+        modeloAudio,
+      });
+    } catch (e) {
+      console.error(`[agente] no se pudo leer lo que mandó el cliente en ${conversationId}`, e);
+    }
+  }
+
+  /*
+   * ── EL PIN DEL MAPA, COMPROBADO ─────────────────────────────────────────
+   *
+   * Solo si el ÚLTIMO mensaje es la ubicación: es una instrucción para esta
+   * respuesta, no un dato del hilo. Cuando el pin cae fuera del país del canal
+   * —una ubicación vieja del móvil, el sitio donde el cliente estaba de viaje—
+   * lo que se le dice al agente es que pregunte, no que despache ahí.
+   */
+  const ultimoFresco = historial[historial.length - 1] ?? ultimo;
+  const ubicacion =
+    agente.validar_mapa === 1
+      ? validarUbicacion(ultimoFresco.content, ultimoFresco.media_url, agente.pais || null)
+      : null;
+
   // ── Generar ─────────────────────────────────────────────────────────────
   let respuesta: RespuestaGenerada;
   try {
     // `conv` lleva el anuncio que abrió el hilo: producto y promesa. Es lo que
     // el agente necesita para no preguntar lo que el cliente ya vino a pedir.
-    respuesta = await generarRespuesta(orgId, historial, conv, await reglaDePrecio(orgId, conv), {
-      telefono: conv.cliente_phone,
-      nombre: conv.cliente_nombre,
-    });
+    respuesta = await generarRespuesta(
+      orgId,
+      canalId,
+      historial,
+      conv,
+      await reglaDePrecio(orgId, conv),
+      { telefono: conv.cliente_phone, nombre: conv.cliente_nombre },
+      ubicacion,
+    );
   } catch (e) {
     /*
      * El modelo falló y su respaldo también, o no había respaldo.
@@ -753,7 +899,7 @@ export async function enviarSeguimiento(
     return false;
   }
 
-  const agente = obtenerAgente(orgId);
+  const agente = obtenerAgente(orgId, canal.id);
 
   /*
    * El horario manda también aquí, y aquí manda más que en una respuesta: una
@@ -788,6 +934,7 @@ export async function enviarSeguimiento(
     try {
       generada = await generarRespuesta(
         orgId,
+        canal.id,
         [...historial, mensajeInterno(orgId, conversationId, INSTRUCCION_VISTO)],
         conv,
         await reglaDePrecio(orgId, conv),
@@ -867,8 +1014,18 @@ function enHoraDecente(fecha = new Date()): boolean {
   return h >= 8 && h < 21;
 }
 
-/** Chat de prueba del panel: genera con la configuración real y NO envía. */
-export async function probarAgente(orgId: number, conversacion: { rol: "cliente" | "agente"; texto: string }[]) {
+/**
+ * Chat de prueba del panel: genera con la configuración real y NO envía.
+ *
+ * Se prueba UN canal, no «el agente»: el de Panamá y el de Costa Rica contestan
+ * distinto a la misma frase, y probar una mezcla de los dos no serviría para
+ * decidir nada.
+ */
+export async function probarAgente(
+  orgId: number,
+  canalId: number,
+  conversacion: { rol: "cliente" | "agente"; texto: string }[],
+) {
   const falsos: Mensaje[] = conversacion.map((m, i) => ({
     id: i + 1,
     org_id: orgId,
@@ -884,7 +1041,7 @@ export async function probarAgente(orgId: number, conversacion: { rol: "cliente"
     created_at: ahora() + i,
   }));
 
-  return generarRespuesta(orgId, falsos);
+  return generarRespuesta(orgId, canalId, falsos);
 }
 
 /** Para el analista y el panel: el hilo completo, por si hace falta. */

@@ -192,13 +192,27 @@ test("fuera del horario configurado no responde", async () => {
   const dos = (lejos + 1) % 24;
   const hh = (n: number) => `${String(n).padStart(2, "0")}:00`;
 
-  D.actualizarAgente(orgId, { horario_activo: 1, horario_desde: hh(lejos), horario_hasta: hh(dos) });
+  /*
+   * El horario es DEL CANAL, no de la cuenta.
+   *
+   * Cada numero tiene su propio agente —el de Panama, el de Costa Rica, el de
+   * Republica Dominicana— y cada uno con su horario, que ademas esta en un huso
+   * distinto. Tocar la plantilla de la cuenta no cambiaria nada en el numero
+   * que de verdad va a contestar, y esta prueba pasaria a la generacion en vez
+   * de callarse: es exactamente lo que ocurre si alguien vuelve a leer el
+   * agente sin decir de que canal.
+   */
+  D.actualizarAgente(
+    orgId,
+    { horario_activo: 1, horario_desde: hh(lejos), horario_hasta: hh(dos) },
+    canalId,
+  );
 
   const id = hilo([{ emisor: "cliente", content: "hola", hace: 10 }]);
   const r = await atenderConversacion(orgId, canalId, id);
   assert.equal(motivoDe(r), "fuera_de_horario");
 
-  D.actualizarAgente(orgId, { horario_activo: 0 });
+  D.actualizarAgente(orgId, { horario_activo: 0 }, canalId);
 });
 
 test("se detiene tras ocho respuestas en una hora, para no inundar al cliente", async () => {
@@ -571,10 +585,14 @@ test("revisarAgente dice lo mismo que hace la guarda", async () => {
   assert.deepEqual(listo.impedimentos, []);
 
   // Fuera de horario NO lo apaga: es temporal, y avisa.
-  D.actualizarAgente(orgId, { horario_activo: 1, horario_desde: "09:00", horario_hasta: "09:01" });
+  D.actualizarAgente(
+    orgId,
+    { horario_activo: 1, horario_desde: "09:00", horario_hasta: "09:01" },
+    canalId,
+  );
   const fuera = revisarAgente(orgId, canalId);
   assert.equal(fuera.listo, true, "el horario no es una avería");
-  D.actualizarAgente(orgId, { horario_activo: 0 });
+  D.actualizarAgente(orgId, { horario_activo: 0 }, canalId);
 
   encender(false);
 });

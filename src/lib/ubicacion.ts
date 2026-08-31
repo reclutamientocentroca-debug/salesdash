@@ -11,6 +11,7 @@
  * sitios que no se conocen entre sí —el traductor del socket, la burbuja del
  * hilo y el informe— y así se puede probar sin levantar medio WhatsApp.
  */
+import { ciudadMasCercana, dentroDelPais, obtenerPais } from "./paises";
 
 /**
  * Con qué empieza el texto de una ubicación en el hilo.
@@ -82,3 +83,132 @@ export function textoSinMarca(contenido: string): string {
   const sinMarca = contenido.slice(MARCA_UBICACION.length).replace(/^\s*en vivo/, "").trim();
   return sinMarca || "Ubicación enviada por el cliente";
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Validar el pin — que la dirección de entrega exista de verdad
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Las coordenadas, recuperadas del enlace que se guardó.
+ *
+ * El pin entra por `enlaceDeMapa` y se guarda en `media_url` como una URL de
+ * Google Maps; las coordenadas no tienen columna propia. Sacarlas de vuelta del
+ * enlace evita una migración para un dato que ya está guardado, y como el
+ * enlace lo escribe esta misma casa, el formato es conocido y estable.
+ *
+ * Se vuelve a validar lo que sale: la columna la puede haber escrito una
+ * versión anterior, o un canal de Meta con otro formato de enlace.
+ */
+export function coordenadasDeEnlace(url: string | null | undefined): { lat: number; lng: number } | null {
+  if (!url) return null;
+
+  const m = /[?&]q=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/.exec(url);
+  if (!m) return null;
+
+  const lat = Number(m[1]);
+  const lng = Number(m[2]);
+
+  return validas(lat, lng) ? { lat, lng } : null;
+}
+
+/**
+ * QUÉ SE LE DICE AL AGENTE CUANDO EL CLIENTE MANDA SU UBICACIÓN.
+ *
+ * Un pin no es una dirección hasta que alguien lo mira. Los tres casos que
+ * importan, y los tres pasan de verdad:
+ *
+ *   1. El pin está donde tiene que estar. Entonces el agente puede CONFIRMAR la
+ *      zona —«perfecto, por Santiago»— en vez de volver a pedir la dirección
+ *      entera, que es lo que hacía y lo que hace que el cliente se canse.
+ *   2. El pin cae en otro país. Casi siempre es un cliente que mandó una
+ *      ubicación vieja o el sitio donde estaba de viaje, no donde quiere el
+ *      pedido. Hay que preguntarlo, no despachar ahí.
+ *   3. Las coordenadas no sirven. Ahí no hay pin: el mensaje se queda como está
+ *      y el agente pide la dirección escrita, como toda la vida.
+ *
+ * El pin NUNCA sustituye a la dirección escrita: sitúa la zona y nada más. Un
+ * mensajero no entrega en unas coordenadas, entrega en una casa con señas, y en
+ * Costa Rica la dirección ES la referencia. Por eso el bloque siempre acaba
+ * pidiendo las señas.
+ */
+export interface UbicacionValidada {
+  lat: number;
+  lng: number;
+  enlace: string;
+  /** El país del canal reconoce el punto como suyo. Null si no hay país puesto. */
+  dentroDelPais: boolean | null;
+  /** La ciudad conocida más cercana, cuando hay país con el que compararla. */
+  zona: { nombre: string; km: number } | null;
+  /** Lo que el cliente escribió con el pin, si escribió algo. */
+  descripcion: string | null;
+}
+
+export function validarUbicacion(
+  contenido: string,
+  mediaUrl: string | null,
+  /** El código del país del canal. Sin él solo se comprueba que el pin sirva. */
+  codigoPais: string | null,
+): UbicacionValidada | null {
+  if (!esUbicacion(contenido)) return null;
+
+  const punto = coordenadasDeEnlace(mediaUrl);
+  if (!punto) return null;
+
+  const pais = obtenerPais(codigoPais);
+  const descripcion = textoSinMarca(contenido);
+
+  return {
+    ...punto,
+    enlace: enlaceDeMapa(punto.lat, punto.lng)!,
+    dentroDelPais: pais ? dentroDelPais(pais, punto.lat, punto.lng) : null,
+    zona: pais ? ciudadMasCercana(pais, punto.lat, punto.lng) : null,
+    descripcion: descripcion === "Ubicación enviada por el cliente" ? null : descripcion,
+  };
+}
+
+/** El bloque que se le añade al prompt del agente. Lo lee un modelo. */
+export function ubicacionParaModelo(u: UbicacionValidada, nombrePais: string | null): string {
+  const lineas = ["EL CLIENTE ACABA DE MANDAR SU UBICACIÓN EN EL MAPA."];
+
+  if (u.descripcion) lineas.push(`Lo que trae el pin: ${u.descripcion}`);
+
+  if (u.dentroDelPais === false && nombrePais) {
+    /*
+     * Fuera del país. Es el caso en el que un agente que se fía del pin manda
+     * el pedido a la nada: casi siempre es una ubicación vieja del móvil, o el
+     * sitio donde el cliente estaba de viaje.
+     */
+    lineas.push(
+      `AVISO: ese punto NO está en ${nombrePais}, que es donde vendes. No lo des por bueno ` +
+        "ni lo uses como dirección de entrega. Pregúntale con naturalidad si es ahí donde quiere " +
+        "recibir el pedido, y si no, pídele la dirección de entrega.",
+    );
+    return lineas.join("\n");
+  }
+
+  if (u.zona) {
+    const km = u.zona.km;
+    const cerca =
+      km < 3
+        ? `en ${u.zona.nombre}`
+        : km < 25
+          ? `cerca de ${u.zona.nombre}, a unos ${Math.round(km)} km`
+          : `en la zona de ${u.zona.nombre}, a unos ${Math.round(km)} km`;
+
+    lineas.push(`El punto cae ${cerca}. La zona es válida para entregar.`);
+    lineas.push(
+      `Confírmale la zona con naturalidad —algo como «perfecto, ${u.zona.nombre}»— en vez de volver ` +
+        "a preguntarle dónde vive: ya te lo dijo.",
+    );
+  } else {
+    lineas.push("El punto tiene coordenadas válidas.");
+  }
+
+  lineas.push(
+    "El pin sitúa la zona, pero NO es una dirección: el mensajero necesita señas para tocar una " +
+      "puerta. Pídele lo que falte para poder entregar, sin repetir lo que el pin ya dice.",
+  );
+
+  return lineas.join("\n");
+}
+

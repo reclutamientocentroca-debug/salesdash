@@ -84,20 +84,28 @@ async function main() {
     crearProducto(orgId, { nombre: p.nombre, variantes: p.variantes, precio: p.precio });
   }
 
+  /*
+   * Dos números en dos países, que es como se usa esto de verdad: la misma
+   * tienda vendiendo en República Dominicana y en Panamá. Cada canal hereda de
+   * la plantilla el guion escrito arriba y después se le pone SU país, que es lo
+   * que le cambia la moneda, el trato y la forma de pedir una dirección.
+   */
   const canales = [
-    { nombre: "Ventas principal", phone: "18095551000" },
-    { nombre: "Sucursal centro", phone: "18095552000" },
-  ].map((c) => ({
-    ...c,
-    id: crearCanal(orgId, {
+    { nombre: "Ventas Santo Domingo", phone: "18095551000", pais: "do" },
+    { nombre: "Ventas Panamá", phone: "50765551000", pais: "pa" },
+  ].map((c) => {
+    const id = crearCanal(orgId, {
       nombre: c.nombre,
       phone: c.phone,
       tokenCifrado: cifrar(`demo-token-${c.phone}`),
       webhookSecret: secretoAleatorio(),
       whapiChannelId: null,
       estado: "conectado",
-    }),
-  }));
+    });
+
+    actualizarAgente(orgId, { pais: c.pais }, id);
+    return { ...c, id };
+  });
 
   const t = ahora();
   let telefono = 18_095_558_000;

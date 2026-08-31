@@ -145,11 +145,13 @@ async function main() {
   // ── 4. Respaldo del agente ──────────────────────────────────────────────
   linea("4 · RESPALDO DEL AGENTE — el principal falla, responde el segundo");
 
-  actualizarAgente(orgId, {
-    nombre: "Bella",
-    modelo: "modelo/que-no-existe-a-proposito",
-    modelo_respaldo: MODELO,
-  });
+  actualizarAgente(
+    orgId,
+    { nombre: "Bella", modelo: "modelo/que-no-existe-a-proposito", modelo_respaldo: MODELO },
+    // El agente es de ESTE canal: tocar la plantilla de la cuenta no cambiaria
+    // en nada al que de verdad va a contestar.
+    canalId,
+  );
 
   /*
    * Un hilo que TERMINA en el cliente, que es la única forma de pedirle una
@@ -164,7 +166,7 @@ async function main() {
   ]);
 
   const mensajes = listarMensajes(orgId, c);
-  const respuesta = await generarRespuesta(orgId, mensajes);
+  const respuesta = await generarRespuesta(orgId, canalId, mensajes);
 
   console.log("  modelo que respondió:", respuesta.modelo);
   console.log("  fue el respaldo:     ", respuesta.fueRespaldo, respuesta.fueRespaldo ? "✓" : "✗ FALLO");
@@ -173,13 +175,14 @@ async function main() {
   // ── 5. Sin respaldo válido: el agente NO inventa nada ────────────────────
   linea("5 · AMBOS FALLAN — el agente se calla, no le escribe un error al cliente");
 
-  actualizarAgente(orgId, {
-    modelo: "modelo/que-no-existe-a-proposito",
-    modelo_respaldo: "tampoco/existe-este",
-  });
+  actualizarAgente(
+    orgId,
+    { modelo: "modelo/que-no-existe-a-proposito", modelo_respaldo: "tampoco/existe-este" },
+    canalId,
+  );
 
   try {
-    const mala = await generarRespuesta(orgId, mensajes);
+    const mala = await generarRespuesta(orgId, canalId, mensajes);
     console.log("  ✗ FALLO: generó algo →", mala.texto);
   } catch (e) {
     console.log("  lanzó error en vez de inventar una respuesta ✓");

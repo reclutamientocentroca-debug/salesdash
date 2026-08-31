@@ -36,11 +36,13 @@ import {
   getOrCreateConversation,
   insertMessage,
   marcarActividadCanal,
+  registrarAnuncioVisto,
   type Canal,
   type Emisor,
   type TipoMensaje,
 } from "@/lib/db";
 import { registrarCierre } from "@/lib/cierre";
+import { guardar as guardarArchivo } from "@/lib/media";
 import { esGrupo, normalizarTelefono } from "@/lib/telefono";
 
 /**
@@ -89,6 +91,14 @@ export interface MensajeEntrante {
    * forma de recuperarlo.
    */
   metaAdId?: string | null;
+  /**
+   * La imagen del anuncio, en bytes.
+   *
+   * Llega como miniatura dentro del propio mensaje y es donde está el precio en
+   * media publicidad de Facebook: escrito ENCIMA de la foto, no en el texto. Se
+   * guarda una vez por anuncio y se describe una vez, no una por cliente.
+   */
+  imagenAnuncio?: Buffer | null;
 }
 
 export interface Resultado {
@@ -173,6 +183,30 @@ export async function ingerir(
         descripcionAnuncio: m.descripcionAnuncio,
       });
 
+      /*
+       * EL ANUNCIO, GUARDADO EN CUANTO SE VE.
+       *
+       * El `ad_id`, el texto y la miniatura llegan SOLO en el primer mensaje del
+       * hilo. Si no se guardan en este instante, se pierden: a partir del
+       * segundo mensaje ya no vienen y no hay forma de recuperarlos. Con ellos
+       * se puede vincular el anuncio a un producto —de ahí sale el precio bueno—
+       * y leer lo que dice su imagen.
+       */
+      if (m.metaAdId) {
+        try {
+          registrarAnuncioVisto(orgId, m.metaAdId, m.productoAnuncio ?? null, {
+            texto: m.descripcionAnuncio ?? null,
+            imagen: m.imagenAnuncio
+              ? guardarArchivo(orgId, `anuncio:${m.metaAdId}`, "imagen", m.imagenAnuncio)
+              : null,
+          });
+        } catch (e) {
+          // El anuncio es contexto, no la conversación: que falle no puede
+          // impedir que el mensaje del cliente entre.
+          console.error(`Entrada: no se pudo guardar el anuncio ${m.metaAdId}`, e);
+        }
+      }
+
       // Invariante 3.
       const insertado = insertMessage(orgId, {
         conversationId: conversacion.id,
@@ -238,6 +272,24 @@ export async function ingerir(
   if (atiendeElAgente || tocadas.size > 0) {
     const trabajo = async () => {
       if (atiendeElAgente) {
+        /*
+         * Lo que dice la imagen del anuncio, ANTES de contestar.
+         *
+         * Es una llamada por creatividad publicada, no por cliente: la
+         * descripción se guarda en el anuncio y sirve para los cientos de leads
+         * que traiga. Va aquí delante porque el primer mensaje del hilo es
+         * justo el que llega con el anuncio, y es en esa primera respuesta
+         * donde el agente tiene que saber de qué foto le hablan.
+         */
+        try {
+          const { describirAnunciosPendientes } = await import("@/lib/analyzer");
+          await describirAnunciosPendientes(orgId);
+        } catch (e) {
+          // Sin descripción, el agente sigue con el título y el texto del
+          // anuncio: peor, pero no roto.
+          console.error("No se pudo describir la imagen de un anuncio:", e);
+        }
+
         const { atenderConversacion } = await import("@/lib/agent");
 
         for (const conversationId of conversacionesDelCliente) {

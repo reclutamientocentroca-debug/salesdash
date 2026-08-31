@@ -3,12 +3,17 @@ import { z } from "zod";
 import { probarAgente } from "@/lib/agent";
 import { ErrorIA } from "@/lib/ia";
 import { limitar } from "@/lib/auth";
+import { AGENTE_DE_LA_CUENTA, obtenerCanal } from "@/lib/db";
 import { sesionApi } from "@/lib/tenant";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const Entrada = z.object({
+  /* Qué agente se prueba. Cada canal tiene el suyo —su país, su guion, su
+     modelo— y probar «el agente» a secas no diría nada de ninguno. Ausente o 0
+     es la plantilla de la cuenta. */
+  canal: z.number().int().min(0).optional(),
   conversacion: z
     .array(
       z.object({
@@ -38,7 +43,11 @@ export async function POST(req: NextRequest) {
   if (!datos.success) return NextResponse.json({ error: "Escribe un mensaje" }, { status: 400 });
 
   try {
-    const r = await probarAgente(orgId, datos.data.conversacion);
+    const canalId = datos.data.canal ?? AGENTE_DE_LA_CUENTA;
+    // Un canal de otra cuenta no existe para esta: cae en la plantilla.
+    const suyo = canalId > 0 && obtenerCanal(orgId, canalId) ? canalId : AGENTE_DE_LA_CUENTA;
+
+    const r = await probarAgente(orgId, suyo, datos.data.conversacion);
     return NextResponse.json(r);
   } catch (e) {
     if (e instanceof ErrorIA) {

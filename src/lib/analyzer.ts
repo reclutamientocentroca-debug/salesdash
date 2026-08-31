@@ -18,16 +18,17 @@
 import {
   ahora,
   actualizarConversacion,
+  anunciosPorDescribir,
   conteoMotivosPerdida,
   conteoPorEstado,
   conversacionesPorAnalizar,
   crearAnomalia,
   getConversation,
-  guardarDescripcionImagen,
-  guardarTranscripcion,
+  guardarDescripcionAnuncio,
   listarMensajes,
   marcarRevision,
   MODELO_ANALISIS,
+  MODELO_VISION,
   obtenerOrg,
   sellarCierre,
   totalLeads,
@@ -43,6 +44,7 @@ import { anuncioParaModelo } from "./anuncio";
 import { contieneMarcador } from "./cierre";
 import { completar, completarJson, ErrorIA, type Mensaje as MensajeIA } from "./ia";
 import { comoDataUrl } from "./media";
+import { describirImagen, transcribirAudio } from "./percepcion";
 import { revisarConversacion } from "./anomalies";
 
 /** Tope de mensajes que se le pasan al modelo, para no dispararse en tokens. */
@@ -157,138 +159,79 @@ export async function buscarPrimeraSenal(
 // Visión
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface DescripcionImagen {
-  categoria?: string;
-  descripcion?: string;
-  monto_detectado?: number | null;
-  productos_detectados?: string[];
-}
-
-const CATEGORIAS: CategoriaImagen[] = ["factura", "comprobante_pago", "foto_producto", "otro"];
-
-const PROMPT_VISION = `Eres un analista de ventas. Mira la imagen y clasifícala.
-
-Responde SOLO con este JSON, sin texto adicional y sin backticks:
-{"categoria":"factura|comprobante_pago|foto_producto|otro","descripcion":"una línea de qué se ve","monto_detectado":null,"productos_detectados":[]}
-
-Criterios:
-- factura: una factura, recibo o nota de pedido emitida por el negocio
-- comprobante_pago: captura de una transferencia, depósito o pago del cliente
-- foto_producto: una foto del artículo, para que el cliente lo vea
-- otro: cualquier otra cosa`;
+/* La visión y el audio viven en `percepcion.ts`: los usan el analista, al
+   cerrar la venta, y el agente vendedor, antes de contestarle al cliente. */
 
 /**
- * Describe una imagen y guarda el resultado. La descripción se genera UNA vez
- * y se guarda: no se vuelve a pedir nunca.
+ * LO QUE DICE LA IMAGEN DEL ANUNCIO.
  *
- * El archivo se guarda en el volumen y NO es alcanzable desde internet, así que
- * al modelo se le manda incrustado en la propia petición como data URL. Pasarle
- * una URL de este servidor no serviría: tendría que atravesar la sesión.
+ * En los anuncios de Facebook e Instagram, el precio y los colores van escritos
+ * ENCIMA de la foto muchísimas veces, no en el texto. El cliente llega diciendo
+ * «quiero la del anuncio» y el agente, que solo veía el título, no sabía de qué
+ * hablaba ni cuánto cuesta.
+ *
+ * Se describe UNA vez por anuncio y la descripción sirve para todos los leads
+ * que traiga —que pueden ser cientos—, así que esto es una llamada al modelo
+ * por creatividad publicada, no por cliente.
+ *
+ * Es texto plano y no JSON a propósito: lo que sale de aquí va tal cual al
+ * prompt del agente, y una estructura no aportaría nada que el modelo no lea
+ * igual de bien en una frase.
  */
-async function describirImagen(
-  orgId: number,
-  modeloVision: string,
-  m: Mensaje,
-): Promise<CategoriaImagen | null> {
-  const imagen = m.media_url ? comoDataUrl(orgId, m.media_url) : null;
+const PROMPT_ANUNCIO = `Esta es la imagen de un anuncio de una tienda. Descríbela para un vendedor que va a atender al cliente que la pinchó.
 
-  if (!imagen) {
-    guardarDescripcionImagen(orgId, m.id, { descripcion: "[imagen sin describir]", categoria: null });
-    return null;
+En dos o tres frases, y solo con lo que SE VE:
+- Qué producto es.
+- Qué colores o modelos aparecen. Si solo hay uno, dilo: "solo se ve en negro".
+- CUALQUIER precio, cifra u oferta escrita en la imagen, copiada tal cual.
+
+Si algo no se ve, no lo menciones. No inventes nada, no adornes y no saludes.`;
+
+export async function describirAnunciosPendientes(orgId: number, limite = 3): Promise<number> {
+  const pendientes = anunciosPorDescribir(orgId, limite);
+  if (pendientes.length === 0) return 0;
+
+  const org = obtenerOrg(orgId);
+  const modeloVision = org?.modelo_vision ?? MODELO_VISION;
+  let hechas = 0;
+
+  for (const a of pendientes) {
+    const imagen = comoDataUrl(orgId, a.imagen);
+    if (!imagen) continue;
+
+    try {
+      const r = await completar({
+        orgId,
+        proposito: "vision",
+        modelo: modeloVision,
+        mensajes: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: PROMPT_ANUNCIO },
+              { type: "image_url", image_url: { url: imagen } },
+            ],
+          },
+        ] as MensajeIA[],
+        maxTokens: 300,
+        temperatura: 0,
+      });
+
+      const texto = r.texto.trim();
+      if (texto) {
+        guardarDescripcionAnuncio(orgId, a.ad_id, texto);
+        hechas++;
+      }
+    } catch (e) {
+      // Sin descripción, el agente sigue con el título y el texto del anuncio:
+      // peor, pero no roto. Se reintenta en el siguiente lead de ese anuncio.
+      console.error(`[anuncio] no se pudo describir la imagen del anuncio ${a.ad_id}`, e);
+    }
   }
 
-  try {
-    const { datos } = await completarJson<DescripcionImagen>({
-      orgId,
-      proposito: "vision",
-      modelo: modeloVision,
-      mensajes: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: PROMPT_VISION },
-            { type: "image_url", image_url: { url: imagen } },
-          ],
-        },
-      ] as MensajeIA[],
-      maxTokens: 300,
-      temperatura: 0,
-    });
-
-    const categoria = CATEGORIAS.includes(datos?.categoria as CategoriaImagen)
-      ? (datos!.categoria as CategoriaImagen)
-      : null;
-
-    guardarDescripcionImagen(orgId, m.id, {
-      descripcion: datos?.descripcion?.trim() || "[imagen sin describir]",
-      categoria,
-    });
-
-    return categoria;
-  } catch (e) {
-    // Modelo caído o sin cuota: la imagen queda sin describir y el hilo va a
-    // revisión. Nunca se asume que era una factura.
-    console.error("Visión no disponible:", e instanceof ErrorIA ? e.message : e);
-    guardarDescripcionImagen(orgId, m.id, { descripcion: "[imagen sin describir]", categoria: null });
-    return null;
-  }
+  return hechas;
 }
 
-const PROMPT_AUDIO = `Transcribe literalmente este audio de una conversación de venta por WhatsApp.
-
-Reglas:
-- Devuelve SOLO lo que se dice, sin comentarlo ni resumirlo.
-- Respeta el idioma original. No traduzcas.
-- Si no se entiende nada o está en silencio, devuelve exactamente: [audio ininteligible]
-- No añadas comillas ni marcas de tiempo.`;
-
-/**
- * Pasa una nota de voz a texto y la guarda. Se hace UNA vez por mensaje.
- *
- * Sin esto un audio es un agujero en la conversación: el analista ve
- * `[nota de voz]` y no puede decidir nada, y media venta puede cerrarse
- * hablando. La transcripción se guarda junto al mensaje y desde ahí la leen
- * tanto el analista como el agente vendedor.
- *
- * Un fallo no rompe el análisis: el mensaje se queda sin transcribir, que es
- * exactamente como estaba antes.
- */
-async function transcribirAudio(orgId: number, modeloAudio: string, m: Mensaje): Promise<void> {
-  if (m.transcripcion) return;
-
-  const audio = m.media_url ? comoDataUrl(orgId, m.media_url) : null;
-  if (!audio) return;
-
-  // La data URL trae delante `data:audio/ogg;base64,` y el modelo espera solo
-  // el contenido y el formato por separado.
-  const base64 = audio.slice(audio.indexOf(",") + 1);
-  const formato = (m.media_url ?? "").split(".").pop()?.toLowerCase() || "ogg";
-
-  try {
-    const { texto } = await completar({
-      orgId,
-      proposito: "audio",
-      modelo: modeloAudio,
-      mensajes: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: PROMPT_AUDIO },
-            { type: "input_audio", input_audio: { data: base64, format: formato } },
-          ],
-        },
-      ] as MensajeIA[],
-      maxTokens: 700,
-      temperatura: 0,
-    });
-
-    const limpio = texto.trim();
-    if (limpio) guardarTranscripcion(orgId, m.id, limpio);
-  } catch (e) {
-    // Modelo sin soporte de audio, sin cuota o caído. Se registra y se sigue.
-    console.error("Transcripción no disponible:", e instanceof ErrorIA ? e.message : e);
-  }
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Modelo de texto
@@ -407,7 +350,7 @@ export async function analizarConversacion(
   const org = obtenerOrg(orgId);
   const marcador = org?.marcador_cierre ?? "Resumen:";
   const modeloTexto = org?.modelo_analisis ?? MODELO_ANALISIS;
-  const modeloVision = org?.modelo_vision ?? "openai/gpt-4o-mini";
+  const modeloVision = org?.modelo_vision ?? MODELO_VISION;
   const modeloAudio = org?.modelo_audio ?? "google/gemini-3.5-flash-lite";
 
   const mensajes = listarMensajes(orgId, conversationId);
