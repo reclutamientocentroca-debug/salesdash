@@ -134,12 +134,40 @@ export function anuncioParaPrompt(c: ContextoAnuncio): string {
     : "";
 
   if (!c.puedeCotizar) {
+    /*
+     * SIN PRODUCTO DEL CATÁLOGO, PERO CON EL ANUNCIO DELANTE, SE VENDE IGUAL.
+     *
+     * Antes aquí se soltaba el lead: «que le atienda alguien del equipo». La
+     * intención era buena —que el agente no se inventara un precio— pero el
+     * efecto era el contrario del que se buscaba: en un negocio que vive de
+     * anuncios y no mantiene el catálogo vinculado, ESO ERA TODOS LOS LEADS. El
+     * agente contestaba a cada cliente que ya le atendería una persona, y la
+     * persona llegaba tarde o no llegaba.
+     *
+     * El anuncio lo escribió y lo pagó este negocio. Un precio anunciado por el
+     * propio dueño no es una invención del modelo: es su precio, y es el que
+     * vio el cliente antes de escribir. Vender con eso no rompe la regla de «no
+     * inventes precios» — la respeta, porque el precio no sale del modelo.
+     *
+     * Lo que se pierde es el aviso al dueño de que ese anuncio no está
+     * vinculado. No se pierde: sigue creando su anomalía, y el panel se la
+     * enseña. Vincularlo sigue siendo mejor —el catálogo se actualiza y un
+     * anuncio viejo no— pero ya no es la diferencia entre vender y no vender.
+     */
+    if (!vio.length) {
+      return [
+        "IMPORTANTE — este cliente llegó por un anuncio del que no se guardó nada: ni su texto ni lo que se veía en él.",
+        "No sabes qué le prometieron, así que no des precios ni condiciones que no estén en tu catálogo o en tus instrucciones.",
+        "Pregúntale con naturalidad qué artículo vio, en una sola línea, y sigue desde ahí.",
+      ].join("\n");
+    }
+
     return (
       contexto +
       [
-        "IMPORTANTE — este cliente llegó por un anuncio que NO está vinculado a un producto del catálogo.",
-        "Puedes hablar de lo que el anuncio enseñaba, pero NO des precios, ni plazos, ni condiciones, ni confirmes los del anuncio — ni siquiera los que estén escritos ahí arriba.",
-        "Dile que enseguida le atiende alguien del equipo con los detalles, y no sigas vendiendo.",
+        "Este anuncio no está vinculado a ningún producto del catálogo, así que lo que dice ARRIBA es tu fuente: el artículo que sale ahí y el precio que anuncia son los buenos, y con eso vendes.",
+        "Si el catálogo o tus instrucciones tienen ese mismo artículo a otro precio, manda el catálogo: es lo que está vigente hoy.",
+        "Lo que no esté ni en el anuncio ni en el catálogo no te lo inventes: ahí sí, dile que lo confirmas con el equipo.",
       ].join("\n")
     );
   }

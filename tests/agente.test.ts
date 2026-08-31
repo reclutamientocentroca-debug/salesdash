@@ -264,9 +264,18 @@ test("el prompt del agente lleva el producto del anuncio y lo que prometía", ()
     conAnuncio.includes("no le preguntes de qué producto habla"),
     "con anuncio delante, preguntar por el producto sobra",
   );
+  /*
+   * Con el anuncio delante el agente SÍ cotiza —lo publicó el propio negocio—
+   * pero lo que no esté ni en el anuncio ni en el catálogo sigue sin prometerse.
+   * Esa es la línea que separa «vender con el precio del dueño» de «inventar».
+   */
   assert.ok(
     conAnuncio.includes("dile que lo confirmas con el equipo"),
-    "el anuncio no amplía el catálogo: lo que promete de más se confirma, no se afirma",
+    "lo que no está en ningún sitio se confirma, no se afirma",
+  );
+  assert.ok(
+    conAnuncio.includes("el precio que anuncia es un precio bueno"),
+    "pero el precio del propio anuncio sí se puede cotizar",
   );
 });
 

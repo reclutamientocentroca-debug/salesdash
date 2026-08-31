@@ -381,11 +381,19 @@ test("lo que decía el anuncio —su texto y su imagen— llega al prompt", () =
 });
 
 /**
- * Pero saber lo que decía el anuncio NO es permiso para cotizarlo. Un precio
- * escrito sobre una imagen no es el catálogo: si no está vinculado, el agente
- * puede hablar del artículo y no puede ponerle precio.
+ * CON EL ANUNCIO DELANTE SE VENDE, AUNQUE NO ESTÉ VINCULADO AL CATÁLOGO.
+ *
+ * Antes aquí se soltaba el lead —«que le atienda alguien del equipo»— para que
+ * el agente no se inventara un precio. El efecto era el contrario del buscado:
+ * en un negocio que vive de anuncios y no mantiene el catálogo vinculado, eso
+ * era TODOS los leads.
+ *
+ * El anuncio lo escribió y lo pagó el propio negocio. Su precio no es una
+ * invención del modelo: es el precio del dueño, y es el que vio el cliente
+ * antes de escribir. Vender con eso respeta la regla de «no inventes precios»,
+ * porque el precio no sale del modelo.
  */
-test("el precio escrito en el anuncio no autoriza a cotizar", () => {
+test("un anuncio sin vincular ya no suelta el lead: vende con lo que el anuncio dice", () => {
   const { orgId } = cuentaConPagina("SinPermiso");
 
   D.registrarAnuncioVisto(orgId, "ad_suelto", "Nevera", { texto: "Nevera 12 pies a 19,900" });
@@ -393,12 +401,24 @@ test("el precio escrito en el anuncio no autoriza a cotizar", () => {
 
   const prompt = anuncioParaPrompt(resolverAnuncio(orgId, "ad_suelto", "Nevera"));
 
-  assert.ok(prompt.includes("19,900"), "el agente sabe de qué le hablan");
-  assert.ok(
-    prompt.includes("ni siquiera los que estén escritos ahí arriba"),
-    "y tiene prohibido confirmarlo",
-  );
-  assert.ok(prompt.includes("no sigas vendiendo"));
+  assert.ok(prompt.includes("19,900"), "el agente sabe de qué le hablan y a cuánto");
+  assert.ok(prompt.includes("con eso vendes"), "y puede cotizarlo");
+  assert.equal(prompt.includes("no sigas vendiendo"), false, "ya no suelta el lead");
+  // Lo que sigue en pie: lo que no está en ningún sitio no se promete.
+  assert.ok(prompt.includes("no te lo inventes"));
+});
+
+/**
+ * Pero de un anuncio del que no se guardó NADA no se puede vender: ahí no hay
+ * precio de nadie, y sacarse uno sí sería inventarlo. Se pregunta.
+ */
+test("de un anuncio vacío no se inventa nada: se pregunta qué vio", () => {
+  const { orgId } = cuentaConPagina("Vacio");
+
+  const prompt = anuncioParaPrompt(resolverAnuncio(orgId, "ad_mudo", null));
+
+  assert.ok(prompt.includes("qué artículo vio"));
+  assert.equal(prompt.includes("con eso vendes"), false);
 });
 
 /**
