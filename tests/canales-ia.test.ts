@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as D from "../src/lib/db";
 import { armarSistema, revisarAgente } from "../src/lib/agent";
-import { conLoVistoYOido } from "../src/lib/percepcion";
+import { conLoVistoYOido, percibir } from "../src/lib/percepcion";
 import { PAISES, bloqueDePais, obtenerPais, paisDeTelefono } from "../src/lib/paises";
 import {
   enlaceDeMapa,
@@ -407,5 +407,96 @@ test("el prompt le explica al agente qué hacer con fotos y audios", () => {
   assert.ok(
     prompt.includes("NUNCA des un pago por recibido"),
     "una captura de una transferencia no es dinero cobrado",
+  );
+});
+
+// ── La nota de voz, de punta a punta ────────────────────────────────────────
+
+/**
+ * QUE UNA NOTA DE VOZ LLEGUE Y SE CONTESTE.
+ *
+ * Media venta se cierra hablando: el cliente dice en veinte segundos el
+ * artículo, la talla y la dirección. Sin transcribir, al agente le llega
+ * «[nota de voz]» y no puede hacer nada con eso.
+ *
+ * La transcripción de verdad necesita red y vive en `npm run verificar-audio`.
+ * Lo que se fija aquí son las guardas que la rodean, que son las que dejan al
+ * agente mudo o colgado cuando se rompen.
+ */
+
+test("con el interruptor de audios apagado no se toca la nota de voz", async () => {
+  const canalId = canal("Sin oído", "50722227777");
+  const { conversacion } = D.getOrCreateConversation(orgId, canalId, "50711112222", {
+    cuando: D.ahora(),
+  });
+  D.insertMessage(orgId, {
+    conversationId: conversacion.id,
+    whapiMessageId: "voz-1",
+    emisor: "cliente",
+    tipo: "audio",
+    content: "[nota de voz]",
+    mediaUrl: "local:1/inventado.ogg",
+    createdAt: D.ahora(),
+  });
+
+  const antes = D.listarMensajes(orgId, conversacion.id);
+  const despues = await percibir(orgId, antes, {
+    ver: false,
+    oir: false,
+    modeloVision: "x",
+    modeloAudio: "x",
+  });
+
+  assert.equal(despues[0]!.transcripcion, null, "no se intenta, así que no se gasta");
+  assert.deepEqual(despues, antes, "el historial sale como entró");
+
+  // Y el agente lo ve tal cual, que es cuando el prompt le manda pedirlo escrito.
+  assert.equal(conLoVistoYOido(despues[0]!), "[nota de voz]");
+
+  D.eliminarCanal(orgId, canalId);
+});
+
+test("una nota de voz sin archivo guardado no se intenta transcribir", async () => {
+  const canalId = canal("Sin archivo", "50722226666");
+  const { conversacion } = D.getOrCreateConversation(orgId, canalId, "50711113333", {
+    cuando: D.ahora(),
+  });
+  D.insertMessage(orgId, {
+    conversationId: conversacion.id,
+    whapiMessageId: "voz-2",
+    emisor: "cliente",
+    tipo: "audio",
+    content: "[nota de voz]",
+    // Sin `mediaUrl`: la descarga desde WhatsApp falló. Pasa, y no puede
+    // costar una llamada al modelo ni un segundo de espera del cliente.
+    createdAt: D.ahora(),
+  });
+
+  const antes = D.listarMensajes(orgId, conversacion.id);
+  const despues = await percibir(orgId, antes, {
+    ver: true,
+    oir: true,
+    modeloVision: "x",
+    modeloAudio: "x",
+  });
+
+  assert.deepEqual(despues, antes);
+
+  D.eliminarCanal(orgId, canalId);
+});
+
+/**
+ * El prompt tiene que decirle qué hacer cuando NO se pudo oír. Sin esta línea
+ * el agente se inventa que escuchó algo, o le suelta al cliente una excusa
+ * técnica sobre audios que no le interesa a nadie.
+ */
+test("el prompt le dice qué hacer con un audio que no se pudo leer", () => {
+  const prompt = armarSistema("Tienda", D.obtenerAgente(orgId, rd), [], null);
+
+  assert.ok(prompt.includes("nota de voz"));
+  assert.ok(prompt.includes("ya transcrita"), "una nota de voz transcrita es su mensaje");
+  assert.ok(
+    prompt.includes("no se pudo leer"),
+    "y si no se pudo, que la pida por escrito en vez de inventar",
   );
 });
