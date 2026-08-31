@@ -192,8 +192,31 @@ CREATE TABLE IF NOT EXISTS agentes (
   silenciar_si_humano INTEGER NOT NULL DEFAULT 1,
   horario_activo INTEGER NOT NULL DEFAULT 0,
   horario_desde TEXT, horario_hasta TEXT,
+  /* SEGUIMIENTOS. Los dos unicos mensajes que el agente manda sin que el
+     cliente haya escrito, y por eso van con interruptor propio:
+     - visto: el cliente dejo la conversacion a medias y no volvio.
+     - entrega: horas despues del pedido, para que este pendiente al mensajero.
+     Solo salen en los numeros donde el agente ya contesta, nunca en los que
+     solo se vigilan: escribir sin que nadie lo espere es lo unico que este
+     panel hace por su cuenta, y no puede pasar en un numero ajeno. */
+  recordatorio_visto INTEGER NOT NULL DEFAULT 1,
+  recordatorio_visto_horas INTEGER NOT NULL DEFAULT 3,
+  recordatorio_entrega INTEGER NOT NULL DEFAULT 1,
+  recordatorio_entrega_horas INTEGER NOT NULL DEFAULT 18,
   updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
   UNIQUE(org_id)
+);
+
+/* Un seguimiento por conversacion y tipo, y no mas: el UNIQUE es lo que
+   impide que un barrido que corre cada pocos minutos le escriba dos veces al
+   mismo cliente. */
+CREATE TABLE IF NOT EXISTS seguimientos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id INTEGER NOT NULL REFERENCES orgs(id),
+  conversation_id INTEGER NOT NULL REFERENCES conversations(id),
+  tipo TEXT NOT NULL CHECK(tipo IN ('visto','entrega')),
+  enviado_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  UNIQUE(conversation_id, tipo)
 );
 
 CREATE TABLE IF NOT EXISTS catalogo (
@@ -461,6 +484,22 @@ function migrar(conexion: DB): void {
    */
   if (!columnas("conversations").includes("cliente_jid")) {
     conexion.exec(`ALTER TABLE conversations ADD COLUMN cliente_jid TEXT`);
+  }
+
+  /*
+   * agentes: los dos seguimientos.
+   *
+   * Nacen encendidos, y no es un descuido: solo salen por los números donde el
+   * agente ya está contestando, que es una decisión que el dueño ya tomó a
+   * mano. En un número que solo se vigila no sale ni uno.
+   */
+  if (!columnas("agentes").includes("recordatorio_visto")) {
+    conexion.exec(`
+      ALTER TABLE agentes ADD COLUMN recordatorio_visto INTEGER NOT NULL DEFAULT 1;
+      ALTER TABLE agentes ADD COLUMN recordatorio_visto_horas INTEGER NOT NULL DEFAULT 3;
+      ALTER TABLE agentes ADD COLUMN recordatorio_entrega INTEGER NOT NULL DEFAULT 1;
+      ALTER TABLE agentes ADD COLUMN recordatorio_entrega_horas INTEGER NOT NULL DEFAULT 18;
+    `);
   }
 
   /*
@@ -760,6 +799,10 @@ export interface Agente {
   instrucciones: string; modelo: string; modelo_respaldo: string | null;
   pasar_a_humano: number; silenciar_si_humano: number;
   horario_activo: number; horario_desde: string | null; horario_hasta: string | null;
+  /** Recordatorio al cliente que dejó la conversación a medias. */
+  recordatorio_visto: number; recordatorio_visto_horas: number;
+  /** Aviso de que el pedido ya va en camino, horas después del cierre. */
+  recordatorio_entrega: number; recordatorio_entrega_horas: number;
   updated_at: number;
 }
 
@@ -1554,6 +1597,8 @@ const COLUMNAS_AGENTE = [
   "nombre", "tono", "instrucciones", "modelo", "modelo_respaldo",
   "pasar_a_humano", "silenciar_si_humano", "horario_activo",
   "horario_desde", "horario_hasta",
+  "recordatorio_visto", "recordatorio_visto_horas",
+  "recordatorio_entrega", "recordatorio_entrega_horas",
 ] as const;
 
 export function actualizarAgente(orgId: number, campos: Partial<Agente>): void {
@@ -1561,6 +1606,122 @@ export function actualizarAgente(orgId: number, campos: Partial<Agente>): void {
   const { sql, valores } = armarSet(campos, COLUMNAS_AGENTE);
   if (!sql) return;
   s(`UPDATE agentes SET ${sql}, updated_at = unixepoch() WHERE org_id = ?`).run(...valores, orgId);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Seguimientos — los dos mensajes que el agente manda sin que le escriban
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type TipoSeguimiento = "visto" | "entrega";
+
+/**
+ * Las cuentas donde hay un agente contestando en algún número.
+ *
+ * El barrido corre cada pocos minutos y recorre cuentas: preguntar primero
+ * cuáles tienen agente encendido evita pasearse por todas las demás, que no
+ * pueden producir ni un seguimiento porque en sus números no escribe nadie.
+ *
+ * EXCEPCIÓN a la regla de aislamiento, la misma que `orgsParaBarrerCierres`:
+ * el barrido no viene de una sesión y tiene que empezar por saber a quién
+ * mirar. Devuelve identificadores de cuenta y nada más; a partir de aquí todo
+ * vuelve a ir con `org_id`.
+ */
+export function orgsConAgente(): number[] {
+  const filas = s(
+    `SELECT DISTINCT org_id FROM canales
+      WHERE activo = 1 AND agente_activo = 1 AND contesta_ia = 0`,
+  ).all() as { org_id: number }[];
+  return filas.map((f) => f.org_id);
+}
+
+/**
+ * Conversaciones que se quedaron en el aire: habló el agente y el cliente no
+ * volvió.
+ *
+ * Las condiciones son todas necesarias y ninguna es de adorno:
+ *   - sigue abierta: una venta cerrada no se persigue.
+ *   - el ÚLTIMO mensaje es del agente: si contestó el cliente, la conversación
+ *     sigue viva; si escribió un vendedor, hay una persona ocupándose y el
+ *     agente no se mete.
+ *   - el número tiene al agente encendido: donde no contesta, tampoco insiste.
+ *   - no se le mandó ya el recordatorio, y nadie pidió un asesor.
+ *
+ * La ventana tiene tope por arriba a propósito: al encender esto por primera
+ * vez, sin él, saldría un recordatorio para cada conversación abandonada de
+ * los últimos meses, todos a la vez.
+ */
+export function conversacionesEnVisto(
+  orgId: number,
+  ventana: { desde: number; hasta: number },
+  limite = 20,
+): Conversacion[] {
+  return s(
+    `SELECT c.* FROM conversations c
+       JOIN canales ca ON ca.id = c.canal_id
+      WHERE c.org_id = ?
+        AND c.cerrado_por = 'abierta'
+        AND ca.activo = 1 AND ca.agente_activo = 1 AND ca.contesta_ia = 0
+        AND c.last_message_at BETWEEN ? AND ?
+        AND (
+          SELECT m.emisor FROM messages m
+           WHERE m.conversation_id = c.id
+           ORDER BY m.created_at DESC, m.id DESC LIMIT 1
+        ) = 'ia'
+        AND NOT EXISTS (
+          SELECT 1 FROM seguimientos s
+           WHERE s.conversation_id = c.id AND s.tipo = 'visto'
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM anomalies a
+           WHERE a.conversation_id = c.id AND a.resuelta = 0
+             AND a.tipo IN ('pidio_humano', 'handoff_agente')
+        )
+      ORDER BY c.last_message_at ASC
+      LIMIT ?`,
+  ).all(orgId, ventana.desde, ventana.hasta, limite) as Conversacion[];
+}
+
+/**
+ * Ventas cerradas hace ya un rato, para avisar de que el pedido va en camino.
+ *
+ * Mismo tope por arriba y por el mismo motivo: esto no puede despertarse un
+ * día y escribirle a todo el que compró el mes pasado.
+ */
+export function ventasParaRecordar(
+  orgId: number,
+  ventana: { desde: number; hasta: number },
+  limite = 20,
+): Conversacion[] {
+  return s(
+    `SELECT c.* FROM conversations c
+       JOIN canales ca ON ca.id = c.canal_id
+      WHERE c.org_id = ?
+        AND c.cerrado_por IN ('ia', 'humano')
+        AND c.fecha_cierre BETWEEN ? AND ?
+        AND ca.activo = 1 AND ca.agente_activo = 1 AND ca.contesta_ia = 0
+        AND NOT EXISTS (
+          SELECT 1 FROM seguimientos s
+           WHERE s.conversation_id = c.id AND s.tipo = 'entrega'
+        )
+      ORDER BY c.fecha_cierre ASC
+      LIMIT ?`,
+  ).all(orgId, ventana.desde, ventana.hasta, limite) as Conversacion[];
+}
+
+/**
+ * Deja constancia de que este seguimiento ya salió. Devuelve `false` si ya
+ * estaba: el UNIQUE de la tabla es lo que impide el mensaje duplicado cuando
+ * dos barridos se solapan.
+ */
+export function registrarSeguimiento(
+  orgId: number,
+  conversationId: number,
+  tipo: TipoSeguimiento,
+): boolean {
+  const r = s(
+    `INSERT OR IGNORE INTO seguimientos (org_id, conversation_id, tipo) VALUES (?, ?, ?)`,
+  ).run(orgId, conversationId, tipo);
+  return r.changes > 0;
 }
 
 export function listarCatalogo(orgId: number, soloActivos = false): Producto[] {

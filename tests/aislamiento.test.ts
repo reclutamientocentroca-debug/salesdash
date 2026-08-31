@@ -195,6 +195,9 @@ test("ninguna función de lectura de db.ts omite el orgId", async () => {
     // deducir la organización. Devuelve identificadores y nada más, y cada uno
     // vuelve como `orgId` de las funciones normales.
     "orgsParaBarrerCierres",
+    // Y el barrido de seguimientos, por lo mismo: corre en un reloj, sin
+    // sesión, y solo pregunta en qué cuentas hay un agente contestando.
+    "orgsConAgente",
     // Ruta del disco, no una consulta.
     "rutaDatos",
     // El webhook de Meta no trae sesion: la cuenta se DEDUCE de la pagina o de

@@ -34,6 +34,10 @@ export async function GET() {
       horario_activo: agente.horario_activo === 1,
       horario_desde: agente.horario_desde,
       horario_hasta: agente.horario_hasta,
+      recordatorio_visto: agente.recordatorio_visto === 1,
+      recordatorio_visto_horas: agente.recordatorio_visto_horas,
+      recordatorio_entrega: agente.recordatorio_entrega === 1,
+      recordatorio_entrega_horas: agente.recordatorio_entrega_horas,
     },
     // El agente se enciende por número, no para toda la cuenta.
     canales: listarCanales(orgId).map((c) => ({
@@ -59,7 +63,7 @@ const HORA = /^([01]\d|2[0-3]):[0-5]\d$/;
 const Cambio = z.object({
   nombre: z.string().trim().min(1).max(40).optional(),
   tono: z.enum(["cercano", "formal", "directo", "alegre"]).optional(),
-  instrucciones: z.string().max(4000).optional(),
+  instrucciones: z.string().max(20_000).optional(),
   modelo: z.string().trim().min(3).max(120).optional(),
   modelo_respaldo: z.string().trim().max(120).nullable().optional(),
   pasar_a_humano: z.boolean().optional(),
@@ -67,6 +71,15 @@ const Cambio = z.object({
   horario_activo: z.boolean().optional(),
   horario_desde: z.string().regex(HORA, "La hora va como 09:00").nullable().optional(),
   horario_hasta: z.string().regex(HORA, "La hora va como 18:00").nullable().optional(),
+  /*
+   * Los seguimientos. Las horas van acotadas por los dos lados: menos de una
+   * hora convierte el recordatorio en una insistencia encima del cliente, y
+   * mas de una semana en un mensaje que ya no viene a cuento.
+   */
+  recordatorio_visto: z.boolean().optional(),
+  recordatorio_visto_horas: z.number().int().min(1).max(168).optional(),
+  recordatorio_entrega: z.boolean().optional(),
+  recordatorio_entrega_horas: z.number().int().min(1).max(168).optional(),
 });
 
 export async function PATCH(req: NextRequest) {
@@ -95,6 +108,12 @@ export async function PATCH(req: NextRequest) {
     horario_activo: d.horario_activo === undefined ? undefined : d.horario_activo ? 1 : 0,
     horario_desde: d.horario_desde,
     horario_hasta: d.horario_hasta,
+    recordatorio_visto:
+      d.recordatorio_visto === undefined ? undefined : d.recordatorio_visto ? 1 : 0,
+    recordatorio_visto_horas: d.recordatorio_visto_horas,
+    recordatorio_entrega:
+      d.recordatorio_entrega === undefined ? undefined : d.recordatorio_entrega ? 1 : 0,
+    recordatorio_entrega_horas: d.recordatorio_entrega_horas,
   });
 
   return NextResponse.json({ ok: true });

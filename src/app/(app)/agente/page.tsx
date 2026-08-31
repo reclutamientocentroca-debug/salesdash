@@ -38,6 +38,10 @@ export default async function PaginaAgente() {
           horario_activo: agente.horario_activo === 1,
           horario_desde: agente.horario_desde,
           horario_hasta: agente.horario_hasta,
+          recordatorio_visto: agente.recordatorio_visto === 1,
+          recordatorio_visto_horas: agente.recordatorio_visto_horas,
+          recordatorio_entrega: agente.recordatorio_entrega === 1,
+          recordatorio_entrega_horas: agente.recordatorio_entrega_horas,
         }}
         canalesIniciales={listarCanales(ctx.orgId).map((c) => ({
           id: c.id,

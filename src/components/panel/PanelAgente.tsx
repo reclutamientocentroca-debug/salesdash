@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { PLANTILLAS } from "@/lib/plantillas";
 import { useRouter } from "next/navigation";
 
 interface Agente {
@@ -14,6 +15,10 @@ interface Agente {
   horario_activo: boolean;
   horario_desde: string | null;
   horario_hasta: string | null;
+  recordatorio_visto: boolean;
+  recordatorio_visto_horas: number;
+  recordatorio_entrega: boolean;
+  recordatorio_entrega_horas: number;
 }
 
 /** Lo que impide o condiciona que el agente conteste. Lo calcula el servidor. */
@@ -220,6 +225,24 @@ export default function PanelAgente({
    * y se queda esperando respuestas de un agente que nunca se encendió.
    */
   const [confirmando, setConfirmando] = useState<number | null>(null);
+
+  /** La plantilla que está pidiendo confirmación por sustituir lo escrito. */
+  const [plantilla, setPlantilla] = useState<string | null>(null);
+
+  function aplicarPlantilla(clave: string, confirmada: boolean) {
+    const p = PLANTILLAS.find((x) => x.clave === clave);
+    if (!p) return;
+
+    // Con el cuadro vacío no hay nada que perder: se aplica directa.
+    if (!confirmada && agente.instrucciones.trim()) {
+      setPlantilla(clave);
+      return;
+    }
+
+    setPlantilla(null);
+    cambiar("instrucciones", p.instrucciones);
+    setNota("Plantilla puesta. Revísala y pulsa «Guardar cambios».");
+  }
 
   async function alternarCanal(id: number, activo: boolean) {
     const canal = canales.find((c) => c.id === id);
@@ -434,6 +457,55 @@ export default function PanelAgente({
         </div>
       </section>
 
+      {/* ── Seguimientos ───────────────────────────────────────────────────── */}
+      <section className="tarjeta">
+        <h2 className="titulo-tarjeta" style={{ marginBottom: 4 }}>Seguimiento automático</h2>
+        <p className="tenue" style={{ marginBottom: 14 }}>
+          Los dos únicos mensajes que el agente manda sin que el cliente escriba. Solo salen por los
+          números donde ya está encendido, y uno solo por conversación.
+        </p>
+
+        <div style={{ display: "grid", gap: 14 }}>
+          <Interruptor
+            activo={agente.recordatorio_visto}
+            onChange={(v) => cambiar("recordatorio_visto", v)}
+            etiqueta="Recordar al que dejó la conversación a medias"
+            descripcion="Si el cliente no volvió a contestar, el agente le escribe una vez: le recuerda el artículo, que queda poco, y le pregunta lo que faltaba para cerrar."
+          />
+
+          {agente.recordatorio_visto && (
+            <div style={{ paddingLeft: 50 }}>
+              <label className="etiqueta-campo" htmlFor="visto-horas">A las cuántas horas</label>
+              <input
+                id="visto-horas" type="number" min={1} max={168} className="campo"
+                style={{ width: 130 }}
+                value={agente.recordatorio_visto_horas}
+                onChange={(e) => cambiar("recordatorio_visto_horas", Number(e.target.value))}
+              />
+            </div>
+          )}
+
+          <Interruptor
+            activo={agente.recordatorio_entrega}
+            onChange={(v) => cambiar("recordatorio_entrega", v)}
+            etiqueta="Avisar de que el pedido va en camino"
+            descripcion="Horas después de levantar el pedido, el cliente recibe un aviso para que esté pendiente al mensajero. Con pago contra entrega, el paquete que nadie recibe se devuelve."
+          />
+
+          {agente.recordatorio_entrega && (
+            <div style={{ paddingLeft: 50 }}>
+              <label className="etiqueta-campo" htmlFor="entrega-horas">A las cuántas horas del pedido</label>
+              <input
+                id="entrega-horas" type="number" min={1} max={168} className="campo"
+                style={{ width: 130 }}
+                value={agente.recordatorio_entrega_horas}
+                onChange={(e) => cambiar("recordatorio_entrega_horas", Number(e.target.value))}
+              />
+            </div>
+          )}
+        </div>
+      </section>
+
       <div className="sd-mitades">
         {/* ── Personalidad ────────────────────────────────────────────────── */}
         <section className="tarjeta">
@@ -462,7 +534,7 @@ export default function PanelAgente({
 
           <label className="etiqueta-campo" htmlFor="instrucciones">Instrucciones de tu negocio</label>
           <textarea
-            id="instrucciones" className="campo" rows={6}
+            id="instrucciones" className="campo" rows={10}
             style={{ resize: "vertical", fontFamily: "inherit" }}
             placeholder="Los envíos a la capital cuestan 200 y llegan al día siguiente. No damos descuentos por debajo de 3 unidades…"
             value={agente.instrucciones}
@@ -472,6 +544,63 @@ export default function PanelAgente({
             Lo que escribas aquí es lo que el agente da por cierto. No inventará precios que no estén
             aquí ni en tu catálogo.
           </p>
+
+          {/*
+            Un guion de venta entero no se escribe delante de un cuadro vacío.
+            La plantilla lo deja puesto de una vez y sigue siendo editable: es
+            un punto de partida, no un candado. Pisa lo que haya escrito, así
+            que se avisa antes cuando hay algo que perder.
+          */}
+          {PLANTILLAS.length > 0 && (
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--line)" }}>
+              <div className="rotulo" style={{ marginBottom: 8 }}>Empezar desde una plantilla</div>
+              {PLANTILLAS.map((p) => (
+                <div key={p.clave} style={{ display: "grid", gap: 6 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{p.nombre}</div>
+                  <p className="tenue" style={{ margin: 0 }}>{p.descripcion}</p>
+
+                  {plantilla === p.clave ? (
+                    <div className="aviso aviso-ambar" style={{ display: "grid", gap: 10 }}>
+                      <div>
+                        Ya tienes instrucciones escritas. Si aplicas la plantilla, se sustituyen por
+                        las suyas y lo que tenías se pierde.
+                      </div>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <button
+                          type="button"
+                          className="btn btn-acento"
+                          onClick={() => aplicarPlantilla(p.clave, true)}
+                        >
+                          Sustituir por la plantilla
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-secundario"
+                          onClick={() => setPlantilla(null)}
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <button
+                        type="button"
+                        className="btn btn-secundario"
+                        onClick={() => aplicarPlantilla(p.clave, false)}
+                      >
+                        Usar esta plantilla
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+              <p className="tenue" style={{ marginTop: 8 }}>
+                Se escribe en el cuadro de arriba. Revísala, cámbiale lo que quieras y pulsa
+                «Guardar cambios».
+              </p>
+            </div>
+          )}
         </section>
 
         {/* ── Modelo ──────────────────────────────────────────────────────── */}

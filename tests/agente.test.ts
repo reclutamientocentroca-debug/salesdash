@@ -10,6 +10,7 @@ import {
   revisarAgente,
 } from "../src/lib/agent";
 import { contieneMarcador, duenoDelCierre, registrarCierre } from "../src/lib/cierre";
+import { leerEtiquetaDeAsesor } from "../src/lib/agent";
 import { ingerir } from "../src/lib/ingesta";
 import { direccionDelChat, jidDeDestino } from "../src/lib/telefono";
 import type { Resultado } from "../src/lib/agent";
@@ -620,4 +621,93 @@ test("se contesta a la dirección de WhatsApp, no a los dígitos del identificad
   const { conversacion, nueva } = D.getOrCreateConversation(orgId, canalId, "123456789012345");
   assert.equal(nueva, false, "el mensaje tenía que haber abierto el hilo");
   assert.equal(conversacion.cliente_jid, "123456789012345@lid");
+});
+
+// ── Etiqueta de asesor y seguimientos ───────────────────────────────────────
+
+/**
+ * `[HANDOFF]` es una instrucción para nosotros, no texto para el cliente.
+ * Mandársela tal cual —que es lo que pasaba— deja al cliente leyendo una
+ * etiqueta en inglés al final de su resumen de pedido.
+ */
+test("la etiqueta de pasar a un asesor se quita del mensaje y se anota", () => {
+  const conResumen = leerEtiquetaDeAsesor("Resumen de su pedido:\nTotal: USD 23.00\n[HANDOFF]");
+  assert.equal(conResumen.pideAsesor, true);
+  assert.equal(conResumen.texto, "Resumen de su pedido:\nTotal: USD 23.00");
+
+  // Sin corchetes y en minúsculas: el modelo la escribe de las dos formas.
+  const suelta = leerEtiquetaDeAsesor("Le atiende un asesor en un momento. handoff");
+  assert.equal(suelta.pideAsesor, true);
+  assert.equal(suelta.texto, "Le atiende un asesor en un momento.");
+
+  // Y un mensaje normal no se toca.
+  const normal = leerEtiquetaDeAsesor("¿Qué talla necesita?");
+  assert.deepEqual(normal, { texto: "¿Qué talla necesita?", pideAsesor: false });
+});
+
+/**
+ * A quién le toca un recordatorio, y —más importante— a quién NO.
+ *
+ * Un seguimiento es un mensaje que el cliente no pidió: equivocarse aquí no es
+ * un dato mal contado, es escribirle a alguien a quien no había que escribirle.
+ */
+test("solo se recuerda a quien dejó la conversación a medias", () => {
+  encender(true);
+  const t = D.ahora();
+  const hace = (h: number) => t - h * 3600;
+  const ventana = { desde: hace(27), hasta: hace(3) };
+
+  const enVisto = hilo([
+    { emisor: "cliente", content: "¿tienen la correa?", hace: 6 * 3600 },
+    { emisor: "ia", content: "Sí. ¿Qué medida de cintura usa?", hace: 5 * 3600 },
+  ]);
+  D.actualizarConversacion(orgId, enVisto, { last_message_at: hace(5) });
+
+  // Contestó el cliente: la conversación sigue viva, no se le insiste.
+  const viva = hilo([
+    { emisor: "ia", content: "¿Qué medida usa?", hace: 6 * 3600 },
+    { emisor: "cliente", content: "la 34", hace: 5 * 3600 },
+  ]);
+  D.actualizarConversacion(orgId, viva, { last_message_at: hace(5) });
+
+  // Escribió un vendedor: hay una persona ocupándose.
+  const conVendedor = hilo([
+    { emisor: "cliente", content: "¿precio?", hace: 6 * 3600 },
+    { emisor: "humano", content: "ya le confirmo", hace: 5 * 3600 },
+  ]);
+  D.actualizarConversacion(orgId, conVendedor, { last_message_at: hace(5) });
+
+  const ids = () => D.conversacionesEnVisto(orgId, ventana).map((c) => c.id);
+
+  assert.ok(ids().includes(enVisto), "el que se quedó en visto sí entra");
+  assert.ok(!ids().includes(viva), "si contestó el cliente, no se le insiste");
+  assert.ok(!ids().includes(conVendedor), "si escribió un vendedor, el agente no se mete");
+
+  // Una sola vez: registrado el seguimiento, deja de salir.
+  assert.equal(D.registrarSeguimiento(orgId, enVisto, "visto"), true);
+  assert.equal(D.registrarSeguimiento(orgId, enVisto, "visto"), false, "no se repite");
+  assert.ok(!ids().includes(enVisto), "ya no vuelve a salir");
+
+  encender(false);
+});
+
+test("el aviso de pedido en camino sale una vez, y solo de las ventas cerradas", () => {
+  encender(true);
+  const t = D.ahora();
+  const ventana = { desde: t - 42 * 3600, hasta: t - 18 * 3600 };
+
+  const vendida = hilo([{ emisor: "cliente", content: "la quiero", hace: 20 * 3600 }]);
+  D.sellarCierre(orgId, vendida, { cerradoPor: "ia", senal: "resumen_ia", fechaCierre: t - 20 * 3600 });
+
+  const abierta = hilo([{ emisor: "cliente", content: "lo pienso", hace: 20 * 3600 }]);
+
+  const ids = () => D.ventasParaRecordar(orgId, ventana).map((c) => c.id);
+
+  assert.ok(ids().includes(vendida), "la venta cerrada hace 20 horas entra");
+  assert.ok(!ids().includes(abierta), "una conversación sin cerrar no lleva aviso de entrega");
+
+  D.registrarSeguimiento(orgId, vendida, "entrega");
+  assert.ok(!ids().includes(vendida), "y no se repite");
+
+  encender(false);
 });

@@ -1,0 +1,122 @@
+/**
+ * SalesDash — seguimientos.
+ *
+ * Los dos únicos mensajes que salen sin que el cliente haya escrito nada:
+ *
+ *   1. EN VISTO. Habló el agente, el cliente no volvió y la conversación se
+ *      quedó a medias. Pasadas unas horas se le escribe una vez para retomar:
+ *      el artículo del que hablaban, que queda poco, y la pregunta que faltaba
+ *      para cerrar. Una venta que se enfría no se recupera sola.
+ *
+ *   2. ENTREGA. Horas después de levantar el pedido, un aviso de que el
+ *      mensajero ya salió para que el cliente esté pendiente. Con pago contra
+ *      entrega, el paquete que nadie recibe vuelve al almacén y la venta se
+ *      pierde después de estar hecha.
+ *
+ * REGLAS QUE NO SE ROMPEN
+ *
+ *   - UNO POR CONVERSACIÓN Y TIPO. Lo garantiza el UNIQUE de `seguimientos`,
+ *     no la memoria de este barrido: un reinicio no puede volver a escribirle
+ *     a nadie.
+ *   - SOLO DONDE EL AGENTE YA CONTESTA. En un número que solo se vigila, o con
+ *     el agente apagado, no sale ni un mensaje.
+ *   - VENTANA CON TOPE POR ARRIBA. Al encender esto no se le escribe a todo el
+ *     que quedó a medias en los últimos seis meses.
+ *   - EL QUE PIDIÓ UN ASESOR NO RECIBE INSISTENCIA.
+ *
+ * Quien envía sigue siendo `agent.ts`, el único módulo que puede escribirle a
+ * un cliente. Aquí solo se decide a quién le toca.
+ */
+import {
+  conversacionesEnVisto,
+  obtenerAgente,
+  orgsConAgente,
+  ventasParaRecordar,
+  ahora,
+} from "./db";
+import { enviarSeguimiento } from "./agent";
+
+/**
+ * Cuánto hacia atrás se mira, contando desde que toca el recordatorio.
+ *
+ * Es lo que convierte «a las 3 horas» en «entre las 3 y las 27»: sin este tope
+ * el primer barrido después de encender la función —o después de un fin de
+ * semana con el servidor caído— saldría a escribirle a cada conversación
+ * abandonada que haya en la base. Con él, lo viejo se queda como está.
+ */
+const VENTANA = 24 * 60 * 60;
+
+/** Tope por barrido y por cuenta. Un pico de mensajes no puede ser silencioso. */
+const MAX_POR_VUELTA = 20;
+
+export interface ResumenBarrido {
+  visto: number;
+  entrega: number;
+}
+
+/**
+ * Un barrido de una cuenta. Devuelve cuántos mensajes salieron de cada tipo.
+ */
+export async function seguimientosDeCuenta(orgId: number): Promise<ResumenBarrido> {
+  const agente = obtenerAgente(orgId);
+  const t = ahora();
+  const salida: ResumenBarrido = { visto: 0, entrega: 0 };
+
+  if (agente.recordatorio_visto === 1) {
+    const corte = t - Math.max(agente.recordatorio_visto_horas, 1) * 3600;
+    const pendientes = conversacionesEnVisto(
+      orgId,
+      { desde: corte - VENTANA, hasta: corte },
+      MAX_POR_VUELTA,
+    );
+
+    for (const c of pendientes) {
+      if (await enviarSeguimiento(orgId, c.id, "visto")) salida.visto++;
+    }
+  }
+
+  if (agente.recordatorio_entrega === 1) {
+    const corte = t - Math.max(agente.recordatorio_entrega_horas, 1) * 3600;
+    const pendientes = ventasParaRecordar(
+      orgId,
+      { desde: corte - VENTANA, hasta: corte },
+      MAX_POR_VUELTA,
+    );
+
+    for (const c of pendientes) {
+      if (await enviarSeguimiento(orgId, c.id, "entrega")) salida.entrega++;
+    }
+  }
+
+  return salida;
+}
+
+/**
+ * El barrido de todas las cuentas con agente encendido. Lo llama el reloj del
+ * arranque cada pocos minutos.
+ *
+ * Una cuenta que falle no puede llevarse a las demás por delante: cada una va
+ * en su propio try.
+ */
+export async function barrerSeguimientos(): Promise<ResumenBarrido> {
+  const total: ResumenBarrido = { visto: 0, entrega: 0 };
+
+  for (const orgId of orgsConAgente()) {
+    try {
+      const r = await seguimientosDeCuenta(orgId);
+      total.visto += r.visto;
+      total.entrega += r.entrega;
+    } catch (e) {
+      console.error(`[seguimiento] falló el barrido de la cuenta ${orgId}`, e);
+    }
+  }
+
+  if (total.visto > 0 || total.entrega > 0) {
+    console.log(
+      `[seguimiento] ${total.visto} recordatorio(s) a conversaciones en visto, ` +
+        `${total.entrega} aviso(s) de pedido en camino`,
+    );
+  }
+
+  return total;
+}

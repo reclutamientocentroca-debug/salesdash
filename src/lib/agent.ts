@@ -29,12 +29,14 @@ import {
   obtenerCanal,
   obtenerOrg,
   registrarAiSent,
+  registrarSeguimiento,
   ultimosMensajes,
   usoDelDia,
   type Agente,
   type Mensaje,
   type Producto,
   type Conversacion,
+  type TipoSeguimiento,
 } from "./db";
 import { descifrar } from "./auth";
 import { anuncioParaModelo, type DatosAnuncio } from "./anuncio";
@@ -206,6 +208,8 @@ export type MotivoSilencio =
   | "agente_apagado"
   /** En este número ya contesta otra IA. Ver la guarda en `atenderConversacion`. */
   | "contesta_otra_ia"
+  /** El propio agente pasó el caso a un asesor con la etiqueta de handoff. */
+  | "pasado_a_asesor"
   | "canal_apagado"
   | "ultimo_no_es_cliente"
   | "vendedor_reciente"
@@ -236,6 +240,13 @@ export function armarSistema(
   anuncio: DatosAnuncio | null,
   /** El marcador con el que se declara cerrada una venta. */
   marcador: string = MARCADOR_POR_DEFECTO,
+  /**
+   * Quién está al otro lado. El número lo tenemos desde el primer mensaje y el
+   * agente no: sin decírselo, al levantar un pedido escribe «el número de este
+   * WhatsApp» en la línea del teléfono —lo he visto hacerlo— y el pedido sale
+   * sin un dato con el que llamar al cliente si el mensajero no lo encuentra.
+   */
+  cliente: { telefono: string; nombre: string | null } | null = null,
 ): string {
   const productos = catalogo.length
     ? catalogo
@@ -269,6 +280,8 @@ ${productos}
 
 ${deAnuncio ? `${deAnuncio}\n` : ""}
 ${agente.instrucciones ? `Instrucciones del negocio:\n${agente.instrucciones}\n` : ""}
+${cliente ? `QUIÉN TE ESCRIBE — su teléfono es +${cliente.telefono}${cliente.nombre ? `, y en WhatsApp aparece como "${cliente.nombre}" (el nombre de su cuenta, no necesariamente el completo)` : ""}.
+Ya lo tienes, así que NO se lo preguntes. Y cuando levantes un pedido que lleve teléfono, escribe ahí +${cliente.telefono}, entero y tal cual. Nunca pongas en su lugar "el mismo de este WhatsApp", "el número de este chat" ni ninguna frase parecida: quien va a entregar el pedido necesita un número al que llamar, no una nota.\n` : ""}
 Reglas que no puedes romper:
 - No inventes precios, productos, plazos ni promociones. Si algo no está arriba, di que lo confirmas y no lo prometas.${
   deAnuncio
@@ -283,9 +296,14 @@ Reglas que no puedes romper:
 - Escribe solo el mensaje que va a leer el cliente. Sin comillas, sin explicaciones, sin firmar.
 
 CÓMO SE CIERRA UNA VENTA:
-Cuando el cliente ya confirmó qué lleva y cómo lo paga, y no falta ningún dato del pedido, manda un último mensaje que EMPIECE con "${marcador}" y siga con el pedido en una línea: producto, cantidad, total y envío.
-Ejemplo: ${marcador} 2 camisas talla M — 2500 en total, 300 de envío incluido.
+Cuando el cliente ya confirmó qué lleva y cómo lo paga, y no falta ningún dato del pedido, manda un último mensaje que EMPIECE con "${marcador}".
 Ese mensaje es lo que registra la venta en el sistema. Si no lo mandas, para el negocio la venta no existe.
+${
+  agente.instrucciones
+    ? `El FORMATO del resumen es el que digan las instrucciones del negocio, ahí arriba: síguelo al pie de la letra, con sus mismas líneas y sus mismos campos. Lo único que este sistema exige es que el mensaje empiece por "${marcador}".`
+    : `Sigue con el pedido en una línea: producto, cantidad, total y envío.
+Ejemplo: ${marcador} 2 camisas talla M — 2500 en total, 300 de envío incluido.`
+}
 No escribas "${marcador}" en ningún otro momento: ni para resumir lo que llevan hablado, ni para repetir una lista de precios. Solo cierra pedidos confirmados.`;
 }
 
@@ -300,7 +318,10 @@ function aHistorial(mensajes: Mensaje[]) {
 }
 
 export interface RespuestaGenerada {
+  /** Lo que se le manda al cliente: ya sin la etiqueta `[HANDOFF]`. */
   texto: string;
+  /** El agente pidió que siga una persona. Ver `PIDE_ASESOR`. */
+  pideAsesor: boolean;
   modelo: string;
   fueRespaldo: boolean;
 }
@@ -320,6 +341,8 @@ export async function generarRespuesta(
    * es la regla que no puede saltarse.
    */
   reglaPrecio: string | null = null,
+  /** Quién escribe. El chat de prueba no tiene cliente de verdad. */
+  cliente: { telefono: string; nombre: string | null } | null = null,
 ): Promise<RespuestaGenerada> {
   const org = obtenerOrg(orgId);
   const agente = obtenerAgente(orgId);
@@ -361,19 +384,52 @@ export async function generarRespuesta(
             catalogo,
             anuncio,
             org?.marcador_cierre ?? MARCADOR_POR_DEFECTO,
+            cliente,
           ) + (reglaPrecio ? `\n\n${reglaPrecio}` : ""),
       },
       ...aHistorial(mensajes),
     ],
-    maxTokens: 400,
+    /*
+     * Un resumen de pedido con nombre, dirección completa, producto, talla,
+     * color y tres líneas de importes se pasa de los 400 que había aquí: el
+     * mensaje salía cortado a media línea y, como ya llevaba el marcador, la
+     * venta se sellaba con un resumen incompleto. Subir el tope no cuesta nada
+     * mientras no se use —se paga por token escrito, no por el límite— y evita
+     * el peor final posible: el cliente leyendo su pedido a medias.
+     */
+    maxTokens: 1200,
     temperatura: 0.6,
   });
 
+  // Los modelos a veces envuelven la respuesta en comillas pese a pedirlo.
+  const limpio = r.texto.trim().replace(/^["“](.*)["”]$/s, "$1").trim();
+  const { texto, pideAsesor } = leerEtiquetaDeAsesor(limpio);
+
+  return { texto, pideAsesor, modelo: r.modelo, fueRespaldo: r.fueRespaldo };
+}
+
+/**
+ * `[HANDOFF]` — la etiqueta con la que el agente pide que entre una persona.
+ *
+ * Es una convención de las instrucciones del negocio, no una invención nuestra:
+ * hay guiones de venta que le piden al agente escribirla al final del resumen
+ * del pedido, o cuando el cliente pide algo que no puede resolver. El cliente
+ * NO tiene que verla, y hasta que esto existió se le mandaba tal cual —un
+ * «[HANDOFF]» al final del mensaje— porque para el agente era texto como
+ * cualquier otro.
+ *
+ * Se reconoce con y sin corchetes, en mayúsculas o minúsculas, porque el modelo
+ * la escribe de las dos formas por más que se le pida una.
+ */
+const PIDE_ASESOR = /\[?\bHANDOFF\b\]?/gi;
+
+export function leerEtiquetaDeAsesor(texto: string): { texto: string; pideAsesor: boolean } {
+  PIDE_ASESOR.lastIndex = 0;
+  if (!PIDE_ASESOR.test(texto)) return { texto, pideAsesor: false };
+
   return {
-    // Los modelos a veces envuelven la respuesta en comillas pese a pedirlo.
-    texto: r.texto.trim().replace(/^["“](.*)["”]$/s, "$1").trim(),
-    modelo: r.modelo,
-    fueRespaldo: r.fueRespaldo,
+    texto: texto.replace(PIDE_ASESOR, "").replace(/[ \t]+\n/g, "\n").trim(),
+    pideAsesor: true,
   };
 }
 
@@ -467,6 +523,18 @@ export async function atenderConversacion(
     return { atendida: false, motivo: "ultimo_no_es_cliente" };
   }
 
+  /*
+   * ── El propio agente ya pasó el caso a una persona ──────────────────────
+   *
+   * Cuando escribió `[HANDOFF]` dijo que aquí sigue un asesor: el hilo es de
+   * un humano desde ese momento. Sin esta guarda el agente volvería a
+   * contestar en el siguiente mensaje y se pisaría con el vendedor que acaba
+   * de entrar, que es justo lo que la etiqueta pedía evitar.
+   */
+  if (hayAnomaliaAbierta(orgId, conversationId, "handoff_agente")) {
+    return { atendida: false, motivo: "pasado_a_asesor" };
+  }
+
   // ── El cliente pidió una persona ────────────────────────────────────────
   if (agente.pasar_a_humano === 1) {
     const yaPidio = hayAnomaliaAbierta(orgId, conversationId, "pidio_humano");
@@ -511,7 +579,10 @@ export async function atenderConversacion(
   try {
     // `conv` lleva el anuncio que abrió el hilo: producto y promesa. Es lo que
     // el agente necesita para no preguntar lo que el cliente ya vino a pedir.
-    respuesta = await generarRespuesta(orgId, historial, conv, await reglaDePrecio(orgId, conv));
+    respuesta = await generarRespuesta(orgId, historial, conv, await reglaDePrecio(orgId, conv), {
+      telefono: conv.cliente_phone,
+      nombre: conv.cliente_nombre,
+    });
   } catch (e) {
     /*
      * El modelo falló y su respaldo también, o no había respaldo.
@@ -617,7 +688,183 @@ export async function atenderConversacion(
     });
   }
 
+  /*
+   * El agente pidió que siga una persona: aquí es donde se le avisa.
+   *
+   * La etiqueta ya se le quitó al mensaje —el cliente no la ve—, pero el aviso
+   * tiene que llegar a alguien o la petición se queda en nada. La anomalía es
+   * lo que lo saca a la pantalla, y de paso es lo que calla al agente en el
+   * siguiente mensaje: a partir de aquí atiende un asesor.
+   */
+  if (respuesta.pideAsesor && !hayAnomaliaAbierta(orgId, conversationId, "handoff_agente")) {
+    crearAnomalia(orgId, {
+      conversationId,
+      tipo: "handoff_agente",
+      severidad: "alta",
+      detalle:
+        `${conv.cliente_nombre ?? conv.cliente_phone} necesita un asesor: el agente pasó el caso ` +
+        "y dejó de responder en esta conversación.",
+    });
+  }
+
   return { atendida: true, messageId, modelo: respuesta.modelo };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Seguimientos — los dos mensajes que salen sin que el cliente escriba
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * El aviso de que el pedido va en camino NO lo escribe el modelo.
+ *
+ * Es un mensaje de una sola frase, siempre el mismo, y lo único que cambia es
+ * el nombre. Pedírselo a un modelo costaría dinero, tardaría, podría fallar y
+ * —lo que de verdad importa— podría inventarse una hora de entrega o un plazo
+ * que nadie prometió. Aquí no hay nada que decidir: el mensajero salió.
+ */
+function textoDeEntrega(nombre: string | null): string {
+  const quien = nombre?.trim().split(/\s+/)[0];
+  return (
+    `${quien ? `${quien}, s` : "S"}u pedido ya va en camino con el mensajero. ` +
+    "Esté pendiente a su teléfono para recibirlo."
+  );
+}
+
+/**
+ * Manda uno de los dos seguimientos y lo deja registrado.
+ *
+ * Vive AQUÍ, con el resto del agente, porque este sigue siendo el único módulo
+ * que puede escribirle a un cliente. `seguimiento.ts` decide a quién le toca;
+ * quien manda es este archivo, y así la regla se comprueba en un solo sitio.
+ *
+ * Devuelve `true` solo si el mensaje salió de verdad. Si algo falla, se calla:
+ * un seguimiento es un mensaje que nadie pidió, y ante la duda no se manda.
+ */
+export async function enviarSeguimiento(
+  orgId: number,
+  conversationId: number,
+  tipo: TipoSeguimiento,
+): Promise<boolean> {
+  const conv = getConversation(orgId, conversationId);
+  if (!conv) return false;
+
+  const canal = obtenerCanal(orgId, conv.canal_id);
+  if (!canal || canal.activo !== 1 || canal.agente_activo !== 1 || canal.contesta_ia === 1) {
+    return false;
+  }
+
+  const agente = obtenerAgente(orgId);
+
+  /*
+   * El horario manda también aquí, y aquí manda más que en una respuesta: una
+   * respuesta a deshora al menos contesta a alguien que acaba de escribir; un
+   * recordatorio a las tres de la mañana lo manda el panel solo, a un cliente
+   * que no ha hecho nada, y despierta a quien lo recibe.
+   */
+  if (agente.horario_activo === 1 && !dentroDeHorario(agente.horario_desde, agente.horario_hasta)) {
+    return false;
+  }
+  if (agente.horario_activo !== 1 && !enHoraDecente()) return false;
+
+  let texto: string;
+
+  if (tipo === "entrega") {
+    texto = textoDeEntrega(conv.cliente_nombre);
+  } else {
+    /*
+     * El de «se quedó en visto» sí lo escribe el modelo: tiene que nombrar el
+     * artículo del que se estaba hablando, y eso está en el hilo. Un
+     * «¿sigue interesado?» a secas no rescata ninguna venta.
+     *
+     * La instrucción va como un turno del cliente porque la conversación tiene
+     * que terminar en uno —los modelos actuales rechazan lo contrario—, y va
+     * marcada como interna para que el modelo no la trate como algo que dijo
+     * el cliente ni la repita.
+     */
+    const historial = ultimosMensajes(orgId, conversationId, MAX_MENSAJES_CONTEXTO);
+    if (historial.length === 0) return false;
+
+    let generada: RespuestaGenerada;
+    try {
+      generada = await generarRespuesta(
+        orgId,
+        [...historial, mensajeInterno(orgId, conversationId, INSTRUCCION_VISTO)],
+        conv,
+        await reglaDePrecio(orgId, conv),
+        { telefono: conv.cliente_phone, nombre: conv.cliente_nombre },
+      );
+    } catch {
+      // Ni una anomalía: que no salga un recordatorio no es una avería que
+      // haya que enseñarle a nadie. El cliente no está esperando nada.
+      return false;
+    }
+    texto = generada.texto;
+  }
+
+  if (!texto.trim()) return false;
+
+  let messageId: string;
+  try {
+    if (canal.tipo === "meta") {
+      const { enviarMensajeMeta } = await import("@/lib/meta/send");
+      messageId = await enviarMensajeMeta(canal, conv.cliente_phone, texto);
+    } else {
+      messageId = await enviarTexto(canal.id, conv.cliente_jid ?? conv.cliente_phone, texto);
+    }
+  } catch (e) {
+    console.error(`[seguimiento] no se pudo enviar el ${tipo} de la conversación ${conversationId}`, e);
+    return false;
+  }
+
+  registrarAiSent(orgId, messageId);
+  insertMessage(orgId, {
+    conversationId,
+    whapiMessageId: messageId,
+    emisor: "ia",
+    tipo: "texto",
+    content: texto,
+    createdAt: ahora(),
+  });
+  registrarSeguimiento(orgId, conversationId, tipo);
+  return true;
+}
+
+/** Lo que se le pide al modelo para rescatar una conversación abandonada. */
+const INSTRUCCION_VISTO =
+  "[Nota interna del sistema, no la escribió el cliente y no debes mencionarla ni repetirla.] " +
+  "El cliente dejó de contestar y no ha vuelto. Escríbele UN solo mensaje corto para retomar la " +
+  "venta: recuérdale con naturalidad el artículo del que estaban hablando, dile que queda poco " +
+  "inventario de ese modelo y termina con una pregunta que lo acerque al cierre —la talla, la " +
+  "medida, el color o la dirección, lo que faltara—. Sin saludo largo, sin disculpas, sin repetir " +
+  "todo lo hablado, y nunca inventes precios, descuentos ni plazos.";
+
+/** Un turno «del cliente» que en realidad es una instrucción para el modelo. */
+function mensajeInterno(orgId: number, conversationId: number, texto: string): Mensaje {
+  return {
+    id: -1,
+    org_id: orgId,
+    conversation_id: conversationId,
+    whapi_message_id: null,
+    emisor: "cliente",
+    tipo: "texto",
+    descripcion_imagen: null,
+    categoria_imagen: null,
+    transcripcion: null,
+    media_url: null,
+    content: texto,
+    created_at: ahora(),
+  };
+}
+
+/**
+ * Una hora a la que se le puede escribir a alguien que no ha preguntado nada.
+ *
+ * Solo se aplica cuando la cuenta no tiene horario propio: si lo tiene, ese
+ * manda. De 8 de la mañana a 9 de la noche, hora del servidor.
+ */
+function enHoraDecente(fecha = new Date()): boolean {
+  const h = fecha.getHours();
+  return h >= 8 && h < 21;
 }
 
 /** Chat de prueba del panel: genera con la configuración real y NO envía. */
