@@ -4,19 +4,31 @@ import { Kpi, Pastilla, Vacio, dinero, fechaCorta } from "@/components/panel/Pie
 import { IconoMoneda, IconoPersona, IconoRayo, IconoVentas } from "@/components/panel/Iconos";
 import { conteoMotivosPerdida, listarCanales, listarConversaciones } from "@/lib/db";
 import { calcularMetricas } from "@/lib/metrics";
-import { rangoAEpochs, requerirSesion } from "@/lib/tenant";
+import { rangoDesdeQuery, requerirSesion } from "@/lib/tenant";
 
 export const metadata = { title: "Ventas · SalesDash" };
 export const dynamic = "force-dynamic";
 
 interface Props {
-  searchParams: Promise<{ rango?: string }>;
+  searchParams: Promise<{ rango?: string; desde?: string; hasta?: string }>;
 }
 
 export default async function PaginaVentas({ searchParams }: Props) {
   const ctx = await requerirSesion();
-  const { rango: clave = "7d" } = await searchParams;
-  const rango = rangoAEpochs(clave);
+  const { rango: clave = "7d", desde, hasta } = await searchParams;
+
+  /*
+   * El mismo periodo que el resto del panel: la clave de rango, y por encima
+   * las fechas exactas del calendario si el usuario eligió unas. Si Ventas
+   * ignorara `desde`/`hasta`, elegir un periodo en la barra lateral cambiaría
+   * el dashboard y dejaría esta página hablando de otras semanas sin avisar.
+   */
+  const parametros = new URLSearchParams();
+  parametros.set("rango", clave);
+  if (desde) parametros.set("desde", desde);
+  if (hasta) parametros.set("hasta", hasta);
+
+  const rango = rangoDesdeQuery(parametros);
 
   const m = calcularMetricas(ctx.orgId, rango);
   const nombres = new Map(listarCanales(ctx.orgId).map((c) => [c.id, c.nombre]));
@@ -133,7 +145,7 @@ export default async function PaginaVentas({ searchParams }: Props) {
             <Vacio
               titulo="Sin analizar todavía"
               texto="Analiza una muestra para descubrir qué las está frenando."
-              accion={<AnalizarPerdidas rango={clave} />}
+              accion={<AnalizarPerdidas consulta={parametros.toString()} />}
             />
           ) : (
             <>
@@ -156,7 +168,7 @@ export default async function PaginaVentas({ searchParams }: Props) {
                   </li>
                 ))}
               </ul>
-              <AnalizarPerdidas rango={clave} />
+              <AnalizarPerdidas consulta={parametros.toString()} />
             </>
           )}
         </section>

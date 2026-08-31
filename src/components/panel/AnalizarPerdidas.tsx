@@ -8,7 +8,7 @@ import { useState } from "react";
  * descubrir por qué se cayeron. Interesa la proporción, no el censo: por eso
  * es una muestra y no todas.
  */
-export default function AnalizarPerdidas({ rango }: { rango: string }) {
+export default function AnalizarPerdidas({ consulta }: { consulta: string }) {
   const router = useRouter();
   const [ocupado, setOcupado] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -20,7 +20,9 @@ export default function AnalizarPerdidas({ rango }: { rango: string }) {
     setNota(null);
 
     try {
-      const r = await fetch(`/api/analyze/perdidas?rango=${encodeURIComponent(rango)}`, { method: "POST" });
+      /* El mismo periodo que la página: si hay fechas elegidas en el
+         calendario, se analizan esas y no los últimos siete días. */
+      const r = await fetch(`/api/analyze/perdidas?${consulta}`, { method: "POST" });
       const datos = await r.json();
 
       if (!r.ok) setError(datos.error ?? "No pudimos analizarlas.");
