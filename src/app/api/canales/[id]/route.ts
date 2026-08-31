@@ -123,7 +123,18 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
   if (datos.data.activo === false) void desconectar(canal.id, false);
   if (datos.data.activo === true) void conectar(canal.id);
 
-  return NextResponse.json({ ok: true });
+  /*
+   * Se contesta con el estado REAL del agente en este número, no con un «ok».
+   *
+   * Encender el interruptor y leer «guardado» no significa que un cliente vaya
+   * a recibir respuesta: puede faltar la clave del modelo, el número puede
+   * estar caído, el cupo del modelo gratuito puede estar agotado. Quien acaba
+   * de encenderlo tiene que enterarse EN ESE MOMENTO, y no tres días después
+   * por un cliente que se fue sin que nadie le contestara.
+   */
+  const { revisarAgente } = await import("@/lib/agent");
+
+  return NextResponse.json({ ok: true, agente: revisarAgente(s.ctx.orgId, canal.id) });
 }
 
 /**

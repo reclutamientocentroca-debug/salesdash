@@ -2,7 +2,13 @@ import "./entorno";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as D from "../src/lib/db";
-import { armarSistema, atenderConversacion, dentroDeHorario, pideHumano } from "../src/lib/agent";
+import {
+  armarSistema,
+  atenderConversacion,
+  dentroDeHorario,
+  pideHumano,
+  revisarAgente,
+} from "../src/lib/agent";
 import { contieneMarcador, duenoDelCierre, registrarCierre } from "../src/lib/cierre";
 import type { Resultado } from "../src/lib/agent";
 
@@ -521,5 +527,51 @@ test("marcar el número como atendido por tu IA deja mudo al agente del panel", 
   assert.equal(motivoDe(await atenderConversacion(orgId, canalId, id)), "agente_apagado");
 
   D.actualizarCanal(orgId, canalId, { contesta_ia: 0 });
+  encender(false);
+});
+
+/**
+ * La comprobación que ve el dueño al encender el agente tiene que decir lo
+ * mismo que hace la guarda. Si `revisarAgente` dijera «listo» donde
+ * `atenderConversacion` se calla, la pantalla estaría mintiendo justo en el
+ * momento en que alguien confía en ella para dejar su WhatsApp desatendido.
+ */
+test("revisarAgente dice lo mismo que hace la guarda", async () => {
+  process.env.OPENROUTER_API_KEY ??= "clave-de-pruebas";
+
+  // Apagado: ni listo, ni contesta.
+  encender(false);
+  const apagado = revisarAgente(orgId, canalId);
+  assert.equal(apagado.listo, false);
+  const conv = hilo([{ emisor: "cliente", content: "hola", hace: 5 }]);
+  assert.equal(motivoDe(await atenderConversacion(orgId, canalId, conv)), "agente_apagado");
+
+  // En modo vigilar con el interruptor encendido: la guarda calla y la
+  // revisión lo dice con esas palabras.
+  D.actualizarCanal(orgId, canalId, { agente_activo: 1, contesta_ia: 1 });
+  const vigilando = revisarAgente(orgId, canalId);
+  assert.equal(vigilando.listo, false);
+  assert.ok(
+    vigilando.impedimentos.some((t) => t.includes("vigilar")),
+    "tiene que nombrar el modo vigilar, que es lo que hay que cambiar",
+  );
+
+  // Encendido de verdad: listo, y sin nada que arreglar.
+  //
+  // Se borra el consumo del día que dejaron las pruebas de arriba: sus llamadas
+  // al modelo fallaron todas —no hay red aquí— y eso es, con razón, uno de los
+  // impedimentos que `revisarAgente` señala.
+  D.db.prepare("DELETE FROM uso_modelo WHERE org_id = ?").run(orgId);
+  encender(true);
+  const listo = revisarAgente(orgId, canalId);
+  assert.equal(listo.listo, true);
+  assert.deepEqual(listo.impedimentos, []);
+
+  // Fuera de horario NO lo apaga: es temporal, y avisa.
+  D.actualizarAgente(orgId, { horario_activo: 1, horario_desde: "09:00", horario_hasta: "09:01" });
+  const fuera = revisarAgente(orgId, canalId);
+  assert.equal(fuera.listo, true, "el horario no es una avería");
+  D.actualizarAgente(orgId, { horario_activo: 0 });
+
   encender(false);
 });

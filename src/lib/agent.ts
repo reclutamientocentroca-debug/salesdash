@@ -30,6 +30,7 @@ import {
   obtenerOrg,
   registrarAiSent,
   ultimosMensajes,
+  usoDelDia,
   type Agente,
   type Mensaje,
   type Producto,
@@ -38,7 +39,7 @@ import {
 import { descifrar } from "./auth";
 import { anuncioParaModelo, type DatosAnuncio } from "./anuncio";
 import { MARCADOR_POR_DEFECTO, registrarCierre } from "./cierre";
-import { completar, ErrorIA } from "./ia";
+import { completar, ErrorIA, hoyISO } from "./ia";
 
 /** Ventana en la que un mensaje de vendedor silencia al agente. */
 const SILENCIO_TRAS_HUMANO = 2 * 60 * 60;
@@ -108,6 +109,97 @@ export function dentroDeHorario(desde: string | null, hasta: string | null, fech
   const h = aMinutos(hasta);
 
   return d <= h ? ahoraMin >= d && ahoraMin <= h : ahoraMin >= d || ahoraMin <= h;
+}
+
+/**
+ * ¿VA A CONTESTAR ESTE NÚMERO? Dicho antes de que escriba un cliente.
+ *
+ * Encender el agente y descubrir tres días después —por un cliente que se fue
+ * sin respuesta— que faltaba la clave del modelo, o que el número estaba en
+ * modo vigilar, no es aceptable. Esta función mira exactamente las mismas
+ * condiciones que `atenderConversacion` y las dice en voz alta, para que la
+ * pantalla que enciende el interruptor pueda contestar «listo» o «esto falta».
+ *
+ * Vive AQUÍ, pegada a las guardas que copia, porque si alguien añade una
+ * condición de silencio allí y no aquí, el panel diría que todo está bien
+ * mientras el agente calla. No llama a ningún modelo: son lecturas de la base.
+ *
+ * `listo` es lo que impide hablar. Los avisos de horario y de conexión no lo
+ * apagan: uno es temporal por definición y el otro se arregla solo al
+ * reconectar el socket.
+ */
+export interface RevisionAgente {
+  /** Nada impide que conteste al próximo cliente. */
+  listo: boolean;
+  /** Lo que hay que arreglar, en el orden en que lo frena. */
+  impedimentos: string[];
+  /** Cierto ahora mismo, pero no es una avería. */
+  avisos: string[];
+}
+
+export function revisarAgente(orgId: number, canalId: number): RevisionAgente {
+  const impedimentos: string[] = [];
+  const avisos: string[] = [];
+
+  const canal = obtenerCanal(orgId, canalId);
+  if (!canal) return { listo: false, impedimentos: ["El número no existe."], avisos };
+
+  if (canal.activo !== 1) {
+    impedimentos.push("El número está apagado: enciéndelo en Números.");
+  }
+
+  if (canal.contesta_ia === 1) {
+    impedimentos.push(
+      "Este número está en modo vigilar —aquí contesta tu propia IA y el panel solo mira—, " +
+        "así que el agente no escribe. Enciende el interruptor de este número aquí abajo.",
+    );
+  }
+
+  if (canal.agente_activo !== 1) {
+    impedimentos.push("El agente está apagado en este número.");
+  }
+
+  if (!process.env.OPENROUTER_API_KEY) {
+    impedimentos.push(
+      "Falta la clave del modelo (OPENROUTER_API_KEY) en el servidor: sin ella no se puede generar ni una respuesta.",
+    );
+  }
+
+  const agente = obtenerAgente(orgId);
+
+  if (agente.horario_activo === 1 && !dentroDeHorario(agente.horario_desde, agente.horario_hasta)) {
+    avisos.push(
+      `Ahora mismo está fuera del horario (${agente.horario_desde ?? "?"}–${agente.horario_hasta ?? "?"}): ` +
+        "volverá a contestar dentro de la franja.",
+    );
+  }
+
+  if (canal.estado !== "conectado") {
+    avisos.push(
+      `El número aparece «${canal.estado}» en WhatsApp: los mensajes no entran hasta que reconecte. ` +
+        "El agente ya queda encendido y contestará en cuanto vuelva.",
+    );
+  }
+
+  /*
+   * El cupo del modelo gratuito se agota a media tarde y el agente enmudece sin
+   * que nada cambie en la pantalla. Si hoy TODAS las llamadas fallaron, eso es
+   * lo que está pasando.
+   */
+  const uso = usoDelDia(orgId, hoyISO()).filter((u) => u.proposito === "agente");
+  const exitos = uso.reduce((n, u) => n + u.exitos, 0);
+  const fallos = uso.reduce((n, u) => n + u.fallos, 0);
+
+  if (fallos > 0 && exitos === 0) {
+    impedimentos.push(
+      `Hoy fallaron las ${fallos} llamadas al modelo y no salió ninguna respuesta. ` +
+        (agente.modelo.endsWith(":free")
+          ? "El modelo gratuito agota su cupo diario: elige uno de pago o configura un respaldo."
+          : "Revisa el modelo y la clave."),
+    );
+  }
+
+  return { listo: impedimentos.length === 0, impedimentos, avisos };
 }
 
 export type MotivoSilencio =

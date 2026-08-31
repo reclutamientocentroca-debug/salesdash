@@ -16,6 +16,13 @@ interface Agente {
   horario_hasta: string | null;
 }
 
+/** Lo que impide o condiciona que el agente conteste. Lo calcula el servidor. */
+interface RevisionAgente {
+  listo: boolean;
+  impedimentos: string[];
+  avisos: string[];
+}
+
 interface CanalAgente {
   id: number;
   nombre: string;
@@ -24,6 +31,7 @@ interface CanalAgente {
   /** En este número contesta una IA ajena: el nuestro se calla, esté como esté. */
   contesta_ia: boolean;
   conectado: boolean;
+  revision: RevisionAgente;
 }
 
 interface Consumo {
@@ -187,24 +195,29 @@ export default function PanelAgente({
   /**
    * Encender el agente en un número es DECIDIR QUIÉN CONTESTA AHÍ.
    *
-   * Por defecto el panel solo vigila: en el WhatsApp del dueño ya contesta su
-   * propia IA. Encender el nuestro le quita ese sitio, así que se pregunta —una
-   * vez, y solo cuando de verdad cambia algo—: quien no se dé cuenta se
-   * encuentra a dos vendedores escribiéndole al mismo cliente, y eso ya no se
-   * arregla.
+   * Por defecto el panel solo vigila: se supone que en el WhatsApp del dueño ya
+   * contesta su propia IA. Encender el nuestro le quita ese sitio, así que se
+   * pregunta —una vez, y solo cuando de verdad cambia algo—: quien no se dé
+   * cuenta se encuentra a dos vendedores escribiéndole al mismo cliente.
+   *
+   * La pregunta se hace EN LA PÁGINA y no con el `confirm()` del navegador. Un
+   * `confirm()` bloqueado —pasa dentro de la app de Facebook, en algunos
+   * navegadores de móvil y con cualquier bloqueador— devuelve «cancelar» sin
+   * enseñar nada: el dueño pulsa el interruptor, no ocurre absolutamente nada,
+   * y se queda esperando respuestas de un agente que nunca se encendió.
    */
+  const [confirmando, setConfirmando] = useState<number | null>(null);
+
   async function alternarCanal(id: number, activo: boolean) {
     const canal = canales.find((c) => c.id === id);
 
-    if (activo && canal?.contesta_ia) {
-      const sigue = confirm(
-        `En «${canal.nombre}» contesta tu IA y el panel solo vigila.\n\n` +
-          "Si enciendes el agente del panel, el que contestará a partir de ahora es él, y tu IA " +
-          "deja de tener ese sitio. Las respuestas del número pasarán a contarse como suyas.\n\n" +
-          "¿Enciendes el agente del panel en este número?",
-      );
-      if (!sigue) return;
+    if (activo && canal?.contesta_ia && confirmando !== id) {
+      setConfirmando(id);
+      return;
     }
+
+    setConfirmando(null);
+    setError(null);
 
     setCanales((cs) =>
       cs.map((c) =>
@@ -222,6 +235,15 @@ export default function PanelAgente({
       setCanales((cs) => cs.map((c) => (c.id === id ? { ...c, ...canal } : c)));
       setError("No se pudo cambiar el número.");
       return;
+    }
+
+    /*
+     * El servidor contesta con lo que de verdad va a pasar cuando escriba un
+     * cliente. Se pinta ahí mismo: «listo» o la lista de lo que falta.
+     */
+    const datos = (await r.json().catch(() => ({}))) as { agente?: RevisionAgente };
+    if (datos.agente) {
+      setCanales((cs) => cs.map((c) => (c.id === id ? { ...c, revision: datos.agente! } : c)));
     }
     router.refresh();
   }
@@ -260,36 +282,97 @@ export default function PanelAgente({
         ) : (
           <div style={{ display: "grid", gap: 12 }}>
             {canales.map((c) => (
-              <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                {/*
-                  El interruptor SÍ se puede tocar en un número que solo se
-                  vigila: encenderlo es precisamente cómo se le da el sitio a
-                  nuestro agente. Lo que no se puede es dejar a los dos
-                  contestando, y de eso se encarga el servidor, que apaga uno al
-                  encender el otro.
-                */}
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={c.agente_activo && !c.contesta_ia}
-                  aria-label={`Agente en ${c.nombre}`}
-                  className="sd-switch"
-                  disabled={!c.conectado}
-                  onClick={() => alternarCanal(c.id, !c.agente_activo)}
-                />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600 }}>{c.nombre}</div>
-                  <div className="num tenue">
-                    {c.phone ? `+${c.phone}` : "sin vincular"}
-                    {!c.conectado && " · desconectado"}
-                    {c.contesta_ia && " · aquí contesta tu IA, el panel solo mira"}
+              <div key={c.id} style={{ display: "grid", gap: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  {/*
+                    El interruptor SÍ se puede tocar en un número que solo se
+                    vigila: encenderlo es precisamente cómo se le da el sitio a
+                    nuestro agente. Lo que no se puede es dejar a los dos
+                    contestando, y de eso se encarga el servidor, que apaga uno
+                    al encender el otro.
+
+                    Y TAMBIÉN en uno desconectado. Antes estaba bloqueado ahí, y
+                    era el peor sitio para bloquearlo: un número recién vinculado
+                    tarda unos segundos en decir «conectado», y mientras tanto el
+                    dueño pulsaba un interruptor muerto —sin aviso, sin error—
+                    convencido de que había encendido la IA. Encenderlo en un
+                    número caído no rompe nada: no manda ningún mensaje, deja el
+                    ajuste puesto y el agente contesta en cuanto reconecte.
+                  */}
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={c.agente_activo && !c.contesta_ia}
+                    aria-label={`Agente en ${c.nombre}`}
+                    className="sd-switch"
+                    onClick={() => alternarCanal(c.id, !c.agente_activo)}
+                  />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>{c.nombre}</div>
+                    <div className="num tenue">
+                      {c.phone ? `+${c.phone}` : "sin vincular"}
+                      {!c.conectado && " · desconectado"}
+                      {c.contesta_ia && " · aquí contesta tu IA, el panel solo mira"}
+                    </div>
                   </div>
+                  <span
+                    className={`pastilla ${c.agente_activo && !c.contesta_ia ? "pastilla-ia" : "pastilla-abierta"}`}
+                  >
+                    {c.contesta_ia ? "Solo vigila" : c.agente_activo ? "Responde" : "Apagado"}
+                  </span>
                 </div>
-                <span
-                  className={`pastilla ${c.agente_activo && !c.contesta_ia ? "pastilla-ia" : "pastilla-abierta"}`}
-                >
-                  {c.contesta_ia ? "Solo vigila" : c.agente_activo ? "Responde" : "Apagado"}
-                </span>
+
+                {/* La pregunta que antes hacía el navegador, ahora en la página. */}
+                {confirmando === c.id && (
+                  <div className="aviso aviso-ambar" style={{ display: "grid", gap: 10 }}>
+                    <div>
+                      En <strong>{c.nombre}</strong> contesta tu IA y el panel solo vigila. Si enciendes
+                      el agente del panel, el que contesta a partir de ahora es él y tu IA deja de tener
+                      ese sitio: las respuestas de este número pasarán a contarse como suyas.
+                    </div>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <button
+                        type="button"
+                        className="btn btn-acento"
+                        onClick={() => alternarCanal(c.id, true)}
+                      >
+                        Sí, que conteste el agente
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secundario"
+                        onClick={() => setConfirmando(null)}
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/*
+                  Con qué se encuentra un cliente que escriba a este número.
+                  Solo se pinta cuando hay algo que decir: con el agente apagado
+                  a propósito, «el agente está apagado» no es una noticia.
+                */}
+                {c.agente_activo && confirmando !== c.id && (
+                  <>
+                    {c.revision.impedimentos.map((t) => (
+                      <div className="aviso aviso-error" key={t} role="alert">
+                        {t}
+                      </div>
+                    ))}
+                    {c.revision.avisos.map((t) => (
+                      <div className="aviso aviso-ambar" key={t}>
+                        {t}
+                      </div>
+                    ))}
+                    {c.revision.listo && c.revision.avisos.length === 0 && (
+                      <div className="tenue" style={{ color: "var(--acc)" }}>
+                        ✓ Listo: el agente contesta al próximo cliente que escriba a este número.
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             ))}
           </div>

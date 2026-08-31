@@ -1,4 +1,5 @@
 import PanelAgente from "@/components/panel/PanelAgente";
+import { revisarAgente } from "@/lib/agent";
 import { listarCanales, obtenerAgente, usoDelDia } from "@/lib/db";
 import { hoyISO } from "@/lib/ia";
 import { requerirSesion } from "@/lib/tenant";
@@ -45,6 +46,13 @@ export default async function PaginaAgente() {
           agente_activo: c.agente_activo === 1,
           contesta_ia: c.contesta_ia === 1,
           conectado: c.estado === "conectado",
+          /*
+           * Con qué se encuentra un cliente que escriba AHORA a este número.
+           * Se calcula al pintar la página y no solo al tocar el interruptor:
+           * un agente que dejó de contestar anoche —cupo agotado, número
+           * caído— tiene que verse al entrar, sin apagar y encender nada.
+           */
+          revision: revisarAgente(ctx.orgId, c.id),
         }))}
         consumo={{
           respuestas_hoy: uso.reduce((n, u) => n + u.exitos, 0),
