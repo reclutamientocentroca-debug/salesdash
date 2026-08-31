@@ -46,8 +46,17 @@ export interface Pais {
     /** Un importe de ejemplo, ya escrito como allí se escribe. */
     ejemplo: string;
   };
-  /** Prefijo internacional, para reconocer un número de casa. */
+  /** Prefijo internacional, escrito para leerlo una persona. */
   prefijo: string;
+  /**
+   * Con qué empieza un número de este país, para reconocerlo por el prefijo.
+   *
+   * Son varios y no uno porque República Dominicana comparte el código +1 con
+   * media América: lo que la identifica es el código de área —809, 829, 849—,
+   * no el 1. Por eso aquí van los prefijos COMPLETOS y no el código de país:
+   * con solo el 1, un número de Miami entraría como dominicano.
+   */
+  prefijosTelefono: string[];
   husoHorario: string;
   /** De usted, de tú o de vos. Es lo primero que delata a un agente de fuera. */
   tratamiento: string;
@@ -81,6 +90,7 @@ const REPUBLICA_DOMINICANA: Pais = {
     ejemplo: "RD$1,500",
   },
   prefijo: "+1 (809 / 829 / 849)",
+  prefijosTelefono: ["1809", "1829", "1849"],
   husoHorario: "America/Santo_Domingo",
   tratamiento:
     "Se tutea con naturalidad, incluso vendiendo. El usted suena distante salvo con gente mayor.",
@@ -152,6 +162,7 @@ const COSTA_RICA: Pais = {
     ejemplo: "₡25.000",
   },
   prefijo: "+506 (ocho dígitos)",
+  prefijosTelefono: ["506"],
   husoHorario: "America/Costa_Rica",
   tratamiento:
     "Se habla de USTED casi siempre, incluso con confianza; el vos aparece entre conocidos. " +
@@ -218,6 +229,7 @@ const PANAMA: Pais = {
     ejemplo: "B/. 25.00",
   },
   prefijo: "+507 (ocho dígitos)",
+  prefijosTelefono: ["507"],
   husoHorario: "America/Panama",
   tratamiento:
     "De usted al vender, cordial y directo. El tuteo se usa con clientes jóvenes o de confianza.",
@@ -287,6 +299,41 @@ export const PAISES: Pais[] = [REPUBLICA_DOMINICANA, COSTA_RICA, PANAMA];
 export function obtenerPais(codigo: string | null | undefined): Pais | null {
   if (!codigo) return null;
   return PAISES.find((p) => p.codigo === codigo.toLowerCase().trim()) ?? null;
+}
+
+/**
+ * EL PAÍS DE UN NÚMERO, DEDUCIDO DE SU PREFIJO.
+ *
+ * El número de un canal YA DICE en qué país vende: un WhatsApp +507 atiende a
+ * panameños. Preguntárselo al dueño cuando el dato está delante es hacerle
+ * escribir algo que ya sabemos, y —peor— es un campo que se queda sin rellenar,
+ * con el agente hablando en neutro sin que nadie se dé cuenta.
+ *
+ * Devuelve null cuando no se puede saber, y eso es lo importante: NO adivina.
+ * Un +1 puede ser dominicano, estadounidense o de media docena de islas más, y
+ * lo que lo distingue es el código de área. Un número de Miami metido como
+ * dominicano haría que el agente cotizara en pesos a quien paga en dólares, que
+ * es peor que no saber de dónde es. Ante la duda, sin país, y el panel avisa.
+ *
+ * `telefono` llega tal como se guarda: solo dígitos y sin el «+». Un canal sin
+ * vincular tiene «pendiente:…» ahí, y de ese no hay nada que deducir.
+ */
+export function paisDeTelefono(telefono: string | null | undefined): Pais | null {
+  if (!telefono) return null;
+
+  const digitos = telefono.replace(/\D/g, "");
+  if (!digitos) return null;
+
+  /*
+   * El prefijo más largo gana. Sin ordenar, un país con prefijo "1" se llevaría
+   * por delante a otro con "1809": aquí no pasa —ninguno usa el "1" pelado—
+   * pero es la clase de detalle que se rompe solo el día que se añade un país.
+   */
+  const candidatos = PAISES.flatMap((p) => p.prefijosTelefono.map((pre) => ({ p, pre })))
+    .filter(({ pre }) => digitos.startsWith(pre))
+    .sort((a, b) => b.pre.length - a.pre.length);
+
+  return candidatos[0]?.p ?? null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

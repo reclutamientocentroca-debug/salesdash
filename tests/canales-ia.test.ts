@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import * as D from "../src/lib/db";
 import { armarSistema, revisarAgente } from "../src/lib/agent";
 import { conLoVistoYOido } from "../src/lib/percepcion";
-import { PAISES, bloqueDePais, obtenerPais } from "../src/lib/paises";
+import { PAISES, bloqueDePais, obtenerPais, paisDeTelefono } from "../src/lib/paises";
 import {
   enlaceDeMapa,
   textoDeUbicacion,
@@ -106,8 +106,14 @@ test("al borrar un canal se va su agente, y la plantilla se queda", () => {
  * dirección. No apagan nada, así que son avisos y no impedimentos.
  */
 test("el panel avisa del canal sin país y del que no tiene de dónde cotizar", () => {
-  const suelto = canal("Sin configurar", "50722228888");
+  /*
+   * Un número del que NO se puede deducir el país, que desde que el prefijo lo
+   * rellena solo es la única forma de quedarse sin él: un +34 no es ninguno de
+   * los tres países que este panel sabe atender.
+   */
+  const suelto = canal("Sin configurar", "34600222888");
   D.actualizarCanal(orgId, suelto, { agente_activo: 1, contesta_ia: 0 });
+  assert.equal(D.obtenerAgente(orgId, suelto).pais, "", "de este número no se deduce nada");
 
   const antes = revisarAgente(orgId, suelto);
   assert.ok(antes.avisos.some((a) => a.includes("no tiene país")));
@@ -120,6 +126,74 @@ test("el panel avisa del canal sin país y del que no tiene de dónde cotizar", 
   assert.equal(despues.avisos.some((a) => a.includes("sacar precios")), false);
 
   D.eliminarCanal(orgId, suelto);
+});
+
+// ── El país sale del propio número ──────────────────────────────────────────
+
+/**
+ * El teléfono del canal YA DICE en qué país vende. Preguntárselo al dueño es
+ * hacerle escribir un dato que tenemos delante, y es justo el campo que se
+ * queda sin rellenar —con el agente hablando en neutro— porque nadie ve que
+ * falta.
+ */
+test("el país se deduce del prefijo del número", () => {
+  assert.equal(paisDeTelefono("18095551234")?.codigo, "do");
+  assert.equal(paisDeTelefono("18295551234")?.codigo, "do");
+  assert.equal(paisDeTelefono("18495551234")?.codigo, "do");
+  assert.equal(paisDeTelefono("50688881234")?.codigo, "cr");
+  assert.equal(paisDeTelefono("50761231234")?.codigo, "pa");
+
+  // Se acepta escrito como lo escribe una persona.
+  assert.equal(paisDeTelefono("+507 6123-1234")?.codigo, "pa");
+});
+
+/**
+ * Y no adivina. Un +1 puede ser dominicano, de Miami o de media docena de
+ * islas más, y lo que lo distingue es el código de área. Un número de Miami
+ * metido como dominicano haría que el agente cotizara en pesos a quien paga en
+ * dólares: peor que no saber de dónde es.
+ */
+test("ante la duda no inventa país", () => {
+  assert.equal(paisDeTelefono("13055551234"), null, "Miami no es Santo Domingo");
+  assert.equal(paisDeTelefono("14155551234"), null, "ni San Francisco");
+  assert.equal(paisDeTelefono("34600111222"), null, "un +34 no es ninguno de los tres");
+  assert.equal(paisDeTelefono("pendiente:abc123"), null, "un canal sin vincular no tiene prefijo");
+  assert.equal(paisDeTelefono(""), null);
+  assert.equal(paisDeTelefono(null), null);
+});
+
+test("un canal nuevo estrena el país de su número, sin que nadie lo elija", () => {
+  const tico = canal("Nuevo tico", "50688887777");
+  assert.equal(D.obtenerAgente(orgId, tico).pais, "cr");
+
+  const panameno = canal("Nuevo panameño", "50761117777");
+  assert.equal(D.obtenerAgente(orgId, panameno).pais, "pa");
+
+  // Uno del que no se puede saber se queda sin país, y el panel lo avisa.
+  const raro = canal("番号", "34600111222");
+  assert.equal(D.obtenerAgente(orgId, raro).pais, "");
+
+  D.eliminarCanal(orgId, tico);
+  D.eliminarCanal(orgId, panameno);
+  D.eliminarCanal(orgId, raro);
+});
+
+/**
+ * Lo que NO puede hacer: pisar una decisión de una persona. Alguien puede tener
+ * un número dominicano atendiendo a clientes de Miami, y eso no lo deshace un
+ * prefijo.
+ */
+test("el prefijo nunca pisa un país elegido a mano", () => {
+  const suyo = canal("Con dueño", "18095557777");
+  assert.equal(D.obtenerAgente(orgId, suyo).pais, "do", "de entrada, el del prefijo");
+
+  D.actualizarAgente(orgId, { pais: "pa" }, suyo);
+
+  // Aunque se vuelva a pedir —al vincular, o en el arranque siguiente—.
+  assert.equal(D.ponerPaisPorTelefono(orgId, suyo), null, "no cambió nada");
+  assert.equal(D.obtenerAgente(orgId, suyo).pais, "pa", "manda lo que eligió la persona");
+
+  D.eliminarCanal(orgId, suyo);
 });
 
 // ── El país entra en el prompt ──────────────────────────────────────────────

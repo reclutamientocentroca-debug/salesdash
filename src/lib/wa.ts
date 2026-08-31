@@ -36,7 +36,7 @@ import { Boom } from "@hapi/boom";
 import { toDataURL } from "qrcode";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { actualizarCanal, ahora, canalesParaReconectar, obtenerCanalSinOrg, rutaDatos, type Canal, type TipoMensaje } from "@/lib/db";
+import { actualizarCanal, ahora, canalesParaReconectar, obtenerCanalSinOrg, ponerPaisPorTelefono, rutaDatos, type Canal, type TipoMensaje } from "@/lib/db";
 import { ingerir, type MensajeEntrante } from "@/lib/ingesta";
 import { esDescargable, guardar } from "@/lib/media";
 import { direccionDelChat, jidDeDestino } from "@/lib/telefono";
@@ -362,6 +362,23 @@ async function abrir(canalId: number): Promise<void> {
             estado: "conectado",
             ...(s.phone ? { phone: s.phone } : {}),
           });
+
+          /*
+           * ESTE es el instante en que se sabe de qué país es el número.
+           *
+           * Un canal nace como «pendiente:…» y no tiene teléfono hasta que
+           * alguien escanea el QR; hasta aquí no había prefijo del que deducir
+           * nada. Ponerlo ahora es lo que hace que un número recién vinculado
+           * ya hable en su moneda sin que nadie toque un ajuste.
+           *
+           * No pisa un país elegido a mano: eso lo garantiza la propia función.
+           */
+          if (s.phone) {
+            const puesto = ponerPaisPorTelefono(canal.org_id, canalId);
+            if (puesto) {
+              console.log(`[wa] el canal ${canalId} (+${s.phone}) vende en «${puesto}», por su prefijo`);
+            }
+          }
         } catch (e) {
           console.error("[wa] no se pudo guardar el número conectado", e);
         }

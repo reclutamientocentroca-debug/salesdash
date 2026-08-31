@@ -19,6 +19,7 @@ import Database from "better-sqlite3";
 import type { Database as DB, Statement } from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { paisDeTelefono } from "./paises";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Modelos por defecto
@@ -678,6 +679,57 @@ function migrar(conexion: DB): void {
       JOIN agentes a ON a.org_id = c.org_id AND a.canal_id = 0
     `);
     })();
+  }
+
+  /*
+   * EL PAÍS DE CADA NÚMERO, DEDUCIDO DE SU PREFIJO.
+   *
+   * Los canales que ya estaban conectados cuando llegó el agente por canal se
+   * quedaron sin país, y un agente sin país habla en neutro: no sabe en qué
+   * moneda cobrar, pide las direcciones como no se piden ahí y no puede
+   * comprobar si un pin del mapa cae donde entrega. Es la avería más silenciosa
+   * de todas, porque el agente parece estar funcionando.
+   *
+   * Y el dato estaba delante todo el tiempo: el teléfono del canal dice de qué
+   * país es. +507 vende en Panamá.
+   *
+   * Solo rellena los que están VACÍOS —nunca pisa un país elegido a mano— y
+   * solo cuando el prefijo no deja dudas: un +1 puede ser dominicano o de
+   * Miami, y lo que lo distingue es el código de área. El que no se pueda
+   * deducir se queda sin país y el panel lo sigue avisando, que es mejor que
+   * cotizar en la moneda equivocada.
+   *
+   * No lleva guarda de «ya se hizo» a propósito: es idempotente por su WHERE, y
+   * así también recoge los canales que se vincularon entre dos despliegues.
+   */
+  {
+    const sinPais = conexion
+      .prepare(
+        `SELECT a.org_id, a.canal_id, c.phone
+           FROM agentes a
+           JOIN canales c ON c.id = a.canal_id AND c.org_id = a.org_id
+          WHERE a.canal_id <> 0 AND a.pais = ''`,
+      )
+      .all() as { org_id: number; canal_id: number; phone: string }[];
+
+    const poner = conexion.prepare(
+      `UPDATE agentes SET pais = ?, updated_at = unixepoch()
+        WHERE org_id = ? AND canal_id = ? AND pais = ''`,
+    );
+
+    let puestos = 0;
+    conexion.transaction(() => {
+      for (const fila of sinPais) {
+        const pais = paisDeTelefono(fila.phone);
+        if (!pais) continue;
+        poner.run(pais.codigo, fila.org_id, fila.canal_id);
+        puestos++;
+      }
+    })();
+
+    if (puestos > 0) {
+      console.log(`[db] ${puestos} número(s) estrenan país, deducido de su prefijo`);
+    }
   }
 
   /*
@@ -1828,6 +1880,17 @@ export function obtenerAgente(orgId: number, canalId: number = AGENTE_DE_LA_CUEN
       `INSERT INTO agentes (org_id, canal_id, ${HEREDABLES})
        SELECT ?, ?, ${HEREDABLES} FROM agentes WHERE org_id = ? AND canal_id = 0`,
     ).run(orgId, canalId, orgId);
+
+    /*
+     * Y el país sale del propio número, si la plantilla no traía uno.
+     *
+     * El teléfono del canal YA DICE dónde vende: preguntárselo al dueño es
+     * hacerle escribir un dato que tenemos delante, y es justo el campo que se
+     * queda sin rellenar —con el agente hablando en neutro— porque nadie ve que
+     * falta. Solo se rellena si la plantilla venía vacía: un país puesto a mano
+     * manda sobre el prefijo, siempre.
+     */
+    ponerPaisPorTelefono(orgId, canalId);
   }
 
   return leer(canalId)!;
@@ -1836,6 +1899,34 @@ export function obtenerAgente(orgId: number, canalId: number = AGENTE_DE_LA_CUEN
 /** Los agentes de una cuenta, plantilla incluida. Para el panel. */
 export function listarAgentes(orgId: number): Agente[] {
   return s(`SELECT * FROM agentes WHERE org_id = ? ORDER BY canal_id`).all(orgId) as Agente[];
+}
+
+/**
+ * Le pone al agente de un canal el país que dice su número, si no tenía uno.
+ *
+ * NO PISA lo que haya elegido una persona: el `pais = ''` del WHERE es la
+ * condición entera. Alguien puede tener un número dominicano atendiendo a
+ * clientes de Miami, y esa decisión suya no la puede deshacer un prefijo.
+ *
+ * Se llama en los dos momentos en que se sabe algo nuevo del número: al crear
+ * el agente del canal, y al vincularlo por QR —que es cuando el canal deja de
+ * ser «pendiente:…» y aprende su teléfono de verdad—.
+ *
+ * Devuelve el código que quedó puesto, o null si no había nada que deducir.
+ */
+export function ponerPaisPorTelefono(orgId: number, canalId: number): string | null {
+  const canal = obtenerCanal(orgId, canalId);
+  if (!canal) return null;
+
+  const pais = paisDeTelefono(canal.phone);
+  if (!pais) return null;
+
+  const r = s(
+    `UPDATE agentes SET pais = ?, updated_at = unixepoch()
+      WHERE org_id = ? AND canal_id = ? AND pais = ''`,
+  ).run(pais.codigo, orgId, canalId);
+
+  return r.changes > 0 ? pais.codigo : null;
 }
 
 const COLUMNAS_AGENTE = [
