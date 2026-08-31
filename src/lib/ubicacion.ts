@@ -12,6 +12,7 @@
  * hilo y el informe— y así se puede probar sin levantar medio WhatsApp.
  */
 import { ciudadMasCercana, dentroDelPais, obtenerPais } from "./paises";
+import type { DireccionAproximada } from "./geocodificacion";
 
 /**
  * Con qué empieza el texto de una ubicación en el hilo.
@@ -141,6 +142,14 @@ export interface UbicacionValidada {
   zona: { nombre: string; km: number } | null;
   /** Lo que el cliente escribió con el pin, si escribió algo. */
   descripcion: string | null;
+  /**
+   * PROVINCIA, DISTRITO, BARRIO Y CALLE del punto, sacadas de las coordenadas.
+   *
+   * Es lo que convierte «me mandó un pin» en «va a Juan Díaz, Provincia de
+   * Panamá». Null cuando no se pudo averiguar —o cuando no se pidió—, y ahí
+   * todo sigue funcionando como antes: se sitúa por la ciudad más cercana.
+   */
+  direccion?: DireccionAproximada | null;
 }
 
 export function validarUbicacion(
@@ -186,7 +195,25 @@ export function ubicacionParaModelo(u: UbicacionValidada, nombrePais: string | n
     return lineas.join("\n");
   }
 
-  if (u.zona) {
+  /*
+   * LA DIRECCIÓN DE VERDAD, si se pudo sacar de las coordenadas. Es lo que
+   * convierte «me mandó un pin» en «va a Juan Díaz, Provincia de Panamá», y lo
+   * que permite pedir SOLO lo que falta en vez de la dirección entera.
+   */
+  const d = u.direccion;
+
+  if (d) {
+    lineas.push(`Dónde cae ese punto: ${d.texto}.`);
+
+    const detalle = [
+      d.provincia && `provincia o estado: ${d.provincia}`,
+      d.distrito && `distrito o cantón: ${d.distrito}`,
+      d.barrio && `barrio o corregimiento: ${d.barrio}`,
+      d.calle && `calle: ${d.calle}`,
+    ].filter(Boolean);
+
+    if (detalle.length > 1) lineas.push(`Desglosado — ${detalle.join("; ")}.`);
+  } else if (u.zona) {
     const km = u.zona.km;
     const cerca =
       km < 3
@@ -196,19 +223,59 @@ export function ubicacionParaModelo(u: UbicacionValidada, nombrePais: string | n
           : `en la zona de ${u.zona.nombre}, a unos ${Math.round(km)} km`;
 
     lineas.push(`El punto cae ${cerca}. La zona es válida para entregar.`);
-    lineas.push(
-      `Confírmale la zona con naturalidad —algo como «perfecto, ${u.zona.nombre}»— en vez de volver ` +
-        "a preguntarle dónde vive: ya te lo dijo.",
-    );
   } else {
     lineas.push("El punto tiene coordenadas válidas.");
   }
 
+  /*
+   * CONFIRMAR LO QUE YA SE SABE Y PEDIR SOLO LO QUE FALTA.
+   *
+   * Esta es la diferencia entre una conversación de un mensaje y una de cinco.
+   * El cliente cree que mandando el pin ya dio su dirección —y casi la dio—;
+   * volver a pedirsela entera le dice que no sirvió de nada.
+   *
+   * Lo que un pin NUNCA trae es el número de casa, el apartamento y la seña con
+   * la que el mensajero reconoce la puerta. Eso sí hay que pedirlo, y es lo
+   * único.
+   */
+  const sitio = d?.barrio ?? d?.distrito ?? u.zona?.nombre ?? null;
+
   lineas.push(
-    "El pin sitúa la zona, pero NO es una dirección: el mensajero necesita señas para tocar una " +
-      "puerta. Pídele lo que falte para poder entregar, sin repetir lo que el pin ya dice.",
+    (sitio
+      ? `Confírmale la zona con naturalidad —algo como «perfecto, ${sitio}»— y NO le vuelvas a preguntar dónde vive ni le pidas la dirección entera: ya te la dio. `
+      : "No le vuelvas a preguntar la dirección entera: el pin ya sitúa la zona. ") +
+      "Lo único que te falta es lo que un mapa no puede darte: el número de casa o de apartamento y " +
+      "una seña para reconocer la puerta —el color, un negocio al lado, algo que se vea—. Pídeselo " +
+      "en una sola pregunta.",
   );
 
   return lineas.join("\n");
+}
+
+/**
+ * La ubicación escrita para el HILO: lo que ven el vendedor, el analista y el
+ * informe. Sustituye al texto que trajo WhatsApp, que muchas veces es solo la
+ * marca pelada.
+ *
+ * Va dentro del contenido del mensaje y no en una columna nueva, por lo mismo
+ * que la marca: es lo que ya leen los tres sitios sin tocar ninguno.
+ */
+export function textoDeUbicacionResuelta(
+  contenido: string,
+  d: DireccionAproximada,
+): string {
+  const enVivo = contenido.startsWith(`${MARCA_UBICACION} en vivo`);
+  const traia = textoSinMarca(contenido);
+  const suyo = traia === "Ubicación enviada por el cliente" ? null : traia;
+
+  /*
+   * La dirección calculada primero, y detrás lo que el cliente puso con el pin:
+   * si escribió «casa de mi mamá», eso es información que el mapa no tiene y no
+   * se puede perder. Solo se descarta cuando repite lo que ya dice la dirección.
+   */
+  const partes = [d.texto, suyo !== d.texto ? suyo : null].filter((x): x is string => !!x);
+
+  const marca = enVivo ? `${MARCA_UBICACION} en vivo` : MARCA_UBICACION;
+  return `${marca} ${partes.join(" · ")}`;
 }
 

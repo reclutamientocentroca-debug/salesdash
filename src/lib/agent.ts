@@ -721,6 +721,38 @@ export async function atenderConversacion(
       ? validarUbicacion(ultimoFresco.content, ultimoFresco.media_url, agente.pais || null)
       : null;
 
+  /*
+   * DE UNAS COORDENADAS A UNA DIRECCIÓN: provincia, distrito, barrio y calle.
+   *
+   * Con esto el agente confirma la zona y pide SOLO lo que un mapa no puede
+   * darle —el número de casa y una seña— en vez de la dirección entera. Y la
+   * dirección queda escrita en el hilo, que es donde la lee quien despacha.
+   *
+   * Con reloj y sin ruido: es una llamada a un servicio de fuera, y si no
+   * contesta a tiempo el agente responde igual, situando la zona por la ciudad
+   * más cercana como hacía antes. Nada de esto puede hacer esperar a un cliente.
+   */
+  if (ubicacion) {
+    try {
+      const { describirPunto } = await import("./geocodificacion");
+      const direccion = await describirPunto(ubicacion.lat, ubicacion.lng, { timeoutMs: 4_000 });
+
+      if (direccion) {
+        ubicacion.direccion = direccion;
+
+        const { textoDeUbicacionResuelta } = await import("./ubicacion");
+        const { guardarUbicacionResuelta } = await import("./db");
+        guardarUbicacionResuelta(
+          orgId,
+          ultimoFresco.id,
+          textoDeUbicacionResuelta(ultimoFresco.content, direccion),
+        );
+      }
+    } catch (e) {
+      console.error(`[agente] no se pudo describir la ubicación de ${conversationId}`, e);
+    }
+  }
+
   // ── Generar ─────────────────────────────────────────────────────────────
   let respuesta: RespuestaGenerada;
   try {

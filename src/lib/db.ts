@@ -1679,6 +1679,29 @@ export function guardarMediaUrl(orgId: number, mensajeId: number, url: string): 
   s(`UPDATE messages SET media_url = ? WHERE org_id = ? AND id = ?`).run(url, orgId, mensajeId);
 }
 
+/**
+ * Reescribe el texto de una UBICACIÓN con la dirección que salió de sus
+ * coordenadas: provincia, distrito, barrio y calle.
+ *
+ * Va en el `content` y no en una columna nueva, por lo mismo que la marca
+ * `[ubicación]`: el contenido es lo que ya leen el hilo, la vista previa de la
+ * bandeja, el analista y el informe, así que la dirección aparece en los cuatro
+ * sin tocar ninguno.
+ *
+ * Solo toca mensajes que SIGAN siendo una ubicación —el LIKE de la condición—,
+ * para que esto no pueda reescribir por error el texto de un cliente.
+ */
+export function guardarUbicacionResuelta(
+  orgId: number,
+  mensajeId: number,
+  texto: string,
+): void {
+  s(
+    `UPDATE messages SET content = ?
+      WHERE org_id = ? AND id = ? AND tipo = 'otro' AND content LIKE '[ubicación]%'`,
+  ).run(texto, orgId, mensajeId);
+}
+
 export function guardarDescripcionImagen(orgId: number, mensajeId: number, datos: {
   descripcion: string; categoria: CategoriaImagen | null;
 }): void {
@@ -1899,6 +1922,41 @@ export function obtenerAgente(orgId: number, canalId: number = AGENTE_DE_LA_CUEN
 /** Los agentes de una cuenta, plantilla incluida. Para el panel. */
 export function listarAgentes(orgId: number): Agente[] {
   return s(`SELECT * FROM agentes WHERE org_id = ? ORDER BY canal_id`).all(orgId) as Agente[];
+}
+
+/**
+ * COPIA EL GUION DE UN CANAL A TODOS LOS DEMÁS.
+ *
+ * Un agente por canal fue lo correcto —cada país tiene su moneda, su forma de
+ * dar una dirección y su modelo— pero trajo un problema que no se ve hasta que
+ * se usa: las reglas del NEGOCIO son las mismas en los tres. La política de
+ * cambios y devoluciones, cómo se cierra un pedido, qué no se promete. Cambiar
+ * eso obligaba a pegarlo tres veces a mano, y a la tercera alguien se olvida y
+ * un país empieza a contestar distinto que los otros dos sin que nadie se
+ * entere.
+ *
+ * Copia SOLO las instrucciones, y esa lista corta es la decisión de diseño:
+ *
+ *   - el país, NO. Es lo que distingue a un canal del otro.
+ *   - lo que vende y sus precios, NO. En Panamá se cobra en balboas y en Costa
+ *     Rica en colones; pisar eso con los precios del vecino sería la peor
+ *     manera de romper esto.
+ *   - el modelo, NO. Se elige por número, según volumen y ticket.
+ *
+ * Alcanza también a la plantilla de la cuenta, para que los números que se
+ * conecten mañana nazcan con la misma política.
+ *
+ * Devuelve a cuántos llegó.
+ */
+export function copiarGuionATodos(orgId: number, desdeCanalId: number): number {
+  const origen = obtenerAgente(orgId, desdeCanalId);
+
+  const r = s(
+    `UPDATE agentes SET instrucciones = ?, updated_at = unixepoch()
+      WHERE org_id = ? AND canal_id <> ?`,
+  ).run(origen.instrucciones, orgId, desdeCanalId);
+
+  return r.changes;
 }
 
 /**

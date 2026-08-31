@@ -5,9 +5,12 @@ import * as D from "../src/lib/db";
 import { armarSistema, revisarAgente } from "../src/lib/agent";
 import { conLoVistoYOido, percibir } from "../src/lib/percepcion";
 import { PAISES, bloqueDePais, obtenerPais, paisDeTelefono } from "../src/lib/paises";
+import { PLANTILLAS } from "../src/lib/plantillas";
 import {
   enlaceDeMapa,
+  esUbicacion,
   textoDeUbicacion,
+  textoDeUbicacionResuelta,
   ubicacionParaModelo,
   validarUbicacion,
 } from "../src/lib/ubicacion";
@@ -297,9 +300,77 @@ test("un pin dentro del país se sitúa por su zona y se confirma, no se repregu
   assert.ok(bloque.includes("Santiago de los Caballeros"));
   assert.ok(bloque.includes("La zona es válida para entregar"));
   assert.ok(
-    bloque.includes("NO es una dirección"),
-    "el pin sitúa la zona; el mensajero sigue necesitando señas",
+    bloque.includes("número de casa"),
+    "el pin sitúa la zona; el mensajero sigue necesitando el número y una seña",
   );
+  assert.ok(bloque.includes("no le vuelvas a preguntar dónde vive".toLowerCase()) ||
+    bloque.includes("NO le vuelvas a preguntar dónde vive"));
+});
+
+/**
+ * CON LA DIRECCIÓN RESUELTA, EL PIN DEJA DE SER DOS NÚMEROS.
+ *
+ * Es la diferencia entre una conversación de un mensaje y una de cinco: el
+ * cliente cree que mandando el pin ya dio su dirección —y casi la dio—, y
+ * volver a pedirsela entera le dice que no sirvió de nada. Lo único que un mapa
+ * no puede dar es el número de casa y la seña de la puerta.
+ */
+test("con provincia, distrito, barrio y calle, solo se pide lo que el mapa no da", () => {
+  const { texto, enlace } = pinDe(9.0463, -79.4585);
+  const v = validarUbicacion(texto, enlace, "pa")!;
+
+  v.direccion = {
+    pais: "pa",
+    provincia: "Provincia de Panamá",
+    distrito: "Distrito de Panamá",
+    barrio: "Nuevo Hipodromo",
+    calle: null,
+    texto: "Nuevo Hipodromo, Distrito de Panamá, Provincia de Panamá",
+  };
+
+  const bloque = ubicacionParaModelo(v, "Panamá");
+
+  assert.ok(bloque.includes("Provincia de Panamá"), "la provincia");
+  assert.ok(bloque.includes("Nuevo Hipodromo"), "el barrio, que es lo que más sitúa");
+  assert.ok(bloque.includes("Desglosado"), "y desglosado, para que no se lea de corrido");
+  assert.ok(
+    bloque.includes("«perfecto, Nuevo Hipodromo»"),
+    "confirma por el barrio, no por una ciudad a 8 km",
+  );
+  assert.ok(bloque.includes("número de casa"));
+  assert.ok(bloque.includes("una seña"));
+});
+
+/**
+ * Y esa dirección se escribe en el HILO, que es donde la lee quien despacha el
+ * pedido. Sin esto la resuelve el agente, la usa para contestar y se pierde.
+ */
+test("la dirección resuelta se guarda en el texto del hilo", () => {
+  const original = textoDeUbicacion({ nombre: "Casa de mi mamá" });
+
+  const conDireccion = textoDeUbicacionResuelta(original, {
+    pais: "pa",
+    provincia: "Provincia de Panamá",
+    distrito: "Distrito de Panamá",
+    barrio: "Nuevo Hipodromo",
+    calle: "Calle 3",
+    texto: "Calle 3, Nuevo Hipodromo, Distrito de Panamá, Provincia de Panamá",
+  });
+
+  assert.ok(esUbicacion(conDireccion), "sigue siendo una ubicación para todo lo demás");
+  assert.ok(conDireccion.includes("Calle 3, Nuevo Hipodromo"));
+  assert.ok(
+    conDireccion.includes("Casa de mi mamá"),
+    "lo que escribió el cliente no se pierde: el mapa no sabe de quién es la casa",
+  );
+
+  // Una ubicación en vivo sigue diciendo que lo es.
+  const enVivo = textoDeUbicacionResuelta(textoDeUbicacion({ enVivo: true }), {
+    pais: "pa", provincia: null, distrito: null, barrio: "Betania", calle: null,
+    texto: "Betania",
+  });
+  assert.ok(enVivo.includes("en vivo"));
+  assert.ok(enVivo.includes("Betania"));
 });
 
 /**
@@ -498,5 +569,61 @@ test("el prompt le dice qué hacer con un audio que no se pudo leer", () => {
   assert.ok(
     prompt.includes("no se pudo leer"),
     "y si no se pudo, que la pida por escrito en vez de inventar",
+  );
+});
+
+// ── El guion que sí es común a los tres ─────────────────────────────────────
+
+/**
+ * Un agente por canal fue lo correcto, pero trajo un problema que no se ve
+ * hasta que se usa: las reglas del NEGOCIO son las mismas en los tres países.
+ * La política de cambios, cómo se cierra un pedido, qué no se promete. Pegarlas
+ * a mano tres veces termina en un país contestando distinto que los otros dos
+ * sin que nadie se entere.
+ */
+test("el guion se copia a todos los números, y solo el guion", () => {
+  const politica = "CAMBIOS: sí hay, dentro de las 24 horas de recibir el pedido.";
+
+  D.actualizarAgente(orgId, { instrucciones: politica }, pa);
+
+  const alcanzados = D.copiarGuionATodos(orgId, pa);
+  assert.ok(alcanzados >= 3, `llegó a ${alcanzados} agentes`);
+
+  for (const canalId of [rd, cr]) {
+    assert.equal(D.obtenerAgente(orgId, canalId).instrucciones, politica, "el guion viaja");
+  }
+
+  // Y alcanza a la plantilla, para que el próximo número nazca con la política.
+  assert.equal(D.obtenerAgente(orgId).instrucciones, politica);
+
+  /*
+   * LO QUE NO PUEDE VIAJAR. Es la mitad del valor de esto: si el guion se
+   * llevara por delante el país o los precios, copiarlo pondría a Costa Rica a
+   * cobrar en balboas, que es peor que no tener el botón.
+   */
+  assert.equal(D.obtenerAgente(orgId, rd).pais, "do", "cada uno sigue en su país");
+  assert.equal(D.obtenerAgente(orgId, cr).pais, "cr");
+  assert.equal(D.obtenerAgente(orgId, pa).pais, "pa");
+  assert.ok(
+    D.obtenerAgente(orgId, rd).conocimiento.includes("RD$"),
+    "y con sus precios, en su moneda",
+  );
+});
+
+/**
+ * La política de cambios se contesta, pero NO se saca por cuenta propia: a
+ * quien no lo ha preguntado, hablarle de devoluciones le siembra una duda que
+ * no tenía. Es una regla de venta, no un tecnicismo.
+ */
+test("el guion de Moda Panamá contesta cambios y devoluciones sin sacarlo él", () => {
+  const g = PLANTILLAS[0]!.instrucciones;
+
+  assert.ok(g.includes("SOLO SI EL CLIENTE PREGUNTA"), "no lo saca por su cuenta");
+  assert.ok(g.includes("24 HORAS"), "y cuando pregunta, tiene la respuesta");
+  assert.ok(g.includes("ANTES DE PAGARLE"), "puede revisar antes de pagar al mensajero");
+  assert.equal(
+    g.includes("o pide\ncambio o devolución: dilo con claridad y pasa el caso"),
+    false,
+    "ya no suelta el chat en cuanto oye la palabra devolución",
   );
 });

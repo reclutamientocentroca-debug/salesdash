@@ -312,6 +312,45 @@ export default function PanelAgente({
   /** La plantilla de guion que pide confirmación por sustituir lo escrito. */
   const [guion, setGuion] = useState<string | null>(null);
 
+  /*
+   * COPIAR EL GUION A LOS DEMÁS NÚMEROS.
+   *
+   * Cada canal tiene su agente porque cada país vende distinto, pero las reglas
+   * del negocio —la política de cambios, cómo se cierra un pedido, qué no se
+   * promete— son las mismas en los tres. Sin esto hay que pegarlas a mano en
+   * cada número, y a la tercera vez alguien se olvida.
+   *
+   * Pisa lo escrito en los otros canales, así que se pregunta antes, en la
+   * página y no con el `confirm()` del navegador, por lo mismo que el resto.
+   */
+  const [copiando, setCopiando] = useState(false);
+  const [confirmarCopia, setConfirmarCopia] = useState(false);
+
+  async function copiarGuion() {
+    setConfirmarCopia(false);
+    setCopiando(true);
+    setError(null);
+    setNota(null);
+
+    const r = await fetch("/api/agente/copiar", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ desde: canal?.id ?? PLANTILLA }),
+    });
+    const datos = await r.json();
+
+    setCopiando(false);
+    if (!r.ok) {
+      setError(datos.error ?? "No se pudo copiar.");
+      return;
+    }
+
+    setNota(
+      `Guion copiado a ${datos.alcanzados} agente${datos.alcanzados === 1 ? "" : "s"} más.`,
+    );
+    router.refresh();
+  }
+
   function aplicarGuion(clave: string, confirmada: boolean) {
     const p = PLANTILLAS.find((x) => x.clave === clave);
     if (!p) return;
@@ -799,6 +838,51 @@ export default function PanelAgente({
             Lo que escribas aquí es lo que el agente da por cierto. No hace falta repetir la moneda
             ni cómo se dan las direcciones: eso ya lo sabe por el país.
           </p>
+
+          {/*
+            Las reglas del negocio son las mismas en los tres países; lo que
+            cambia es la moneda y los precios, y eso NO viaja con el botón.
+          */}
+          {canales.length > 0 && (
+            <div style={{ marginTop: 12 }}>
+              {confirmarCopia ? (
+                <div className="aviso aviso-ambar" style={{ display: "grid", gap: 10 }}>
+                  <div>
+                    Se copian estas instrucciones a <strong>todos tus demás números</strong> y a la
+                    plantilla de la cuenta, sustituyendo lo que cada uno tenga escrito. El país, los
+                    precios y el modelo de cada número NO se tocan.
+                  </div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button type="button" className="btn btn-acento" onClick={copiarGuion}>
+                      Sí, copiar a todos
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secundario"
+                      onClick={() => setConfirmarCopia(false)}
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="btn btn-secundario"
+                    disabled={copiando}
+                    onClick={() => setConfirmarCopia(true)}
+                  >
+                    {copiando ? "Copiando…" : "Copiar estas instrucciones a los demás números"}
+                  </button>
+                  <p className="tenue" style={{ marginTop: 6 }}>
+                    Para las reglas que son iguales en todos los países —cómo se cierra un pedido, la
+                    política de cambios—. Guárdalas antes: se copia lo último guardado.
+                  </p>
+                </>
+              )}
+            </div>
+          )}
 
           {/*
             Un guion de venta entero no se escribe delante de un cuadro vacío.
