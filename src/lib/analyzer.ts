@@ -27,6 +27,7 @@ import {
   guardarTranscripcion,
   listarMensajes,
   marcarRevision,
+  MODELO_ANALISIS,
   obtenerOrg,
   sellarCierre,
   totalLeads,
@@ -405,7 +406,7 @@ export async function analizarConversacion(
 
   const org = obtenerOrg(orgId);
   const marcador = org?.marcador_cierre ?? "Resumen:";
-  const modeloTexto = org?.modelo_analisis ?? "meta-llama/llama-3.3-70b-instruct:free";
+  const modeloTexto = org?.modelo_analisis ?? MODELO_ANALISIS;
   const modeloVision = org?.modelo_vision ?? "openai/gpt-4o-mini";
   const modeloAudio = org?.modelo_audio ?? "google/gemini-3.5-flash-lite";
 
@@ -671,7 +672,7 @@ export async function analizarPerdidas(
   muestra = 25,
 ): Promise<Perdidas> {
   const org = obtenerOrg(orgId);
-  const modelo = org?.modelo_analisis ?? "meta-llama/llama-3.3-70b-instruct:free";
+  const modelo = org?.modelo_analisis ?? MODELO_ANALISIS;
 
   const candidatas = abiertasSinMotivo(orgId, rango, muestra);
   let analizadas = 0;

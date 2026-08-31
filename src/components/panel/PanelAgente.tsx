@@ -105,10 +105,23 @@ function SelectorModelo({
   const precio = (m: Modelo) =>
     m.precioSalida === null ? "" : ` · $${m.precioSalida.toFixed(2)}/M`;
 
+  /*
+   * El modelo guardado, cuando ya no está en el catálogo, se enseña IGUAL.
+   *
+   * Los modelos se retiran —a `meta-llama/llama-3.3-70b-instruct:free` le pasó,
+   * y con él dejaron de contestar los agentes que lo tenían puesto—. Sin esta
+   * opción, un `<select>` con un valor que no existe entre sus opciones pinta
+   * el primero de la lista: la pantalla enseñaba un modelo y el servidor
+   * llamaba a otro, muerto, sin que nadie pudiera verlo. Aquí se ve, y dice
+   * lo que le pasa.
+   */
+  const desaparecido = valor !== "" && modelos.length > 0 && !modelos.some((m) => m.id === valor);
+
   return (
     <select id={id} className="campo" value={valor} onChange={(e) => onChange(e.target.value)}>
       {permitirVacio && <option value="">Sin respaldo</option>}
       {modelos.length === 0 && <option value={valor}>{valor}</option>}
+      {desaparecido && <option value={valor}>{valor} · ya no está disponible, elige otro</option>}
 
       {gratuitos.length > 0 && (
         <optgroup label="Gratuitos">

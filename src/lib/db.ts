@@ -21,6 +21,37 @@ import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Modelos por defecto
+// ─────────────────────────────────────────────────────────────────────────────
+
+/*
+ * LOS MODELOS SE RETIRAN, Y CUANDO SE RETIRAN EL PANEL SE QUEDA MUDO.
+ *
+ * Aquí vivía `meta-llama/llama-3.3-70b-instruct:free`. OpenRouter dejó de
+ * servirlo —la variante gratuita ya no está en su catálogo— y toda cuenta que
+ * siguiera con él tenía el agente pidiendo respuestas a un modelo que no
+ * existe: cada llamada fallaba, el agente se callaba por su regla de oro, y no
+ * había nada roto que mirar. El análisis de ventas, con el mismo modelo por
+ * defecto, tampoco extraía un pedido.
+ *
+ * El agente escribe a los clientes y es lo que decide si una venta se cierra:
+ * ahí va el mejor. El análisis lee un hilo ya cerrado y saca producto, total y
+ * envío —trabajo estructurado y de volumen—, así que va uno más barato que lo
+ * hace igual de bien. Ninguno de los dos es gratuito a propósito: los modelos
+ * gratuitos tienen cupo diario y enmudecen a media tarde, que es exactamente el
+ * fallo que no se puede tener en un número que atiende clientes.
+ *
+ * El respaldo es la red: si el principal falla o topa su límite, `ia.ts` lo
+ * intenta una vez con este antes de rendirse.
+ */
+export const MODELO_AGENTE = "anthropic/claude-opus-5";
+export const MODELO_RESPALDO = "anthropic/claude-sonnet-5";
+export const MODELO_ANALISIS = "anthropic/claude-sonnet-5";
+
+/** El que se retiró. Solo lo usa la migración, para saber a quién rescatar. */
+const MODELO_RETIRADO = "meta-llama/llama-3.3-70b-instruct:free";
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Esquema
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -37,7 +68,7 @@ CREATE TABLE IF NOT EXISTS orgs (
      cada 100 hilos que toca. Son las metas del negocio, no un adorno. */
   meta_efectividad INTEGER NOT NULL DEFAULT 85,
   marcador_cierre TEXT NOT NULL DEFAULT 'Resumen:',
-  modelo_analisis TEXT NOT NULL DEFAULT 'meta-llama/llama-3.3-70b-instruct:free',
+  modelo_analisis TEXT NOT NULL DEFAULT '${MODELO_ANALISIS}',
   modelo_vision TEXT NOT NULL DEFAULT 'openai/gpt-4o-mini',
   modelo_audio TEXT NOT NULL DEFAULT 'google/gemini-3.5-flash-lite',
   suspendida INTEGER NOT NULL DEFAULT 0,
@@ -149,8 +180,8 @@ CREATE TABLE IF NOT EXISTS agentes (
   nombre TEXT NOT NULL DEFAULT 'Asistente',
   tono TEXT NOT NULL DEFAULT 'cercano',
   instrucciones TEXT NOT NULL DEFAULT '',
-  modelo TEXT NOT NULL DEFAULT 'meta-llama/llama-3.3-70b-instruct:free',
-  modelo_respaldo TEXT,
+  modelo TEXT NOT NULL DEFAULT '${MODELO_AGENTE}',
+  modelo_respaldo TEXT DEFAULT '${MODELO_RESPALDO}',
   pasar_a_humano INTEGER NOT NULL DEFAULT 1,
   silenciar_si_humano INTEGER NOT NULL DEFAULT 1,
   horario_activo INTEGER NOT NULL DEFAULT 0,
@@ -567,6 +598,34 @@ function migrar(conexion: DB): void {
     conexion.exec(`PRAGMA user_version = 4`);
   }
 
+  /*
+   * agentes y orgs: fuera el modelo que OpenRouter retiró.
+   *
+   * El `DEFAULT` nuevo del esquema solo vale para las cuentas que se creen a
+   * partir de ahora; las que ya existen seguirían apuntando a un modelo que ya
+   * no se sirve, que es tanto como tener el agente apagado sin que lo diga
+   * ninguna pantalla. Se cambia el modelo del agente, el del análisis, y se le
+   * pone respaldo al que no tenía: un agente sin red se queda mudo con que
+   * falle una sola llamada.
+   *
+   * Solo a quien esté en el modelo retirado. Al que eligió otro no se le toca:
+   * esto corre en cada arranque y pisarle su elección sería quitarle el ajuste
+   * cada vez que se reinicia el servidor.
+   */
+  if (version < 5) {
+    conexion.prepare(`UPDATE agentes SET modelo = ? WHERE modelo = ?`)
+      .run(MODELO_AGENTE, MODELO_RETIRADO);
+    conexion.prepare(`UPDATE agentes SET modelo_respaldo = ? WHERE modelo_respaldo = ?`)
+      .run(MODELO_RESPALDO, MODELO_RETIRADO);
+    conexion.prepare(
+      `UPDATE agentes SET modelo_respaldo = ?
+        WHERE modelo = ? AND (modelo_respaldo IS NULL OR modelo_respaldo = '')`,
+    ).run(MODELO_RESPALDO, MODELO_AGENTE);
+    conexion.prepare(`UPDATE orgs SET modelo_analisis = ? WHERE modelo_analisis = ?`)
+      .run(MODELO_ANALISIS, MODELO_RETIRADO);
+    conexion.exec(`PRAGMA user_version = 5`);
+  }
+
   // anomalies: las anomalías de canal no tienen conversación.
   if (!columnas("anomalies").includes("canal_id")) {
     conexion.exec(`
@@ -721,7 +780,8 @@ export function crearOrgConDueno(datos: {
   nombre: string; email: string; passwordHash: string;
 }): { orgId: number; userId: number } {
   const tx = db.transaction((d: typeof datos) => {
-    const org = s(`INSERT INTO orgs (nombre, color) VALUES (?, ?)`).run(d.negocio, d.color);
+    const org = s(`INSERT INTO orgs (nombre, color, modelo_analisis) VALUES (?, ?, ?)`)
+      .run(d.negocio, d.color, MODELO_ANALISIS);
     const orgId = Number(org.lastInsertRowid);
 
     // `verificado = 1` de entrada: el registro es directo, sin código por
@@ -734,7 +794,8 @@ export function crearOrgConDueno(datos: {
     ).run(orgId, d.email.toLowerCase(), d.nombre, d.passwordHash);
 
     // Toda organización nace con su agente vendedor configurado y APAGADO.
-    s(`INSERT INTO agentes (org_id) VALUES (?)`).run(orgId);
+    s(`INSERT INTO agentes (org_id, modelo, modelo_respaldo) VALUES (?, ?, ?)`)
+      .run(orgId, MODELO_AGENTE, MODELO_RESPALDO);
 
     return { orgId, userId: Number(user.lastInsertRowid) };
   });
@@ -1445,7 +1506,8 @@ export function corregirEmisorAIa(orgId: number, whapiMessageId: string): number
 export function obtenerAgente(orgId: number): Agente {
   let fila = s(`SELECT * FROM agentes WHERE org_id = ?`).get(orgId) as Agente | undefined;
   if (!fila) {
-    s(`INSERT INTO agentes (org_id) VALUES (?)`).run(orgId);
+    s(`INSERT INTO agentes (org_id, modelo, modelo_respaldo) VALUES (?, ?, ?)`)
+      .run(orgId, MODELO_AGENTE, MODELO_RESPALDO);
     fila = s(`SELECT * FROM agentes WHERE org_id = ?`).get(orgId) as Agente;
   }
   return fila;
