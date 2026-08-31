@@ -532,7 +532,15 @@ export async function atenderConversacion(
           ? await responderComentarioMeta(canal, ultimo.whapi_message_id ?? "", respuesta.texto)
           : await enviarMensajeMeta(canal, conv.cliente_phone, respuesta.texto);
     } else {
-      messageId = await enviarTexto(canal.id, conv.cliente_phone, respuesta.texto);
+      /*
+       * A la dirección guardada del cliente, no a su número reconstruido.
+       *
+       * `cliente_jid` es la dirección tal cual la mandó WhatsApp. Solo cae al
+       * teléfono en los hilos viejos, de antes de que se guardara: ahí sigue
+       * siendo lo único que hay, y para un cliente identificado por su número
+       * es exactamente lo mismo.
+       */
+      messageId = await enviarTexto(canal.id, conv.cliente_jid ?? conv.cliente_phone, respuesta.texto);
     }
   } catch (e) {
     crearAnomalia(orgId, {

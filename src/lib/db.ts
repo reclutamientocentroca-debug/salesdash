@@ -124,6 +124,12 @@ CREATE TABLE IF NOT EXISTS conversations (
   org_id INTEGER NOT NULL REFERENCES orgs(id),
   canal_id INTEGER NOT NULL REFERENCES canales(id),
   cliente_phone TEXT NOT NULL,
+  /* La direccion EXACTA a la que se le contesta a este cliente: su numero
+     (...@s.whatsapp.net) o, cuando WhatsApp no lo da, su identificador interno
+     (...@lid). No se reconstruye a partir de cliente_phone: con un cliente
+     identificado por LID esos digitos no son un telefono y el mensaje se va a
+     una direccion que no es de nadie. Nula en los hilos anteriores a esto. */
+  cliente_jid TEXT,
   cliente_nombre TEXT,
   origen TEXT,
   producto_anuncio TEXT,
@@ -446,6 +452,18 @@ function migrar(conexion: DB): void {
   }
 
   /*
+   * conversations: la dirección exacta a la que se le contesta al cliente.
+   *
+   * Queda NULA en los hilos que ya existen y se rellena sola con el siguiente
+   * mensaje que llegue de ese cliente. No se puede deducir de lo guardado: unos
+   * dígitos que son un teléfono y unos que son un LID se ven igual, y adivinar
+   * mal es volver a mandar el mensaje a ninguna parte.
+   */
+  if (!columnas("conversations").includes("cliente_jid")) {
+    conexion.exec(`ALTER TABLE conversations ADD COLUMN cliente_jid TEXT`);
+  }
+
+  /*
    * messages: `tipo` tiene que admitir 'comentario'.
    *
    * Un CHECK no se amplía con ALTER en SQLite, así que la tabla se reconstruye
@@ -710,6 +728,11 @@ export interface Canal {
 export interface Conversacion {
   id: number; org_id: number; canal_id: number;
   cliente_phone: string; cliente_nombre: string | null;
+  /**
+   * La dirección exacta a la que se le contesta a este cliente. Nula en los
+   * hilos abiertos antes de que se guardara; se rellena con su próximo mensaje.
+   */
+  cliente_jid: string | null;
   origen: string | null; producto_anuncio: string | null; descripcion_anuncio: string | null;
   intervencion_humana: number; cerrado_por: EstadoCierre;
   senal_de_cierre: string | null;
@@ -957,6 +980,8 @@ export function getOrCreateConversation(
     nombre?: string | null; origen?: string | null;
     productoAnuncio?: string | null; descripcionAnuncio?: string | null; cuando?: number;
     superficie?: string | null; metaAdId?: string | null;
+    /** La dirección exacta a la que se le contesta. Ver `cliente_jid`. */
+    jid?: string | null;
   } = {},
 ): { conversacion: Conversacion; nueva: boolean } {
   const existente = s(
@@ -964,6 +989,18 @@ export function getOrCreateConversation(
   ).get(orgId, canalId, clientePhone) as Conversacion | undefined;
 
   if (existente) {
+    /*
+     * La dirección se refresca con cada mensaje del cliente, no solo al abrir
+     * el hilo: los que ya existían la tienen nula —la columna es nueva— y sin
+     * esto seguirían contestando con el número reconstruido a mano, que es lo
+     * que no llegaba. También cubre al cliente que cambia de dirección.
+     */
+    if (datos.jid && datos.jid !== existente.cliente_jid) {
+      s(`UPDATE conversations SET cliente_jid = ? WHERE org_id = ? AND id = ?`)
+        .run(datos.jid, orgId, existente.id);
+      existente.cliente_jid = datos.jid;
+    }
+
     // El nombre puede llegar más tarde que el primer mensaje.
     if (datos.nombre && !existente.cliente_nombre) {
       s(`UPDATE conversations SET cliente_nombre = ? WHERE org_id = ? AND id = ?`)
@@ -1009,10 +1046,10 @@ export function getOrCreateConversation(
   const cuando = datos.cuando ?? ahora();
   const r = s(
     `INSERT INTO conversations
-       (org_id, canal_id, cliente_phone, cliente_nombre, origen, producto_anuncio, descripcion_anuncio, superficie, meta_ad_id, fecha_inicio, last_message_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (org_id, canal_id, cliente_phone, cliente_jid, cliente_nombre, origen, producto_anuncio, descripcion_anuncio, superficie, meta_ad_id, fecha_inicio, last_message_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
-    orgId, canalId, clientePhone, datos.nombre ?? null,
+    orgId, canalId, clientePhone, datos.jid ?? null, datos.nombre ?? null,
     datos.origen ?? null, datos.productoAnuncio ?? null, datos.descripcionAnuncio ?? null,
     datos.superficie ?? null, datos.metaAdId ?? null, cuando, cuando,
   );

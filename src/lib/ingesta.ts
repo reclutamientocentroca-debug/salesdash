@@ -53,7 +53,13 @@ export interface MensajeEntrante {
   id: string;
   /** Lo mandamos nosotros (agente o vendedor), no el cliente. */
   deMi: boolean;
-  /** Identificador del chat, tal cual: sirve para descartar grupos. */
+  /**
+   * Identificador del chat, tal cual: sirve para descartar grupos y, cuando es
+   * el del teléfono, para sacar el número del cliente.
+   *
+   * Quien traduce ya eligió: si el mensaje traía las dos direcciones —la del
+   * teléfono y el `@lid`—, aquí llega la del teléfono. Ver `direccionDelChat`.
+   */
   chatId: string;
   tipo: TipoMensaje;
   content: string;
@@ -149,6 +155,14 @@ export async function ingerir(
       }
 
       const { conversacion } = getOrCreateConversation(orgId, canal.id, telefono, {
+        /*
+         * La dirección tal cual llegó, para poder contestarle.
+         *
+         * Solo de los mensajes del cliente: en un saliente el `chatId` sigue
+         * siendo el del chat, pero es nuestro propio mensaje y no aporta nada
+         * que no traiga ya el entrante.
+         */
+        jid: m.deMi ? null : m.chatId,
         // El nombre solo viene en los entrantes; en los salientes es el nuestro.
         nombre: m.deMi ? null : m.nombre,
         cuando: m.cuando,

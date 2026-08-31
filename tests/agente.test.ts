@@ -10,6 +10,8 @@ import {
   revisarAgente,
 } from "../src/lib/agent";
 import { contieneMarcador, duenoDelCierre, registrarCierre } from "../src/lib/cierre";
+import { ingerir } from "../src/lib/ingesta";
+import { direccionDelChat, jidDeDestino } from "../src/lib/telefono";
 import type { Resultado } from "../src/lib/agent";
 
 /** Estrecha la unión: si el agente respondió, la prueba debe fallar aquí. */
@@ -574,4 +576,48 @@ test("revisarAgente dice lo mismo que hace la guarda", async () => {
   D.actualizarAgente(orgId, { horario_activo: 0 });
 
   encender(false);
+});
+
+/**
+ * A un cliente se le contesta a la dirección que manda WhatsApp, no a sus
+ * dígitos.
+ *
+ * Desde el cambio a LID, el chat de un cliente puede identificarse con
+ * `<lid>@lid`, que NO es su teléfono. Reconstruir `<lid>@s.whatsapp.net` para
+ * contestarle manda el mensaje a una dirección que no es de nadie: WhatsApp lo
+ * acepta y devuelve un identificador, así que el panel guarda la respuesta y la
+ * enseña en el hilo, y el cliente no recibe nada. Es el fallo más caro posible
+ * —parece que el agente contestó— y por eso está fijado aquí.
+ */
+test("se contesta a la dirección de WhatsApp, no a los dígitos del identificador", async () => {
+  // El teléfono manda cuando WhatsApp lo da.
+  assert.equal(
+    direccionDelChat("123456789012345@lid", "18095551234@s.whatsapp.net"),
+    "18095551234@s.whatsapp.net",
+  );
+  // Y si no lo da, se contesta al LID: es donde está el cliente.
+  assert.equal(direccionDelChat("123456789012345@lid", undefined), "123456789012345@lid");
+  assert.equal(direccionDelChat("18095551234@s.whatsapp.net", null), "18095551234@s.whatsapp.net");
+
+  // La dirección guardada se usa tal cual; los dígitos sueltos —hilos viejos—
+  // siguen armando la dirección de toda la vida.
+  assert.equal(jidDeDestino("123456789012345@lid"), "123456789012345@lid");
+  assert.equal(jidDeDestino("18095551234"), "18095551234@s.whatsapp.net");
+
+  // Y el hilo se queda con ella. El agente está apagado: esto no toca la red.
+  encender(false);
+  const canal = D.obtenerCanal(orgId, canalId)!;
+  await ingerir(
+    canal,
+    [{
+      id: "wa-lid-1", deMi: false, chatId: "123456789012345@lid", tipo: "texto",
+      content: "hola, ¿tienen la camisa?", mediaUrl: null, cuando: D.ahora(),
+      nombre: "Cliente LID", deAnuncio: false, productoAnuncio: null, descripcionAnuncio: null,
+    }],
+    { dentroDePeticion: false },
+  );
+
+  const { conversacion, nueva } = D.getOrCreateConversation(orgId, canalId, "123456789012345");
+  assert.equal(nueva, false, "el mensaje tenía que haber abierto el hilo");
+  assert.equal(conversacion.cliente_jid, "123456789012345@lid");
 });

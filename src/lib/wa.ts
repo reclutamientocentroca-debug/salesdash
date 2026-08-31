@@ -39,7 +39,7 @@ import { join } from "node:path";
 import { actualizarCanal, ahora, canalesParaReconectar, obtenerCanalSinOrg, rutaDatos, type Canal, type TipoMensaje } from "@/lib/db";
 import { ingerir, type MensajeEntrante } from "@/lib/ingesta";
 import { esDescargable, guardar } from "@/lib/media";
-import { jidDeTelefono } from "@/lib/telefono";
+import { direccionDelChat, jidDeDestino } from "@/lib/telefono";
 import { enlaceDeMapa, textoDeUbicacion } from "@/lib/ubicacion";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -147,7 +147,15 @@ function sesionDe(canalId: number): Sesion {
  */
 function traducir(m: WAMessage): MensajeEntrante | null {
   const id = m.key?.id;
-  const chatId = m.key?.remoteJid;
+  /*
+   * De las dos direcciones que puede traer WhatsApp, la del teléfono.
+   *
+   * Desde el cambio a LID, `remoteJid` de un chat uno a uno llega muchas veces
+   * como `…@lid` —un identificador interno que no es un número— y el teléfono
+   * viaja aparte, en `remoteJidAlt`. Quedarse con el LID sin mirar el otro es
+   * lo que dejaba al panel contestando a una dirección que no existe.
+   */
+  const chatId = direccionDelChat(m.key?.remoteJid ?? "", m.key?.remoteJidAlt);
   if (!id || !chatId) return null;
 
   const contenido = m.message;
@@ -484,14 +492,20 @@ export async function desconectar(canalId: number, olvidar: boolean): Promise<vo
  * Ese id es la pieza sobre la que se sostiene la atribución: se registra en
  * `ai_sent_ids` y, cuando el mismo mensaje vuelve como saliente, se reconoce
  * como enviado por la IA en vez de por un vendedor.
+ *
+ * `destino` es la dirección guardada del cliente —`…@s.whatsapp.net` o `…@lid`—
+ * y se usa TAL CUAL. Antes se recibían dígitos y se les pegaba
+ * `@s.whatsapp.net`: con un cliente identificado por LID eso construía una
+ * dirección de nadie, WhatsApp devolvía su identificador igual, el panel
+ * guardaba la respuesta y el cliente no recibía nada.
  */
-export async function enviarTexto(canalId: number, telefono: string, texto: string): Promise<string> {
+export async function enviarTexto(canalId: number, destino: string, texto: string): Promise<string> {
   const s = sesiones.get(canalId);
   if (!s?.sock || s.estado !== "conectado") {
     throw new Error("El número no está conectado a WhatsApp");
   }
 
-  const enviado = await s.sock.sendMessage(jidDeTelefono(telefono), { text: texto });
+  const enviado = await s.sock.sendMessage(jidDeDestino(destino), { text: texto });
   const id = enviado?.key?.id;
   if (!id) throw new Error("WhatsApp no devolvió el identificador del mensaje enviado");
   return id;
