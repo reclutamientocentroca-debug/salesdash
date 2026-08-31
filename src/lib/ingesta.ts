@@ -212,6 +212,15 @@ export async function ingerir(
    */
   const atiendeElAgente = canal.agente_activo === 1 && conversacionesDelCliente.size > 0;
 
+  // Escribió un cliente y el agente ni se llama: se dice, o el silencio no
+  // tiene ni una línea que lo explique en el registro del servidor.
+  if (!atiendeElAgente && conversacionesDelCliente.size > 0) {
+    console.log(
+      `[agente] callado en el canal ${canal.id}: agente apagado en este número ` +
+        `(${conversacionesDelCliente.size} conversación(es) esperando)`,
+    );
+  }
+
   if (atiendeElAgente || tocadas.size > 0) {
     const trabajo = async () => {
       if (atiendeElAgente) {
@@ -219,7 +228,21 @@ export async function ingerir(
 
         for (const conversationId of conversacionesDelCliente) {
           try {
-            await atenderConversacion(orgId, canal.id, conversationId);
+            /*
+             * Cuando el agente NO contesta, se dice por qué.
+             *
+             * El motivo lo decide `atenderConversacion` y hasta ahora se tiraba
+             * aquí mismo: un cliente escribía, el agente se callaba por una
+             * razón perfectamente buena —el número está en modo vigilar, un
+             * vendedor acaba de escribir, es de madrugada— y desde fuera se veía
+             * igual que una avería. Una línea en el registro es la diferencia
+             * entre «no responde» y «no responde porque…».
+             */
+            const r = await atenderConversacion(orgId, canal.id, conversationId);
+            if (!r.atendida) {
+              const detalle = "detalle" in r ? `: ${r.detalle}` : "";
+              console.log(`[agente] callado en la conversación ${conversationId} (${r.motivo}${detalle})`);
+            }
           } catch (e) {
             // Nunca se reintenta en bucle: se registra y el hilo queda para un
             // humano. Un agente insistiendo es peor que un agente callado.

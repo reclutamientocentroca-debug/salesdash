@@ -15,7 +15,16 @@
 import "./env-loader";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { db, listarCanales, obtenerOrg, rutaDatos } from "../src/lib/db";
+import {
+  db,
+  listarAnomalias,
+  listarCanales,
+  obtenerAgente,
+  obtenerOrg,
+  rutaDatos,
+  usoDelDia,
+} from "../src/lib/db";
+import { hoyISO } from "../src/lib/ia";
 
 const hace = (t: number | null) => {
   if (!t) return "nunca";
@@ -57,7 +66,27 @@ async function main() {
       console.log(`  ── ${c.nombre} · ${phone}`);
       console.log(`     estado local     ${c.estado}`);
       console.log(`     último evento    ${hace(c.ultimo_evento_at)}`);
+      /*
+       * QUIÉN CONTESTA EN ESTE NÚMERO, dicho con las mismas dos banderas que
+       * mira `atenderConversacion`. «El agente está encendido» no basta: con
+       * `contesta_ia` puesto, el agente se calla a propósito —ahí contesta el
+       * bot del dueño— y desde fuera se ve exactamente igual que una avería.
+       */
+      const quienContesta = !c.activo
+        ? "nadie · el número está apagado"
+        : c.contesta_ia
+          ? "la IA del dueño · nuestro agente NO escribe (modo vigilar)"
+          : c.agente_activo
+            ? "nuestro agente"
+            : "personas · el agente está apagado";
+
       console.log(`     agente vendedor  ${c.agente_activo ? "encendido" : "apagado"}`);
+      console.log(`     contesta         ${quienContesta}`);
+
+      if (c.agente_activo && c.contesta_ia) {
+        console.log("     ✗ el agente está encendido pero el número está en modo vigilar:");
+        console.log("       → Agente de IA → «Dónde responde» → enciende el interruptor de este número.");
+      }
 
       /*
        * LA comprobación, ahora que se conecta por QR: ¿existe la sesión en el
@@ -124,6 +153,54 @@ async function main() {
 
     const marcador = obtenerOrg(org.id)?.marcador_cierre;
     console.log(`\n  marcador de cierre: "${marcador}"`);
+
+    /*
+     * POR QUÉ EL AGENTE NO CONTESTA.
+     *
+     * Es la otra mitad de la pregunta y hasta ahora este diagnóstico no la
+     * miraba: se puede tener el número conectado, los mensajes entrando y el
+     * agente encendido, y aun así no sale ni una respuesta —sin clave del
+     * modelo, con el cupo gratuito agotado, fuera de horario o con el número en
+     * modo vigilar—. Cada una de esas cuatro se ve desde aquí, y ninguna deja
+     * rastro en la pantalla del dueño.
+     */
+    const agente = obtenerAgente(org.id);
+    const uso = usoDelDia(org.id, hoyISO()).filter((u) => u.proposito === "agente");
+    const exitos = uso.reduce((n, u) => n + u.exitos, 0);
+    const fallos = uso.reduce((n, u) => n + u.fallos, 0);
+
+    console.log("\n  agente de IA");
+    console.log(`     clave del modelo ${process.env.OPENROUTER_API_KEY ? "puesta" : "✗ FALTA OPENROUTER_API_KEY: no puede responder"}`);
+    console.log(`     modelo           ${agente.modelo}${agente.modelo.endsWith(":free") ? " (gratuito: cupo diario limitado)" : ""}`);
+    console.log(`     respaldo         ${agente.modelo_respaldo ?? "ninguno"}`);
+    console.log(
+      `     horario          ${
+        agente.horario_activo
+          ? `solo de ${agente.horario_desde ?? "?"} a ${agente.horario_hasta ?? "?"} · fuera de esa franja NO contesta`
+          : "siempre"
+      }`,
+    );
+    console.log(`     hoy              ${exitos} respuesta(s), ${fallos} fallo(s)`);
+
+    if (fallos > 0 && exitos === 0) {
+      console.log("     ✗ todas las llamadas al modelo fallaron hoy.");
+      console.log("       → clave inválida, o el modelo gratuito agotó su cupo: pon uno de respaldo.");
+    }
+
+    /*
+     * Las anomalías del agente son su caja negra: cuando el modelo falla o el
+     * envío no sale, se guarda una con el motivo exacto. Se enseñan las de este
+     * grupo y no todas, para que el diagnóstico no se llene de avisos de venta.
+     */
+    const DEL_AGENTE = ["agente_sin_modelo", "envio_fallido", "agente_en_bucle", "atribucion_perdida"];
+    const avisos = listarAnomalias(org.id).filter((a) => DEL_AGENTE.includes(a.tipo));
+
+    if (avisos.length) {
+      console.log(`\n     ${avisos.length} anomalía(s) del agente sin resolver, las 3 últimas:`);
+      for (const a of avisos.slice(0, 3)) {
+        console.log(`       ${hace(a.created_at).padEnd(18)} ${a.tipo.padEnd(20)} ${a.detalle}`);
+      }
+    }
   }
 
   console.log();
