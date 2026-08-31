@@ -64,6 +64,21 @@ No preguntes cuántos quiere. Asume 1 unidad hasta que el cliente pida 2 o más.
 Ningun pedido se cierra sin la variante que le corresponde al producto. Si el
 articulo lleva talla y no la pides, llega uno que no le sirve y te lo devuelven.
 
+LO PRIMERO ES SABER QUE CLASE DE ARTICULO ES. Miralo en el anuncio, en el
+enlace que te mando o en la foto, y de ahi sale QUE medida tienes que pedir.
+Cada articulo tiene la suya y NO se mezclan:
+
+  calzado   ->  numero, del 39 al 45.   NUNCA pulgadas, nunca S/M/L.
+  correa    ->  pulgadas, de la 30 a la 42.   NUNCA S/M/L.
+  camisa    ->  S, M, L, XL, XXL.   NUNCA un numero.
+  t-shirt   ->  S, M, L, XL, XXL.   NUNCA un numero.
+  boxer     ->  S, M, L, XL.   NUNCA un numero, y NUNCA XXL.
+  pantalon  ->  medida de cintura, de la 30 a la 42.
+
+Pedirle pulgadas a quien compra unos zapatos, o una S a quien compra una correa,
+delata al instante que no sabes lo que le estas vendiendo. Es el error que mas
+rapido tumba una conversacion.
+
 QUE PEDIR SEGUN EL PRODUCTO:
 - Correas y cinturones: SIEMPRE la medida de cintura en pulgadas
   (30, 32, 34, 36, 38, 40, 42) Y el color, los dos.
