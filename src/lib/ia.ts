@@ -89,6 +89,33 @@ export interface RespuestaIA {
   fueRespaldo: boolean;
 }
 
+/**
+ * Lo que dijo DE VERDAD el proveedor del modelo.
+ *
+ * OpenRouter envuelve el error del proveedor y deja arriba un «Provider
+ * returned error» que no dice absolutamente nada: el mismo texto para una
+ * clave sin saldo, un modelo retirado o una petición mal armada. El motivo
+ * bueno viaja dentro, en `metadata.raw`, como una cadena JSON del proveedor.
+ *
+ * Se saca y se pega al mensaje porque ese mensaje es el que acaba en la
+ * anomalía que lee el dueño y en el registro del servidor. «Provider returned
+ * error» manda a adivinar; «This model does not support assistant message
+ * prefill» se arregla en dos minutos.
+ */
+function motivoDelProveedor(e: unknown): string {
+  const bruto = (e as { error?: { metadata?: { raw?: unknown } } }).error?.metadata?.raw;
+  if (typeof bruto !== "string") return "";
+
+  try {
+    const dentro = JSON.parse(bruto) as { error?: { message?: string }; message?: string };
+    const detalle = dentro.error?.message ?? dentro.message;
+    return detalle ? ` — ${detalle}` : "";
+  } catch {
+    // No siempre es JSON. Un trozo del texto crudo sigue siendo mejor que nada.
+    return ` — ${bruto.slice(0, 200)}`;
+  }
+}
+
 async function unaLlamada(p: PeticionIA, modelo: string): Promise<string> {
   try {
     const r = await cliente().chat.completions.create(
@@ -108,7 +135,7 @@ async function unaLlamada(p: PeticionIA, modelo: string): Promise<string> {
     if (e instanceof ErrorIA) throw e;
 
     const status = (e as { status?: number }).status ?? 0;
-    const mensaje = (e as Error).message ?? "Error del modelo";
+    const mensaje = `${(e as Error).message ?? "Error del modelo"}${motivoDelProveedor(e)}`;
 
     // 429 es el caso que hay que distinguir: es el límite diario de los
     // modelos gratuitos, y es exactamente cuando toca usar el respaldo.

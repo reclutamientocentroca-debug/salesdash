@@ -325,6 +325,27 @@ export async function generarRespuesta(
   const agente = obtenerAgente(orgId);
   const catalogo = listarCatalogo(orgId, true);
 
+  /*
+   * LA CONVERSACIÓN TIENE QUE ACABAR EN EL CLIENTE.
+   *
+   * No es un capricho nuestro: los modelos actuales rechazan con un 400 una
+   * conversación que termina en el turno del asistente —«assistant message
+   * prefill»—. `atenderConversacion` ya lo garantiza con su guarda de
+   * `ultimo_no_es_cliente`, pero esta función también la llaman el chat de
+   * prueba y las verificaciones, y ahí el error llegaba como un «400 Provider
+   * returned error» que no explicaba nada.
+   *
+   * Se corta aquí, con el motivo escrito, en vez de gastar la llamada.
+   */
+  const ultimo = mensajes[mensajes.length - 1];
+  if (!ultimo || ultimo.emisor !== "cliente") {
+    throw new ErrorIA(
+      "No hay nada que contestar: la conversación no termina en un mensaje del cliente",
+      400,
+      false,
+    );
+  }
+
   const r = await completar({
     orgId,
     proposito: "agente",

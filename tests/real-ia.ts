@@ -14,6 +14,7 @@ import {
   crearCanal,
   crearOrgConDueno,
   getConversation,
+  MODELO_ANALISIS,
   getOrCreateConversation,
   insertMessage,
   listarMensajes,
@@ -25,7 +26,16 @@ import { generarRespuesta } from "../src/lib/agent";
 import { ErrorIA } from "../src/lib/ia";
 import { cifrar } from "../src/lib/auth";
 
-const MODELO = "openai/gpt-4o-mini";
+/*
+ * El modelo que se verifica es EL QUE CORRE EN PRODUCCIÓN.
+ *
+ * Aquí había uno escrito a mano, y eso convertía la verificación en teatro: se
+ * comprobaba que un modelo cualquiera sabe extraer un pedido, no que lo sepa
+ * el que de verdad va a analizar las ventas de la cuenta. Cuando el modelo por
+ * defecto cambia —o lo retiran, que es lo que pasó— esta prueba tiene que
+ * cambiar con él sin que nadie se acuerde de tocarla.
+ */
+const MODELO = MODELO_ANALISIS;
 const linea = (t: string) => console.log(`\n${"─".repeat(72)}\n${t}\n`);
 
 function montar() {
@@ -141,7 +151,19 @@ async function main() {
     modelo_respaldo: MODELO,
   });
 
-  const mensajes = listarMensajes(orgId, b);
+  /*
+   * Un hilo que TERMINA en el cliente, que es la única forma de pedirle una
+   * respuesta a un modelo actual: si termina en el asistente, la API lo
+   * rechaza con un 400 («assistant message prefill»). Es la misma condición
+   * que `atenderConversacion` ya exige antes de contestar.
+   */
+  const c = hilo(orgId, canalId, [
+    { emisor: "cliente", content: "¿Cuánto cuesta la camisa manga larga?", min: 0 },
+    { emisor: "ia", content: "¡Hola! Está en 1850 más el envío.", min: 1 },
+    { emisor: "cliente", content: "¿Y me la mandan hoy mismo a Santiago?", min: 2 },
+  ]);
+
+  const mensajes = listarMensajes(orgId, c);
   const respuesta = await generarRespuesta(orgId, mensajes);
 
   console.log("  modelo que respondió:", respuesta.modelo);
