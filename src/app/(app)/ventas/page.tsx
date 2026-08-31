@@ -9,6 +9,13 @@ import { rangoDesdeQuery, requerirSesion } from "@/lib/tenant";
 export const metadata = { title: "Ventas · SalesDash" };
 export const dynamic = "force-dynamic";
 
+/**
+ * Cuántas ventas se listan por estado. Es un tope de la PÁGINA, no del cálculo:
+ * los KPIs y el pie del periodo salen de SQL sobre todas. Existe para que una
+ * cuenta con años de historia no intente pintar veinte mil filas de golpe.
+ */
+const LIMITE_LISTA = 500;
+
 interface Props {
   searchParams: Promise<{ rango?: string; desde?: string; hasta?: string }>;
 }
@@ -35,19 +42,49 @@ export default async function PaginaVentas({ searchParams }: Props) {
   const motivos = conteoMotivosPerdida(ctx.orgId, rango);
 
   const ventas = [
-    ...listarConversaciones(ctx.orgId, { ...rango, estado: "ia", limite: 100 }),
-    ...listarConversaciones(ctx.orgId, { ...rango, estado: "humano", limite: 100 }),
+    ...listarConversaciones(ctx.orgId, { ...rango, estado: "ia", limite: LIMITE_LISTA }),
+    ...listarConversaciones(ctx.orgId, { ...rango, estado: "humano", limite: LIMITE_LISTA }),
   ].sort((a, b) => (b.fecha_cierre ?? 0) - (a.fecha_cierre ?? 0));
 
   const totalPerdidas = motivos.reduce((n, x) => n + x.n, 0);
+
+  /*
+   * El pie de la tabla: cada columna sumada.
+   *
+   * Se suman las filas que se están viendo, no las cifras del periodo, y por eso
+   * el pie cuadra con lo que hay encima: si alguien repasa la columna con el
+   * dedo tiene que llegar al mismo número. `Facturado` se suma con la MISMA
+   * resta de cada fila —total menos envío, nunca por debajo de cero—, que es la
+   * de `facturado()` en SQL: dos maneras de sumar lo mismo darían dos cifras y
+   * una de las dos estaría mal.
+   */
+  const suma = ventas.reduce(
+    (a, v) => ({
+      total: a.total + (v.total ?? 0),
+      envio: a.envio + (v.envio ?? 0),
+      facturado: a.facturado + Math.max((v.total ?? 0) - (v.envio ?? 0), 0),
+    }),
+    { total: 0, envio: 0, facturado: 0 },
+  );
+
+  /*
+   * La lista tiene tope; el periodo, no. Cuando se queda corta, el pie sumaría
+   * menos que el KPI de arriba sin explicar por qué: se dice cuántas se están
+   * listando y cuál es el facturado del periodo entero.
+   */
+  const cerradasDelPeriodo = m.cierres_ia + m.cierres_humano;
+  const listaIncompleta = ventas.length < cerradasDelPeriodo;
 
   return (
     <>
       <div className="sd-cabecera">
         <div>
           <h1 className="h1-pagina">Ventas</h1>
+          {/* Las del periodo, no las que quepan en la tabla: el subtítulo
+              cuenta lo que pasó, y la tabla enseña lo que cabe. */}
           <p className="tenue" style={{ marginTop: 2 }}>
-            {ventas.length} venta{ventas.length === 1 ? "" : "s"} cerrada{ventas.length === 1 ? "" : "s"} en el rango
+            {cerradasDelPeriodo} venta{cerradasDelPeriodo === 1 ? "" : "s"} cerrada
+            {cerradasDelPeriodo === 1 ? "" : "s"} en el rango · {dinero(m.facturado)} facturados
           </p>
         </div>
       </div>
@@ -129,8 +166,34 @@ export default async function PaginaVentas({ searchParams }: Props) {
                     </tr>
                   ))}
                 </tbody>
+
+                {/* La suma de cada columna de dinero, al pie de su columna.
+                    «Facturado» es la que manda: el total menos los envíos, que
+                    es lo que el negocio se queda. */}
+                <tfoot>
+                  <tr>
+                    <td style={{ paddingLeft: 17 }} colSpan={4}>
+                      <span className="rotulo-total">
+                        Total de {ventas.length} venta{ventas.length === 1 ? "" : "s"}
+                      </span>
+                    </td>
+                    <td className="num" style={{ textAlign: "right" }}>{dinero(suma.total)}</td>
+                    <td className="num" style={{ textAlign: "right" }}>{dinero(suma.envio)}</td>
+                    <td className="num" style={{ textAlign: "right", color: "var(--amber)" }}>
+                      {dinero(suma.facturado)}
+                    </td>
+                    <td style={{ paddingRight: 17 }} />
+                  </tr>
+                </tfoot>
               </table>
             </div>
+          )}
+
+          {listaIncompleta && (
+            <p className="tenue" style={{ padding: "10px 17px 14px" }}>
+              Se listan las {ventas.length} ventas más recientes de {cerradasDelPeriodo}. El facturado
+              del periodo completo es {dinero(m.facturado)}; usa un rango más corto para ver todas.
+            </p>
           )}
         </section>
 

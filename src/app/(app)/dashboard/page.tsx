@@ -69,6 +69,33 @@ export default async function Dashboard({ searchParams }: Props) {
   const sinConectar = numeros === 0;
   const altas = anomalias.filter((a) => a.severidad === "alta").length;
 
+  /*
+   * El pie de «Rendimiento por número»: cada columna sumada.
+   *
+   * Se suman las FILAS que se están viendo y no las cifras sueltas del periodo,
+   * aunque valgan lo mismo: el pie de una tabla es la promesa de que esa
+   * columna suma eso, y quien la repase con el dedo tiene que llegar al mismo
+   * número. `facturado` es el total menos los envíos, la misma resta de la
+   * tarjeta de arriba.
+   */
+  const totalCanales = m.por_canal.reduce(
+    (a, c) => ({
+      leads: a.leads + c.leads,
+      leads_anuncio: a.leads_anuncio + c.leads_anuncio,
+      cierres_ia: a.cierres_ia + c.cierres_ia,
+      cierres_humano: a.cierres_humano + c.cierres_humano,
+      sin_cerrar: a.sin_cerrar + c.sin_cerrar,
+      revision: a.revision + c.revision,
+      facturado: a.facturado + c.ventas,
+    }),
+    { leads: 0, leads_anuncio: 0, cierres_ia: 0, cierres_humano: 0, sin_cerrar: 0, revision: 0, facturado: 0 },
+  );
+
+  const tasaTotal =
+    totalCanales.leads === 0
+      ? 0
+      : Math.round(((totalCanales.cierres_ia + totalCanales.cierres_humano) / totalCanales.leads) * 1000) / 10;
+
   return (
     <>
       <div className="sd-cabecera">
@@ -449,6 +476,27 @@ export default async function Dashboard({ searchParams }: Props) {
                     </tr>
                   ))}
                 </tbody>
+
+                {/* La cuenta entera, sumando los números uno a uno. La última
+                    celda es lo facturado sin envíos: la misma cifra de la
+                    tarjeta de arriba, ahora con el desglose que la produce. */}
+                <tfoot>
+                  <tr>
+                    <td><span className="rotulo-total">Todos los números</span></td>
+                    {!soloAnuncio && (
+                      <td style={{ textAlign: "right", color: "var(--amber)" }}>{totalCanales.leads_anuncio}</td>
+                    )}
+                    <td style={{ textAlign: "right" }}>{totalCanales.leads}</td>
+                    <td style={{ textAlign: "right", color: "var(--acc)" }}>{totalCanales.cierres_ia}</td>
+                    <td style={{ textAlign: "right", color: "var(--blue)" }}>{totalCanales.cierres_humano}</td>
+                    <td style={{ textAlign: "right" }}>{totalCanales.sin_cerrar}</td>
+                    <td style={{ textAlign: "right" }}>{totalCanales.revision}</td>
+                    <td style={{ textAlign: "right" }}>{tasaTotal}%</td>
+                    <td style={{ textAlign: "right", color: "var(--amber)" }}>
+                      {dinero(totalCanales.facturado)}
+                    </td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
           )}

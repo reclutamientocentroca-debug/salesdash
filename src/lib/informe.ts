@@ -290,6 +290,7 @@ const ESTILO = `
                 text-transform: uppercase; letter-spacing: .04em; color: #5a6b65; }
   .rejilla td { padding: 8px 10px; border-top: 1px solid #eef2f0; vertical-align: top; }
   .rejilla td.num, .rejilla th.num { text-align: right; }
+  .rejilla tfoot td { background: #f1f5f3; border-top: 1px solid #d8e2de; font-weight: 700; }
   a { color: #12876a; }
   .vacio { color: #8b9a94; font-style: italic; }
   .hilo { background: #fff; border: 1px solid #e8edeb; border-radius: 10px;
@@ -328,6 +329,25 @@ function tablaCanales(m: Metricas): string {
     )
     .join("");
 
+  /*
+   * El pie con la cuenta entera. Se suman las filas de la tabla, no las cifras
+   * sueltas del periodo: el archivo se abre sin nadie al lado que lo explique,
+   * y una columna que no suma su propio pie no hay forma de comprobarla.
+   */
+  const t = m.por_canal.reduce(
+    (a, c) => ({
+      leads: a.leads + c.leads,
+      leads_anuncio: a.leads_anuncio + c.leads_anuncio,
+      cierres_ia: a.cierres_ia + c.cierres_ia,
+      cierres_humano: a.cierres_humano + c.cierres_humano,
+      sin_cerrar: a.sin_cerrar + c.sin_cerrar,
+      revision: a.revision + c.revision,
+      facturado: a.facturado + c.ventas,
+    }),
+    { leads: 0, leads_anuncio: 0, cierres_ia: 0, cierres_humano: 0, sin_cerrar: 0, revision: 0, facturado: 0 },
+  );
+  const tasa = t.leads === 0 ? 0 : Math.round(((t.cierres_ia + t.cierres_humano) / t.leads) * 1000) / 10;
+
   return `<table class="rejilla">
     <thead><tr>
       <th>Número</th><th class="num">Por anuncio</th><th class="num">Conversaciones</th>
@@ -335,6 +355,17 @@ function tablaCanales(m: Metricas): string {
       <th class="num">Revisión</th><th class="num">Tasa</th><th class="num">Facturado</th>
     </tr></thead>
     <tbody>${filas}</tbody>
+    <tfoot><tr>
+      <td>Todos los números</td>
+      <td class="num">${t.leads_anuncio}</td>
+      <td class="num">${t.leads}</td>
+      <td class="num">${t.cierres_ia}</td>
+      <td class="num">${t.cierres_humano}</td>
+      <td class="num">${t.sin_cerrar}</td>
+      <td class="num">${t.revision}</td>
+      <td class="num">${tasa}%</td>
+      <td class="num">${dinero(t.facturado)}</td>
+    </tr></tfoot>
   </table>`;
 }
 
