@@ -14,7 +14,8 @@ import "./entorno";
 import * as D from "../src/lib/db";
 import { firmaValida, respuestaDeVerificacion } from "../src/lib/meta/firma";
 import { destinosDelEvento, normalizarEvento } from "../src/lib/meta/normalize";
-import { resolverAnuncio } from "../src/lib/meta/contexto-anuncio";
+import { anuncioParaPrompt, resolverAnuncio } from "../src/lib/meta/contexto-anuncio";
+import { ANUNCIO_SIN_DESCRIBIR } from "../src/lib/anuncio";
 import { cifrar, secretoAleatorio } from "../src/lib/auth";
 
 const SECRETO = "un-secreto-de-app-de-prueba";
@@ -352,4 +353,100 @@ test("la página se resuelve por su id y por el de su Instagram", () => {
   assert.equal(D.canalMetaPorDestino(pageId)?.org_id, orgId);
   assert.equal(D.canalMetaPorDestino(igId)?.org_id, orgId, "el DM de Instagram llega con el id de IG");
   assert.equal(D.canalMetaPorDestino("000000000"), undefined);
+});
+
+/**
+ * LO QUE VIO EL CLIENTE EN EL ANUNCIO TIENE QUE LLEGARLE AL AGENTE.
+ *
+ * El texto del anuncio y lo que se lee en su imagen se guardaban desde hacía
+ * tiempo y no los leía nadie: el agente sabía el TÍTULO y nada más. En la
+ * publicidad de Facebook el precio, los colores y las tallas van escritos
+ * ENCIMA de la foto la mitad de las veces, así que a un «quiero la del anuncio,
+ * la azul» el agente contestaba preguntando de qué producto se trataba.
+ */
+test("lo que decía el anuncio —su texto y su imagen— llega al prompt", () => {
+  const { orgId } = cuentaConPagina("LoQueVio");
+
+  D.registrarAnuncioVisto(orgId, "ad_visto", "Camisa de lino", {
+    texto: "Camisas de lino, envío a todo el país",
+    imagen: null,
+  });
+  D.guardarDescripcionAnuncio(orgId, "ad_visto", "Se ven camisas azul y beige con «1,850» escrito encima");
+
+  const prompt = anuncioParaPrompt(resolverAnuncio(orgId, "ad_visto", "Camisa de lino"));
+
+  assert.ok(prompt.includes("LO QUE VIO EL CLIENTE") || prompt.includes("VIO EL CLIENTE"));
+  assert.ok(prompt.includes("Camisas de lino, envío a todo el país"), "el texto del anuncio");
+  assert.ok(prompt.includes("«1,850» escrito encima"), "y lo que se lee en su imagen");
+});
+
+/**
+ * Pero saber lo que decía el anuncio NO es permiso para cotizarlo. Un precio
+ * escrito sobre una imagen no es el catálogo: si no está vinculado, el agente
+ * puede hablar del artículo y no puede ponerle precio.
+ */
+test("el precio escrito en el anuncio no autoriza a cotizar", () => {
+  const { orgId } = cuentaConPagina("SinPermiso");
+
+  D.registrarAnuncioVisto(orgId, "ad_suelto", "Nevera", { texto: "Nevera 12 pies a 19,900" });
+  D.guardarDescripcionAnuncio(orgId, "ad_suelto", "Una nevera con «19,900» escrito grande");
+
+  const prompt = anuncioParaPrompt(resolverAnuncio(orgId, "ad_suelto", "Nevera"));
+
+  assert.ok(prompt.includes("19,900"), "el agente sabe de qué le hablan");
+  assert.ok(
+    prompt.includes("ni siquiera los que estén escritos ahí arriba"),
+    "y tiene prohibido confirmarlo",
+  );
+  assert.ok(prompt.includes("no sigas vendiendo"));
+});
+
+/**
+ * La marca de «no se pudo mirar» no es una descripción. Sin este filtro el
+ * agente le contaría al cliente que en la foto del anuncio se ve
+ * «[anuncio sin describir]».
+ */
+test("un anuncio que no se pudo mirar no ensucia el prompt", () => {
+  const { orgId } = cuentaConPagina("SinMirar");
+
+  D.registrarAnuncioVisto(orgId, "ad_ciego", "Algo", {});
+  D.guardarDescripcionAnuncio(orgId, "ad_ciego", ANUNCIO_SIN_DESCRIBIR);
+
+  const prompt = anuncioParaPrompt(resolverAnuncio(orgId, "ad_ciego", "Algo"));
+  assert.equal(prompt.includes("sin describir"), false);
+});
+
+/**
+ * LA AVERÍA QUE DEJÓ AL AGENTE MUDO, FIJADA AQUÍ PARA QUE NO VUELVA.
+ *
+ * `describirAnunciosPendientes` corre ANTES de que el agente conteste, con un
+ * cliente esperando. Cuando fallaba dejaba la descripción en NULL «para
+ * reintentarlo con el próximo lead», y esta consulta devolvía el MISMO anuncio
+ * fallido una y otra vez: con la visión caída, cada mensaje de cada cliente de
+ * la cuenta se quedaba esperando el minuto entero de esa llamada, tres veces
+ * seguidas. El agente parecía muerto cuando lo que estaba era haciendo cola.
+ *
+ * La regla: un anuncio intentado NO vuelve a la cola, salga bien o salga mal.
+ */
+test("un anuncio ya intentado sale de la cola, aunque no se pudiera describir", async () => {
+  const { orgId } = cuentaConPagina("Cola");
+
+  D.registrarAnuncioVisto(orgId, "ad_cola", "Algo", { imagen: "local:999/no-existe.jpg" });
+  assert.equal(D.anunciosPorDescribir(orgId).length, 1, "entra en la cola");
+
+  const { describirAnunciosPendientes } = await import("../src/lib/analyzer");
+
+  // El archivo no existe, así que no hay imagen que mirar: es el camino de
+  // fallo, y no toca la red.
+  await describirAnunciosPendientes(orgId, 1);
+
+  assert.equal(
+    D.anunciosPorDescribir(orgId).length,
+    0,
+    "y NO vuelve: si volviera, cada mensaje del cliente pagaría el intento otra vez",
+  );
+
+  // Y lo que quedó escrito no se le cuenta al modelo.
+  const prompt = anuncioParaPrompt(resolverAnuncio(orgId, "ad_cola", "Algo"));
+  assert.equal(prompt.includes("sin describir"), false);
 });

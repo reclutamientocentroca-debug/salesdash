@@ -190,7 +190,22 @@ export interface Percepcion {
   oir: boolean;
   modeloVision: string;
   modeloAudio: string;
+  /**
+   * Cuánto se espera como MUCHO por mirar y escuchar, en total.
+   *
+   * Hay un cliente delante mirando la pantalla. Es mejor contestarle sin haber
+   * visto la foto que hacerle esperar un minuto a que un modelo de visión caído
+   * agote su tiempo: lo primero es una respuesta peor, lo segundo es un cliente
+   * que se fue.
+   */
+  timeoutMs?: number;
 }
+
+/** Cuánto se espera por defecto. Ver `timeoutMs`. */
+const PRESUPUESTO_MS = 15_000;
+
+/** Tope de archivos por respuesta, aunque quepan más en la ventana. */
+const MAX_ARCHIVOS = 2;
 
 /**
  * MIRA Y ESCUCHA LO ÚLTIMO QUE MANDÓ EL CLIENTE, ANTES DE CONTESTARLE.
@@ -216,10 +231,9 @@ export async function percibir(
 ): Promise<Mensaje[]> {
   const recientes = mensajes.slice(-VENTANA).filter((m) => m.emisor === "cliente" && m.media_url);
 
-  const imagenes =
-    p.ver
-      ? recientes.filter((m) => m.tipo === "imagen" && !m.descripcion_imagen)
-      : [];
+  const imagenes = p.ver
+    ? recientes.filter((m) => m.tipo === "imagen" && !m.descripcion_imagen)
+    : [];
   const audios = p.oir ? recientes.filter((m) => m.tipo === "audio" && !m.transcripcion) : [];
 
   if (imagenes.length === 0 && audios.length === 0) return mensajes;
@@ -228,10 +242,34 @@ export async function percibir(
    * En paralelo: son llamadas a modelos distintos y el cliente está mirando la
    * pantalla. Una foto y un audio seguidos costarían el doble de espera.
    */
-  await Promise.all([
-    ...imagenes.map((m) => describirImagen(orgId, p.modeloVision, m)),
-    ...audios.map((m) => transcribirAudio(orgId, p.modeloAudio, m)),
+  /*
+   * CON RELOJ. El trabajo sigue en segundo plano si se pasa del presupuesto
+   * —lo que describa quedará guardado para la próxima respuesta— pero la
+   * respuesta de AHORA no lo espera. Un cliente delante de la pantalla no
+   * aguanta el minuto que tarda en rendirse un modelo caído, y contestar sin
+   * haber visto la foto es infinitamente mejor que no contestar.
+   */
+  const trabajo = Promise.all([
+    ...imagenes.slice(0, MAX_ARCHIVOS).map((m) => describirImagen(orgId, p.modeloVision, m)),
+    ...audios.slice(0, MAX_ARCHIVOS).map((m) => transcribirAudio(orgId, p.modeloAudio, m)),
   ]);
+
+  let reloj: NodeJS.Timeout | undefined;
+  const presupuesto = new Promise<"tarde">((resolve) => {
+    reloj = setTimeout(() => resolve("tarde"), p.timeoutMs ?? PRESUPUESTO_MS);
+  });
+
+  try {
+    if ((await Promise.race([trabajo.then(() => "hecho" as const), presupuesto])) === "tarde") {
+      console.warn(
+        `[percepcion] se acabó el tiempo mirando lo que mandó el cliente; se contesta sin ello`,
+      );
+    }
+  } finally {
+    clearTimeout(reloj);
+    // Que nadie se caiga por una promesa rechazada a la que ya nadie mira.
+    void trabajo.catch(() => {});
+  }
 
   /*
    * Lo que acaba de escribirse se relee de la base y no se reconstruye aquí:

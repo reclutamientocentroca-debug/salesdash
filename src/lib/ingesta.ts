@@ -283,7 +283,19 @@ export async function ingerir(
          */
         try {
           const { describirAnunciosPendientes } = await import("@/lib/analyzer");
-          await describirAnunciosPendientes(orgId);
+          /*
+           * UNO SOLO, Y CON RELOJ. Las dos cosas se pagaron caras.
+           *
+           * Esto corre ANTES de contestar, con el cliente esperando. Cuando
+           * miraba tres anuncios seguidos, cada uno con el minuto entero de
+           * espera de una llamada al modelo, un cliente podía quedarse tres
+           * minutos sin respuesta —y con la visión caída, TODOS—. El agente
+           * parecía muerto cuando lo que estaba era haciendo cola.
+           *
+           * El anuncio que importa es el del hilo que acaba de abrirse, y es el
+           * más reciente, que es justo el que devuelve la consulta.
+           */
+          await describirAnunciosPendientes(orgId, 1, 10_000);
         } catch (e) {
           // Sin descripción, el agente sigue con el título y el texto del
           // anuncio: peor, pero no roto.

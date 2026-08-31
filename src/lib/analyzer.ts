@@ -38,7 +38,7 @@ import {
   type Mensaje,
   type Rango,
 } from "./db";
-import { anuncioParaModelo } from "./anuncio";
+import { ANUNCIO_SIN_DESCRIBIR, anuncioParaModelo } from "./anuncio";
 // El marcador lo reconoce `cierre.ts`, que es quien sella al entrar el mensaje.
 // Aquí se usa la MISMA función: dos formas de leerlo darían dos verdades.
 import { contieneMarcador } from "./cierre";
@@ -187,7 +187,17 @@ En dos o tres frases, y solo con lo que SE VE:
 
 Si algo no se ve, no lo menciones. No inventes nada, no adornes y no saludes.`;
 
-export async function describirAnunciosPendientes(orgId: number, limite = 3): Promise<number> {
+
+
+export async function describirAnunciosPendientes(
+  orgId: number,
+  limite = 3,
+  /**
+   * Cuánto se espera a cada imagen. El analista puede permitirse el minuto
+   * entero; la ingesta, que tiene un cliente esperando respuesta, no.
+   */
+  timeoutMs?: number,
+): Promise<number> {
   const pendientes = anunciosPorDescribir(orgId, limite);
   if (pendientes.length === 0) return 0;
 
@@ -197,7 +207,12 @@ export async function describirAnunciosPendientes(orgId: number, limite = 3): Pr
 
   for (const a of pendientes) {
     const imagen = comoDataUrl(orgId, a.imagen);
-    if (!imagen) continue;
+    if (!imagen) {
+      // Sin archivo no hay nada que mirar, ni ahora ni nunca: se marca o
+      // volveria a salir en esta misma consulta con el proximo mensaje.
+      guardarDescripcionAnuncio(orgId, a.ad_id, ANUNCIO_SIN_DESCRIBIR);
+      continue;
+    }
 
     try {
       const r = await completar({
@@ -215,17 +230,28 @@ export async function describirAnunciosPendientes(orgId: number, limite = 3): Pr
         ] as MensajeIA[],
         maxTokens: 300,
         temperatura: 0,
+        timeoutMs,
       });
 
       const texto = r.texto.trim();
-      if (texto) {
-        guardarDescripcionAnuncio(orgId, a.ad_id, texto);
-        hechas++;
-      }
+      guardarDescripcionAnuncio(orgId, a.ad_id, texto || ANUNCIO_SIN_DESCRIBIR);
+      if (texto) hechas++;
     } catch (e) {
-      // Sin descripción, el agente sigue con el título y el texto del anuncio:
-      // peor, pero no roto. Se reintenta en el siguiente lead de ese anuncio.
+      /*
+       * SE MARCA COMO INTENTADO, Y ESTO NO ES OPCIONAL.
+       *
+       * Dejar la descripción en NULL parecía inofensivo —«ya se reintentará con
+       * el próximo lead»— y era una bomba: esta consulta devuelve el MISMO
+       * anuncio fallido una y otra vez, y la llamada corre antes de que el
+       * agente conteste. Con la visión caída, cada mensaje de cada cliente de
+       * la cuenta se quedaba esperando el minuto entero de esta llamada, y el
+       * agente parecía muerto cuando lo que estaba era haciendo cola.
+       *
+       * Sin descripción el agente sigue teniendo el título y el texto del
+       * anuncio: peor, pero contesta. Y contestar es lo que importa.
+       */
       console.error(`[anuncio] no se pudo describir la imagen del anuncio ${a.ad_id}`, e);
+      guardarDescripcionAnuncio(orgId, a.ad_id, ANUNCIO_SIN_DESCRIBIR);
     }
   }
 

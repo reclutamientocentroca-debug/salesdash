@@ -12,6 +12,7 @@
  * peor experiencia y mejor negocio.
  */
 import { anuncioMetaPorAdId, registrarAnuncioVisto } from "@/lib/db";
+import { descripcionUtil } from "@/lib/anuncio";
 
 export interface ContextoAnuncio {
   adId: string;
@@ -20,6 +21,17 @@ export interface ContextoAnuncio {
   producto: { nombre: string; precio: number | null; variantes: string | null } | null;
   /** Por qué no se puede cotizar, para la anomalía y para el panel. */
   motivo: "vinculado" | "sin_vincular" | "producto_borrado" | "producto_inactivo" | "sin_precio";
+  /**
+   * QUÉ DECÍA EL ANUNCIO. Su texto, y lo que se lee en su imagen.
+   *
+   * Se guardaban las dos cosas y no las leía nadie: el agente sabía el TÍTULO
+   * del anuncio y nada más. En la publicidad de Facebook el precio, los colores
+   * y las tallas van escritos ENCIMA de la foto la mitad de las veces, así que
+   * el cliente escribía «quiero la del anuncio, la azul» y el agente no tenía
+   * ni idea de qué azul le hablaban.
+   */
+  texto: string | null;
+  descripcionImagen: string | null;
 }
 
 /**
@@ -40,13 +52,20 @@ export function resolverAnuncio(
 
   const fila = anuncioMetaPorAdId(orgId, adId);
 
+  // Lo que decía el anuncio vale igual esté o no vinculado a un producto: es
+  // lo que el cliente vio antes de escribir.
+  const dicho = {
+    texto: fila?.texto?.trim() || null,
+    descripcionImagen: descripcionUtil(fila?.descripcion_imagen),
+  };
+
   if (!fila || fila.producto_id === null) {
-    return { adId, puedeCotizar: false, producto: null, motivo: "sin_vincular" };
+    return { adId, puedeCotizar: false, producto: null, motivo: "sin_vincular", ...dicho };
   }
 
   // El producto se borró del catálogo pero el anuncio sigue apuntándolo.
   if (fila.producto_nombre === null) {
-    return { adId, puedeCotizar: false, producto: null, motivo: "producto_borrado" };
+    return { adId, puedeCotizar: false, producto: null, motivo: "producto_borrado", ...dicho };
   }
 
   const producto = {
@@ -57,7 +76,7 @@ export function resolverAnuncio(
 
   // Apagado en el catálogo: el dueño dijo que ahora mismo no se vende.
   if (fila.producto_activo === 0) {
-    return { adId, puedeCotizar: false, producto, motivo: "producto_inactivo" };
+    return { adId, puedeCotizar: false, producto, motivo: "producto_inactivo", ...dicho };
   }
 
   /*
@@ -67,10 +86,10 @@ export function resolverAnuncio(
    * que decir.
    */
   if (producto.precio === null) {
-    return { adId, puedeCotizar: false, producto, motivo: "sin_precio" };
+    return { adId, puedeCotizar: false, producto, motivo: "sin_precio", ...dicho };
   }
 
-  return { adId, puedeCotizar: true, producto, motivo: "vinculado" };
+  return { adId, puedeCotizar: true, producto, motivo: "vinculado", ...dicho };
 }
 
 /** En castellano, para la anomalía que ve el dueño. */
@@ -96,12 +115,33 @@ export function explicarMotivo(c: ContextoAnuncio): string {
  * cliente y este dice qué se puede prometer. Los dos van juntos, y este manda.
  */
 export function anuncioParaPrompt(c: ContextoAnuncio): string {
+  /*
+   * LO QUE EL CLIENTE VIO ANTES DE ESCRIBIR.
+   *
+   * Va delante de todo lo demás, y se pone esté el anuncio vinculado o no,
+   * porque no es permiso para cotizar: es de qué se está hablando. Sin esto el
+   * agente sabe el TÍTULO del anuncio y nada más, y a un «quiero la del anuncio,
+   * la azul» contesta preguntando de qué producto se trata. En la publicidad de
+   * Facebook el precio y los colores van escritos ENCIMA de la foto la mitad de
+   * las veces, y ahí no los veía nadie.
+   */
+  const vio: string[] = [];
+  if (c.texto) vio.push(`Lo que dice el anuncio: ${c.texto}`);
+  if (c.descripcionImagen) vio.push(`Lo que se ve en su imagen: ${c.descripcionImagen}`);
+
+  const contexto = vio.length
+    ? ["ESTO ES LO QUE VIO EL CLIENTE EN EL ANUNCIO ANTES DE ESCRIBIRTE:", ...vio, ""].join("\n")
+    : "";
+
   if (!c.puedeCotizar) {
-    return [
-      "IMPORTANTE — este cliente llegó por un anuncio que NO está vinculado a un producto del catálogo.",
-      "No des precios, ni plazos, ni condiciones, ni confirmes los del anuncio.",
-      "Dile que enseguida le atiende alguien del equipo con los detalles, y no sigas vendiendo.",
-    ].join("\n");
+    return (
+      contexto +
+      [
+        "IMPORTANTE — este cliente llegó por un anuncio que NO está vinculado a un producto del catálogo.",
+        "Puedes hablar de lo que el anuncio enseñaba, pero NO des precios, ni plazos, ni condiciones, ni confirmes los del anuncio — ni siquiera los que estén escritos ahí arriba.",
+        "Dile que enseguida le atiende alguien del equipo con los detalles, y no sigas vendiendo.",
+      ].join("\n")
+    );
   }
 
   const p = c.producto!;
@@ -109,9 +149,12 @@ export function anuncioParaPrompt(c: ContextoAnuncio): string {
   if (p.variantes) partes.push(`(${p.variantes})`);
   partes.push(`— ${p.precio}`);
 
-  return [
-    "El anuncio que trajo a este cliente corresponde a este producto del catálogo:",
-    partes.join(" "),
-    "Ese precio es el bueno. Si el anuncio prometía otro, no lo confirmes ni lo niegues: dile que lo revisas con el equipo.",
-  ].join("\n");
+  return (
+    contexto +
+    [
+      "El anuncio que trajo a este cliente corresponde a este producto del catálogo:",
+      partes.join(" "),
+      "Ese precio es el bueno. Si el anuncio prometía otro —en su texto o escrito sobre su imagen—, no lo confirmes ni lo niegues: dile que lo revisas con el equipo.",
+    ].join("\n")
+  );
 }

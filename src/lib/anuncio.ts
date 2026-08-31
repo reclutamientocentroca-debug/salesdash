@@ -15,6 +15,21 @@
  *      producto, y el analista no sabe atribuirle la venta a nada.
  */
 
+/**
+ * Lo que queda escrito cuando la imagen de un anuncio no se pudo mirar.
+ *
+ * Es una marca, no una descripción: existe para que el intento no se repita en
+ * cada mensaje que entra —ver `describirAnunciosPendientes`— y por eso nadie
+ * puede confundirla con algo que contarle al modelo. Quien la lea, la descarta.
+ */
+export const ANUNCIO_SIN_DESCRIBIR = "[anuncio sin describir]";
+
+/** Una descripción de anuncio que de verdad dice algo, o null. */
+export function descripcionUtil(texto: string | null | undefined): string | null {
+  const limpio = texto?.trim();
+  return limpio && limpio !== ANUNCIO_SIN_DESCRIBIR ? limpio : null;
+}
+
 /** Lo mínimo para saber si un hilo lo trajo un anuncio. */
 export interface DatosAnuncio {
   origen: string | null;

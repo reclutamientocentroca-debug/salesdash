@@ -40,6 +40,7 @@ import { actualizarCanal, ahora, canalesParaReconectar, obtenerCanalSinOrg, pone
 import { ingerir, type MensajeEntrante } from "@/lib/ingesta";
 import { esDescargable, guardar } from "@/lib/media";
 import { direccionDelChat, jidDeDestino } from "@/lib/telefono";
+import { textoConEnlace } from "@/lib/enlace";
 import { enlaceDeMapa, textoDeUbicacion } from "@/lib/ubicacion";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -180,8 +181,22 @@ function traducir(m: WAMessage): MensajeEntrante | null {
     tipo = "texto";
     texto = real.conversation;
   } else if (real.extendedTextMessage?.text) {
+    /*
+     * Un mensaje con enlace llega por aquí, y trae la ficha de la página
+     * pegada: título, descripción y la dirección real. El cliente comparte el
+     * artículo del catálogo o de Instagram en vez de escribir su nombre —es la
+     * forma más común de decir «quiero este»— y sin la ficha el agente recibía
+     * una URL pelada y contestaba «¿de qué producto me hablas?».
+     */
+    const e = real.extendedTextMessage;
     tipo = "texto";
-    texto = real.extendedTextMessage.text;
+    // `matchedText` es la dirección de verdad; `text` es lo que escribió el
+    // cliente, que puede llevar el enlace en medio de una frase.
+    texto = textoConEnlace(e.text ?? "", {
+      titulo: e.title,
+      descripcion: e.description,
+      url: e.matchedText,
+    });
   } else if (real.imageMessage) {
     tipo = "imagen";
     texto = conCaption("[imagen]", real.imageMessage.caption);

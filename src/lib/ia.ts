@@ -80,6 +80,15 @@ export interface PeticionIA {
   mensajes: Mensaje[];
   maxTokens?: number;
   temperatura?: number;
+  /**
+   * Cuánto se espera a esta llamada. Por defecto 60 segundos.
+   *
+   * Existe porque no todas las llamadas valen lo mismo. Al analista, que corre
+   * solo, un minuto no le cuesta nada. A lo que pasa mientras un cliente mira
+   * la pantalla esperando respuesta, un minuto le cuesta la venta: ahí se pide
+   * un presupuesto corto y, si no llega, se contesta con lo que se tenga.
+   */
+  timeoutMs?: number;
 }
 
 export interface RespuestaIA {
@@ -125,7 +134,7 @@ async function unaLlamada(p: PeticionIA, modelo: string): Promise<string> {
         max_tokens: p.maxTokens ?? 700,
         temperature: p.temperatura ?? 0.2,
       },
-      { timeout: 60_000 },
+      { timeout: p.timeoutMs ?? 60_000 },
     );
 
     const texto = r.choices?.[0]?.message?.content ?? "";
