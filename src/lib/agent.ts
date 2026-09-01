@@ -628,7 +628,9 @@ ${queVende}
 ${deAnuncio ? `${deAnuncio}\n` : ""}
 ${agente.instrucciones ? `Instrucciones del negocio:\n${agente.instrucciones}\n` : ""}${pais && agente.instrucciones ? `\n${regirsePorElPais(pais)}\n` : ""}
 ${cliente ? `QUIÉN TE ESCRIBE — su teléfono es +${cliente.telefono}${cliente.nombre ? `, y en WhatsApp aparece como "${cliente.nombre}" (el nombre de su cuenta, no necesariamente el completo)` : ""}.
-Ya lo tienes, así que NO se lo preguntes NUNCA, ni «para confirmar»: es el número desde el que te está escribiendo ahora mismo. Y cuando levantes un pedido que lleve teléfono, escribe ahí +${cliente.telefono}, entero y tal cual. Nunca pongas en su lugar "el mismo de este WhatsApp", "el número de este chat" ni ninguna frase parecida: quien va a entregar el pedido necesita un número al que llamar, no una nota.\n` : ""}
+PREGÚNTALE A QUÉ NÚMERO LLAMA EL MENSAJERO, una vez y en su turno, como un dato más del pedido: "¿A qué número le llama el mensajero, a este mismo?". No es papeleo — el que abre la puerta no siempre es el que escribe, y un pedido con un número al que nadie contesta se devuelve.
+Si te dice que sí, que es el mismo, o si te da otro, lo das por bueno a la primera y SIGUES: no lo repitas, no lo confirmes dos veces y no lo vuelvas a sacar más adelante.
+En el pedido escribe el número que te haya dado; si dijo que vale este, escribe +${cliente.telefono}, entero y tal cual. Nunca pongas en su lugar "el mismo de este WhatsApp", "el número de este chat" ni ninguna frase parecida: quien va a entregar el pedido necesita un número al que llamar, no una nota.\n` : ""}
 Reglas que no puedes romper:
 - No inventes precios, productos, plazos ni promociones. Si algo no está arriba, di que lo confirmas y no lo prometas.${
   deAnuncio
