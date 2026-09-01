@@ -44,7 +44,7 @@ import { descifrar } from "./auth";
 import { anuncioParaModelo, type DatosAnuncio } from "./anuncio";
 import { contieneMarcador, MARCADOR_POR_DEFECTO, registrarCierre } from "./cierre";
 import { completar, ErrorIA, hoyISO } from "./ia";
-import { bloqueDePais, obtenerPais } from "./paises";
+import { bloqueDePais, obtenerPais, type Pais } from "./paises";
 import { bloqueDeEnvio } from "./envio";
 import { conLoVistoYOido, modelosDePercepcion, percibir } from "./percepcion";
 import { ubicacionParaModelo, validarUbicacion, type UbicacionValidada } from "./ubicacion";
@@ -618,9 +618,9 @@ ${envio ? `${envio}\n` : ""}
 ${queVende}
 
 ${deAnuncio ? `${deAnuncio}\n` : ""}
-${agente.instrucciones ? `Instrucciones del negocio:\n${agente.instrucciones}\n` : ""}
+${agente.instrucciones ? `Instrucciones del negocio:\n${agente.instrucciones}\n` : ""}${pais && agente.instrucciones ? `\n${regirsePorElPais(pais)}\n` : ""}
 ${cliente ? `QUIÉN TE ESCRIBE — su teléfono es +${cliente.telefono}${cliente.nombre ? `, y en WhatsApp aparece como "${cliente.nombre}" (el nombre de su cuenta, no necesariamente el completo)` : ""}.
-Ya lo tienes, así que NO se lo preguntes. Y cuando levantes un pedido que lleve teléfono, escribe ahí +${cliente.telefono}, entero y tal cual. Nunca pongas en su lugar "el mismo de este WhatsApp", "el número de este chat" ni ninguna frase parecida: quien va a entregar el pedido necesita un número al que llamar, no una nota.\n` : ""}
+Ya lo tienes, así que NO se lo preguntes NUNCA, ni «para confirmar»: es el número desde el que te está escribiendo ahora mismo. Y cuando levantes un pedido que lleve teléfono, escribe ahí +${cliente.telefono}, entero y tal cual. Nunca pongas en su lugar "el mismo de este WhatsApp", "el número de este chat" ni ninguna frase parecida: quien va a entregar el pedido necesita un número al que llamar, no una nota.\n` : ""}
 Reglas que no puedes romper:
 - No inventes precios, productos, plazos ni promociones. Si algo no está arriba, di que lo confirmas y no lo prometas.${
   deAnuncio
@@ -686,47 +686,104 @@ No escribas "${marcador}" en ningún otro momento: ni para resumir lo que llevan
 }
 
 /**
- * LO QUE EL AGENTE YA PREGUNTÓ, puesto delante de sus ojos.
+ * LO QUE YA PREGUNTÓ Y LO QUE EL CLIENTE LE CONTESTÓ, delante de sus ojos.
  *
  * Decirle «no repitas preguntas» no basta: en una conversación de treinta
  * mensajes, la pregunta que hizo hace ocho turnos está tan lejos como cualquier
- * otra frase, y vuelve a hacerla. Al cliente le llega «¿qué talla necesitas?»
- * por segunda vez y entiende, con razón, que no le están escuchando.
+ * otra frase, y vuelve a hacerla. Al cliente le llega «¿a qué dirección?» por
+ * segunda vez y entiende, con razón, que no le están escuchando. Ahí se cae la
+ * venta, y ni el vendedor ni el dueño se enteran de por qué.
  *
- * Esto lo saca del propio hilo y sin gastar una llamada: las frases de sus
- * mensajes que terminan en interrogación. No hay que adivinar nada —lo escribió
- * él— y el modelo lo lee como una lista corta al final del prompt, que es donde
- * más pesa.
+ * Esto sale del propio hilo y no cuesta una llamada: las frases del agente que
+ * terminan en interrogación, y pegado a cada una LO QUE EL CLIENTE CONTESTÓ
+ * después —que es su respuesta, esté donde esté ahora en el historial—. El
+ * modelo lo lee como una lista corta al final del prompt, que es donde más
+ * pesa, y ya no tiene que reconstruir la conversación para saber qué sabe.
  *
- * Las últimas ocho y sin repetidas: una lista larga se lee como ruido, y las
- * que importan son las de esta conversación, no las de hace media hora.
+ * Las últimas ocho y sin repetidas: una lista larga se lee como ruido.
  */
-export function preguntasYaHechas(mensajes: Mensaje[], tope = 8): string[] {
-  const vistas = new Map<string, string>();
+export interface Recordado {
+  pregunta: string;
+  /** Lo que el cliente escribió justo después. Null si no ha contestado. */
+  respuesta: string | null;
+}
 
-  for (const m of mensajes) {
+/** Sin tildes ni signos: «¿Qué talla?» y «que talla» son la misma pregunta. */
+function clavePregunta(frase: string): string {
+  return frase
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9 ]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function loYaPreguntado(mensajes: Mensaje[], tope = 8): Recordado[] {
+  const vistas = new Map<string, Recordado>();
+
+  for (const [i, m] of mensajes.entries()) {
     if (m.emisor !== "ia") continue;
 
     // Se corta DESPUÉS de un cierre de frase, nunca después del signo de
     // apertura: partir en «¿» dejaría la pregunta sin él.
-    for (const bruta of m.content.split(/(?<=[?.!\n])/)) {
-      const frase = bruta.trim();
-      if (!frase.endsWith("?") || frase.length < 8) continue;
+    const preguntas = m.content
+      .split(/(?<=[?.!\n])/)
+      .map((f) => f.trim())
+      .filter((f) => f.endsWith("?") && f.length >= 8);
 
-      // Sin tildes ni signos para que «¿Qué talla?» y «que talla» sean la misma.
-      const clave = frase
-        .toLowerCase()
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .replace(/[^a-z0-9 ]/g, "")
-        .replace(/\s+/g, " ")
-        .trim();
+    if (preguntas.length === 0) continue;
 
-      if (clave) vistas.set(clave, frase);
+    /*
+     * La respuesta es el siguiente mensaje del cliente, sea cual sea. No se
+     * intenta adivinar si «la 42» contesta a la talla o al color: el modelo
+     * tiene el hilo entero delante para eso. Lo que aquí importa es que un dato
+     * que el cliente YA MANDÓ no vuelva a pedirse.
+     */
+    const contesto = mensajes.slice(i + 1).find((x) => x.emisor === "cliente");
+    const respuesta = contesto?.content.trim().slice(0, 120) || null;
+
+    for (const pregunta of preguntas) {
+      const clave = clavePregunta(pregunta);
+      if (clave) vistas.set(clave, { pregunta, respuesta });
     }
   }
 
   return [...vistas.values()].slice(-tope);
+}
+
+/**
+ * ESTE NÚMERO VENDE AQUÍ, DIGA LO QUE DIGA EL GUION.
+ *
+ * Un guion se copia de un número a otro y se queda: el de la tienda de Panamá
+ * aplicado en un número dominicano trae dentro dólares, corregimientos, Yappy y
+ * un envío de US$5.00, y el agente lo lee como si fuera la verdad de esta
+ * tienda. Sigue vendiendo y cerrando igual de bien mientras cotiza el envío de
+ * otro país, que es lo que lo hace tan difícil de ver.
+ *
+ * Esto va DESPUÉS de las instrucciones, a propósito: lo último que se lee es lo
+ * que más pesa, y lo que dice es que ante una contradicción entre el guion y el
+ * país del número, gana el país. No borra el guion —lo escribió el dueño y casi
+ * todo lo que dice sigue siendo suyo: qué vende, qué no promete, cómo cierra—
+ * pero le quita el dinero y la geografía de otro sitio.
+ *
+ * Y la salida cuando el dato que falta solo estaba en esa moneda ajena no es
+ * traducirlo: es decir que se confirma. Un envío convertido a ojo es un envío
+ * inventado con más pasos.
+ */
+export function regirsePorElPais(pais: Pais): string {
+  return [
+    `LO DE ARRIBA LO ESCRIBIÓ EL NEGOCIO, PERO ESTE NÚMERO VENDE EN ${pais.nombre.toUpperCase()}.`,
+    `Si en esas instrucciones aparece un precio, un envío o un monto en otra moneda —dólares, ` +
+      `colones, lo que sea que no sea ${pais.moneda.nombre} (${pais.moneda.simbolo})—, NO lo uses: ` +
+      "es el guion de otra tienda, de otro país. No lo conviertas ni lo estimes tú; si te falta ese " +
+      "dato, di que lo confirmas con el equipo y sigue con el resto del pedido.",
+    "Lo mismo con la geografía y las formas de pago: no nombres provincias, distritos, transportes " +
+      "ni métodos de pago que no sean los de este país, que son los que tienes escritos más arriba. " +
+      "Un cliente al que le hablan de un sitio que no es el suyo sabe al instante que quien le " +
+      "escribe no está donde dice estar.",
+    "Todo lo demás del guion sigue mandando: qué vendes, qué no prometes, cómo se cierra un pedido.",
+  ].join("\n");
 }
 
 /**
@@ -837,15 +894,21 @@ export async function generarRespuesta(
    * para ESTA respuesta: no vuelvas a preguntar lo que está en esta lista. Ver
    * `preguntasYaHechas`.
    */
-  const yaPregunto = preguntasYaHechas(mensajes);
+  const yaPregunto = loYaPreguntado(mensajes);
 
   const memoria = yaPregunto.length
-    ? "\n\nESTO YA SE LO PREGUNTASTE EN ESTA CONVERSACIÓN:\n" +
-      yaPregunto.map((p) => `- ${p}`).join("\n") +
-      "\nNo repitas ninguna de esas preguntas. Si el cliente ya te contestó, dalo por sabido y " +
-      "sigue con lo que falte; si no te contestó, no se la vuelvas a hacer igual: pasa al " +
-      "siguiente dato del pedido y déjala para el final. Repetir una pregunta que el cliente ya " +
-      "leyó le dice que no le estás escuchando, y ahí se cae la venta."
+    ? "\n\nESTO YA SE LO PREGUNTASTE, Y ESTO TE CONTESTÓ:\n" +
+      yaPregunto
+        .map((p) =>
+          p.respuesta
+            ? `- «${p.pregunta}» -> el cliente dijo: «${p.respuesta}»`
+            : `- «${p.pregunta}» -> todavía no te ha contestado`,
+        )
+        .join("\n") +
+      "\nLO QUE YA TE CONTESTÓ ES TUYO: dalo por sabido, úsalo en el pedido y NO se lo vuelvas a " +
+      "preguntar, ni «para confirmar». Y ninguna de esas preguntas se repite: si se quedó sin " +
+      "contestar, no la hagas otra vez igual —sigue con el siguiente dato y déjala para el final—. " +
+      "Repetir algo que el cliente ya leyó le dice que no le estás escuchando, y ahí se cae la venta."
     : "";
 
   const r = await completar({

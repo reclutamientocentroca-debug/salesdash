@@ -10,7 +10,7 @@ import {
   esperaDeCortesia,
   nombreDelNegocio,
   partirEnMensajes,
-  preguntasYaHechas,
+  loYaPreguntado,
   pideHumano,
   porQueCalla,
   revisarAgente,
@@ -1067,12 +1067,15 @@ test("saluda con el nombre del perfil de WhatsApp, no con el de la cuenta", () =
 /**
  * PREGUNTAR DOS VECES LO MISMO ES DECIRLE AL CLIENTE QUE NO LE ESCUCHAS.
  *
- * Decirle al modelo «no repitas preguntas» no basta: en una conversación de
- * treinta mensajes, la que hizo hace ocho turnos está tan lejos como cualquier
- * otra frase. Esto se las saca del propio hilo y se las pone delante, sin
- * gastar una llamada: son suyas, las escribió él.
+ * Y no basta con recordar la pregunta: hay que recordar LO QUE CONTESTÓ. Un
+ * dato que el cliente ya mandó —su talla, su dirección, su nombre— es suyo para
+ * el resto de la conversación, y volver a pedírselo «para confirmar» es la
+ * forma más rápida de que se canse a un paso del cierre.
+ *
+ * Todo esto sale del propio hilo, sin gastar una llamada: lo escribieron los
+ * dos, cada uno lo suyo.
  */
-test("el agente lleva delante las preguntas que ya hizo", () => {
+test("el agente recuerda lo que preguntó y lo que el cliente le contestó", () => {
   const mensajes = hiloFalso([
     { emisor: "cliente", content: "hola, quiero los mocasines" },
     { emisor: "ia", content: "Están disponibles. ¿Qué talla necesitas?" },
@@ -1080,31 +1083,32 @@ test("el agente lleva delante las preguntas que ya hizo", () => {
     { emisor: "ia", content: "Listo. ¿En qué color lo prefieres?" },
     { emisor: "cliente", content: "chocolate" },
     { emisor: "ia", content: "Perfecto. ¿A qué dirección te lo enviamos?" },
-    { emisor: "cliente", content: "espera" },
   ]);
 
-  const preguntas = preguntasYaHechas(mensajes);
-
-  assert.deepEqual(preguntas, [
-    "¿Qué talla necesitas?",
-    "¿En qué color lo prefieres?",
-    "¿A qué dirección te lo enviamos?",
+  assert.deepEqual(loYaPreguntado(mensajes), [
+    { pregunta: "¿Qué talla necesitas?", respuesta: "la 42" },
+    { pregunta: "¿En qué color lo prefieres?", respuesta: "chocolate" },
+    // La última se quedó sin contestar, y eso también hay que saberlo.
+    { pregunta: "¿A qué dirección te lo enviamos?", respuesta: null },
   ]);
 
-  // La misma pregunta dos veces sale una sola vez, con o sin tildes.
-  const repetida = preguntasYaHechas(
+  // La misma pregunta dos veces sale una sola vez, con o sin tildes, y se queda
+  // con la respuesta más reciente.
+  const repetida = loYaPreguntado(
     hiloFalso([
       { emisor: "cliente", content: "hola" },
       { emisor: "ia", content: "¿Qué talla necesitas?" },
       { emisor: "cliente", content: "?" },
       { emisor: "ia", content: "Que talla necesitas?" },
+      { emisor: "cliente", content: "la 42" },
     ]),
   );
   assert.equal(repetida.length, 1);
+  assert.equal(repetida[0]?.respuesta, "la 42");
 
-  // Lo que dice el CLIENTE no cuenta: son las preguntas del agente.
+  // Lo que pregunta el CLIENTE no cuenta: son las preguntas del agente.
   assert.deepEqual(
-    preguntasYaHechas(hiloFalso([{ emisor: "cliente", content: "¿cuánto cuesta el envío?" }])),
+    loYaPreguntado(hiloFalso([{ emisor: "cliente", content: "¿cuánto cuesta el envío?" }])),
     [],
   );
 });
@@ -1246,4 +1250,49 @@ test("el panel avisa de que ese número lleva el guion de otro país", () => {
   );
 
   D.actualizarAgente(orgId, { instrucciones: "" }, canalId);
+});
+
+/**
+ * AL MARCAR EL PAÍS, TODO SE RIGE POR ESE PAÍS.
+ *
+ * Un guion se copia de un número a otro y se queda. El de la tienda de Panamá
+ * dentro de un número dominicano trae dólares, corregimientos y un envío de
+ * US$5.00, y el agente lo lee como si fuera la verdad de esta tienda: sigue
+ * vendiendo y cerrando igual de bien mientras cotiza el envío de otro país.
+ *
+ * No se le borra el guion al dueño —casi todo lo que dice sigue siendo suyo—:
+ * se le quita el dinero y la geografía de otro sitio, y eso va DESPUÉS de las
+ * instrucciones, que es lo que más pesa.
+ */
+test("marcado el país, el guion de otro país deja de mandar en lo suyo", () => {
+  D.actualizarAgente(
+    orgId,
+    {
+      pais: "do",
+      instrucciones: "El envío son US$5.00 siempre. Pregunta el corregimiento.",
+      envio_cerca: 250,
+      envio_lejos: 290,
+    },
+    canalId,
+  );
+
+  const prompt = armarSistema("Tienda", D.obtenerAgente(orgId, canalId), [], null);
+
+  // El país del número manda, y se dice después del guion.
+  assert.ok(prompt.includes("ESTE NÚMERO VENDE EN REPÚBLICA DOMINICANA"));
+  assert.ok(
+    prompt.indexOf("ESTE NÚMERO VENDE EN") > prompt.indexOf("Instrucciones del negocio"),
+    "va detrás de las instrucciones: lo último que se lee es lo que más pesa",
+  );
+  assert.ok(prompt.includes("peso dominicano"), "y con la moneda de aquí");
+
+  // El envío que cotiza es el cargado, no el del guion ajeno.
+  assert.ok(prompt.includes("RD$250") && prompt.includes("RD$290"));
+  assert.ok(prompt.includes("mandan sobre cualquier otro monto"));
+
+  // Sin país marcado no se inventa ninguna regla de país.
+  D.actualizarAgente(orgId, { pais: "" }, canalId);
+  assert.ok(!armarSistema("Tienda", D.obtenerAgente(orgId, canalId), [], null).includes("ESTE NÚMERO VENDE EN"));
+
+  D.actualizarAgente(orgId, { pais: "do", instrucciones: "", envio_cerca: null, envio_lejos: null }, canalId);
 });
