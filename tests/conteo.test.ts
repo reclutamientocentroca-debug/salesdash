@@ -1100,9 +1100,57 @@ test("todos los guiones escriben igual y solo cambia lo del país", async () => 
     );
   }
 
-  // Lo único que cambia del estilo es el trato, que sí es del país.
-  const [uno, otro] = PLANTILLAS.map((p) => estilo(p.instrucciones));
+  /*
+   * Lo único que cambia del estilo es el trato, que sí es del país: en Panamá y
+   * en Costa Rica se habla de usted, en República Dominicana se tutea. Esa
+   * línea es la que lleva «Sin exceso de emojis» detrás, así que se quita por
+   * ahí y no por sus palabras —que son distintas en cada país, que es el
+   * punto—.
+   */
   const sinTrato = (e: string) =>
-    e.split("\n").filter((l) => !l.includes("usted")).join("\n");
-  assert.equal(sinTrato(uno!), sinTrato(otro!), "el resto del estilo es palabra por palabra el mismo");
+    e.split("\n").filter((l) => !l.includes("Sin exceso de emojis")).join("\n");
+
+  const estilos = PLANTILLAS.map((p) => ({ clave: p.clave, texto: sinTrato(estilo(p.instrucciones)) }));
+
+  for (const e of estilos) {
+    assert.equal(
+      e.texto,
+      estilos[0]!.texto,
+      `${e.clave}: el estilo tiene que ser palabra por palabra el mismo que el de los demás`,
+    );
+  }
+
+  // Y no se repite ningún país: dos guiones para el mismo número no se eligen.
+  const paises = PLANTILLAS.map((p) => p.pais);
+  assert.equal(new Set(paises).size, paises.length, "un país, un guion");
+});
+
+/**
+ * COSTA RICA ES LA QUE MÁS SE ALEJA, y no por el idioma: ahí no hay calle y
+ * número —la dirección se da por señas desde un punto conocido— y el pago va
+ * POR DELANTE, por SINPE Móvil, antes de enviar nada. Un guion dominicano
+ * aplicado ahí ofrecería pago contra entrega, que no es como se compra en ese
+ * país, y pediría una calle que no existe.
+ */
+test("el guion de Costa Rica cobra antes de enviar y pide señas, no calles", async () => {
+  const { PLANTILLAS } = await import("../src/lib/plantillas");
+  const cr = PLANTILLAS.find((p) => p.clave === "costa-rica");
+
+  assert.ok(cr, "tiene que haber un guion de Costa Rica");
+  assert.equal(cr.pais, "cr");
+
+  assert.ok(cr.instrucciones.includes("EN COSTA RICA NO HAY CALLE Y NUMERO"));
+  assert.ok(cr.instrucciones.includes("200 metros norte"), "con un ejemplo de señas de verdad");
+  assert.ok(cr.instrucciones.includes("SINPE MOVIL"), "y el pago por adelantado");
+  assert.ok(
+    cr.instrucciones.includes("NO SE LOS INVENTE"),
+    "un número de SINPE inventado es dinero yéndose a otra cuenta",
+  );
+  assert.ok(cr.instrucciones.includes("colones"), "se cobra en colones");
+  assert.ok(!cr.instrucciones.includes("RD$"), "y no en pesos dominicanos");
+
+  // Lo que comparte con las demás: sin tallas, sin reservas, sin día prometido.
+  assert.ok(cr.instrucciones.includes("NO LLEVAN TALLA NI COLOR"));
+  assert.ok(cr.instrucciones.includes("AQUI NO SE RESERVA NADA"));
+  assert.ok(cr.instrucciones.includes("SE DESPACHA DENTRO DE 24 A 48"));
 });
