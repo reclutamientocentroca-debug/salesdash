@@ -76,6 +76,31 @@ export interface Pais {
   zonasCercanas: string[];
   /** Cómo se dan las direcciones. En Costa Rica esto lo cambia TODO. */
   direcciones: string;
+  /**
+   * SIN ESTO NO SE LEVANTA UNA ORDEN, y no es lo mismo en los tres.
+   *
+   * En República Dominicana un pedido se despacha con el sector y la provincia;
+   * en Panamá hace falta el corregimiento; en Costa Rica no hay calle que pedir
+   * —van las señas— y además el dinero entra ANTES de que salga el paquete.
+   * Cerrar sin uno de estos datos es un paquete que vuelve, y el que vuelve se
+   * paga dos veces.
+   *
+   * Va al prompt pegado a las reglas de cierre, así que vale aunque el número
+   * no tenga ningún guion escrito.
+   */
+  datosParaCerrar: string[];
+  /**
+   * SIN ESTO NO SE LEVANTA UNA ORDEN, y no es lo mismo en los tres.
+   *
+   * En República Dominicana un pedido se despacha con el sector y la provincia;
+   * en Panamá hace falta el corregimiento; en Costa Rica no hay calle que pedir
+   * —van las señas— y además el dinero entra ANTES de que salga el paquete.
+   * Cerrar sin uno de estos datos es un paquete que vuelve, y el que vuelve se
+   * paga dos veces.
+   *
+   * Va al prompt pegado a las reglas de cierre, así que vale aunque el número
+   * no tenga ningún guion escrito.
+   */
   /** Cómo llega un pedido y quién lo lleva. */
   entrega: string[];
   /** Con qué paga la gente. Yappy, SINPE y tPago no son intercambiables. */
@@ -148,6 +173,12 @@ const REPUBLICA_DOMINICANA: Pais = {
     "porque sin él dos calles con el mismo nombre están a media hora una de otra. En los edificios " +
     "hace falta el nombre y el apartamento. Con calle, sector y provincia ya se despacha: lo demás " +
     "—punto de referencia, color de la casa— ayuda, pero no se exige.",
+  datosParaCerrar: [
+    "El nombre completo de quien recibe el pedido",
+    "La dirección con calle y número, EL SECTOR y LA PROVINCIA: sin sector, dos calles con el " +
+      "mismo nombre están a media hora una de otra",
+    "En un edificio, además el nombre del edificio y el apartamento",
+  ],
   entrega: [
     "En el Gran Santo Domingo y Santiago, mensajero propio en 24–48 horas",
     "Al interior, por Caribe Express, Vimenca o Deprisa: el cliente retira en la sucursal de su pueblo",
@@ -224,6 +255,13 @@ const COSTA_RICA: Pais = {
     "desde un punto conocido: «200 metros norte y 50 este de la iglesia de Santa Ana, casa color " +
     "verde». Cien metros es una cuadra. Pedir «la calle y el número» delata al instante que quien " +
     "escribe no es de aquí: se pide el CANTÓN y el DISTRITO, y después las señas.",
+  datosParaCerrar: [
+    "El nombre completo de quien recibe el pedido",
+    "PROVINCIA, CANTÓN y DISTRITO, más las señas desde un punto conocido: aquí no hay calle y " +
+      "número que pedir",
+    "Y el pago: aquí se cobra ANTES de enviar, así que sin el comprobante por delante no sale " +
+      "el paquete",
+  ],
   entrega: [
     "Correos de Costa Rica al país entero, con guía de rastreo",
     "Mensajería propia o Uber Flash en el Gran Área Metropolitana, el mismo día",
@@ -295,6 +333,12 @@ const PANAMA: Pais = {
     "Torres del Mar, apto 14-B, Costa del Este». El CORREGIMIENTO es el dato que sitúa todo lo " +
     "demás. En los edificios hay que pedir el número de apartamento, o el pedido llega al lobby y " +
     "ahí se queda.",
+  datosParaCerrar: [
+    "El nombre completo de quien recibe el pedido",
+    "PROVINCIA, DISTRITO y CORREGIMIENTO, más la calle o el edificio y un punto de referencia: " +
+      "el corregimiento es el dato que sitúa todo lo demás",
+    "En un edificio, además el número de apartamento, o el pedido se queda en el lobby",
+  ],
   entrega: [
     "En ciudad de Panamá y Panamá Oeste, mensajero propio en 24–48 horas",
     "Al interior, por Uno Express o encomienda de bus: el cliente retira en la terminal de su provincia",

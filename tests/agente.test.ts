@@ -1309,3 +1309,40 @@ test("marcado el país, el guion de otro país deja de mandar en lo suyo", () =>
 
   D.actualizarAgente(orgId, { pais: "do", instrucciones: "", envio_cerca: null, envio_lejos: null }, canalId);
 });
+
+/**
+ * NO SE CIERRA UN PEDIDO CON UN DATO A MEDIAS, Y LOS DATOS NO SON LOS MISMOS.
+ *
+ * En República Dominicana un paquete se despacha con el sector y la provincia;
+ * en Panamá hace falta el corregimiento; en Costa Rica no hay calle que pedir
+ * —van las señas— y además el dinero entra ANTES de que salga el paquete.
+ * Cerrar sin uno de esos datos es un paquete que vuelve, y el que vuelve se
+ * paga dos veces.
+ *
+ * Va en el prompt del sistema y no en el guion, así que vale también para el
+ * número que nunca aplicó una plantilla.
+ */
+test("el cierre exige los datos que pide cada país", () => {
+  D.actualizarAgente(orgId, { pais: "do", instrucciones: "" }, canalId);
+  const rd = armarSistema("Tienda", D.obtenerAgente(orgId, canalId), [], null);
+
+  assert.ok(rd.includes("SIN ESTOS DATOS NO SE LEVANTA LA ORDEN"));
+  assert.ok(rd.includes("EL SECTOR y LA PROVINCIA"), "en RD sitúa el sector");
+  assert.ok(!rd.includes("CORREGIMIENTO"), "el corregimiento es de Panamá");
+
+  D.actualizarAgente(orgId, { pais: "cr" }, canalId);
+  const cr = armarSistema("Tienda", D.obtenerAgente(orgId, canalId), [], null);
+  assert.ok(cr.includes("CANTÓN"), "en Costa Rica el cantón y el distrito");
+  assert.ok(cr.includes("aquí no hay calle y número que pedir"));
+  assert.ok(cr.includes("se cobra ANTES de enviar"), "y el dinero va por delante");
+
+  D.actualizarAgente(orgId, { pais: "pa" }, canalId);
+  const pa = armarSistema("Tienda", D.obtenerAgente(orgId, canalId), [], null);
+  assert.ok(pa.includes("CORREGIMIENTO"), "en Panamá sitúa el corregimiento");
+
+  // Sin país no se inventa una lista de requisitos.
+  D.actualizarAgente(orgId, { pais: "" }, canalId);
+  assert.ok(!armarSistema("Tienda", D.obtenerAgente(orgId, canalId), [], null).includes("SIN ESTOS DATOS"));
+
+  D.actualizarAgente(orgId, { pais: "do" }, canalId);
+});

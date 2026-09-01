@@ -19,7 +19,8 @@
     "verificar-vision": "tsx tests/real-vision.ts",
     "diagnostico": "tsx scripts/diagnostico.ts",
     "conteo": "tsx scripts/conteo.ts",
-    "verificar-audio": "tsx tests/real-audio.ts"
+    "verificar-audio": "tsx tests/real-audio.ts",
+    "probar-agente": "tsx tests/real-agente.ts"
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4.1.11",
