@@ -568,10 +568,14 @@ test("el prompt del agente explica cómo cerrar una venta, con el marcador de la
 
   assert.ok(prompt.includes("Pedido cerrado:"), "se le exige el marcador de la cuenta, no uno fijo");
   assert.ok(prompt.includes("CÓMO SE CIERRA UNA VENTA"));
-  assert.ok(
-    prompt.includes("producto, cantidad, total y envío"),
-    "el resumen tiene que traer los datos que luego se extraen",
-  );
+  /*
+   * La orden lleva los datos que el analista extrae después —producto, montos y
+   * envío— y con la forma con la que se lee limpio en un WhatsApp: cada
+   * concepto en su línea y el total destacado.
+   */
+  assert.ok(prompt.includes("Monto del producto"), "el pedido trae lo que luego se extrae");
+  assert.ok(prompt.includes("TOTAL A PAGAR"));
+  assert.ok(prompt.includes("Envío:"));
 });
 
 /**
@@ -1134,7 +1138,16 @@ test("el prompt pide mensajes limpios y no inventa variantes", () => {
   const prompt = armarSistema("Tienda", D.obtenerAgente(orgId), [], null);
 
   assert.ok(prompt.includes("ESCRIBE LIMPIO Y CON AIRE"));
-  assert.ok(prompt.includes("Nada de asteriscos"), "ni markdown ni listas en un WhatsApp");
+  assert.ok(prompt.includes("UNA SOLA IDEA POR MENSAJE"), "un dato por pregunta");
+  assert.ok(prompt.includes("Trato de USTED"), "y de usted, aunque el país tutee");
+  assert.ok(
+    prompt.includes("nada de listas, asteriscos"),
+    "un mensaje normal se escribe plano; el formato es solo para la orden",
+  );
+  assert.ok(
+    prompt.includes("¿necesita algo más?"),
+    "y cuando está cerrada, se cierra: esa pregunta la vuelve a abrir",
+  );
   assert.ok(prompt.includes("PREGUNTA SOLO LO QUE ESTE PEDIDO NECESITA"));
   assert.ok(prompt.includes("no preguntes la talla"), "si el artículo no la lleva");
 

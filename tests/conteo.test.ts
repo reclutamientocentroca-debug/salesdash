@@ -1067,24 +1067,29 @@ test("la plantilla dominicana cobra en pesos y pide sector y provincia", async (
  *
  * Un guion trae dos cosas mezcladas y solo una es local: cuánto cuesta el
  * envío, cómo se da una dirección y con qué se paga cambian de un país a otro;
- * CÓMO SE ESCRIBE un mensaje, no. Cuando el estilo estaba copiado en cada
+ * CÓMO SE ESCRIBE un mensaje, no. Cuando el molde estaba copiado en cada
  * plantilla, mejorarlo en una dejaba a la otra hablando como el mes pasado —dos
  * números de la misma empresa escribiendo distinto sin que nadie lo decidiera—.
+ *
+ * Ahora se escribe una vez y se interpola, así que aquí se comprueba lo único
+ * que puede romperse: que siga siendo EL MISMO en los tres, palabra por palabra.
  */
-test("todos los guiones escriben igual y solo cambia lo del país", async () => {
+test("los tres guiones responden con el mismo molde", async () => {
   const { PLANTILLAS } = await import("../src/lib/plantillas");
   const { obtenerPais } = await import("../src/lib/paises");
   const { monedaAjena } = await import("../src/lib/agent");
 
-  const estilo = (texto: string) =>
-    texto.slice(texto.indexOf("=== ESTILO ==="), texto.indexOf("=== VENDES PREGUNTANDO ==="));
+  const molde = (texto: string) =>
+    texto.slice(texto.indexOf("=== COMO ESCRIBES ==="), texto.indexOf("=== VENDES PREGUNTANDO ==="));
 
   for (const p of PLANTILLAS) {
-    const e = estilo(p.instrucciones);
+    const m = molde(p.instrucciones);
 
-    assert.ok(e.includes("EL SALUDO VA SOLO"), `${p.clave}: el saludo va aparte`);
-    assert.ok(e.includes("ESCRIBE LIMPIO Y CON AIRE"), `${p.clave}: con su hueco y sin markdown`);
-    assert.ok(e.includes("NO REPITAS UNA PREGUNTA QUE YA HICISTE"), `${p.clave}: con memoria`);
+    assert.ok(m.includes("EL SALUDO VA SOLO"), `${p.clave}: el saludo va aparte`);
+    assert.ok(m.includes("UNA SOLA IDEA POR MENSAJE"), `${p.clave}: un dato por mensaje`);
+    assert.ok(m.includes("LO QUE YA TIENES NO SE PREGUNTA"), `${p.clave}: con memoria`);
+    assert.ok(m.includes("NO REPITAS UNA PREGUNTA QUE YA HICISTE"), `${p.clave}: y sin repetirse`);
+    assert.ok(m.includes("Trato de usted"), `${p.clave}: de usted en los tres`);
 
     /*
      * Y NINGÚN GUION HABLA DEL DINERO DE OTRO PAÍS. Es la comprobación que
@@ -1100,24 +1105,10 @@ test("todos los guiones escriben igual y solo cambia lo del país", async () => 
     );
   }
 
-  /*
-   * Lo único que cambia del estilo es el trato, que sí es del país: en Panamá y
-   * en Costa Rica se habla de usted, en República Dominicana se tutea. Esa
-   * línea es la que lleva «Sin exceso de emojis» detrás, así que se quita por
-   * ahí y no por sus palabras —que son distintas en cada país, que es el
-   * punto—.
-   */
-  const sinTrato = (e: string) =>
-    e.split("\n").filter((l) => !l.includes("Sin exceso de emojis")).join("\n");
-
-  const estilos = PLANTILLAS.map((p) => ({ clave: p.clave, texto: sinTrato(estilo(p.instrucciones)) }));
-
-  for (const e of estilos) {
-    assert.equal(
-      e.texto,
-      estilos[0]!.texto,
-      `${e.clave}: el estilo tiene que ser palabra por palabra el mismo que el de los demás`,
-    );
+  // El molde es el mismo, palabra por palabra, en los tres.
+  const moldes = PLANTILLAS.map((p) => ({ clave: p.clave, texto: molde(p.instrucciones) }));
+  for (const m of moldes) {
+    assert.equal(m.texto, moldes[0]!.texto, `${m.clave}: el molde tiene que ser el mismo`);
   }
 
   // Y no se repite ningún país: dos guiones para el mismo número no se eligen.
