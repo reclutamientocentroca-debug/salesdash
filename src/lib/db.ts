@@ -35,12 +35,22 @@ import { paisDeTelefono } from "./paises";
  * había nada roto que mirar. El análisis de ventas, con el mismo modelo por
  * defecto, tampoco extraía un pedido.
  *
- * El agente escribe a los clientes y el analista lee un hilo ya cerrado para
- * sacar producto, total y envío. Los dos van con el MISMO modelo pequeño, y no
- * por ahorrar a ciegas: lo que se le pide al agente son mensajes de WhatsApp de
- * dos líneas con las reglas del negocio delante, no literatura. Con uno grande
- * la factura de un número que atiende todo el día se dispara sin que la venta se
- * cierre mejor.
+ * NO SON EL MISMO, y se intentó: durante un despliegue los dos corrieron con el
+ * modelo pequeño para gastar menos, y la prueba contra el modelo de verdad
+ * enseñó lo que costaba. Con el mismo guion y el mismo cliente, el pequeño se
+ * saltó la talla, tomó «la M» por una dirección y facturó un «envío a la M»; el
+ * mediano siguió el camino entero y cerró el pedido. Las reglas no arreglan un
+ * modelo que no las sostiene.
+ *
+ * Así que cada uno donde hace falta:
+ *
+ *  - EL AGENTE escribe a los clientes y decide si una venta se cierra. Sostener
+ *    un guion de veinte reglas mientras el cliente contesta desordenado es
+ *    justo lo que un modelo pequeño no hace. Ahí va el mediano.
+ *  - EL ANALISTA lee un hilo YA CERRADO y saca producto, total y envío. Es
+ *    trabajo mecánico y es donde está el volumen —una llamada por venta y otra
+ *    por barrido—, así que ahí el pequeño va perfecto y es donde de verdad se
+ *    ahorra.
  *
  * Ninguno es gratuito a propósito: los modelos gratuitos tienen cupo diario y
  * enmudecen a media tarde, que es exactamente el fallo que no se puede tener en
@@ -49,7 +59,7 @@ import { paisDeTelefono } from "./paises";
  * El respaldo es la red: si el principal falla o topa su límite, `ia.ts` lo
  * intenta una vez con este antes de rendirse.
  */
-export const MODELO_AGENTE = "openai/gpt-4o-mini";
+export const MODELO_AGENTE = "openai/gpt-4o";
 export const MODELO_ANALISIS = "openai/gpt-4o-mini";
 /** Para leer imágenes: facturas, comprobantes y la creatividad del anuncio. */
 export const MODELO_VISION = "openai/gpt-4o-mini";
@@ -1025,10 +1035,29 @@ function migrar(conexion: DB): void {
    */
   if (version < 6) {
     conexion.prepare(`UPDATE agentes SET modelo = ? WHERE modelo = ?`)
-      .run(MODELO_AGENTE, "anthropic/claude-opus-5");
+      .run("openai/gpt-4o-mini", "anthropic/claude-opus-5");
     conexion.prepare(`UPDATE orgs SET modelo_analisis = ? WHERE modelo_analisis = ?`)
       .run(MODELO_ANALISIS, "anthropic/claude-sonnet-5");
     conexion.exec(`PRAGMA user_version = 6`);
+  }
+
+  /*
+   * Y EL AGENTE VUELVE A UN MODELO QUE SOSTIENE EL GUION.
+   *
+   * La migración de arriba bajó a los dos —agente y analista— al modelo
+   * pequeño, y con el agente fue un paso atrás: en la prueba contra el modelo de
+   * verdad se saltó la talla, tomó «la M» por una dirección y facturó un «envío
+   * a la M». El analista se queda abajo, que ahí el pequeño hace su trabajo y es
+   * donde está el volumen.
+   *
+   * Se mueve solo a quien tenga el valor que puso esa migración, o sea, a quien
+   * nunca eligió. Al que entró en Agente y escogió el pequeño a sabiendas no se
+   * le toca.
+   */
+  if (version < 7) {
+    conexion.prepare(`UPDATE agentes SET modelo = ? WHERE modelo = ?`)
+      .run(MODELO_AGENTE, "openai/gpt-4o-mini");
+    conexion.exec(`PRAGMA user_version = 7`);
   }
 
   // anomalies: las anomalías de canal no tienen conversación.
