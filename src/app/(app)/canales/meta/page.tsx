@@ -1,11 +1,12 @@
 import AnunciosMeta from "@/components/panel/AnunciosMeta";
-import ComentariosMeta from "@/components/panel/ComentariosMeta";
+import BandejaMeta from "@/components/panel/BandejaMeta";
 import PaginasMeta from "@/components/panel/PaginasMeta";
+import PestanasMeta from "@/components/panel/PestanasMeta";
 import { fechaHora } from "@/components/panel/Piezas";
 import {
+  bandejaMeta,
   listarAnunciosMeta,
   listarCatalogo,
-  listarComentariosMeta,
   listarPaginasMeta,
   ultimosEventosMeta,
 } from "@/lib/db";
@@ -20,15 +21,22 @@ function estaPuesta(clave: string): boolean {
 }
 
 /*
+ * ─── EL ORDEN DE LA PANTALLA ───
+ *
+ * Arriba, la bandeja: es lo que se mira veinte veces al día. Abajo, conectar
+ * páginas: se hace una vez y no se vuelve. Cuando estaba al revés, lo que se
+ * usaba a diario quedaba debajo de un formulario que ya nadie necesitaba.
+ *
+ * Las páginas conectadas siguen visibles arriba, pero en una línea de fichas —
+ * el nombre, si está viva y quién contesta— porque eso sí se consulta, y no
+ * necesita media tarjeta.
+ *
  * ─── LO QUE VE CADA UNO ───
  *
  * Esta pantalla la abre el dueño de una tienda, no quien mantiene el servidor.
  * Nombres de variables, URLs de webhook y volcados de eventos no le dicen nada:
  * le enseñan que hay tuberías y le dan cosas que tocar que no son suyas. Todo
- * eso vive abajo, plegado y solo para superadmin.
- *
- * Lo que sí ve todo el mundo es el estado en una frase —«esto funciona» o «esto
- * todavía no»— porque eso sí es información suya.
+ * eso vive al final, plegado y solo para superadmin.
  */
 const VARIABLES: { clave: string; para: string; critica: boolean }[] = [
   { clave: "APP_URL", para: "arma la URL del webhook que se registra en Meta", critica: true },
@@ -53,6 +61,19 @@ export default async function PaginaMeta() {
     ultimoEventoAt: c.ultimo_evento_at,
   }));
 
+  const filas = (canales.length > 0 ? bandejaMeta(orgId, { limite: 120 }) : []).map((f) => ({
+    id: f.id,
+    canalId: f.canal_id,
+    canal: f.canal,
+    cliente: f.cliente_nombre,
+    superficie: f.superficie ?? "messenger",
+    atiende: f.atiende,
+    cerradoPor: f.cerrado_por,
+    ultimoTexto: f.ultimo_texto,
+    ultimoEmisor: f.ultimo_emisor,
+    cuando: f.last_message_at ?? f.fecha_inicio,
+  }));
+
   const anuncios = listarAnunciosMeta(orgId).map((a) => ({
     adId: a.ad_id,
     titulo: a.titulo,
@@ -62,15 +83,12 @@ export default async function PaginaMeta() {
 
   const productos = listarCatalogo(orgId, true).map((p) => ({ id: p.id, nombre: p.nombre }));
 
-  // Los comentarios solo se consultan si hay alguna página: sin ninguna, la
-  // respuesta es siempre vacía y la sección no se enseña.
-  const comentarios = canales.length > 0 ? listarComentariosMeta(orgId, { limite: 40 }) : [];
-
-  // Los eventos crudos solo se leen para quien los va a mirar.
-  const eventos = ctx.superadmin ? ultimosEventosMeta(orgId, 8) : [];
+  const sinResponder = filas.filter((f) => f.ultimoEmisor === "cliente").length;
+  const sinVincular = anuncios.filter((a) => a.productoId === null).length;
 
   const config = VARIABLES.map((v) => ({ ...v, puesta: estaPuesta(v.clave) }));
   const faltanCriticas = config.filter((v) => v.critica && !v.puesta);
+  const eventos = ctx.superadmin ? ultimosEventosMeta(orgId, 8) : [];
   const urlWebhook = `${(process.env.APP_URL ?? "").replace(/\/$/, "")}/api/meta/webhook`;
 
   /*
@@ -80,8 +98,8 @@ export default async function PaginaMeta() {
    * nunca es el secreto, que es lo que firma.
    *
    * Se leen aquí y no con NEXT_PUBLIC_: esas se congelan al construir la
-   * imagen, y en un despliegue así cambiar la variable no haría nada hasta
-   * reconstruir. Como props, basta con reiniciar.
+   * imagen, y entonces cambiar la variable no haría nada hasta reconstruir.
+   * Como props, basta con reiniciar.
    */
   const appId = (process.env.META_APP_ID ?? "").trim() || null;
 
@@ -90,11 +108,34 @@ export default async function PaginaMeta() {
       <div className="sd-cabecera">
         <div>
           <h1 className="h1-pagina">Messenger</h1>
-          <p className="tenue" style={{ marginTop: 2 }}>
-            Mensajes, comentarios y directos de Instagram de tus páginas de Facebook. Todo entra
-            en las mismas conversaciones y las mismas ventas.
+          <p className="tenue" style={{ marginTop: 3 }}>
+            Mensajes, comentarios y directos de Instagram. Todo entra en las mismas
+            conversaciones y las mismas ventas.
           </p>
+
+          {paginas.length > 0 && (
+            <div className="sd-meta-chips">
+              {paginas.map((p) => (
+                <span key={p.id} className="sd-meta-chip">
+                  <span className="sd-meta-ini" aria-hidden="true">
+                    {p.nombre.charAt(0).toUpperCase()}
+                  </span>
+                  <span style={{ fontWeight: 600 }}>{p.nombre}</span>
+                  <span
+                    className={`sd-meta-pulso ${p.agenteActivo ? "" : "sd-meta-pulso-gris"}`}
+                    aria-hidden="true"
+                  />
+                  <span className="tenue">{p.agenteActivo ? "Responde la IA" : "Solo mira"}</span>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
+
+        {/* El atajo a la zona de conectar, que vive al final de la pantalla. */}
+        <a href="#paginas" className="btn btn-secundario" style={{ textDecoration: "none" }}>
+          + Conectar página
+        </a>
       </div>
 
       {faltanCriticas.length > 0 && (
@@ -113,22 +154,35 @@ export default async function PaginaMeta() {
         </div>
       )}
 
-      {/*
-        LA URL DE VUELTA, que es el paso donde se atasca la conexión.
-        El botón lleva a facebook.com y Facebook devuelve al dueño a esta
-        dirección. Si no está dada de alta en la app, Meta corta con «URL
-        bloqueada» y el dueño ve una pantalla de error de Facebook sin saber qué
-        hacer. Solo se le enseña a quien administra la plataforma: es lo único
-        que puede arreglarlo, y a un dueño de tienda esto no le dice nada.
-      */}
-      {ctx.superadmin && appId && (
-        <div className="aviso" role="status" style={{ marginBottom: 14 }}>
-          En la app de Meta, en <strong>Inicio de sesión con Facebook → Configuración</strong>, la
-          lista de «URI de redireccionamiento de OAuth válidos» tiene que incluir exactamente esta:
-          <br />
-          <span className="num">{(process.env.APP_URL ?? "").replace(/\/$/, "")}/api/meta/oauth/volver</span>
+      {canales.length > 0 ? (
+        <PestanasMeta
+          sinResponder={sinResponder}
+          sinVincular={sinVincular}
+          bandeja={
+            <BandejaMeta
+              filas={filas}
+              paginas={paginas.map((p) => ({ id: p.id, nombre: p.nombre }))}
+            />
+          }
+          anuncios={<AnunciosMeta anuncios={anuncios} productos={productos} />}
+        />
+      ) : (
+        <div className="tarjeta" style={{ textAlign: "center", padding: "38px 20px" }}>
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 5 }}>
+            Todavía no hay ninguna página conectada
+          </div>
+          <p className="tenue" style={{ maxWidth: "46ch", margin: "0 auto" }}>
+            Conecta una página de Facebook aquí abajo y en esta zona aparecerán sus mensajes,
+            sus comentarios y los directos de su Instagram.
+          </p>
         </div>
       )}
+
+      {/* ── Al final: las páginas y el botón ──────────────────────── */}
+      <div className="sd-separador" id="paginas">
+        <span>Tus páginas de Facebook</span>
+        <i />
+      </div>
 
       <PaginasMeta
         paginas={paginas}
@@ -136,17 +190,6 @@ export default async function PaginaMeta() {
         configId={(process.env.META_LOGIN_CONFIG_ID ?? "").trim() || null}
         avanzado={ctx.superadmin}
       />
-
-      {/* Los comentarios, debajo de las páginas y antes de los anuncios: se
-          miran a diario, y los anuncios se tocan una vez por campaña. */}
-      {canales.length > 0 && (
-        <ComentariosMeta
-          comentarios={comentarios}
-          paginas={paginas.map((p) => ({ id: p.id, nombre: p.nombre }))}
-        />
-      )}
-
-      <AnunciosMeta anuncios={anuncios} productos={productos} />
 
       {/*
         ─── DIAGNÓSTICO TÉCNICO ───
@@ -160,18 +203,13 @@ export default async function PaginaMeta() {
       */}
       {ctx.superadmin && (
         <details className="tarjeta" style={{ marginTop: 14 }}>
-          <summary
-            className="tenue"
-            style={{ cursor: "pointer", fontSize: 12.5, userSelect: "none" }}
-          >
+          <summary className="tenue" style={{ cursor: "pointer", userSelect: "none" }}>
             Diagnóstico técnico
           </summary>
 
           <div className="sd-mitades" style={{ marginTop: 14 }}>
             <section>
-              <h3 className="titulo-tarjeta" style={{ marginBottom: 4 }}>
-                La URL del webhook
-              </h3>
+              <h2 className="titulo-tarjeta" style={{ marginBottom: 4 }}>La URL del webhook</h2>
               <p className="tenue" style={{ marginBottom: 10 }}>
                 Se pega en Meta → tu app → Messenger → Webhooks, junto con el
                 <span className="num"> META_VERIFY_TOKEN</span>.
@@ -186,14 +224,13 @@ export default async function PaginaMeta() {
                 {process.env.APP_URL ? urlWebhook : "(falta APP_URL)"}
               </div>
 
-              <ul style={{ display: "grid", gap: 8, marginTop: 12 }}>
+              <ul style={{ display: "grid", gap: 9, marginTop: 12 }}>
                 {config.map((v) => (
                   <li
                     key={v.clave}
                     style={{ display: "flex", alignItems: "baseline", gap: 9, fontSize: 12.5 }}
                   >
-                    {/* El color nunca es la única señal: al punto lo acompaña
-                        la palabra. */}
+                    {/* El color nunca es la única señal: al punto lo acompaña la palabra. */}
                     <span
                       aria-hidden="true"
                       style={{
@@ -219,9 +256,7 @@ export default async function PaginaMeta() {
             </section>
 
             <section>
-              <h3 className="titulo-tarjeta" style={{ marginBottom: 4 }}>
-                Últimos eventos recibidos
-              </h3>
+              <h2 className="titulo-tarjeta" style={{ marginBottom: 4 }}>Últimos eventos recibidos</h2>
               <p className="tenue" style={{ marginBottom: 12 }}>
                 Lo que Meta mandó a esta cuenta, antes de interpretarlo.
               </p>
@@ -233,7 +268,7 @@ export default async function PaginaMeta() {
                   modo Desarrollo solo llegan los de gente con rol en la app.
                 </p>
               ) : (
-                <ul style={{ display: "grid", gap: 8, fontSize: 12.5 }}>
+                <ul style={{ display: "grid", gap: 9, fontSize: 12.5 }}>
                   {eventos.map((e) => (
                     <li key={e.id} style={{ display: "flex", alignItems: "baseline", gap: 9 }}>
                       <span className="tenue num" style={{ whiteSpace: "nowrap" }}>

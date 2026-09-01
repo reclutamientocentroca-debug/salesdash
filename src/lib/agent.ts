@@ -1839,3 +1839,107 @@ export async function probarAgente(
 export function historialCompleto(orgId: number, conversationId: number): Mensaje[] {
   return listarMensajes(orgId, conversationId);
 }
+
+/**
+ * LO QUE ESCRIBE UNA PERSONA DESDE LA BANDEJA.
+ *
+ * Vive en `agent.ts` y no en la ruta que la llama, y esa es toda la decisión:
+ * la regla del proyecto no es «solo la IA escribe», es «solo este archivo
+ * escribe». Un segundo módulo capaz de mandarle un mensaje a un cliente es, el
+ * día que falla, dos vendedores contestando a la vez sin saber uno del otro —y
+ * eso el cliente ya lo leyó, no se arregla después—. Así sigue habiendo una
+ * sola puerta.
+ *
+ * Tres cosas pasan aquí, y las tres importan:
+ *
+ *  1. SE ENVÍA por el transporte del canal. Un comentario se contesta colgado
+ *     del comentario, en público, porque es donde preguntó el cliente.
+ *  2. SE GUARDA como `humano`, y NO se registra en `ai_sent_ids`. Ese registro
+ *     es lo que hace que un saliente cuente como de la IA; un mensaje de
+ *     vendedor que se colara ahí le regalaría la venta a la IA y dejaría la
+ *     métrica central del producto al revés.
+ *  3. SE CALLA AL AGENTE en este hilo. Quien toma un chat lo toma entero:
+ *     que la IA siguiera contestando por debajo es el mismo desastre de dos
+ *     voces, solo que una de ellas no duerme.
+ *
+ * El cierre se evalúa igual que en cualquier otro mensaje: si el vendedor manda
+ * el resumen con el marcador, esa venta queda sellada como suya en el momento
+ * en que la manda.
+ */
+export async function enviarAMano(
+  orgId: number,
+  conversationId: number,
+  texto: string,
+): Promise<{ ok: true; messageId: string } | { ok: false; error: string }> {
+  const limpio = texto.trim();
+  if (!limpio) return { ok: false, error: "No hay nada que enviar." };
+
+  const conv = getConversation(orgId, conversationId);
+  if (!conv) return { ok: false, error: "Esa conversación no existe." };
+
+  const canal = obtenerCanal(orgId, conv.canal_id);
+  if (!canal) return { ok: false, error: "El canal de esta conversación ya no está." };
+
+  /*
+   * El agente se calla ANTES de enviar, no después.
+   *
+   * Entre el envío y el apagado hay segundos, y en esos segundos puede entrar
+   * un mensaje del cliente que despierte al agente: dos respuestas cruzadas
+   * mientras el vendedor cree que ya tomó el chat.
+   */
+  ponerAtiende(orgId, conversationId, "humano");
+
+  let messageId: string;
+
+  try {
+    if (canal.tipo === "meta") {
+      const { enviarMensajeMeta, responderComentarioMeta } = await import("@/lib/meta/send");
+
+      if (conv.superficie === "comentario") {
+        /*
+         * Al comentario se contesta colgándose de él, y para eso hace falta su
+         * identificador: es el `whapi_message_id` del último mensaje del hilo.
+         * Sin él no hay dónde colgar la respuesta, y mandarla por privado
+         * dejaría la pregunta pública sin contestar a la vista de todos.
+         */
+        const ultimos = ultimosMensajes(orgId, conversationId, 12);
+        const comentario = [...ultimos]
+          .reverse()
+          .find((m) => m.emisor === "cliente" && m.whapi_message_id);
+
+        if (!comentario?.whapi_message_id) {
+          return { ok: false, error: "No se encuentra el comentario al que contestar." };
+        }
+
+        messageId = await responderComentarioMeta(canal, comentario.whapi_message_id, limpio);
+      } else {
+        messageId = await enviarMensajeMeta(canal, conv.cliente_phone, limpio);
+      }
+    } else {
+      messageId = await enviarTexto(canal.id, conv.cliente_jid ?? conv.cliente_phone, limpio);
+    }
+  } catch (e) {
+    /*
+     * El error de Meta o de WhatsApp se propaga con su texto. Los que se ven de
+     * verdad —el token caducado, la ventana de 24 horas, el permiso que falta—
+     * se arreglan de tres formas distintas, y un «no se pudo enviar» genérico
+     * deja a quien lo lee sin saber cuál le tocó.
+     */
+    return { ok: false, error: e instanceof Error ? e.message : "No se pudo enviar el mensaje." };
+  }
+
+  insertMessage(orgId, {
+    conversationId,
+    whapiMessageId: messageId,
+    emisor: "humano",
+    tipo: "texto",
+    content: limpio,
+    createdAt: ahora(),
+  });
+
+  // El resumen del vendedor cierra la venta igual que el de la IA, y se le
+  // acredita a él. Ver la regla maestra en `sellarCierre`.
+  registrarCierre(orgId, conversationId, { emisor: "humano", content: limpio, cuando: ahora() });
+
+  return { ok: true, messageId };
+}

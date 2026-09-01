@@ -1154,8 +1154,18 @@ test("el guion de Costa Rica cobra antes de enviar y pide señas, no calles", as
   assert.ok(cr.instrucciones.includes("colones"), "se cobra en colones");
   assert.ok(!cr.instrucciones.includes("RD$"), "y no en pesos dominicanos");
 
-  // Lo que comparte con las demás: sin tallas, sin reservas, sin día prometido.
-  assert.ok(cr.instrucciones.includes("NO LLEVAN TALLA NI COLOR"));
+  /*
+   * EL ORDEN, que aquí se sigue paso a paso y cambia según el artículo: con
+   * talla se pregunta la talla y el color ANTES de la dirección; sin talla se
+   * va derecho a dónde se lo enviamos. Y la talla se pide como la pida el
+   * anuncio: por letra o por número, nunca al revés.
+   */
+  assert.ok(cr.instrucciones.includes("SI EL ARTICULO LLEVA TALLA O COLOR"));
+  assert.ok(cr.instrucciones.includes("SI EL ARTICULO NO LLEVA TALLA NI COLOR"));
+  assert.ok(cr.instrucciones.includes("LA DESCRIPCION DEL ANUNCIO TE DICE COMO SE PIDE"));
+  assert.ok(cr.instrucciones.includes("CON LA DIRECCION NO SEA EXIGENTE"));
+
+  // Lo que comparte con las demás.
   assert.ok(cr.instrucciones.includes("AQUI NO SE RESERVA NADA"));
   assert.ok(cr.instrucciones.includes("SE DESPACHA DENTRO DE 24 A 48"));
 });

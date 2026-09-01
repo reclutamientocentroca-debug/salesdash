@@ -3177,61 +3177,55 @@ export function esperandoRespuesta(orgId: number, antesDe: number): Conversacion
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Comentarios de Meta
+// La bandeja de Meta
 // ─────────────────────────────────────────────────────────────────────────────
 
-export interface ComentarioMeta {
-  /** La conversación donde vive. Un comentario NO es una tabla aparte. */
-  id: number;
-  canalId: number;
+export interface FilaBandejaMeta extends FilaBandeja {
+  /** El nombre de la página, para poder mezclar varias en una lista. */
   canal: string;
-  cliente: string | null;
-  texto: string;
-  cuando: number;
-  /** Cuántas veces se le ha contestado, sea la IA o una persona. */
-  respuestas: number;
 }
 
 /**
- * Lo que la gente ha escrito debajo de las publicaciones y los anuncios.
+ * Los hilos de las páginas de Facebook, mensajes y comentarios juntos.
  *
- * No hay tabla de comentarios y no debe haberla: quien comenta «¿cuánto
- * cuesta?» bajo un anuncio es el MISMO lead que escribe por Messenger, y
- * guardarlo aparte lo perdería para las ventas, para el informe y para el
- * agente. Un comentario es una conversación con `superficie = 'comentario'`, y
- * esto solo la va a buscar.
+ * Es la hermana de `bandeja()`, y la diferencia es deliberada: allí el canal es
+ * obligatorio porque cada número de WhatsApp es una bandeja aparte; aquí las
+ * páginas de una misma cuenta se miran juntas —quien atiende RINCON atiende
+ * también ESTILO AUTÉNTICO— y el selector de página filtra cuando hace falta.
  *
- * Por eso cada fila enlaza a su conversación: al abrirla se ve el hilo entero
- * —el comentario público y lo que vino después por privado— en vez de un
- * fragmento suelto.
+ * Comentarios y privados salen mezclados A PROPÓSITO. Quien comenta «¿cuánto
+ * cuesta?» debajo de un anuncio es el mismo lead que después escribe por
+ * Messenger; separarlos en dos listas obliga a mirar dos veces y a atar a mano
+ * lo que ya está atado en la base.
  */
-export function listarComentariosMeta(
+export function bandejaMeta(
   orgId: number,
-  opciones: { canalId?: number; limite?: number } = {},
-): ComentarioMeta[] {
-  const cond = ["c.org_id = ?", "c.superficie = 'comentario'"];
+  filtros: { canalId?: number; limite?: number } = {},
+): FilaBandejaMeta[] {
+  const cond = ["c.org_id = ?", "ca.tipo = 'meta'"];
   const val: unknown[] = [orgId];
 
-  if (opciones.canalId !== undefined) {
+  if (filtros.canalId !== undefined) {
     cond.push("c.canal_id = ?");
-    val.push(opciones.canalId);
+    val.push(filtros.canalId);
   }
 
+  val.push(Math.min(filtros.limite ?? 120, 400));
+
   return s(
-    `SELECT c.id                AS id,
-            c.canal_id          AS canalId,
-            ca.nombre           AS canal,
-            c.cliente_nombre    AS cliente,
-            COALESCE((SELECT m.content FROM messages m
-                       WHERE m.conversation_id = c.id AND m.emisor = 'cliente'
-                       ORDER BY m.created_at DESC, m.id DESC LIMIT 1), '') AS texto,
-            COALESCE(c.last_message_at, c.fecha_inicio) AS cuando,
-            (SELECT COUNT(*) FROM messages m
-              WHERE m.conversation_id = c.id AND m.emisor <> 'cliente')    AS respuestas
+    `SELECT c.*,
+            ca.nombre AS canal,
+            (SELECT m.content FROM messages m
+              WHERE m.conversation_id = c.id
+              ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS ultimo_texto,
+            (SELECT m.emisor FROM messages m
+              WHERE m.conversation_id = c.id
+              ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS ultimo_emisor,
+            (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id) AS mensajes
        FROM conversations c
        JOIN canales ca ON ca.id = c.canal_id
       WHERE ${cond.join(" AND ")}
-      ORDER BY cuando DESC
+      ORDER BY COALESCE(c.last_message_at, c.fecha_inicio) DESC
       LIMIT ?`,
-  ).all(...val, opciones.limite ?? 40) as ComentarioMeta[];
+  ).all(...val) as FilaBandejaMeta[];
 }
