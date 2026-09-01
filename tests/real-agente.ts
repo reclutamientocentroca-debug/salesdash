@@ -32,13 +32,15 @@ import { PLANTILLAS } from "../src/lib/plantillas";
 /** Qué le escribe el cliente, en orden, en cada país. */
 const GUIONES: Record<string, { anuncio: string; precio: string; describe: string; dice: string[] }> = {
   do: {
-    anuncio: "Set de sábanas 2 plazas",
+    anuncio: "Mocasines de cuero",
     precio: "RD$2,500",
-    describe: "Set de sábanas 2 plazas en microfibra. Incluye 1 sábana, 1 ajustable y 2 fundas. Paga al recibir.",
+    describe: "Mocasines de cuero genuino, suela antideslizante. Tallas de la 39 a la 45.",
     dice: [
-      "Hola, vi el anuncio de las sábanas, ¿cuánto es?",
+      "Hola, vi el anuncio de los mocasines, ¿cuánto es?",
+      "???",
       "¿y el envío? soy de Santiago",
-      "ok, calle Mella #12, Villa Olga",
+      "la 9 americana",
+      "calle Mella #12, Villa Olga",
       "Yazmin Pérez",
       "sí, confirmo",
     ],
@@ -115,11 +117,15 @@ async function main() {
   // Las tarifas, en la moneda de cada país.
   const tarifas = pais === "cr" ? { cerca: 2500, lejos: 3500 } : pais === "pa" ? { cerca: 5, lejos: 5 } : { cerca: 250, lejos: 290 };
 
+  // Quien atiende y de parte de quién: es lo que sale en el saludo.
+  const quien = pais === "do" ? { nombre: "Orlanda", negocio: "RINCON DCM" } : { nombre: "Ana", negocio: "Tienda Rincón" };
+
   actualizarAgente(
     orgId,
     {
       pais,
-      negocio: "Tienda Rincón",
+      nombre: quien.nombre,
+      negocio: quien.negocio,
       instrucciones: PLANTILLAS.find((p) => p.clave === clave)!.instrucciones,
       envio_cerca: tarifas.cerca,
       envio_lejos: tarifas.lejos,
@@ -130,7 +136,7 @@ async function main() {
 
   const a = obtenerAgente(orgId, canalId);
   console.log(
-    `${a.negocio} · país ${a.pais} · envío ${tarifas.cerca}/${tarifas.lejos} · modelo ${a.modelo}`,
+    `${a.nombre} de ${a.negocio} · país ${a.pais} · envío ${tarifas.cerca}/${tarifas.lejos} · modelo ${a.modelo}`,
   );
 
   const anuncio = {

@@ -1040,11 +1040,24 @@ test("la plantilla dominicana cobra en pesos y pide sector y provincia", async (
   assert.ok(rd.instrucciones.includes("DALA POR BUENA Y SIGUE"), "y no se repregunta");
 
   /*
-   * Estos artículos no llevan talla ni color, y preguntarlas delata al instante
-   * que no sabes lo que estás vendiendo. La tabla de tallas es de la panameña.
+   * Las tallas son las de esta tienda, no las de la de Panamá: el calzado en
+   * europea con su equivalencia americana —que el cliente usa y no hay que
+   * corregirle— y los artículos que no llevan talla, dichos por su nombre.
    */
-  assert.ok(rd.instrucciones.includes("NO LLEVAN TALLA NI COLOR"));
-  assert.ok(!rd.instrucciones.includes("S, M, L, XL"), "esa tabla no es de aquí");
+  assert.ok(rd.instrucciones.includes("de la 39 a la 45 europea"));
+  assert.ok(rd.instrucciones.includes("del 7 al 11 americana"), "y se acepta como la dice el cliente");
+  assert.ok(
+    rd.instrucciones.includes("Cepillos y abejones: NO llevan talla ni color"),
+    "lo que no lleva talla, dicho por su nombre",
+  );
+
+  // Las tres reglas que valen la venta en esta tienda.
+  assert.ok(rd.instrucciones.includes("NUNCA TE QUEDAS CALLADA"));
+  assert.ok(rd.instrucciones.includes("TU NO PUEDES ENVIAR FOTOS"), "las fotos se transfieren");
+  assert.ok(
+    rd.instrucciones.includes("EL RESUMEN, QUE NO SE SALTA NUNCA"),
+    "y nunca se transfiere sin haberlo mandado",
+  );
 
   // Y aquí no se aparta mercancía ni se manda un muestrario.
   assert.ok(rd.instrucciones.includes("AQUI NO SE RESERVA NADA"));
@@ -1079,8 +1092,9 @@ test("los tres guiones responden con el mismo molde", async () => {
   const { obtenerPais } = await import("../src/lib/paises");
   const { monedaAjena } = await import("../src/lib/agent");
 
+  const FIN = "- Avanza el cierre.";
   const molde = (texto: string) =>
-    texto.slice(texto.indexOf("=== COMO ESCRIBES ==="), texto.indexOf("=== VENDES PREGUNTANDO ==="));
+    texto.slice(texto.indexOf("=== COMO ESCRIBES ==="), texto.indexOf(FIN) + FIN.length);
 
   for (const p of PLANTILLAS) {
     const m = molde(p.instrucciones);

@@ -573,9 +573,9 @@ test("el prompt del agente explica cómo cerrar una venta, con el marcador de la
    * envío— y con la forma con la que se lee limpio en un WhatsApp: cada
    * concepto en su línea y el total destacado.
    */
-  assert.ok(prompt.includes("Monto del producto"), "el pedido trae lo que luego se extrae");
-  assert.ok(prompt.includes("TOTAL A PAGAR"));
-  assert.ok(prompt.includes("Envío:"));
+  assert.ok(prompt.includes("Costo de envío:"), "el pedido trae lo que luego se extrae");
+  assert.ok(prompt.includes("Total a pagar:"));
+  assert.ok(prompt.includes("Cantidad:"));
 });
 
 /**
@@ -636,7 +636,11 @@ test("un resumen de pedido nunca se parte, aunque sea el primer mensaje", () => 
 test("el prompt le dice cómo saluda y con el nombre del negocio", () => {
   const prompt = armarSistema("Tienda Rincón", D.obtenerAgente(orgId), [], null);
 
-  assert.ok(prompt.includes("Hola, bienvenido a Tienda Rincón"), "saluda con el nombre del negocio");
+  assert.ok(
+    prompt.includes("Hola, le asiste"),
+    "se presenta con su nombre, como una persona y no como un sistema",
+  );
+  assert.ok(prompt.includes("de Tienda Rincón"), "y con el nombre del negocio");
   assert.ok(prompt.includes("LÍNEA EN BLANCO"), "y sabe con qué se separan los dos mensajes");
 });
 
@@ -1063,7 +1067,7 @@ test("saluda con el nombre del perfil de WhatsApp, no con el de la cuenta", () =
 
   // Y con ese nombre se le dice al modelo cómo saludar.
   const prompt = armarSistema("Tienda Rincon", D.obtenerAgente(orgId), [], null);
-  assert.ok(prompt.includes("Hola, bienvenido a Tienda Rincon"));
+  assert.ok(prompt.includes("de Tienda Rincon"));
 });
 
 // ── Memoria, envío y entrega ────────────────────────────────────────────────
