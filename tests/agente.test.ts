@@ -1117,6 +1117,27 @@ test("el prompt prohíbe prometer un día de entrega", () => {
 });
 
 /**
+ * CÓMO SE VE UN MENSAJE, que es la mitad de la venta.
+ *
+ * Un párrafo de tres renglones pegados se lee a bot; la respuesta arriba, un
+ * hueco, y la pregunta debajo se lee a tienda que se toma en serio. Y no se
+ * pregunta una variante que el artículo no tiene: hay negocios cuyos productos
+ * no llevan talla ni color, y preguntarlas delata al instante que no sabes lo
+ * que estás vendiendo.
+ */
+test("el prompt pide mensajes limpios y no inventa variantes", () => {
+  const prompt = armarSistema("Tienda", D.obtenerAgente(orgId), [], null);
+
+  assert.ok(prompt.includes("ESCRIBE LIMPIO Y CON AIRE"));
+  assert.ok(prompt.includes("Nada de asteriscos"), "ni markdown ni listas en un WhatsApp");
+  assert.ok(prompt.includes("PREGUNTA SOLO LO QUE ESTE PEDIDO NECESITA"));
+  assert.ok(prompt.includes("no preguntes la talla"), "si el artículo no la lleva");
+
+  // Y el ejemplo del saludo no da por hecho que existan las tallas.
+  assert.ok(!prompt.includes("¿Qué talla necesita?"));
+});
+
+/**
  * EL COSTO DE ENVÍO NO SE INVENTA, SE BUSCA.
  *
  * Es el error más fácil: al agente le falta una línea para cerrar y escribe una
@@ -1132,7 +1153,9 @@ test("el envío sale de la provincia del mapa, y sin tarifas no se inventa", asy
   // El Gran Santo Domingo y Santiago son del mensajero; el resto, interior.
   assert.equal(zonaDeEnvio(rd, "Santo Domingo Este"), "cerca");
   assert.equal(zonaDeEnvio(rd, "Distrito Nacional"), "cerca");
-  assert.equal(zonaDeEnvio(rd, "Santiago"), "cerca");
+  // Santiago cobra como interior: la tarifa de estos negocios es capital contra
+  // interior, y meterlo en la de capital cobraría de menos cada pedido del Cibao.
+  assert.equal(zonaDeEnvio(rd, "Santiago"), "lejos");
   assert.equal(zonaDeEnvio(rd, "La Vega"), "lejos");
   assert.equal(zonaDeEnvio(rd, "Puerto Plata"), "lejos");
   // Lo que no se reconoce no se adivina: ahí se pregunta.

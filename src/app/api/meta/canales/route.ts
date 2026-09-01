@@ -1,5 +1,12 @@
 /**
- * Conectar y desconectar páginas de Meta.
+ * Conectar y desconectar páginas de Meta, a mano.
+ *
+ * El camino normal es el botón de «Entrar con Facebook» —`/api/meta/oauth`—.
+ * Esto es el de repuesto: pegar el ID y el token de página. Sigue existiendo
+ * porque la ventana de Meta necesita que la app tenga su configuración de
+ * Business Login puesta, y pegar un token se puede hacer siempre.
+ *
+ * Los dos terminan en `conectarPagina`, que es donde se valida y se guarda.
  *
  * Una página conectada ES un canal (`canales.tipo = 'meta'`). Por eso aquí no
  * hay tabla propia ni lógica de métricas: en cuanto la fila existe, el panel
@@ -8,23 +15,12 @@
  */
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { cifrar, secretoAleatorio } from "@/lib/auth";
-import {
-  contarPaginasMeta,
-  crearPaginaMeta,
-  eliminarCanal,
-  listarPaginasMeta,
-  obtenerCanal,
-  vincularAnuncioAProducto,
-} from "@/lib/db";
-import { datosDePagina, suscribirPagina } from "@/lib/meta/paginas";
+import { eliminarCanal, listarPaginasMeta, obtenerCanal, vincularAnuncioAProducto } from "@/lib/db";
+import { conectarPagina } from "@/lib/meta/conectar";
 import { sesionApi } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
-/** Mismo tope que los números: el panel se diseñó para veinte canales. */
-const MAX_PAGINAS = 20;
 
 const Conectar = z.object({
   pageId: z.string().trim().regex(/^\d{5,}$/, "El ID de la página son solo dígitos"),
@@ -58,7 +54,6 @@ export async function GET() {
 export async function POST(req: Request) {
   const s = await sesionApi();
   if (!s.ok) return s.respuesta;
-  const { orgId } = s.ctx;
 
   const cuerpo = Conectar.safeParse(await req.json().catch(() => null));
   if (!cuerpo.success) {
@@ -68,80 +63,10 @@ export async function POST(req: Request) {
     );
   }
 
-  if (contarPaginasMeta(orgId) >= MAX_PAGINAS) {
-    return NextResponse.json(
-      { error: `El panel admite hasta ${MAX_PAGINAS} páginas conectadas.` },
-      { status: 400 },
-    );
-  }
+  const r = await conectarPagina(s.ctx.orgId, cuerpo.data.pageId, cuerpo.data.token);
+  if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.estado });
 
-  const { pageId, token } = cuerpo.data;
-
-  /*
-   * Se comprueba el token contra Meta ANTES de guardar nada.
-   *
-   * Guardar primero y validar después deja páginas «conectadas» que no reciben
-   * ni un mensaje, y el dueño no tiene forma de saber por qué: en el panel se
-   * ven igual que las que funcionan. Si Meta no lo acepta, aquí no se guarda.
-   */
-  let nombre: string;
-  let igUserId: string | null;
-  try {
-    const datos = await datosDePagina(pageId, token);
-    nombre = datos.nombre;
-    igUserId = datos.igUserId;
-  } catch (e) {
-    return NextResponse.json(
-      { error: `Meta rechazó el token: ${e instanceof Error ? e.message : "error desconocido"}` },
-      { status: 400 },
-    );
-  }
-
-  let canalId: number;
-  try {
-    canalId = crearPaginaMeta(orgId, {
-      pageId,
-      nombre,
-      tokenCifrado: cifrar(token),
-      // Meta firma con el secreto de la app, no con uno por canal. La columna
-      // es NOT NULL y se rellena para no dejarla vacía, pero no se usa.
-      webhookSecret: secretoAleatorio(),
-      igUserId,
-    });
-  } catch {
-    return NextResponse.json(
-      { error: "Esa página ya está conectada en esta cuenta." },
-      { status: 409 },
-    );
-  }
-
-  /*
-   * SUSCRIBIR LA PÁGINA NO ES OPCIONAL.
-   *
-   * Dar de alta el webhook en la app de Meta no basta: cada página tiene que
-   * suscribirse aparte, y sin eso la página queda conectada y NO llega ni un
-   * mensaje. Es la causa número uno de «lo configuré todo y no pasa nada», así
-   * que se hace aquí en vez de dejarlo como un paso manual que se olvida.
-   *
-   * Si falla, la página se queda guardada pero marcada: es un problema de
-   * permisos que se arregla en Meta, y borrar la fila obligaría a repetir todo.
-   */
-  const canal = obtenerCanal(orgId, canalId);
-  try {
-    if (canal) await suscribirPagina(canal);
-  } catch (e) {
-    return NextResponse.json({
-      ok: true,
-      aviso:
-        `La página se guardó, pero Meta no aceptó suscribirla a los eventos: ` +
-        `${e instanceof Error ? e.message : "error desconocido"}. ` +
-        `Revisa que el token tenga los permisos pages_messaging y pages_manage_metadata.`,
-      id: canalId,
-      nombre,
-    });
-  }
-
-  return NextResponse.json({ ok: true, id: canalId, nombre, igUserId });
+  return NextResponse.json(r);
 }
 
 export async function PATCH(req: Request) {

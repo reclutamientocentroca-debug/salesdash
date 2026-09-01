@@ -16,6 +16,8 @@ const VARIABLES: { clave: string; para: string }[] = [
   { clave: "META_APP_SECRET", para: "firma: valida la cabecera X-Hub-Signature-256" },
   { clave: "META_VERIFY_TOKEN", para: "responde al GET de verificación del webhook" },
   { clave: "META_GRAPH_VERSION", para: "fija la versión de la Graph API" },
+  { clave: "META_APP_ID", para: "abre la ventana de «Entrar con Facebook»" },
+  { clave: "META_LOGIN_CONFIG_ID", para: "hace que esa ventana enseñe el selector de páginas" },
 ];
 
 export default async function PaginaMeta() {
@@ -45,9 +47,20 @@ export default async function PaginaMeta() {
    * Se calcula en el servidor y solo viaja el booleano. El valor de
    * META_APP_SECRET no puede acabar en el HTML ni por descuido: esta página la
    * abre cualquier miembro de la cuenta.
+   *
+   * EL ID DE LA APP Y EL DE LA CONFIGURACIÓN SON LA EXCEPCIÓN, y a propósito:
+   * los dos son públicos —aparecen en la propia URL del panel de Meta y viajan
+   * en la ventana de inicio de sesión—, y el navegador los necesita para
+   * abrirla. Lo que no baja nunca es el secreto, que es lo que firma.
+   *
+   * Se leen aquí, en el servidor, y no con NEXT_PUBLIC_: esas se congelan al
+   * construir la imagen, y en EasyPanel eso significa que cambiar la variable
+   * no haría nada hasta reconstruir. Como props, basta con reiniciar.
    */
   const config = VARIABLES.map((v) => ({ ...v, puesta: estaPuesta(v.clave) }));
-  const faltan = config.filter((v) => !v.puesta);
+  const faltanCriticas = config.filter(
+    (v) => !v.puesta && v.clave !== "META_APP_ID" && v.clave !== "META_LOGIN_CONFIG_ID",
+  );
   const urlWebhook = `${(process.env.APP_URL ?? "").replace(/\/$/, "")}/api/meta/webhook`;
 
   return (
@@ -62,14 +75,21 @@ export default async function PaginaMeta() {
         </div>
       </div>
 
-      {faltan.length > 0 && (
+      {faltanCriticas.length > 0 && (
         <div className="aviso aviso-ambar" role="status" style={{ marginBottom: 14 }}>
-          Falta configurar {faltan.map((v) => v.clave).join(", ")} en el servidor. Sin eso el
-          webhook no puede darse de alta ni validar lo que llega.
+          Falta configurar {faltanCriticas.map((v) => v.clave).join(", ")} en el servidor. Sin eso
+          el webhook no puede darse de alta ni validar lo que llega.
         </div>
       )}
 
-      <PaginasMeta paginas={paginas} anuncios={anuncios} productos={productos} />
+      <PaginasMeta
+        paginas={paginas}
+        anuncios={anuncios}
+        productos={productos}
+        appId={(process.env.META_APP_ID ?? "").trim() || null}
+        configId={(process.env.META_LOGIN_CONFIG_ID ?? "").trim() || null}
+        graphVersion={process.env.META_GRAPH_VERSION || "v23.0"}
+      />
 
       <div className="sd-mitades" style={{ marginTop: 14 }}>
         <section className="tarjeta">

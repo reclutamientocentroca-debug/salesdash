@@ -1032,15 +1032,25 @@ test("la plantilla dominicana cobra en pesos y pide sector y provincia", async (
   const rd = PLANTILLAS.find((p) => p.clave === "moda-dominicana");
 
   assert.ok(rd, "tiene que haber una plantilla de República Dominicana");
-  assert.ok(rd.instrucciones.includes("RD$200"), "el envío del Gran Santo Domingo");
-  assert.ok(rd.instrucciones.includes("RD$350"), "y el del interior");
+  assert.ok(rd.instrucciones.includes("RD$250"), "el envío de Santo Domingo");
+  assert.ok(rd.instrucciones.includes("RD$290"), "y el del interior");
   assert.ok(!rd.instrucciones.includes("US$"), "aquí no se cobra en dólares");
   assert.ok(!rd.instrucciones.toLowerCase().includes("corregimiento"), "eso es de Panamá");
   assert.ok(rd.instrucciones.includes("provincia"), "la dirección lleva provincia");
   assert.ok(rd.instrucciones.includes("DALA POR BUENA Y SIGUE"), "y no se repregunta");
 
-  // El dueño tiene que ver, antes de aplicarla, que esos montos son suyos.
-  assert.ok(rd.descripcion.includes("CAMBIA ESOS DOS MONTOS"));
+  /*
+   * Estos artículos no llevan talla ni color, y preguntarlas delata al instante
+   * que no sabes lo que estás vendiendo. La tabla de tallas es de la panameña.
+   */
+  assert.ok(rd.instrucciones.includes("NO LLEVAN TALLA NI COLOR"));
+  assert.ok(!rd.instrucciones.includes("S, M, L, XL"), "esa tabla no es de aquí");
+
+  // Y aquí no se aparta mercancía.
+  assert.ok(rd.instrucciones.includes("AQUI NO SE RESERVA NADA"));
+
+  // El dueño tiene que ver, antes de aplicarla, de dónde salen esos montos.
+  assert.ok(rd.descripcion.includes("RD$250"));
 
   // Y la panameña sigue siendo la panameña.
   const pa = PLANTILLAS.find((p) => p.clave === "moda-panama");

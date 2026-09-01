@@ -111,10 +111,17 @@ const REPUBLICA_DOMINICANA: Pais = {
     "«claro que sí» para confirmar",
     "«chequea» para pedir que revisen algo",
   ],
+  /*
+   * El Gran Santo Domingo y nada más.
+   *
+   * Santiago se queda fuera a propósito, aunque tenga mensajería: la tarifa que
+   * cobran estos negocios es «capital» contra «interior», y meter Santiago en
+   * la de capital le cobraría de menos a cada pedido del Cibao. Si alguien
+   * entrega allí al mismo precio, lo dice en sus instrucciones.
+   */
   zonasCercanas: [
     "Distrito Nacional",
     "Santo Domingo",
-    "Santiago",
   ],
   zonas: [
     "Distrito Nacional",
