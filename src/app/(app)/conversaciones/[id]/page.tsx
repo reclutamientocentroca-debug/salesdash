@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import AgenteEnHilo from "@/components/panel/AgenteEnHilo";
 import AnalizarBoton from "@/components/panel/AnalizarBoton";
 import { Burbuja } from "@/components/panel/Burbuja";
 import { Pastilla, dinero, fechaHora } from "@/components/panel/Piezas";
 import { llegoPorAnuncio } from "@/lib/anuncio";
 import { getConversation, listarCanales, listarMensajes } from "@/lib/db";
+import { porQueCalla } from "@/lib/agent";
 import { requerirSesion } from "@/lib/tenant";
 
 export const metadata = { title: "Conversación · SalesDash" };
@@ -34,6 +36,9 @@ export default async function PaginaConversacion({ params, searchParams }: Props
 
   const mensajes = listarMensajes(ctx.orgId, conv.id);
   const canal = listarCanales(ctx.orgId).find((c) => c.id === conv.canal_id);
+  /* Por qué el agente contesta —o no— en este hilo. Ver `porQueCalla`: son
+     lecturas de la base, ni una llamada a ningún modelo. */
+  const agente = porQueCalla(ctx.orgId, conv.canal_id, conv.id);
   const faltantes = leerLista(conv.datos_faltantes);
 
   return (
@@ -66,6 +71,11 @@ export default async function PaginaConversacion({ params, searchParams }: Props
         </section>
 
         <aside style={{ display: "grid", gap: 14, alignContent: "start" }}>
+          <section className="tarjeta">
+            <h2 className="titulo-tarjeta" style={{ marginBottom: 10 }}>Agente</h2>
+            <AgenteEnHilo conversationId={conv.id} estado={agente} atiende={conv.atiende} />
+          </section>
+
           <section className="tarjeta">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
               <h2 className="titulo-tarjeta">Pedido</h2>

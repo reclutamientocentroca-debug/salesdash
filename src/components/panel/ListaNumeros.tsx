@@ -32,6 +32,8 @@ export default function ListaNumeros({ canales }: { canales: CanalVista[] }) {
   const [conectando, setConectando] = useState(canales.length === 0);
   const [ocupado, setOcupado] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Lo que se le dice a quien acaba de pedir el historial de un número. */
+  const [importando, setImportando] = useState<string | null>(null);
 
   async function accion(id: number, cuerpo: unknown) {
     setOcupado(id);
@@ -48,6 +50,29 @@ export default function ListaNumeros({ canales }: { canales: CanalVista[] }) {
       return null;
     }
     return datos;
+  }
+
+  /**
+   * TRAER LO QUE PASÓ ANTES.
+   *
+   * WhatsApp manda el historial entero al vincular un número, y solo entonces.
+   * Los que llevaban tiempo conectados tienen las conversaciones empezadas por
+   * la mitad —y ventas cerradas dentro de esa mitad que falta—, así que aquí se
+   * le pide al teléfono hilo por hilo.
+   *
+   * Llega por su cuenta y tarda: la pantalla lo dice y no se queda esperando.
+   */
+  async function traerHistorial(id: number) {
+    setImportando(null);
+    const datos = await accion(id, { accion: "historial" });
+    if (!datos) return;
+
+    setImportando(
+      `Pedido el historial de ${datos.pedidos} conversación(es). El teléfono lo va mandando poco ` +
+        "a poco: tenlo cerca y con WhatsApp abierto. Los mensajes van apareciendo en las " +
+        "conversaciones según llegan, y las ventas que traigan cerradas se cuentan solas.",
+    );
+    router.refresh();
   }
 
   /**
@@ -156,6 +181,12 @@ export default function ListaNumeros({ canales }: { canales: CanalVista[] }) {
         </div>
       )}
 
+      {importando && (
+        <div className="aviso" role="status" style={{ marginBottom: 14 }}>
+          {importando}
+        </div>
+      )}
+
       {canales.length === 0 ? (
         <div className="tarjeta">
           <Vacio
@@ -250,6 +281,23 @@ export default function ListaNumeros({ canales }: { canales: CanalVista[] }) {
                   >
                     Reconectar
                   </button>
+
+                  {/*
+                    Solo con el número conectado: el historial lo manda el
+                    teléfono del dueño, y con el socket caído no hay a quién
+                    pedírselo.
+                  */}
+                  {c.estado === "conectado" && (
+                    <button
+                      type="button"
+                      className="btn btn-secundario"
+                      disabled={ocupado === c.id}
+                      onClick={() => traerHistorial(c.id)}
+                      title="Le pide al teléfono las conversaciones anteriores a lo que ya se ve aquí."
+                    >
+                      Traer conversaciones anteriores
+                    </button>
+                  )}
 
                   <button
                     type="button"

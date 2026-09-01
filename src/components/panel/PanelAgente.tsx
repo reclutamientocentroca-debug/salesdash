@@ -34,6 +34,7 @@ interface Agente {
   modelo_audio: string | null;
   pasar_a_humano: boolean;
   silenciar_si_humano: boolean;
+  retardo_seg: number;
   horario_activo: boolean;
   horario_desde: string | null;
   horario_hasta: string | null;
@@ -237,7 +238,15 @@ export default function PanelAgente({
 
   // Chat de prueba
   const [prueba, setPrueba] = useState("");
-  const [respuesta, setRespuesta] = useState<{ texto: string; modelo: string; fueRespaldo: boolean } | null>(null);
+  /* `mensajes` es la respuesta partida tal y como le llega al cliente: en la
+     apertura de un hilo son dos —el saludo y, detrás, la respuesta—. Se pinta
+     eso y no `texto`, o la prueba enseñaría un globo donde van a ir dos. */
+  const [respuesta, setRespuesta] = useState<{
+    texto: string;
+    mensajes?: string[];
+    modelo: string;
+    fueRespaldo: boolean;
+  } | null>(null);
   const [probando, setProbando] = useState(false);
 
   useEffect(() => {
@@ -611,6 +620,33 @@ export default function PanelAgente({
               etiqueta="Pasar a una persona cuando lo pidan"
               descripcion="Si el cliente pide hablar con alguien, el agente deja de responder y la conversación se marca."
             />
+
+            {/*
+              CONTESTAR AL INSTANTE ES LO QUE MÁS DELATA A UN BOT.
+              Ningún negocio responde en medio segundo, y menos con una frase
+              perfecta. El retardo se cuenta desde que entró el mensaje del
+              cliente: lo que el modelo tardó en pensar ya cuenta, así que esto
+              no se suma a la espera, la iguala.
+            */}
+            <div>
+              <label className="etiqueta-campo" htmlFor="retardo">
+                Esperar antes de contestar
+              </label>
+              <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                <input
+                  id="retardo" type="number" min={0} max={60} className="campo"
+                  style={{ width: 130 }}
+                  value={agente.retardo_seg}
+                  onChange={(e) => cambiar("retardo_seg", Number(e.target.value))}
+                />
+                <span className="tenue" style={{ fontSize: 12.5 }}>segundos</span>
+              </div>
+              <p className="tenue" style={{ fontSize: 12, marginTop: 6, lineHeight: 1.5 }}>
+                Mientras espera, el cliente ve «escribiendo…», como cuando contesta una persona. Se
+                cuenta desde que llegó su mensaje: si el modelo ya tardó, no se suma. En 0 responde
+                en cuanto puede.
+              </p>
+            </div>
             <Interruptor
               activo={agente.horario_activo}
               onChange={(v) => cambiar("horario_activo", v)}
@@ -1083,7 +1119,11 @@ export default function PanelAgente({
         {respuesta && (
           <div className="sd-hilo" style={{ marginTop: 14 }}>
             <div className="sd-burbuja sd-burbuja-cliente">{prueba}</div>
-            <div className="sd-burbuja sd-burbuja-ia">{respuesta.texto}</div>
+            {(respuesta.mensajes?.length ? respuesta.mensajes : [respuesta.texto]).map((m, i) => (
+              <div key={i} className="sd-burbuja sd-burbuja-ia" style={{ whiteSpace: "pre-wrap" }}>
+                {m}
+              </div>
+            ))}
             <p className="tenue" style={{ alignSelf: "flex-end" }}>
               {respuesta.modelo}
               {respuesta.fueRespaldo && " · respondió el respaldo"}

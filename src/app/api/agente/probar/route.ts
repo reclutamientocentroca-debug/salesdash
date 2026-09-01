@@ -1,9 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { probarAgente } from "@/lib/agent";
+import { partirEnMensajes, probarAgente } from "@/lib/agent";
 import { ErrorIA } from "@/lib/ia";
 import { limitar } from "@/lib/auth";
-import { AGENTE_DE_LA_CUENTA, obtenerCanal } from "@/lib/db";
+import { AGENTE_DE_LA_CUENTA, obtenerCanal, obtenerOrg } from "@/lib/db";
 import { sesionApi } from "@/lib/tenant";
 
 export const runtime = "nodejs";
@@ -28,6 +28,11 @@ const Entrada = z.object({
 /**
  * POST /api/agente/probar — genera una respuesta con la configuración real
  * y LA DEVUELVE. No la envía a nadie: no hay ningún teléfono involucrado.
+ *
+ * Devuelve además `mensajes`: la respuesta ya partida como le va a llegar al
+ * cliente. En la apertura de un hilo el saludo sale en su propio mensaje y la
+ * respuesta detrás, y una prueba que lo enseñara todo en un globo estaría
+ * enseñando algo que no pasa. Ver `partirEnMensajes`.
  */
 export async function POST(req: NextRequest) {
   const s = await sesionApi();
@@ -48,7 +53,12 @@ export async function POST(req: NextRequest) {
     const suyo = canalId > 0 && obtenerCanal(orgId, canalId) ? canalId : AGENTE_DE_LA_CUENTA;
 
     const r = await probarAgente(orgId, suyo, datos.data.conversacion);
-    return NextResponse.json(r);
+    const mensajes = partirEnMensajes(r.texto, {
+      saludoAparte: datos.data.conversacion.every((m) => m.rol === "cliente"),
+      marcador: obtenerOrg(orgId)?.marcador_cierre ?? undefined,
+    });
+
+    return NextResponse.json({ ...r, mensajes });
   } catch (e) {
     if (e instanceof ErrorIA) {
       return NextResponse.json(

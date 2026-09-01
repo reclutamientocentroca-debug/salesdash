@@ -36,10 +36,10 @@ import { Boom } from "@hapi/boom";
 import { toDataURL } from "qrcode";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { actualizarCanal, ahora, canalesParaReconectar, obtenerCanalSinOrg, ponerPaisPorTelefono, rutaDatos, type Canal, type TipoMensaje } from "@/lib/db";
+import { actualizarCanal, ahora, anclasDeHistorial, canalesParaReconectar, obtenerCanalSinOrg, ponerPaisPorTelefono, rutaDatos, unificarConversacion, type Canal, type TipoMensaje } from "@/lib/db";
 import { ingerir, type MensajeEntrante } from "@/lib/ingesta";
 import { esDescargable, guardar } from "@/lib/media";
-import { direccionDelChat, jidDeDestino } from "@/lib/telefono";
+import { direccionDelChat, esLid, jidDeDestino, normalizarTelefono } from "@/lib/telefono";
 import { textoConEnlace } from "@/lib/enlace";
 import { enlaceDeMapa, textoDeUbicacion } from "@/lib/ubicacion";
 
@@ -73,6 +73,12 @@ interface Sesion {
   intentos: number;
   /** Cierre pedido por nosotros: no hay que reconectar. */
   cerrandoAdrede: boolean;
+  /**
+   * `<lid>@lid` → `<teléfono>@s.whatsapp.net`, según lo que vaya diciendo
+   * WhatsApp. Ver `recordarTelefonos`: es lo que impide que el mismo cliente
+   * acabe con dos hilos, uno por cada forma de nombrarlo.
+   */
+  telefonos: Map<string, string>;
 }
 
 const global_ = globalThis as unknown as {
@@ -126,6 +132,7 @@ function sesionDe(canalId: number): Sesion {
       detalle: null,
       intentos: 0,
       cerrandoAdrede: false,
+      telefonos: new Map(),
     };
     sesiones.set(canalId, s);
   }
@@ -319,6 +326,56 @@ function anotarEstado(s: Sesion, canal: Canal | undefined, estado: string): void
  * Abre el socket de un canal. Si ya hay creds guardadas reconecta sin QR; si no,
  * WhatsApp emite uno y queda en `esperando`.
  */
+/**
+ * EL MISMO CLIENTE NO PUEDE TENER DOS HILOS.
+ *
+ * WhatsApp nombra a una persona de dos formas —su teléfono y un `@lid` interno—
+ * y no siempre manda las dos en el mismo mensaje. En el historial casi nunca
+ * viene el teléfono: el chat llega identificado por el `@lid` a secas. Guardar
+ * eso tal cual abre un hilo bajo unos dígitos que no son de nadie, y cuando el
+ * mismo cliente escribe en vivo —esta vez con su número— aparece un SEGUNDO
+ * hilo con la otra mitad de la conversación.
+ *
+ * WhatsApp manda la correspondencia aparte, en `lidPnMappings`. Aquí se guarda
+ * para traducir lo que venga después, y se junta de una vez lo que ya estuviera
+ * partido en dos. Ver `unificarConversacion`.
+ */
+function recordarTelefonos(
+  s: Sesion,
+  canal: Canal,
+  pares: { lid?: string | null; pn?: string | null }[],
+): void {
+  for (const par of pares) {
+    if (!par?.lid || !par?.pn || !esLid(par.lid) || esLid(par.pn)) continue;
+    if (s.telefonos.get(par.lid) === par.pn) continue;
+
+    s.telefonos.set(par.lid, par.pn);
+
+    try {
+      const unido = unificarConversacion(
+        canal.org_id,
+        canal.id,
+        normalizarTelefono(par.lid),
+        normalizarTelefono(par.pn),
+      );
+      if (unido !== null) {
+        console.log(`[wa] el hilo ${unido} del canal ${canal.id} recupera su número de teléfono`);
+      }
+    } catch (e) {
+      // Juntar dos hilos es una mejora, no un requisito: si falla, cada uno
+      // sigue por su lado y no se pierde ni un mensaje.
+      console.error("[wa] no se pudieron juntar dos hilos del mismo cliente", e);
+    }
+  }
+}
+
+/** El mensaje, con el teléfono del cliente en vez de su identificador interno. */
+function conTelefonoConocido(m: MensajeEntrante, mapa: Map<string, string>): MensajeEntrante {
+  if (!esLid(m.chatId)) return m;
+  const pn = mapa.get(m.chatId);
+  return pn ? { ...m, chatId: pn } : m;
+}
+
 async function abrir(canalId: number): Promise<void> {
   const s = sesionDe(canalId);
   if (s.sock) return;
@@ -343,6 +400,21 @@ async function abrir(canalId: number): Promise<void> {
     // No marca los mensajes como leídos: el vendedor tiene que poder ver en su
     // móvil lo que todavía no ha atendido.
     markOnlineOnConnect: false,
+    /*
+     * EL HISTORIAL, ENTERO.
+     *
+     * Sin esto el panel empieza a existir en el instante en que alguien escanea
+     * el QR: las conversaciones que ya estaban en el teléfono —con sus ventas
+     * cerradas dentro— no entran nunca, y el dueño ve hilos que empiezan a
+     * media frase y ventas hechas que el dashboard no cuenta.
+     *
+     * WhatsApp lo manda por `messaging-history.set`, en trozos y de forma
+     * asíncrona. Por defecto Baileys descarta el trozo grande —el `FULL`— y se
+     * queda con lo reciente; aquí se acepta todo, que es lo que el negocio pide
+     * cuando conecta su número: sus conversaciones completas.
+     */
+    syncFullHistory: true,
+    shouldSyncHistoryMessage: () => true,
   });
 
   s.sock = sock;
@@ -433,6 +505,72 @@ async function abrir(canalId: number): Promise<void> {
     })();
   });
 
+  /*
+   * ── EL HISTORIAL DEL TELÉFONO ───────────────────────────────────────────
+   *
+   * Al vincular un número, WhatsApp manda lo que ya había en el móvil: los
+   * chats y sus mensajes, en trozos y de más nuevo a más viejo. Este evento no
+   * se escuchaba, así que todo eso se tiraba: el panel nacía vacío, las
+   * conversaciones empezaban por la mitad —solo lo que llegó desde que se
+   * escaneó el QR— y las ventas que ya estaban cerradas en esos hilos no las
+   * contaba nadie, porque su resumen nunca entró en la base.
+   *
+   * Se ingiere como `historico`, que es lo que garantiza lo único que no puede
+   * pasar: que el agente se ponga a contestar mensajes de hace tres semanas.
+   * Ver `ingerir`.
+   *
+   * De estos mensajes NO se descargan los archivos. Son cientos, WhatsApp los
+   * sirve cifrados y por tiempo limitado —los viejos ya no están— y bajarlos
+   * dejaría el número medio ocupado durante la sincronización. El texto, que es
+   * de lo que se sacan las ventas, entra completo.
+   */
+  sock.ev.on("messaging-history.set", ({ messages, contacts, lidPnMappings }) => {
+    void (async () => {
+      const actual = obtenerCanalSinOrg(canalId);
+      if (!actual || actual.activo !== 1) return;
+
+      // Primero la correspondencia entre identificadores y teléfonos: lo que
+      // venga detrás ya se guarda con el número bueno.
+      recordarTelefonos(s, actual, lidPnMappings ?? []);
+      recordarTelefonos(
+        s,
+        actual,
+        (contacts ?? []).map((c) => ({ lid: c.lid, pn: c.phoneNumber })),
+      );
+
+      /*
+       * El nombre del cliente tampoco viaja en estos mensajes —`pushName` es de
+       * los que llegan en vivo— pero sí en la lista de contactos del mismo
+       * lote. Sin esto la bandeja se llenaría de hilos «Sin nombre».
+       */
+      const nombres = new Map<string, string>();
+      for (const c of contacts ?? []) {
+        const nombre = c.name ?? c.notify ?? null;
+        if (!nombre) continue;
+        for (const id of [c.id, c.lid, c.phoneNumber]) {
+          const clave = id ? normalizarTelefono(id) : "";
+          if (clave) nombres.set(clave, nombre);
+        }
+      }
+
+      const traducidos = (messages ?? [])
+        .map(traducir)
+        .filter((m): m is MensajeEntrante => m !== null)
+        .map((m) => conTelefonoConocido(m, s.telefonos))
+        .map((m) =>
+          m.deMi || m.nombre ? m : { ...m, nombre: nombres.get(normalizarTelefono(m.chatId)) ?? null },
+        );
+
+      if (traducidos.length === 0) return;
+
+      try {
+        await ingerir(actual, traducidos, { dentroDePeticion: false, historico: true });
+      } catch (e) {
+        console.error("[wa] fallo al ingerir el historial", e);
+      }
+    })();
+  });
+
   sock.ev.on("messages.upsert", ({ messages, type }) => {
     // `append` son mensajes viejos que WhatsApp reenvía al sincronizar. Se
     // ingieren igual: insertar es idempotente y así no se pierde historial.
@@ -445,6 +583,19 @@ async function abrir(canalId: number): Promise<void> {
       // Se relee el canal: `agente_activo` pudo cambiar desde que se abrió.
       const actual = obtenerCanalSinOrg(canalId);
       if (!actual || actual.activo !== 1) return;
+
+      /*
+       * Un mensaje en vivo suele traer las dos direcciones del cliente. Es la
+       * ocasión de aprender la correspondencia —y de juntar el hilo que el
+       * historial hubiera abierto bajo el `@lid`— antes de guardar nada.
+       */
+      recordarTelefonos(
+        s,
+        actual,
+        messages.map((x) => ({ lid: x.key?.remoteJid, pn: x.key?.remoteJidAlt })),
+      );
+
+      for (const [i, m] of traducidos.entries()) traducidos[i] = conTelefonoConocido(m, s.telefonos);
 
       /*
        * Los archivos se bajan ANTES de guardar el mensaje. WhatsApp los sirve
@@ -532,6 +683,87 @@ export async function desconectar(canalId: number, olvidar: boolean): Promise<vo
   if (olvidar) {
     olvidarCredenciales(canalId);
     sesiones.delete(canalId);
+  }
+}
+
+/**
+ * PEDIRLE AL TELÉFONO LO QUE PASÓ ANTES.
+ *
+ * El historial completo solo llega una vez, al vincular el número. Un número
+ * que ya estaba conectado cuando esto se arregló tiene sus conversaciones
+ * empezadas por la mitad —y, dentro de esa mitad que falta, ventas cerradas que
+ * el dashboard nunca contó—, y volver a escanear el QR para recuperarlas
+ * significaría desvincular el WhatsApp del negocio.
+ *
+ * Esto lo evita: por cada hilo se le pide al teléfono lo que había ANTES del
+ * mensaje más viejo que tenemos. La respuesta no llega aquí, sino por
+ * `messaging-history.set`, como el resto del historial, y entra por el mismo
+ * camino ya probado.
+ *
+ * Se piden de uno en uno y con una pausa corta. Es el teléfono del dueño quien
+ * contesta —no un servidor de WhatsApp— y trescientas peticiones de golpe es
+ * exactamente la forma de que deje de contestarlas todas.
+ *
+ * Devuelve cuántos hilos se pidieron. Que un hilo falle no detiene a los demás:
+ * lo que llegue, entra.
+ */
+export async function pedirHistorial(
+  orgId: number,
+  canalId: number,
+  porHilo = 50,
+): Promise<{ pedidos: number; hilos: number }> {
+  const s = sesiones.get(canalId);
+  if (!s?.sock || s.estado !== "conectado") {
+    throw new Error("El número no está conectado a WhatsApp");
+  }
+
+  const anclas = anclasDeHistorial(orgId, canalId);
+  let pedidos = 0;
+
+  for (const a of anclas) {
+    try {
+      await s.sock.fetchMessageHistory(
+        porHilo,
+        { id: a.mensaje, remoteJid: jidDeDestino(a.jid), fromMe: a.deMi },
+        a.cuando,
+      );
+      pedidos++;
+    } catch (e) {
+      console.error(`[wa] el teléfono no dio el historial de ${a.jid}`, e);
+    }
+
+    await new Promise((r) => setTimeout(r, 250));
+  }
+
+  console.log(`[wa] historial pedido para ${pedidos} de ${anclas.length} hilo(s) del canal ${canalId}`);
+  return { pedidos, hilos: anclas.length };
+}
+
+/**
+ * «Escribiendo…» en el chat del cliente.
+ *
+ * Acompaña al retardo con el que contesta el agente: sin esto, esperar cuatro
+ * segundos es indistinguible de no contestar, y con esto es exactamente lo que
+ * el cliente ve cuando le escribe una persona. No es un mensaje —no crea nada
+ * en el hilo, no se guarda, no se cuenta— así que la regla de «solo el agente
+ * envía» sigue intacta.
+ *
+ * Es un adorno y se comporta como tal: si el socket no está o WhatsApp lo
+ * rechaza, se traga el fallo. Que no salga el aviso no puede impedir que salga
+ * la respuesta.
+ */
+export async function marcarEscribiendo(
+  canalId: number,
+  destino: string,
+  escribiendo: boolean,
+): Promise<void> {
+  const s = sesiones.get(canalId);
+  if (!s?.sock || s.estado !== "conectado") return;
+
+  try {
+    await s.sock.sendPresenceUpdate(escribiendo ? "composing" : "paused", jidDeDestino(destino));
+  } catch {
+    // Un adorno no rompe una venta.
   }
 }
 

@@ -29,6 +29,7 @@ function paraElPanel(a: Agente) {
     modelo_audio: a.modelo_audio,
     pasar_a_humano: a.pasar_a_humano === 1,
     silenciar_si_humano: a.silenciar_si_humano === 1,
+    retardo_seg: a.retardo_seg,
     horario_activo: a.horario_activo === 1,
     horario_desde: a.horario_desde,
     horario_hasta: a.horario_hasta,

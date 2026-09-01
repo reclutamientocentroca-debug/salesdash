@@ -153,6 +153,13 @@ CREATE TABLE IF NOT EXISTS conversations (
   producto_vendido TEXT, resumen_pedido TEXT,
   justificacion TEXT, datos_faltantes TEXT, motivo_perdida TEXT,
   analizada_at INTEGER,
+  /* QUIÉN ATIENDE ESTE HILO. 'ia' o 'humano'.
+
+     Es un interruptor por conversación, no por número: en la misma bandeja hay
+     clientes que el agente lleva solo hasta el cierre y otros que un vendedor
+     prefiere atender a mano. Hasta ahora eso solo se podía decir apagando el
+     agente en el número entero —o sea, para todos los clientes a la vez—. */
+  atiende TEXT CHECK(atiende IN ('ia','humano')) NOT NULL DEFAULT 'ia',
   fecha_inicio INTEGER NOT NULL DEFAULT (unixepoch()),
   fecha_cierre INTEGER, last_message_at INTEGER,
   UNIQUE(canal_id, cliente_phone)
@@ -178,6 +185,10 @@ CREATE TABLE IF NOT EXISTS messages (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_msg_conv ON messages(conversation_id, created_at);
+-- El barrido de cierres recorre los salientes de una cuenta entera. Con el
+-- historial del teléfono dentro, esta tabla pasa de miles de filas a cientos de
+-- miles: sin este índice, cada barrido la leería completa.
+CREATE INDEX IF NOT EXISTS idx_msg_org ON messages(org_id, emisor);
 
 CREATE TABLE IF NOT EXISTS ai_sent_ids (
   whapi_message_id TEXT PRIMARY KEY,
@@ -233,6 +244,17 @@ CREATE TABLE IF NOT EXISTS agentes (
   modelo_audio TEXT,
   pasar_a_humano INTEGER NOT NULL DEFAULT 1,
   silenciar_si_humano INTEGER NOT NULL DEFAULT 1,
+  /* CUÁNTO ESPERA ANTES DE CONTESTAR, en segundos.
+
+     Un negocio no contesta en medio segundo. Una respuesta instantánea, y
+     encima perfecta, es lo que delata a un bot antes de la segunda frase: el
+     cliente deja de hablar con una tienda y empieza a hablar con un sistema.
+
+     Se cuenta desde que ENTRÓ el mensaje del cliente, no desde que el modelo
+     termina: si pensar la respuesta ya costó cinco segundos, esos cinco cuentan
+     y no se suman. Así el retardo es un mínimo de naturalidad, no un impuesto
+     encima de lo que ya se tardó. En 0 contesta en cuanto puede. */
+  retardo_seg INTEGER NOT NULL DEFAULT 4,
   horario_activo INTEGER NOT NULL DEFAULT 0,
   horario_desde TEXT, horario_hasta TEXT,
   /* SEGUIMIENTOS. Los dos unicos mensajes que el agente manda sin que el
@@ -447,6 +469,18 @@ function migrar(conexion: DB): void {
 
       DROP TABLE uso_modelo_viejo;
     `);
+  }
+
+  // agentes: el retardo con el que contesta, para no responder al instante.
+  if (!columnas("agentes").includes("retardo_seg")) {
+    conexion.exec(`ALTER TABLE agentes ADD COLUMN retardo_seg INTEGER NOT NULL DEFAULT 4`);
+  }
+
+  // conversations: quién atiende este hilo, la IA o una persona.
+  if (!columnas("conversations").includes("atiende")) {
+    conexion.exec(
+      `ALTER TABLE conversations ADD COLUMN atiende TEXT NOT NULL DEFAULT 'ia'`,
+    );
   }
 
   // messages: la transcripción de las notas de voz.
@@ -1004,6 +1038,8 @@ export interface Conversacion {
   cliente_jid: string | null;
   origen: string | null; producto_anuncio: string | null; descripcion_anuncio: string | null;
   intervencion_humana: number; cerrado_por: EstadoCierre;
+  /** Quién atiende este hilo: 'ia' o 'humano'. Se cambia desde la conversación. */
+  atiende: string;
   senal_de_cierre: string | null;
   total: number | null; envio: number | null;
   producto_vendido: string | null; resumen_pedido: string | null;
@@ -1043,6 +1079,8 @@ export interface Agente {
   /** Nulos = los de la cuenta. */
   modelo_vision: string | null; modelo_audio: string | null;
   pasar_a_humano: number; silenciar_si_humano: number;
+  /** Segundos que espera antes de contestar, contados desde que entró el mensaje. */
+  retardo_seg: number;
   horario_activo: number; horario_desde: string | null; horario_hasta: string | null;
   /** Recordatorio al cliente que dejó la conversación a medias. */
   recordatorio_visto: number; recordatorio_visto_horas: number;
@@ -1198,15 +1236,48 @@ export function actualizarCanal(orgId: number, id: number, campos: Partial<Canal
   s(`UPDATE canales SET ${sql} WHERE org_id = ? AND id = ?`).run(...valores, orgId, id);
 }
 
+/**
+ * BORRAR UN NÚMERO TIENE QUE BORRARLO DE VERDAD.
+ *
+ * Esta función dejaba tres cabos sueltos, y con las claves foráneas encendidas
+ * un cabo suelto no es un dato huérfano: es que el `DELETE` del canal FALLA, la
+ * transacción entera se deshace y el número se queda en la pantalla. Desde
+ * fuera se ve exactamente así — «lo desconecté y no se quita»— porque el
+ * teléfono sí se desvinculó: lo que no se pudo fue borrar la fila.
+ *
+ * Los tres cabos:
+ *
+ *  - `seguimientos`, colgados de la conversación. Cualquier número que haya
+ *    mandado un recordatorio o un aviso de entrega tenía uno, así que a los
+ *    números que MÁS se usaron era justo a los que no había forma de borrar.
+ *  - `anomalies` con `canal_id`, que son las del número y no las de un hilo:
+ *    «canal activo sin leads», por ejemplo. Se borraban solo las de hilo.
+ *  - `eventos_meta`, el registro de lo que entró por una página de Meta.
+ *
+ * Se borra de dentro hacia fuera: primero lo que cuelga de las conversaciones,
+ * luego las conversaciones, y al final lo que cuelga del canal y el canal.
+ */
 export function eliminarCanal(orgId: number, id: number): void {
   const tx = db.transaction(() => {
+    const hilos = `(SELECT id FROM conversations WHERE org_id = ? AND canal_id = ?)`;
+
     // Las conversaciones del canal se van con él; si no, quedan huérfanas
     // contando leads de un número que ya nadie tiene.
-    s(`DELETE FROM messages WHERE org_id = ? AND conversation_id IN
-         (SELECT id FROM conversations WHERE org_id = ? AND canal_id = ?)`).run(orgId, orgId, id);
-    s(`DELETE FROM anomalies WHERE org_id = ? AND conversation_id IN
-         (SELECT id FROM conversations WHERE org_id = ? AND canal_id = ?)`).run(orgId, orgId, id);
+    s(`DELETE FROM messages WHERE org_id = ? AND conversation_id IN ${hilos}`).run(orgId, orgId, id);
+    s(`DELETE FROM seguimientos WHERE org_id = ? AND conversation_id IN ${hilos}`).run(orgId, orgId, id);
+    s(`DELETE FROM anomalies WHERE org_id = ? AND conversation_id IN ${hilos}`).run(orgId, orgId, id);
     s(`DELETE FROM conversations WHERE org_id = ? AND canal_id = ?`).run(orgId, id);
+
+    // Y lo que cuelga del número, no de un hilo.
+    s(`DELETE FROM anomalies WHERE org_id = ? AND canal_id = ?`).run(orgId, id);
+    /*
+     * `org_id` es nulo en los eventos que llegaron sin poder resolver la cuenta.
+     * El canal ya la fija —es de esta organización o no se llega hasta aquí— y
+     * dejar fuera esas filas sería volver a bloquear el borrado por una fila que
+     * nadie mira.
+     */
+    s(`DELETE FROM eventos_meta WHERE canal_id = ? AND (org_id = ? OR org_id IS NULL)`).run(id, orgId);
+
     // El agente del canal se va con él. La plantilla de la cuenta (canal_id 0)
     // no se toca nunca: de ella nacen los que vengan después.
     s(`DELETE FROM agentes WHERE org_id = ? AND canal_id = ?`).run(orgId, id);
@@ -1413,6 +1484,139 @@ export function bandeja(
       ORDER BY COALESCE(c.last_message_at, c.fecha_inicio) DESC
       LIMIT ?`,
   ).all(...val) as FilaBandeja[];
+}
+
+/**
+ * UN LEAD EMPIEZA CUANDO EL CLIENTE ESCRIBIÓ, NO CUANDO ESTE PANEL SE ENTERÓ.
+ *
+ * `fecha_inicio` la pone el primer mensaje que abre el hilo, y hasta que se
+ * importó el historial ese era siempre el primero que se veía. Al vincular un
+ * número por QR entran de golpe conversaciones de semanas atrás: si todas
+ * nacieran con la fecha de la importación, el panel diría que hoy llegaron
+ * trescientos leads y el dashboard de hoy quedaría inservible, con las ventas
+ * viejas contadas como de esta mañana.
+ *
+ * Solo se mueve hacia atrás, y solo con un mensaje DEL CLIENTE: un saliente
+ * nuestro no empieza ningún lead, y una fecha que avanzara le cambiaría el
+ * periodo a una conversación ya contada.
+ */
+export function adelantarInicio(orgId: number, id: number, cuando: number): void {
+  s(
+    `UPDATE conversations SET fecha_inicio = ?
+      WHERE org_id = ? AND id = ? AND fecha_inicio > ?`,
+  ).run(cuando, orgId, id, cuando);
+}
+
+/**
+ * EL MISMO CLIENTE, UN SOLO HILO.
+ *
+ * WhatsApp identifica a una persona de dos maneras —su número y un `@lid`
+ * interno que no se le parece en nada— y no siempre manda las dos. Cuando solo
+ * llega el `@lid`, la conversación se abre bajo esos dígitos; si más tarde el
+ * mismo cliente llega con su número, se abría OTRA. El resultado en pantalla
+ * son dos hilos del mismo cliente, cada uno con la mitad de lo hablado, y una
+ * venta cerrada en uno de los dos que el otro no conoce.
+ *
+ * En cuanto WhatsApp dice qué teléfono hay detrás de ese `@lid` —lo manda en el
+ * lote del historial y en el mapa de la sesión— esto los junta:
+ *
+ *  - Si el hilo del teléfono no existe, al del `@lid` se le cambia la clave. No
+ *    se mueve ni un mensaje: es el mismo hilo, ahora con el nombre bueno.
+ *  - Si existen los dos, todo lo del `@lid` se muda al del teléfono: mensajes,
+ *    anomalías y seguimientos. El lead empieza en la fecha más antigua de los
+ *    dos, y si uno de ellos tenía la venta cerrada, esa venta se conserva.
+ *
+ * Devuelve el identificador del hilo que queda, o null si no había nada que
+ * juntar. Es idempotente: a la segunda pasada ya no existe el hilo de origen.
+ */
+export function unificarConversacion(
+  orgId: number,
+  canalId: number,
+  telefonoViejo: string,
+  telefonoBueno: string,
+): number | null {
+  if (!telefonoViejo || !telefonoBueno || telefonoViejo === telefonoBueno) return null;
+
+  const tx = db.transaction(() => {
+    const origen = s(
+      `SELECT * FROM conversations WHERE org_id = ? AND canal_id = ? AND cliente_phone = ?`,
+    ).get(orgId, canalId, telefonoViejo) as Conversacion | undefined;
+    if (!origen) return null;
+
+    const destino = s(
+      `SELECT * FROM conversations WHERE org_id = ? AND canal_id = ? AND cliente_phone = ?`,
+    ).get(orgId, canalId, telefonoBueno) as Conversacion | undefined;
+
+    // Nadie con quien juntarse: basta con ponerle la clave buena.
+    if (!destino) {
+      s(`UPDATE conversations SET cliente_phone = ? WHERE org_id = ? AND id = ?`)
+        .run(telefonoBueno, orgId, origen.id);
+      return origen.id;
+    }
+
+    s(`UPDATE messages SET conversation_id = ? WHERE org_id = ? AND conversation_id = ?`)
+      .run(destino.id, orgId, origen.id);
+    s(`UPDATE anomalies SET conversation_id = ? WHERE org_id = ? AND conversation_id = ?`)
+      .run(destino.id, orgId, origen.id);
+    // El seguimiento es único por hilo y tipo: el que ya tenga el destino manda,
+    // y el repetido se tira en vez de reventar la unión entera.
+    s(`UPDATE OR IGNORE seguimientos SET conversation_id = ? WHERE org_id = ? AND conversation_id = ?`)
+      .run(destino.id, orgId, origen.id);
+    s(`DELETE FROM seguimientos WHERE org_id = ? AND conversation_id = ?`).run(orgId, origen.id);
+
+    /*
+     * El cierre no se pisa: si el hilo bueno ya tenía su venta sellada, esa se
+     * queda. Solo se hereda la del `@lid` cuando el destino estaba abierto, que
+     * es justo el caso que hacía desaparecer ventas del dashboard.
+     */
+    const heredaCierre = destino.fecha_cierre === null && origen.fecha_cierre !== null;
+
+    s(
+      `UPDATE conversations SET
+         fecha_inicio = MIN(fecha_inicio, ?),
+         last_message_at = MAX(COALESCE(last_message_at, 0), COALESCE(?, 0)),
+         cliente_nombre = COALESCE(cliente_nombre, ?),
+         cliente_jid = COALESCE(cliente_jid, ?),
+         origen = COALESCE(origen, ?),
+         superficie = COALESCE(superficie, ?),
+         meta_ad_id = COALESCE(meta_ad_id, ?),
+         producto_anuncio = COALESCE(producto_anuncio, ?),
+         descripcion_anuncio = COALESCE(descripcion_anuncio, ?),
+         intervencion_humana = MAX(intervencion_humana, ?),
+         cerrado_por = CASE WHEN ? = 1 THEN ? ELSE cerrado_por END,
+         senal_de_cierre = CASE WHEN ? = 1 THEN ? ELSE senal_de_cierre END,
+         fecha_cierre = CASE WHEN ? = 1 THEN ? ELSE fecha_cierre END,
+         total = COALESCE(total, ?),
+         envio = COALESCE(envio, ?),
+         producto_vendido = COALESCE(producto_vendido, ?),
+         resumen_pedido = COALESCE(resumen_pedido, ?)
+       WHERE org_id = ? AND id = ?`,
+    ).run(
+      origen.fecha_inicio,
+      origen.last_message_at,
+      origen.cliente_nombre,
+      origen.cliente_jid,
+      origen.origen,
+      origen.superficie,
+      origen.meta_ad_id,
+      origen.producto_anuncio,
+      origen.descripcion_anuncio,
+      origen.intervencion_humana,
+      heredaCierre ? 1 : 0, origen.cerrado_por,
+      heredaCierre ? 1 : 0, origen.senal_de_cierre,
+      heredaCierre ? 1 : 0, origen.fecha_cierre,
+      origen.total,
+      origen.envio,
+      origen.producto_vendido,
+      origen.resumen_pedido,
+      orgId, destino.id,
+    );
+
+    s(`DELETE FROM conversations WHERE org_id = ? AND id = ?`).run(orgId, origen.id);
+    return destino.id;
+  });
+
+  return tx();
 }
 
 export function listarConversaciones(orgId: number, filtros: {
@@ -1777,6 +1981,52 @@ export function salientesDeHilosPorSellar(
 }
 
 /**
+ * DESDE DÓNDE PEDIRLE AL TELÉFONO LO QUE FALTA.
+ *
+ * WhatsApp solo manda el historial entero una vez, al vincular el número. Para
+ * un número que ya estaba conectado —donde el panel empezó a existir a media
+ * conversación— la única forma de recuperar lo de antes es pedírselo hilo por
+ * hilo, y para eso hace falta un ancla: el mensaje MÁS VIEJO que tenemos de esa
+ * conversación. El teléfono devuelve lo que había antes de él.
+ *
+ * Sale la dirección del cliente, el identificador de ese mensaje, si lo
+ * mandamos nosotros y cuándo: es exactamente lo que pide `fetchMessageHistory`.
+ * Los hilos sin un solo identificador —los sembrados a mano en una prueba— no
+ * salen: no hay ancla que dar.
+ *
+ * Ordenado por actividad reciente: si hay que cortar por el límite, se pide
+ * primero el pasado de las conversaciones vivas.
+ */
+export function anclasDeHistorial(
+  orgId: number,
+  canalId: number,
+  limite = 300,
+): { jid: string; mensaje: string; deMi: boolean; cuando: number }[] {
+  const filas = s(
+    `SELECT COALESCE(c.cliente_jid, c.cliente_phone) AS jid,
+            m.whapi_message_id AS mensaje,
+            m.emisor AS emisor,
+            m.created_at AS cuando
+       FROM conversations c
+       JOIN messages m ON m.id = (
+              SELECT m2.id FROM messages m2
+               WHERE m2.conversation_id = c.id AND m2.whapi_message_id IS NOT NULL
+               ORDER BY m2.created_at ASC, m2.id ASC LIMIT 1)
+      WHERE c.org_id = ? AND c.canal_id = ?
+      ORDER BY COALESCE(c.last_message_at, c.fecha_inicio) DESC
+      LIMIT ?`,
+  ).all(orgId, canalId, limite) as
+    { jid: string; mensaje: string; emisor: Emisor; cuando: number }[];
+
+  return filas.map((f) => ({
+    jid: f.jid,
+    mensaje: f.mensaje,
+    deMi: f.emisor !== "cliente",
+    cuando: f.cuando,
+  }));
+}
+
+/**
  * Las organizaciones que tienen algo que barrer al arrancar.
  *
  * EXCEPCIÓN a la regla de aislamiento, de la misma clase que
@@ -1810,6 +2060,72 @@ export function contarRespuestasIa(orgId: number, conversationId: number, desde:
     `SELECT COUNT(*) AS n FROM messages
       WHERE org_id = ? AND conversation_id = ? AND emisor = 'ia' AND created_at >= ?`,
   ).get(orgId, conversationId, desde) as { n: number }).n;
+}
+
+/**
+ * Los últimos mensajes que escribió el agente en un hilo, del más nuevo al más
+ * viejo. Se usa para reconocer un bucle: el agente repitiendo la misma frase.
+ */
+export function ultimasRespuestasIa(orgId: number, conversationId: number, n: number): string[] {
+  const filas = s(
+    `SELECT content FROM messages
+      WHERE org_id = ? AND conversation_id = ? AND emisor = 'ia'
+      ORDER BY created_at DESC, id DESC LIMIT ?`,
+  ).all(orgId, conversationId, n) as { content: string }[];
+  return filas.map((f) => f.content);
+}
+
+/**
+ * Devuelve el hilo a la IA: cierra las anomalías que la tenían callada.
+ *
+ * `pidio_humano` y `handoff_agente` no son avisos, son interruptores: mientras
+ * estén abiertas, `atenderConversacion` no escribe una palabra en ese hilo. Y
+ * hasta ahora no había forma de cerrarlas desde ninguna pantalla, así que una
+ * conversación que pasó a un asesor se quedaba sin agente PARA SIEMPRE —también
+ * cuando el cliente volvía tres días después a comprar—.
+ *
+ * Devuelve cuántas se cerraron.
+ */
+export function devolverALaIa(orgId: number, conversationId: number): number {
+  const tx = db.transaction(() => {
+    const r = s(
+      `UPDATE anomalies SET resuelta = 1
+        WHERE org_id = ? AND conversation_id = ? AND resuelta = 0
+          AND tipo IN ('pidio_humano', 'handoff_agente', 'agente_en_bucle')`,
+    ).run(orgId, conversationId);
+
+    // Y el interruptor de la conversación, que es la otra forma de tenerla
+    // callada: devolver el hilo a la IA es una sola cosa, no dos.
+    s(`UPDATE conversations SET atiende = 'ia' WHERE org_id = ? AND id = ?`).run(orgId, conversationId);
+
+    return r.changes;
+  });
+  return tx();
+}
+
+/**
+ * QUIÉN ATIENDE ESTE HILO, dicho a mano desde la conversación.
+ *
+ * Pasarlo a 'humano' calla al agente en esa conversación y solo en esa: el
+ * número sigue contestando a todos los demás clientes. Es la pieza que faltaba
+ * entre las dos únicas opciones que había —el agente encendido para todo el
+ * mundo, o apagado para todo el mundo—.
+ *
+ * No crea ninguna anomalía a propósito: esto no es una avería que alguien deba
+ * revisar, es una decisión de quien atiende.
+ */
+export function ponerAtiende(orgId: number, conversationId: number, quien: "ia" | "humano"): void {
+  s(`UPDATE conversations SET atiende = ? WHERE org_id = ? AND id = ?`)
+    .run(quien, orgId, conversationId);
+}
+
+/** Las anomalías abiertas de un hilo. El panel enseña por qué está callado. */
+export function anomaliasDeConversacion(orgId: number, conversationId: number): Anomalia[] {
+  return s(
+    `SELECT * FROM anomalies
+      WHERE org_id = ? AND conversation_id = ? AND resuelta = 0
+      ORDER BY id DESC`,
+  ).all(orgId, conversationId) as Anomalia[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1861,7 +2177,8 @@ export const AGENTE_DE_LA_CUENTA = 0;
 const HEREDABLES = `nombre, tono, instrucciones, pais, conocimiento,
   usar_catalogo, ver_imagenes, oir_audios, validar_mapa,
   modelo, modelo_respaldo, modelo_vision, modelo_audio,
-  pasar_a_humano, silenciar_si_humano, horario_activo, horario_desde, horario_hasta,
+  pasar_a_humano, silenciar_si_humano, retardo_seg,
+  horario_activo, horario_desde, horario_hasta,
   recordatorio_visto, recordatorio_visto_horas,
   recordatorio_entrega, recordatorio_entrega_horas`;
 
@@ -1991,7 +2308,7 @@ const COLUMNAS_AGENTE = [
   "nombre", "tono", "instrucciones", "pais", "conocimiento", "usar_catalogo",
   "ver_imagenes", "oir_audios", "validar_mapa",
   "modelo", "modelo_respaldo", "modelo_vision", "modelo_audio",
-  "pasar_a_humano", "silenciar_si_humano", "horario_activo",
+  "pasar_a_humano", "silenciar_si_humano", "retardo_seg", "horario_activo",
   "horario_desde", "horario_hasta",
   "recordatorio_visto", "recordatorio_visto_horas",
   "recordatorio_entrega", "recordatorio_entrega_horas",

@@ -52,6 +52,7 @@ function paraElPanel(a: Agente) {
     modelo_audio: a.modelo_audio,
     pasar_a_humano: a.pasar_a_humano === 1,
     silenciar_si_humano: a.silenciar_si_humano === 1,
+    retardo_seg: a.retardo_seg,
     horario_activo: a.horario_activo === 1,
     horario_desde: a.horario_desde,
     horario_hasta: a.horario_hasta,
@@ -131,6 +132,12 @@ const Cambio = z.object({
   modelo_audio: z.string().trim().max(120).nullable().optional(),
   pasar_a_humano: z.boolean().optional(),
   silenciar_si_humano: z.boolean().optional(),
+  /*
+   * El retardo con el que contesta. Hasta un minuto: más que eso ya no es
+   * naturalidad, es un cliente esperando. Y el 0 tiene que seguir siendo
+   * posible —hay negocios que quieren la respuesta al instante—.
+   */
+  retardo_seg: z.number().int().min(0).max(60).optional(),
   horario_activo: z.boolean().optional(),
   horario_desde: z.string().regex(HORA, "La hora va como 09:00").nullable().optional(),
   horario_hasta: z.string().regex(HORA, "La hora va como 18:00").nullable().optional(),
@@ -184,6 +191,7 @@ export async function PATCH(req: NextRequest) {
       modelo_audio: d.modelo_audio === "" ? null : d.modelo_audio,
       pasar_a_humano: bit(d.pasar_a_humano),
       silenciar_si_humano: bit(d.silenciar_si_humano),
+      retardo_seg: d.retardo_seg,
       horario_activo: bit(d.horario_activo),
       horario_desde: d.horario_desde,
       horario_hasta: d.horario_hasta,

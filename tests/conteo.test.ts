@@ -6,6 +6,8 @@ import { llegoPorAnuncio, anuncioParaModelo } from "../src/lib/anuncio";
 import { registrarCierre, sellarCierresPendientes } from "../src/lib/cierre";
 import { informeDeCanal, informeDeCuenta } from "../src/lib/informe";
 import { calcularMetricas, rellenarDias } from "../src/lib/metrics";
+import { ingerir, type MensajeEntrante } from "../src/lib/ingesta";
+import { esChatDePersona } from "../src/lib/telefono";
 
 /**
  * La invariante del procedimiento diario:
@@ -791,4 +793,206 @@ test("el resumen de la cuenta cuenta solo el periodo que se le pide", () => {
   assert.equal(/class="hilo"/.test(soloReciente.html), false);
 
   assert.ok(viejo < 1_700_000_000);
+});
+
+// ── El historial del teléfono ───────────────────────────────────────────────
+
+/** Un mensaje como los que traduce `wa.ts`, con lo justo para esta prueba. */
+function entrante(
+  id: string,
+  chatId: string,
+  deMi: boolean,
+  content: string,
+  cuando: number,
+  nombre: string | null = null,
+): MensajeEntrante {
+  return {
+    id, deMi, chatId, tipo: "texto", content, mediaUrl: null, cuando, nombre,
+    deAnuncio: false, productoAnuncio: null, descripcionAnuncio: null,
+  };
+}
+
+const canalDePruebas = () => D.obtenerCanal(orgId, canalId)!;
+const hiloDe = (telefono: string) =>
+  D.bandeja(orgId, canalId).find((c) => c.cliente_phone === telefono);
+
+/**
+ * ESTA ES LA AVERÍA QUE VACIABA LAS CONVERSACIONES.
+ *
+ * WhatsApp manda el historial del más nuevo al más viejo. Procesado en ese
+ * orden, de cada hilo entraban primero NUESTRAS respuestas —y se descartaban
+ * una por una, porque el hilo del cliente todavía no existía— y solo después el
+ * mensaje que lo abría. El panel enseñaba lo que dijo el cliente y nada de lo
+ * que se le contestó; y si el resumen del pedido iba en una de esas respuestas
+ * tiradas, la venta quedaba cerrada en WhatsApp e invisible en el dashboard.
+ */
+test("un historial que llega al revés no pierde ni un mensaje ni una venta", async () => {
+  const t = 1_700_500_000;
+  const chat = "18095559999@s.whatsapp.net";
+
+  await ingerir(
+    canalDePruebas(),
+    [
+      entrante("hist-4", chat, true, "Resumen: 1 camisa talla M — 1200 en total", t + 180),
+      entrante("hist-3", chat, false, "la M", t + 120, "Ana"),
+      entrante("hist-2", chat, true, "Claro. ¿Qué talla necesita?", t + 60),
+      entrante("hist-1", chat, false, "hola, quiero una camisa", t, "Ana"),
+    ],
+    { dentroDePeticion: false, historico: true },
+  );
+
+  const hilo = hiloDe("18095559999");
+  assert.ok(hilo, "el hilo tenía que existir");
+  assert.equal(D.listarMensajes(orgId, hilo.id).length, 4, "no se pierde ninguno de los cuatro");
+
+  // El lead empieza cuando escribió el cliente, no cuando se importó.
+  assert.equal(hilo.fecha_inicio, t);
+
+  // Y la venta que venía cerrada dentro del historial se cuenta, con su hora.
+  assert.equal(hilo.cerrado_por, "ia", "en un número en modo vigilar, el saliente es de la IA");
+  assert.equal(hilo.fecha_cierre, t + 180);
+});
+
+/**
+ * La invariante 1 no se ha aflojado: un saliente a alguien que no ha escrito
+ * nunca sigue sin abrir lead. Es lo que impide que los mensajes en frío de un
+ * vendedor inflen las cifras del negocio.
+ */
+test("un saliente a quien nunca escribió sigue sin crear lead", async () => {
+  await ingerir(
+    canalDePruebas(),
+    [entrante("frio-1", "18095558888@s.whatsapp.net", true, "Buenas, tenemos ofertas", 1_700_600_000)],
+    { dentroDePeticion: false, historico: true },
+  );
+
+  assert.equal(hiloDe("18095558888"), undefined, "no existe ese lead");
+});
+
+/** Ni los estados, ni las listas de difusión, ni los canales son clientes. */
+test("solo entran los chats de una persona", async () => {
+  assert.equal(esChatDePersona("18095551234@s.whatsapp.net"), true);
+  assert.equal(esChatDePersona("123456789012345@lid"), true);
+  assert.equal(esChatDePersona("18095551234"), true, "los canales de Meta mandan los dígitos sueltos");
+  assert.equal(esChatDePersona("status@broadcast"), false);
+  assert.equal(esChatDePersona("120363000000000000@newsletter"), false);
+
+  await ingerir(
+    canalDePruebas(),
+    [entrante("difu-1", "120363000000000000@newsletter", false, "novedades", 1_700_600_100)],
+    { dentroDePeticion: false, historico: true },
+  );
+
+  assert.equal(hiloDe("120363000000000000"), undefined, "un canal no es un cliente");
+});
+
+/**
+ * El historial también trae mensajes anteriores a un hilo que ya existía. La
+ * fecha del lead tiene que retroceder: si no, vincular un número metería
+ * semanas de leads viejos en el día de la importación.
+ */
+test("un mensaje más viejo que el hilo le corrige la fecha de inicio", async () => {
+  const chat = "18095557777@s.whatsapp.net";
+
+  await ingerir(canalDePruebas(), [entrante("viejo-2", chat, false, "sigo interesada", 1_700_700_000, "Eva")], {
+    dentroDePeticion: false,
+    historico: false,
+  });
+  assert.equal(hiloDe("18095557777")?.fecha_inicio, 1_700_700_000);
+
+  await ingerir(canalDePruebas(), [entrante("viejo-1", chat, false, "buenas", 1_700_100_000, "Eva")], {
+    dentroDePeticion: false,
+    historico: true,
+  });
+  assert.equal(hiloDe("18095557777")?.fecha_inicio, 1_700_100_000, "el lead empezó antes");
+});
+
+/**
+ * DOS HILOS DEL MISMO CLIENTE, UNO SOLO.
+ *
+ * El `@lid` es un identificador interno de WhatsApp que no es un teléfono. Un
+ * hilo abierto bajo esos dígitos y otro bajo el número son la misma persona con
+ * la conversación partida en dos, y con la venta contada en una de las mitades.
+ */
+test("el hilo abierto bajo un identificador interno se junta con el del teléfono", () => {
+  const lid = "199988877766655";
+  const tel = "18095556666";
+
+  const { conversacion: viejo } = D.getOrCreateConversation(orgId, canalId, lid, { cuando: 1_700_000_000 });
+  D.insertMessage(orgId, {
+    conversationId: viejo.id, whapiMessageId: "lid-1", emisor: "cliente",
+    tipo: "texto", content: "hola", createdAt: 1_700_000_000,
+  });
+  D.sellarCierre(orgId, viejo.id, { cerradoPor: "ia", senal: "resumen_ia", fechaCierre: 1_700_000_500 });
+
+  const { conversacion: nuevo } = D.getOrCreateConversation(orgId, canalId, tel, { cuando: 1_700_900_000 });
+  D.insertMessage(orgId, {
+    conversationId: nuevo.id, whapiMessageId: "tel-1", emisor: "cliente",
+    tipo: "texto", content: "¿llegó mi pedido?", createdAt: 1_700_900_000,
+  });
+
+  const destino = D.unificarConversacion(orgId, canalId, lid, tel);
+  assert.equal(destino, nuevo.id, "manda el hilo del teléfono");
+
+  const juntado = D.getConversation(orgId, nuevo.id)!;
+  assert.equal(D.listarMensajes(orgId, nuevo.id).length, 2, "se muda todo lo hablado");
+  assert.equal(juntado.fecha_inicio, 1_700_000_000, "el lead empezó en el hilo más viejo");
+  assert.equal(juntado.cerrado_por, "ia", "y la venta no se queda en el hilo que desaparece");
+  assert.equal(D.getConversation(orgId, viejo.id), undefined);
+
+  // Sin hilo con el que juntarse, basta con ponerle la clave buena.
+  const { conversacion: suelto } = D.getOrCreateConversation(orgId, canalId, "277766655544433", {
+    cuando: 1_700_000_000,
+  });
+  assert.equal(D.unificarConversacion(orgId, canalId, "277766655544433", "18095555555"), suelto.id);
+  assert.equal(D.getConversation(orgId, suelto.id)?.cliente_phone, "18095555555");
+
+  // Y a la segunda pasada ya no hay nada que juntar.
+  assert.equal(D.unificarConversacion(orgId, canalId, lid, tel), null);
+});
+
+/**
+ * «LO DESCONECTÉ Y NO SE QUITA.»
+ *
+ * Borrar un número borraba sus mensajes, sus anomalías de hilo y sus
+ * conversaciones, pero se dejaba tres cosas colgando: los seguimientos, las
+ * anomalías del propio número y los eventos de Meta. Con las claves foráneas
+ * encendidas eso no deja datos huérfanos: hace fallar el DELETE del canal, la
+ * transacción se deshace entera y el número sigue en la pantalla después de
+ * haberse desvinculado del teléfono.
+ *
+ * Y le tocaba justo a los números más usados: cualquiera que hubiera mandado un
+ * recordatorio tenía un seguimiento, y con él ya era imposible de borrar.
+ */
+test("un número con seguimientos y anomalías se puede borrar de verdad", () => {
+  const canalDeSobra = D.crearCanal(orgId, {
+    nombre: "Telleria",
+    phone: "18095554444",
+    tokenCifrado: "x",
+    webhookSecret: "s2",
+    whapiChannelId: null,
+    estado: "conectado",
+  });
+
+  const { conversacion } = D.getOrCreateConversation(orgId, canalDeSobra, "18095553333", {
+    cuando: 1_700_000_000,
+  });
+  D.insertMessage(orgId, {
+    conversationId: conversacion.id, whapiMessageId: "tell-1", emisor: "cliente",
+    tipo: "texto", content: "hola", createdAt: 1_700_000_000,
+  });
+
+  // Las tres cosas que bloqueaban el borrado.
+  assert.equal(D.registrarSeguimiento(orgId, conversacion.id, "visto"), true);
+  D.crearAnomalia(orgId, { canalId: canalDeSobra, tipo: "canal_sin_leads", severidad: "media", detalle: "x" });
+  D.crearAnomalia(orgId, { conversationId: conversacion.id, tipo: "handoff_agente", severidad: "alta", detalle: "y" });
+
+  D.eliminarCanal(orgId, canalDeSobra);
+
+  assert.equal(D.obtenerCanal(orgId, canalDeSobra), undefined, "el número se fue");
+  assert.equal(D.getConversation(orgId, conversacion.id), undefined, "y sus hilos con él");
+  assert.equal(
+    D.listarAnomalias(orgId, false).some((a) => a.canal_id === canalDeSobra),
+    false,
+    "no queda ninguna anomalía apuntando a un número que ya no existe",
+  );
 });

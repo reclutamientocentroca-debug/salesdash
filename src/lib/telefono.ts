@@ -35,6 +35,24 @@ export function normalizarTelefono(bruto: string): string {
   return (bruto.split("@")[0] ?? "").replace(/\D/g, "");
 }
 
+/**
+ * ¿Esto es un chat de una persona?
+ *
+ * WhatsApp manda por el mismo sitio cosas que no son conversaciones: estados
+ * (`@broadcast`), listas de difusión y canales (`@newsletter`). Mientras solo
+ * entraban los mensajes en vivo apenas se notaba; al importar el historial
+ * entran todos de golpe, y cada uno abriría un «cliente» con los dígitos de un
+ * identificador que no es de nadie.
+ *
+ * Se acepta lo que se sabe que es una persona: el teléfono, el `@lid` y los
+ * dígitos sueltos que usan los canales de Meta, donde el identificador del
+ * cliente viene sin arroba.
+ */
+export function esChatDePersona(chatId: string): boolean {
+  if (!chatId.includes("@")) return chatId.trim().length > 0;
+  return chatId.endsWith("@s.whatsapp.net") || chatId.endsWith("@lid") || chatId.endsWith("@c.us");
+}
+
 /** Los grupos no se miden: no son conversaciones de venta uno a uno. */
 export function esGrupo(chatId: string): boolean {
   return chatId.endsWith("@g.us");

@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { actualizarCanal, eliminarCanal, obtenerCanal, reatribuirCanalAIa } from "@/lib/db";
 import { sesionApi } from "@/lib/tenant";
-import { conectar, desconectar, instantanea } from "@/lib/wa";
+import { conectar, desconectar, instantanea, pedirHistorial } from "@/lib/wa";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -146,8 +146,12 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
  *
  * `reconectar` es lo que las sustituye: fuerza a reabrir el socket cuando un
  * número aparece caído.
+ *
+ * `historial` le pide al teléfono las conversaciones anteriores a lo que ya
+ * tenemos. Es para los números que llevaban tiempo conectados: los que se
+ * vinculan desde ahora reciben su historial solos al escanear el QR.
  */
-const Accion = z.object({ accion: z.enum(["reconectar"]) });
+const Accion = z.object({ accion: z.enum(["reconectar", "historial"]) });
 
 export async function POST(req: NextRequest, { params }: Ctx) {
   const s = await sesionApi();
@@ -159,6 +163,23 @@ export async function POST(req: NextRequest, { params }: Ctx) {
 
   const datos = Accion.safeParse(await req.json().catch(() => null));
   if (!datos.success) return NextResponse.json({ error: "Acción desconocida" }, { status: 400 });
+
+  if (datos.data.accion === "historial") {
+    /*
+     * La petición se contesta en cuanto está PEDIDA, no cuando llega todo: el
+     * teléfono manda el historial por su cuenta, en trozos, y puede tardar
+     * minutos. Dejar la pantalla esperando a eso sería colgarla.
+     */
+    try {
+      const { pedidos, hilos } = await pedirHistorial(s.ctx.orgId, canal.id);
+      return NextResponse.json({ ok: true, pedidos, hilos });
+    } catch (e) {
+      return NextResponse.json(
+        { error: e instanceof Error ? e.message : "No se pudo pedir el historial" },
+        { status: 409 },
+      );
+    }
+  }
 
   const vista = await conectar(canal.id);
   return NextResponse.json({ ok: true, estado: vista.estado });
@@ -184,6 +205,25 @@ export async function DELETE(_req: NextRequest, { params }: Ctx) {
     console.error("No se pudo cerrar la sesión al eliminar el canal:", e);
   }
 
-  eliminarCanal(s.ctx.orgId, canal.id);
+  /*
+   * Si el borrado falla, la pantalla tiene que decirlo. Sin esto salía un 500
+   * pelado: el teléfono ya se había desvinculado —eso pasa arriba y no se
+   * deshace— y el número seguía en la lista sin una sola pista de por qué. Es
+   * el «lo desconecté y no se quita» que llegó como avería.
+   */
+  try {
+    eliminarCanal(s.ctx.orgId, canal.id);
+  } catch (e) {
+    console.error(`No se pudo eliminar el canal ${canal.id}`, e);
+    return NextResponse.json(
+      {
+        error:
+          "El número se desvinculó de WhatsApp, pero no se pudo borrar del panel. " +
+          "Vuelve a intentarlo; si sigue igual, quedan datos suyos sin limpiar.",
+      },
+      { status: 500 },
+    );
+  }
+
   return NextResponse.json({ ok: true });
 }

@@ -29,6 +29,7 @@
  */
 import { after } from "next/server";
 import {
+  adelantarInicio,
   ahora,
   esDeIa,
   existeConversacion,
@@ -43,7 +44,7 @@ import {
 } from "@/lib/db";
 import { registrarCierre } from "@/lib/cierre";
 import { guardar as guardarArchivo } from "@/lib/media";
-import { esGrupo, normalizarTelefono } from "@/lib/telefono";
+import { esChatDePersona, esGrupo, normalizarTelefono } from "@/lib/telefono";
 
 /**
  * Un mensaje ya traducido desde el formato de quien sea que lo trajo. Quien
@@ -111,11 +112,16 @@ export interface Resultado {
  * `dispararAgente` existe porque `after()` solo es válido dentro del ciclo de
  * una petición. Los mensajes que llegan por el socket no están en ninguna
  * petición, así que ahí el agente se llama directamente.
+ *
+ * `historico` marca lo que llega del teléfono al vincular un número: es lo que
+ * ya pasó. Se guarda igual —y las ventas que traiga se sellan igual— pero el
+ * agente no contesta a un mensaje de hace tres semanas, y no se gasta una
+ * llamada al modelo por cada venta vieja importada.
  */
 export async function ingerir(
   canal: Canal,
   mensajes: MensajeEntrante[],
-  opciones: { dentroDePeticion: boolean },
+  opciones: { dentroDePeticion: boolean; historico?: boolean },
 ): Promise<Resultado> {
   const orgId = canal.org_id;
   let procesados = 0;
@@ -128,11 +134,47 @@ export async function ingerir(
   // analizar: las que este lote acaba de cerrar.
   const tocadas = new Set<number>();
 
-  for (const m of mensajes) {
+  /*
+   * ── EN QUÉ ORDEN SE PROCESA UN LOTE ─────────────────────────────────────
+   *
+   * Aquí se perdía la mitad de las conversaciones, y no era un fallo de
+   * guardado: era el orden.
+   *
+   * La invariante 1 dice que un saliente hacia un número sin conversación no
+   * abre lead. Correcto contra los mensajes en frío, y demoledor cuando el lote
+   * llega al revés: el historial de WhatsApp viene del más nuevo al más viejo,
+   * así que de un hilo entraban PRIMERO nuestras respuestas —descartadas, una
+   * por una, porque el hilo todavía no existía— y solo después el mensaje del
+   * cliente que lo abría. El panel enseñaba la conversación con lo que dijo el
+   * cliente y sin nada de lo que contestamos. Y si el resumen del pedido iba en
+   * una de esas respuestas descartadas, la venta no se sellaba: cerrada en
+   * WhatsApp e invisible en el dashboard.
+   *
+   * Se procesa en dos pasadas y en orden cronológico:
+   *
+   *   1. Los ENTRANTES, del más viejo al más nuevo. Son los que abren el hilo,
+   *      y al ir en orden el lead queda fechado en el primer mensaje de verdad.
+   *   2. Los SALIENTES, también en orden. Para entonces el hilo del cliente ya
+   *      existe, así que se guardan en vez de tirarse.
+   *
+   * La invariante 1 sigue en pie: un saliente a alguien que no ha escrito nunca
+   * —ni en la base, ni en este lote— se sigue descartando.
+   */
+  const cronologico = [...mensajes].sort((a, b) => a.cuando - b.cuando);
+  const enOrden = [
+    ...cronologico.filter((m) => !m.deMi),
+    ...cronologico.filter((m) => m.deMi),
+  ];
+
+  /** Salientes descartados por no tener hilo. Se cuentan y se dicen una vez. */
+  let sinHilo = 0;
+
+  for (const m of enOrden) {
     if (!m.id || !m.chatId) continue;
 
-    // Los grupos no son conversaciones de venta uno a uno.
-    if (esGrupo(m.chatId)) continue;
+    // Los grupos no son conversaciones de venta uno a uno. Ni los estados, ni
+    // las listas de difusión, ni los canales: ver `esChatDePersona`.
+    if (esGrupo(m.chatId) || !esChatDePersona(m.chatId)) continue;
 
     const telefono = normalizarTelefono(m.chatId);
     if (!telefono) continue;
@@ -160,7 +202,7 @@ export async function ingerir(
     try {
       // Invariante 1.
       if (m.deMi && !existeConversacion(orgId, canal.id, telefono)) {
-        console.warn(`Entrada: saliente a ${telefono} sin conversación previa; no crea lead.`);
+        sinHilo++;
         continue;
       }
 
@@ -182,6 +224,16 @@ export async function ingerir(
         productoAnuncio: m.productoAnuncio,
         descripcionAnuncio: m.descripcionAnuncio,
       });
+
+      /*
+       * El lead empieza cuando escribió el cliente. Ver `adelantarInicio`: al
+       * importar el historial entran mensajes más viejos que el hilo que ya
+       * existía, y sin esto todos esos leads quedarían fechados el día en que
+       * se vinculó el número.
+       */
+      if (!m.deMi && m.cuando < conversacion.fecha_inicio) {
+        adelantarInicio(orgId, conversacion.id, m.cuando);
+      }
 
       /*
        * EL ANUNCIO, GUARDADO EN CUANTO SE VE.
@@ -258,11 +310,20 @@ export async function ingerir(
    * El import es dinámico a propósito: el módulo que envía no entra en el grafo
    * hasta que hay un cliente esperando y el agente está encendido.
    */
-  const atiendeElAgente = canal.agente_activo === 1 && conversacionesDelCliente.size > 0;
+  /*
+   * EL AGENTE NO CONTESTA AL PASADO.
+   *
+   * Un lote histórico son conversaciones de días o semanas atrás, muchas ya
+   * atendidas y muchas ya cerradas. Sin esta condición, vincular un número por
+   * QR haría que el agente escribiera a doscientos clientes de golpe
+   * contestando mensajes viejos. Es el peor daño que este archivo podría hacer.
+   */
+  const atiendeElAgente =
+    !opciones.historico && canal.agente_activo === 1 && conversacionesDelCliente.size > 0;
 
   // Escribió un cliente y el agente ni se llama: se dice, o el silencio no
   // tiene ni una línea que lo explique en el registro del servidor.
-  if (!atiendeElAgente && conversacionesDelCliente.size > 0) {
+  if (!opciones.historico && !atiendeElAgente && conversacionesDelCliente.size > 0) {
     console.log(
       `[agente] callado en el canal ${canal.id}: agente apagado en este número ` +
         `(${conversacionesDelCliente.size} conversación(es) esperando)`,
@@ -342,10 +403,12 @@ export async function ingerir(
        * Se mira DESPUÉS del agente, a propósito: el resumen que acaba de
        * escribir la IA cierra su conversación en esa misma vuelta.
        */
-      const cerradas = [...tocadas].filter((id) => {
-        const c = getConversation(orgId, id);
-        return c && c.fecha_cierre !== null && c.analizada_at === null;
-      });
+      const cerradas = opciones.historico
+        ? []
+        : [...tocadas].filter((id) => {
+            const c = getConversation(orgId, id);
+            return c && c.fecha_cierre !== null && c.analizada_at === null;
+          });
 
       if (cerradas.length > 0) {
         const { analizarConversacion } = await import("@/lib/analyzer");
@@ -370,6 +433,37 @@ export async function ingerir(
       // el socket tiene que seguir leyendo mensajes mientras el agente piensa.
       void trabajo();
     }
+  }
+
+  /*
+   * ── LAS VENTAS QUE VENÍAN CERRADAS EN EL HISTORIAL ──────────────────────
+   *
+   * Cada mensaje que entra arriba sella su propio cierre, pero eso solo alcanza
+   * a los que se insertan AHORA. En un lote histórico hay hilos donde el
+   * resumen del pedido ya estaba guardado desde antes y el cierre nunca se
+   * selló —porque en su día el mensaje entró por un camino que no sellaba, o
+   * porque su hilo se acaba de completar con lo que faltaba—. Este barrido los
+   * recoge: es mecánico, no llama a ningún modelo y es idempotente.
+   *
+   * Se hace en la importación y no solo al arrancar el servidor porque es
+   * exactamente aquí donde aparecen las ventas viejas.
+   */
+  if (opciones.historico) {
+    let selladas = 0;
+    try {
+      const { sellarCierresPendientes } = await import("@/lib/cierre");
+      selladas = sellarCierresPendientes(orgId);
+    } catch (e) {
+      console.error("[historial] no se pudieron sellar las ventas del lote", e);
+    }
+
+    console.log(
+      `[historial] canal ${canal.id}: ${procesados} mensaje(s) guardado(s)` +
+        (selladas > 0 ? `, ${selladas} venta(s) cerrada(s) que no estaban contadas` : "") +
+        (sinHilo > 0 ? `, ${sinHilo} saliente(s) a números que nunca escribieron` : ""),
+    );
+  } else if (sinHilo > 0) {
+    console.warn(`Entrada: ${sinHilo} saliente(s) sin conversación previa; no crean lead.`);
   }
 
   return { procesados };

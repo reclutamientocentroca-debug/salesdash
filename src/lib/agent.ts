@@ -28,8 +28,10 @@ import {
   obtenerAgente,
   obtenerCanal,
   obtenerOrg,
+  ponerAtiende,
   registrarAiSent,
   registrarSeguimiento,
+  ultimasRespuestasIa,
   ultimosMensajes,
   usoDelDia,
   type Agente,
@@ -40,7 +42,7 @@ import {
 } from "./db";
 import { descifrar } from "./auth";
 import { anuncioParaModelo, type DatosAnuncio } from "./anuncio";
-import { MARCADOR_POR_DEFECTO, registrarCierre } from "./cierre";
+import { contieneMarcador, MARCADOR_POR_DEFECTO, registrarCierre } from "./cierre";
 import { completar, ErrorIA, hoyISO } from "./ia";
 import { bloqueDePais, obtenerPais } from "./paises";
 import { conLoVistoYOido, modelosDePercepcion, percibir } from "./percepcion";
@@ -48,9 +50,52 @@ import { ubicacionParaModelo, validarUbicacion, type UbicacionValidada } from ".
 
 /** Ventana en la que un mensaje de vendedor silencia al agente. */
 const SILENCIO_TRAS_HUMANO = 2 * 60 * 60;
-/** Tope de respuestas por conversación y hora, contra bucles. */
-const MAX_RESPUESTAS_HORA = 8;
-const MAX_MENSAJES_CONTEXTO = 20;
+/**
+ * Tope de mensajes por conversación y hora. Es un cortafuegos contra bucles,
+ * NO un límite de conversación.
+ *
+ * Eran 8 y mataban ventas. Una venta por WhatsApp se cierra preguntando de uno
+ * en uno —artículo, talla, color, nombre, dirección, referencia, si le sirve el
+ * día de entrega, el resumen— y eso son ocho respuestas ANTES de la primera
+ * objeción. El agente llegaba al tope justo en la recta final, se callaba con
+ * el cliente a medio pedido y no volvía en una hora. Desde fuera es lo peor que
+ * puede hacer: contestar diez veces, enganchar al cliente y desaparecer cuando
+ * ya iba a comprar.
+ *
+ * Treinta deja pasar cualquier venta de verdad —incluidas las que empiezan con
+ * el saludo aparte, que cuesta dos mensajes— y sigue frenando en seco lo único
+ * que este tope existe para frenar: dos bots contestándose el uno al otro, que
+ * no hacen treinta mensajes en una hora sino trescientos.
+ *
+ * Un bucle de verdad se reconoce mejor por lo que dice que por cuánto habla:
+ * ver `SE_REPITE`.
+ */
+const MAX_RESPUESTAS_HORA = 30;
+
+/**
+ * Cuántas respuestas idénticas seguidas son un bucle.
+ *
+ * Esta es la señal honesta: el agente atascado manda la MISMA frase una y otra
+ * vez —«¿qué talla necesita?», «¿qué talla necesita?»— y ahí no hay venta que
+ * salvar, hay que parar. Un vendedor que avanza no se repite nunca palabra por
+ * palabra, así que esto no puede cortar una conversación sana.
+ */
+const SE_REPITE = 3;
+/**
+ * Cuánto de la conversación recuerda el agente al contestar.
+ *
+ * Eran 20 y se quedaban cortos. Una venta que recoge seis datos de uno en uno
+ * —artículo, talla, color, nombre, dirección, confirmación— son doce mensajes
+ * como mínimo, y con un saludo, una objeción y una foto se pasa de veinte sin
+ * esfuerzo. Cuando eso ocurría, el nombre que el cliente dio al principio se
+ * salía de la ventana y el agente VOLVÍA A PREGUNTARLO. Desde fuera parece que
+ * no escucha; desde dentro es que ya no lo tiene delante.
+ *
+ * Cuarenta cubre una venta entera con holgura. Son mensajes de WhatsApp, cortos:
+ * el doble de ventana no es el doble de coste ni de lejos, y el coste de que un
+ * cliente repita su dirección dos veces es la venta.
+ */
+const MAX_MENSAJES_CONTEXTO = 40;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Envío — privado
@@ -71,33 +116,159 @@ async function enviarTexto(canalId: number, para: string, texto: string): Promis
   return enviar(canalId, para, texto);
 }
 
+/**
+ * Lo que se espera entre el saludo y el mensaje que va detrás.
+ *
+ * Los dos salen del mismo turno, y sin pausa llegan en el mismo segundo, uno
+ * pegado al otro. Eso no lo escribe una persona: lo escribe un sistema que
+ * tenía las dos cosas listas de antemano. Un segundo largo es lo que tarda
+ * alguien en saludar y ponerse a lo suyo.
+ */
+const PAUSA_ENTRE_MENSAJES = 1_200;
+
+const esperar = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Cuántos segundos falta esperar antes de contestar.
+ *
+ * El retardo es un MÍNIMO desde que entró el mensaje del cliente, no un recargo
+ * encima de lo que ya se tardó: mirar la foto, oír la nota de voz y pensar la
+ * respuesta cuestan segundos, y esos cuentan. Con un modelo lento no espera
+ * nada; con uno rápido espera lo que falte para que la respuesta no llegue
+ * antes de que a nadie le dé tiempo de leerla.
+ *
+ * Se topa en dos minutos por si alguien escribe un número absurdo en el panel:
+ * el socket que llama a esto está atendiendo a más clientes.
+ */
+export function esperaDeCortesia(retardoSeg: number | null | undefined, transcurrido: number): number {
+  const retardo = Math.min(Math.max(retardoSeg ?? 0, 0), 120);
+  return Math.max(0, retardo - Math.max(transcurrido, 0));
+}
+
+/**
+ * EL SALUDO SALE EN SU PROPIO MENSAJE.
+ *
+ * Un vendedor no manda un párrafo que abre con «hola, bienvenido a la tienda»
+ * y sigue, sin respirar, con el precio y una pregunta. Manda el saludo, y
+ * aparte lo que le preguntaron. Son dos globos en la pantalla del cliente, y
+ * esa separación es la mitad de lo que hace que parezca una persona.
+ *
+ * El acuerdo con el modelo es una LÍNEA EN BLANCO: lo que escriba antes de la
+ * primera sale solo, y todo lo que venga después sale en un segundo mensaje
+ * con sus líneas tal cual —así el «sí, lo tenemos» y el «¿qué talla necesita?»
+ * quedan separados dentro de ese mensaje, que es como se lee bien—. Se parte
+ * UNA vez y nunca más: tres globos seguidos ya no son un vendedor atento, son
+ * un bot escupiendo.
+ *
+ * Dos cosas no se parten jamás:
+ *
+ *  - El resumen del pedido. Lleva líneas en blanco por dentro —nombre,
+ *    dirección, total— y partirlo mandaría medio pedido en un mensaje y medio
+ *    en otro. Se reconoce por el marcador de cierre, el mismo con el que se
+ *    sella la venta.
+ *  - Todo lo que no sea la apertura del hilo. `saludoAparte` solo es cierto en
+ *    el primer mensaje del agente: a partir de ahí no hay nada que saludar, y
+ *    contestar en dos globos cada vez cansa.
+ */
+export function partirEnMensajes(
+  texto: string,
+  {
+    saludoAparte,
+    marcador = MARCADOR_POR_DEFECTO,
+  }: { saludoAparte: boolean; marcador?: string },
+): string[] {
+  const limpio = texto.trim();
+  if (!limpio) return [];
+  if (!saludoAparte || contieneMarcador(limpio, marcador)) return [limpio];
+
+  const corte = limpio.search(/\n[ \t]*\n/);
+  if (corte < 0) return [limpio];
+
+  const saludo = limpio.slice(0, corte).trim();
+  const resto = limpio.slice(corte).trim();
+
+  // Un hueco al principio o al final no es un corte, es un espacio de más del
+  // modelo: partir ahí mandaría un mensaje vacío.
+  if (!saludo || !resto) return [limpio];
+
+  return [saludo, resto];
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Condiciones de silencio
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Frases con las que un cliente pide una persona. Se detectan de forma
- * mecánica y no con el modelo: es la condición más importante de acertar y no
- * puede depender de que el modelo esté disponible.
+ * ¿Está el cliente pidiendo una persona?
+ *
+ * Se detecta de forma mecánica y no con el modelo: es la condición más
+ * importante de acertar y no puede depender de que el modelo esté disponible.
+ *
+ * Y hay que acertarla en las DOS direcciones, porque las dos se pagan caras. No
+ * reconocerla deja a un cliente enfadado hablando con un bot; reconocerla donde
+ * no está deja al agente MUDO EN ESE HILO PARA SIEMPRE —la anomalía que abre no
+ * se cierra sola— y esa venta ya no la cierra nadie.
+ *
+ * Por eso hay dos listas y no una:
+ *
+ *  - `PETICIONES` son frases que ya son una petición enteras. Se buscan tal
+ *    cual y no hace falta nada más.
+ *  - `A_QUIEN` son personas a secas —«asesor», «vendedor»— que NO piden nada
+ *    por sí solas. «Un vendedor me dijo ayer que costaba 20» no es alguien
+ *    pidiendo un vendedor, es alguien contando algo, y antes callaba al agente
+ *    para siempre. Estas solo cuentan si delante hay algo que las PIDA, o si el
+ *    mensaje entero es tan corto que no puede ser otra cosa («asesor por
+ *    favor»).
  */
-const PIDE_HUMANO = [
+const PETICIONES = [
   "hablar con una persona",
   "hablar con alguien",
   "con un humano",
   "una persona real",
   "atencion humana",
-  "atención humana",
-  "un asesor",
-  "un vendedor",
-  "un agente humano",
   "no quiero un bot",
+  "no quiero hablar con un bot",
   "eres un bot",
+  "eres una maquina",
   "es un robot",
+  "esto es un bot",
 ];
 
+const A_QUIEN =
+  /\b(asesor|vendedor|humano|encargad[oa]|supervisor|agente humano|persona real|alguien del equipo)/;
+
+/**
+ * Lo que convierte a una persona NOMBRADA en una persona PEDIDA.
+ *
+ * Por raíces, para que valgan todas las formas del verbo: «atiende»,
+ * «atienda», «atiéndame». «Hable» se queda fuera a propósito: sin tildes es
+ * idéntico a «hablé», y «hablé con un vendedor ayer» no es nadie pidiendo un
+ * vendedor —es un cliente contando algo mientras compra—.
+ */
+const LO_PIDE =
+  /\b(quier\w*|quisier\w*|dese[oa]|necesit\w*|pued\w*|podr\w*|pas[ae]\w*|comunic\w+|hablar|atien\w*|atender|contact\w*|dame|deme|pong\w*|urge\w*|mand[ae]\w*)\b/;
+
+/** Sin tildes y en minúsculas: «atención» y «atencion» son la misma petición. */
+function llano(texto: string): string {
+  return texto
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "");
+}
+
 export function pideHumano(texto: string): boolean {
-  const limpio = texto.toLowerCase();
-  return PIDE_HUMANO.some((f) => limpio.includes(f));
+  const limpio = llano(texto);
+
+  if (PETICIONES.some((f) => limpio.includes(f))) return true;
+
+  const quien = A_QUIEN.exec(limpio);
+  if (!quien) return false;
+
+  // «asesor», «un asesor por favor»: un mensaje así de corto no habla de otra
+  // cosa. El umbral es generoso a propósito y sigue dejando fuera una frase.
+  if (limpio.trim().length <= 30) return true;
+
+  return LO_PIDE.test(limpio.slice(0, quien.index));
 }
 
 /** "20:00"–"02:00" también es un horario válido: cruza la medianoche. */
@@ -239,6 +410,8 @@ export type MotivoSilencio =
   | "contesta_otra_ia"
   /** El propio agente pasó el caso a un asesor con la etiqueta de handoff. */
   | "pasado_a_asesor"
+  /** Alguien puso ESTE hilo en manos de una persona desde el panel. */
+  | "atiende_humano"
   | "canal_apagado"
   | "ultimo_no_es_cliente"
   | "vendedor_reciente"
@@ -357,16 +530,31 @@ Reglas que no puedes romper:
     : ""
 }
 - Responde corto, como se escribe por WhatsApp: una o dos frases. Nada de listas largas ni de textos de catálogo.
-- No pidas datos que ya te dieron en la conversación.
+- LO QUE EL CLIENTE YA TE DIJO ES TUYO PARA EL RESTO DE LA CONVERSACIÓN. La talla, el color, el nombre, la dirección, la cantidad: en cuanto lo diga UNA vez, dalo por sabido y no se lo vuelvas a preguntar nunca, ni «para confirmar». Antes de preguntar algo, mira hacia arriba: si ya está dicho, no se pregunta.
+- Y NO SE LO REPITAS DE VUELTA. Cuando te dé un dato no se lo devuelvas entero —nada de «perfecto, mocasines chocolate talla 42»—: acaba de escribirlo y ya sabe lo que dijo. Con un «entendido», «listo» o «perfecto» basta, y sigues con lo que falte en el mismo mensaje. Repetirle lo suyo alarga la conversación sin acercarla ni un paso al cierre.
 - Si el cliente pide hablar con una persona, dile que ya avisas a alguien del equipo y no sigas vendiendo.
 - Escribe solo el mensaje que va a leer el cliente. Sin comillas, sin explicaciones, sin firmar.
+
+CÓMO EMPIEZA UNA CONVERSACIÓN — EL SALUDO VA SOLO:
+- La PRIMERA vez que le escribes a un cliente, tu respuesta abre con el saludo y NADA más: "Hola, bienvenido a ${negocio}". Sin precio, sin producto y sin preguntas pegadas detrás.
+- Debajo dejas una LÍNEA EN BLANCO y escribes el mensaje de verdad: lo que te preguntó y la pregunta que te falte —la talla, la medida, el color—. Esa línea en blanco es la señal: lo de arriba le llega como un mensaje y lo de abajo como otro, uno detrás del otro, como escribe una persona. Todo junto en un párrafo se lee a bot.
+- Y dentro de ese segundo mensaje, deja también su espacio entre la respuesta y la pregunta: se lee mucho mejor que las dos cosas pegadas en una línea.
+- Tu primera respuesta tiene EXACTAMENTE esta forma:
+
+Hola, bienvenido a ${negocio}
+
+Sí, ese modelo está disponible.
+
+¿Qué talla necesita?
+
+- Solo la primera vez. Del segundo mensaje en adelante no saludas, no te presentas y no vuelves a dar la bienvenida: contestas lo que te preguntan y sigues, en un solo mensaje.
 
 LO QUE EL CLIENTE MANDA SIN ESCRIBIRLO:
 - Una FOTO llega descrita entre paréntesis, así: «(imagen que manda el cliente: …)». Eso lo mandó él. Si es el artículo que quiere, dalo por dicho y sigue desde ahí: no le preguntes qué producto le interesa, que ya te lo enseñó. Si es un comprobante de pago, agradécelo y dile que se verifica; NUNCA des un pago por recibido tú mismo ni confirmes que el dinero entró.
 - Una NOTA DE VOZ llega ya transcrita, marcada «(nota de voz)». Es su mensaje, tal cual lo dijo: contéstalo como si lo hubiera escrito, y no le pidas que lo repita por escrito.
 - Si algo llega como «[imagen]» o «[nota de voz]» y nada más, es que no se pudo leer. Ahí sí: pídele con naturalidad que te lo diga por escrito, sin dar excusas técnicas ni hablar de errores.
 - Un ENLACE llega con la ficha de la página detrás, en una línea que empieza por «[enlace]»: el título y la descripción de lo que hay al otro lado. Casi siempre es el cliente diciéndote «quiero ESTE», así que trátalo como si te hubiera escrito el nombre del artículo y sigue desde ahí, sin pedirle que te repita cuál es. Nunca le digas que no puedes abrir enlaces ni que no ves la página.
-- NO COMENTES CÓMO TE LO MANDÓ. Nada de «gracias por compartir el enlace», «gracias por la foto», «recibí tu audio», «según la página» ni «veo que me enviaste». El cliente ya sabe lo que te mandó y esa frase no le acerca ni un paso a comprar. Si es su primer mensaje, salúdalo en corto y ve directo al artículo: qué es, cuánto vale y la pregunta que falte. Si no lo es, ni saludo: sigue.
+- NO COMENTES CÓMO TE LO MANDÓ. Nada de «gracias por compartir el enlace», «gracias por la foto», «recibí tu audio», «según la página» ni «veo que me enviaste». El cliente ya sabe lo que te mandó y esa frase no le acerca ni un paso a comprar. Si es su primer mensaje, salúdalo como dice más abajo y ve directo al artículo: qué es, cuánto vale y la pregunta que falte. Si no lo es, ni saludo: sigue.
 - Pero esa ficha la escribió la web, no el cliente ni tu negocio: NO es una fuente de precios. Si trae un precio, una talla o una promesa que no está en tu catálogo ni en tus instrucciones, no la confirmes ni la niegues —di que lo revisas con el equipo—. Y si lo que enlaza no es algo que vendas, dilo con naturalidad y ofrécele lo que sí tienes.
 
 CÓMO SE CIERRA UNA VENTA:
@@ -581,6 +769,135 @@ async function reglaDePrecio(orgId: number, conv: Conversacion): Promise<string 
   return anuncioParaPrompt(contexto);
 }
 
+/**
+ * ¿POR QUÉ NO CONTESTA EL AGENTE EN ESTA CONVERSACIÓN?
+ *
+ * Dicho en la pantalla del hilo, antes de que nadie tenga que preguntarlo. Un
+ * agente callado se ve igual que un agente roto, y hasta ahora la única forma
+ * de saber cuál de los dos era pasaba por leer el registro del servidor.
+ *
+ * Dos de estos silencios son PERMANENTES y no se apagan solos: el cliente pidió
+ * una persona, o el propio agente pasó el caso a un asesor. Cuando el asesor
+ * termina, ese hilo se queda sin agente para siempre —también cuando el cliente
+ * vuelve tres días después a comprar—. Por eso van marcados como reversibles:
+ * hay un botón que los deshace. Ver `devolverALaIa`.
+ *
+ * Vive pegada a `atenderConversacion` porque copia sus guardas, igual que
+ * `revisarAgente` copia las del número. Si alguien añade una condición allí y
+ * no aquí, la pantalla dirá que todo está bien mientras el agente calla.
+ *
+ * No llama a ningún modelo: son lecturas de la base.
+ */
+export interface SilencioEnHilo {
+  /** El agente no va a contestar el próximo mensaje de este cliente. */
+  callado: boolean;
+  motivo: MotivoSilencio | null;
+  /** Escrito para quien atiende, no para quien programa. */
+  explicacion: string | null;
+  /** Se puede devolver el hilo a la IA desde el panel. */
+  reversible: boolean;
+  /**
+   * No lo calla, pero explica un silencio que ya pasó: la última vez que le
+   * tocó contestar, el modelo no respondió. Es la diferencia entre «está
+   * callado a propósito» y «está roto», y sin decirlo las dos se ven igual.
+   */
+  aviso: string | null;
+}
+
+export function porQueCalla(
+  orgId: number,
+  canalId: number,
+  conversationId: number,
+): SilencioEnHilo {
+  const aviso = hayAnomaliaAbierta(orgId, conversationId, "agente_sin_modelo")
+    ? "La última vez que le tocó contestar aquí, el modelo no respondió. Si se repite, revisa el " +
+      "modelo del agente y su respaldo: un modelo gratuito agota su cupo a media tarde."
+    : null;
+
+  const hablando: SilencioEnHilo = {
+    callado: false, motivo: null, explicacion: null, reversible: false, aviso,
+  };
+  const callado = (motivo: MotivoSilencio, explicacion: string, reversible = false): SilencioEnHilo => ({
+    callado: true, motivo, explicacion, reversible, aviso,
+  });
+
+  const canal = obtenerCanal(orgId, canalId);
+  if (!canal || canal.activo !== 1) {
+    return callado("canal_apagado", "El número está apagado en el panel.");
+  }
+  if (canal.contesta_ia === 1) {
+    return callado(
+      "contesta_otra_ia",
+      "Este número está en modo vigilar: aquí contesta tu IA y el panel solo mira.",
+    );
+  }
+  if (canal.agente_activo !== 1) {
+    return callado("agente_apagado", "El agente está apagado en este número.");
+  }
+
+  if (hayAnomaliaAbierta(orgId, conversationId, "handoff_agente")) {
+    return callado(
+      "pasado_a_asesor",
+      "El agente pasó esta conversación a un asesor y dejó de escribir en ella.",
+      true,
+    );
+  }
+
+  const agente = obtenerAgente(orgId, canalId);
+
+  if (agente.pasar_a_humano === 1 && hayAnomaliaAbierta(orgId, conversationId, "pidio_humano")) {
+    return callado(
+      "pidio_humano",
+      "El cliente pidió hablar con una persona, así que el agente se calló en este hilo.",
+      true,
+    );
+  }
+
+  if (getConversation(orgId, conversationId)?.atiende === "humano") {
+    return callado(
+      "atiende_humano",
+      "Esta conversación está puesta en manos de una persona. El agente no escribe aquí " +
+        "—con los demás clientes de este número sigue contestando—.",
+      true,
+    );
+  }
+
+  const t = ahora();
+
+  if (agente.silenciar_si_humano === 1 && huboHumanoReciente(orgId, conversationId, t - SILENCIO_TRAS_HUMANO)) {
+    return callado(
+      "vendedor_reciente",
+      "Escribió alguien del equipo hace poco: el agente espera dos horas para no escribir encima.",
+    );
+  }
+
+  if (agente.horario_activo === 1 && !dentroDeHorario(agente.horario_desde, agente.horario_hasta)) {
+    return callado(
+      "fuera_de_horario",
+      `Fuera del horario de atención (${agente.horario_desde ?? "?"}–${agente.horario_hasta ?? "?"}).`,
+    );
+  }
+
+  const ultimas = ultimasRespuestasIa(orgId, conversationId, SE_REPITE);
+  const repetida = ultimas[0]?.trim();
+  if (repetida && ultimas.length === SE_REPITE && ultimas.every((r) => r.trim() === repetida)) {
+    return callado(
+      "limite_por_hora",
+      "El agente mandó tres veces seguidas el mismo mensaje y se detuvo. Atiende este hilo a mano.",
+    );
+  }
+
+  if (contarRespuestasIa(orgId, conversationId, t - 3600) >= MAX_RESPUESTAS_HORA) {
+    return callado(
+      "limite_por_hora",
+      `El agente ya mandó ${MAX_RESPUESTAS_HORA} mensajes en esta conversación en la última hora y se ` +
+        "frenó. Vuelve a contestar solo, en cuanto pase esa hora.",
+    );
+  }
+
+  return hablando;
+}
+
 export type Resultado =
   | { atendida: false; motivo: MotivoSilencio }
   | { atendida: false; motivo: "fallo_modelo"; detalle: string }
@@ -641,11 +958,16 @@ export async function atenderConversacion(
     return { atendida: false, motivo: "pasado_a_asesor" };
   }
 
+
   // ── El cliente pidió una persona ────────────────────────────────────────
   if (agente.pasar_a_humano === 1) {
     const yaPidio = hayAnomaliaAbierta(orgId, conversationId, "pidio_humano");
     if (yaPidio || pideHumano(ultimo.content)) {
       if (!yaPidio) {
+        // Que la pantalla del hilo lo diga con el mismo interruptor que usa
+        // una persona: quien lo mire tiene que ver «lo atiende un humano», no
+        // deducirlo de una anomalía.
+        ponerAtiende(orgId, conversationId, "humano");
         crearAnomalia(orgId, {
           conversationId,
           tipo: "pidio_humano",
@@ -655,6 +977,21 @@ export async function atenderConversacion(
       }
       return { atendida: false, motivo: "pidio_humano" };
     }
+  }
+
+  /*
+   * ── ESTA CONVERSACIÓN LA LLEVA UNA PERSONA ──────────────────────────────
+   *
+   * El interruptor del hilo, puesto a mano desde el panel. Quien lo pulsó está
+   * escribiéndole al cliente ahora mismo, y lo único que no puede pasar es que
+   * el agente conteste por encima. Ver `ponerAtiende`.
+   *
+   * Va DETRÁS de las dos guardas de arriba aunque calle igual: cuando el hilo
+   * pasó a una persona porque el cliente la pidió, el motivo que hay que contar
+   * es ese —y no «lo lleva un humano», que es la consecuencia—.
+   */
+  if (conv.atiende === "humano") {
+    return { atendida: false, motivo: "atiende_humano" };
   }
 
   // ── Un vendedor está en la conversación ─────────────────────────────────
@@ -669,13 +1006,37 @@ export async function atenderConversacion(
     return { atendida: false, motivo: "fuera_de_horario" };
   }
 
-  // ── Tope por hora, contra bucles ────────────────────────────────────────
+  // ── Bucles ──────────────────────────────────────────────────────────────
+  /*
+   * Se para por REPETIRSE, no por hablar mucho. Una venta larga es una venta,
+   * no una avería; el agente diciendo tres veces exactamente lo mismo sí lo es.
+   */
+  const ultimas = ultimasRespuestasIa(orgId, conversationId, SE_REPITE);
+  const repetida = ultimas[0]?.trim();
+
+  if (
+    repetida &&
+    ultimas.length === SE_REPITE &&
+    ultimas.every((r) => r.trim() === repetida)
+  ) {
+    crearAnomalia(orgId, {
+      conversationId,
+      tipo: "agente_en_bucle",
+      severidad: "alta",
+      detalle:
+        `El agente mandó ${SE_REPITE} veces seguidas el mismo mensaje ("${repetida.slice(0, 80)}") ` +
+        "y se detuvo. Atiende esta conversación a mano.",
+    });
+    return { atendida: false, motivo: "limite_por_hora" };
+  }
+
+  // Y el cortafuegos de siempre, ya con sitio para una venta entera.
   if (contarRespuestasIa(orgId, conversationId, t - 3600) >= MAX_RESPUESTAS_HORA) {
     crearAnomalia(orgId, {
       conversationId,
       tipo: "agente_en_bucle",
       severidad: "alta",
-      detalle: `El agente ya mandó ${MAX_RESPUESTAS_HORA} respuestas en una hora. Se detuvo para no inundar al cliente.`,
+      detalle: `El agente ya mandó ${MAX_RESPUESTAS_HORA} mensajes en una hora en esta conversación. Se detuvo para no inundar al cliente.`,
     });
     return { atendida: false, motivo: "limite_por_hora" };
   }
@@ -799,77 +1160,176 @@ export async function atenderConversacion(
    * donde preguntó el cliente. Contestar solo por privado deja la pregunta a la
    * vista y sin respuesta, y el siguiente que la lea se va.
    */
-  let messageId: string;
-  try {
+  const mandar = async (texto: string): Promise<string> => {
     if (canal.tipo === "meta") {
       const { enviarMensajeMeta, responderComentarioMeta } = await import("@/lib/meta/send");
-      messageId =
-        conv.superficie === "comentario"
-          ? await responderComentarioMeta(canal, ultimo.whapi_message_id ?? "", respuesta.texto)
-          : await enviarMensajeMeta(canal, conv.cliente_phone, respuesta.texto);
-    } else {
-      /*
-       * A la dirección guardada del cliente, no a su número reconstruido.
-       *
-       * `cliente_jid` es la dirección tal cual la mandó WhatsApp. Solo cae al
-       * teléfono en los hilos viejos, de antes de que se guardara: ahí sigue
-       * siendo lo único que hay, y para un cliente identificado por su número
-       * es exactamente lo mismo.
-       */
-      messageId = await enviarTexto(canal.id, conv.cliente_jid ?? conv.cliente_phone, respuesta.texto);
+      return conv.superficie === "comentario"
+        ? responderComentarioMeta(canal, ultimo.whapi_message_id ?? "", texto)
+        : enviarMensajeMeta(canal, conv.cliente_phone, texto);
     }
-  } catch (e) {
-    crearAnomalia(orgId, {
-      conversationId,
-      tipo: "envio_fallido",
-      severidad: "alta",
-      detalle: `No se pudo enviar la respuesta: ${e instanceof Error ? e.message : "error desconocido"}`,
-    });
-    return { atendida: false, motivo: "fallo_modelo", detalle: "no se pudo enviar" };
+
+    /*
+     * A la dirección guardada del cliente, no a su número reconstruido.
+     *
+     * `cliente_jid` es la dirección tal cual la mandó WhatsApp. Solo cae al
+     * teléfono en los hilos viejos, de antes de que se guardara: ahí sigue
+     * siendo lo único que hay, y para un cliente identificado por su número
+     * es exactamente lo mismo.
+     */
+    return enviarTexto(canal.id, conv.cliente_jid ?? conv.cliente_phone, texto);
+  };
+
+  /*
+   * EL SALUDO, APARTE — ver `partirEnMensajes`.
+   *
+   * En la apertura del hilo esta respuesta sale en DOS mensajes: el «hola,
+   * bienvenido» y, un segundo después, lo que el cliente vino a preguntar con
+   * la talla pedida al final. En todo lo demás sale en uno solo.
+   *
+   * Y solo en la apertura, que es lo que mira el hilo: si en la ventana ya
+   * escribió la IA o un compañero, esta conversación no empieza aquí y no hay
+   * nada que saludar. En un comentario público tampoco, nunca: dos respuestas
+   * colgadas del mismo comentario se leen como dos personas contestando a la
+   * vez delante de todo el mundo.
+   */
+  const partes = partirEnMensajes(respuesta.texto, {
+    saludoAparte: conv.superficie !== "comentario" && historial.every((m) => m.emisor === "cliente"),
+    marcador: obtenerOrg(orgId)?.marcador_cierre ?? MARCADOR_POR_DEFECTO,
+  });
+
+  /*
+   * Un texto que era solo espacios pasa la guarda de arriba —una cadena en
+   * blanco no es vacía— y aquí se queda sin partes. No hay nada que mandar, y
+   * mandar un mensaje en blanco es peor que callarse.
+   */
+  if (partes.length === 0) {
+    return { atendida: false, motivo: "fallo_modelo", detalle: "respuesta vacía" };
   }
 
   /*
-   * ATRIBUCIÓN — esto NO puede fallar en silencio.
+   * ── NO CONTESTAR AL INSTANTE ────────────────────────────────────────────
    *
-   * Si el id no se registra, el webhook del saliente lo contará como humano y
-   * la métrica central del producto queda al revés. Va inmediatamente después
-   * del envío, y si algo saliera mal se grita en el registro.
+   * Un negocio no responde en medio segundo. Una respuesta inmediata —y encima
+   * bien escrita— es lo que delata a un bot antes de la segunda frase: el
+   * cliente deja de hablar con una tienda y empieza a hablar con un sistema.
+   *
+   * El retardo se cuenta desde que ENTRÓ el mensaje del cliente, no desde
+   * ahora: mirar la foto, oír la nota de voz y pensar la respuesta ya han
+   * costado segundos, y esos cuentan. Así esto es un mínimo de naturalidad y no
+   * un impuesto encima de lo que ya se tardó; con el modelo lento no espera
+   * nada, y con el modelo rápido espera lo que falte.
+   *
+   * Mientras espera, el cliente ve «escribiendo…», que es exactamente lo que
+   * vería si le estuviera contestando una persona.
    */
-  try {
-    registrarAiSent(orgId, messageId);
-    const cuando = ahora();
-    insertMessage(orgId, {
-      conversationId,
-      whapiMessageId: messageId,
-      emisor: "ia",
-      tipo: "texto",
-      content: respuesta.texto,
-      createdAt: cuando,
-    });
+  const espera = esperaDeCortesia(agente.retardo_seg, ahora() - ultimo.created_at);
+
+  if (espera > 0) {
+    if (canal.tipo !== "meta") {
+      const { marcarEscribiendo } = await import("./wa");
+      await marcarEscribiendo(canal.id, conv.cliente_jid ?? conv.cliente_phone, true);
+    }
+    await esperar(espera * 1000);
+  }
+
+  const enviados: string[] = [];
+
+  for (const [i, parte] of partes.entries()) {
+    if (i > 0) {
+      // El saludo ya salió; el cliente ve «escribiendo…» mientras llega lo
+      // demás, como cuando al otro lado hay alguien tecleando de verdad.
+      if (canal.tipo !== "meta") {
+        const { marcarEscribiendo } = await import("./wa");
+        await marcarEscribiendo(canal.id, conv.cliente_jid ?? conv.cliente_phone, true);
+      }
+      await esperar(PAUSA_ENTRE_MENSAJES);
+    }
+
+    let idParte: string;
+    try {
+      idParte = await mandar(parte);
+    } catch (e) {
+      const causa = e instanceof Error ? e.message : "error desconocido";
+
+      /*
+       * Que salga el saludo y se caiga lo de detrás es el peor de los dos
+       * fallos: el cliente se queda mirando un «hola» que no lleva a ninguna
+       * parte y que parece que alguien empezó a escribirle y se fue. Se dice
+       * con esas palabras para que quien lea la bandeja entre a rematarlo.
+       */
+      crearAnomalia(orgId, {
+        conversationId,
+        tipo: "envio_fallido",
+        severidad: "alta",
+        detalle:
+          enviados.length === 0
+            ? `No se pudo enviar la respuesta: ${causa}`
+            : `Salió el saludo pero no la respuesta que iba detrás (${causa}). El cliente se quedó ` +
+              "con un «hola» y nada más: contéstale tú.",
+      });
+
+      if (enviados.length === 0) {
+        return { atendida: false, motivo: "fallo_modelo", detalle: "no se pudo enviar" };
+      }
+      break;
+    }
+
+    enviados.push(idParte);
 
     /*
-     * Si este mensaje era el resumen del pedido, la venta queda cerrada AQUÍ.
+     * ATRIBUCIÓN — esto NO puede fallar en silencio.
      *
-     * Tiene que ser en este punto y no en la ingesta: el mensaje que el agente
-     * acaba de mandar ya está guardado, así que cuando WhatsApp lo devuelva por
-     * el socket la inserción no hará nada —es idempotente— y nadie más volvería
-     * a mirarlo. Sin esto, la IA cierra la venta y el dashboard no se entera.
+     * Si el id no se registra, el webhook del saliente lo contará como humano y
+     * la métrica central del producto queda al revés. Va inmediatamente después
+     * del envío —de CADA envío, que ahora pueden ser dos— y si algo saliera mal
+     * se grita en el registro.
      */
-    if (registrarCierre(orgId, conversationId, { emisor: "ia", content: respuesta.texto, cuando })) {
+    try {
+      registrarAiSent(orgId, idParte);
+      insertMessage(orgId, {
+        conversationId,
+        whapiMessageId: idParte,
+        emisor: "ia",
+        tipo: "texto",
+        content: parte,
+        createdAt: ahora(),
+      });
+    } catch (e) {
+      console.error(
+        `CRÍTICO: se envió el mensaje ${idParte} pero no se pudo registrar como de la IA. ` +
+          "Se contará como humano y las métricas quedarán mal.",
+        e,
+      );
+      crearAnomalia(orgId, {
+        conversationId,
+        tipo: "atribucion_perdida",
+        severidad: "alta",
+        detalle: "Se envió una respuesta de la IA que no se pudo registrar. Revisa a quién se atribuye.",
+      });
+    }
+  }
+
+  const messageId = enviados[enviados.length - 1]!;
+
+  /*
+   * Si este mensaje era el resumen del pedido, la venta queda cerrada AQUÍ.
+   *
+   * Tiene que ser en este punto y no en la ingesta: el mensaje que el agente
+   * acaba de mandar ya está guardado, así que cuando WhatsApp lo devuelva por
+   * el socket la inserción no hará nada —es idempotente— y nadie más volvería
+   * a mirarlo. Sin esto, la IA cierra la venta y el dashboard no se entera.
+   *
+   * Se sella con lo que DE VERDAD salió, no con lo que el modelo escribió: un
+   * resumen nunca se parte —lleva el marcador— así que o salió entero o no
+   * salió, y en ese segundo caso no hay ninguna venta que cerrar.
+   */
+  try {
+    const salido = partes.slice(0, enviados.length).join("\n\n");
+    if (registrarCierre(orgId, conversationId, { emisor: "ia", content: salido, cuando: ahora() })) {
       console.log(`[agente] venta cerrada por la IA en la conversación ${conversationId}`);
     }
   } catch (e) {
-    console.error(
-      `CRÍTICO: se envió el mensaje ${messageId} pero no se pudo registrar como de la IA. ` +
-        "Se contará como humano y las métricas quedarán mal.",
-      e,
-    );
-    crearAnomalia(orgId, {
-      conversationId,
-      tipo: "atribucion_perdida",
-      severidad: "alta",
-      detalle: "Se envió una respuesta de la IA que no se pudo registrar. Revisa a quién se atribuye.",
-    });
+    console.error(`CRÍTICO: no se pudo sellar el cierre de la conversación ${conversationId}`, e);
   }
 
   /*
@@ -881,6 +1341,7 @@ export async function atenderConversacion(
    * siguiente mensaje: a partir de aquí atiende un asesor.
    */
   if (respuesta.pideAsesor && !hayAnomaliaAbierta(orgId, conversationId, "handoff_agente")) {
+    ponerAtiende(orgId, conversationId, "humano");
     crearAnomalia(orgId, {
       conversationId,
       tipo: "handoff_agente",

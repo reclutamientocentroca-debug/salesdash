@@ -6,7 +6,10 @@ import {
   armarSistema,
   atenderConversacion,
   dentroDeHorario,
+  esperaDeCortesia,
+  partirEnMensajes,
   pideHumano,
+  porQueCalla,
   revisarAgente,
 } from "../src/lib/agent";
 import { contieneMarcador, duenoDelCierre, registrarCierre } from "../src/lib/cierre";
@@ -82,6 +85,30 @@ test("detecta que el cliente pide una persona", () => {
   assert.equal(pideHumano("me pasas con UN ASESOR?"), true);
   assert.equal(pideHumano("eres un bot?"), true);
   assert.equal(pideHumano("quiero dos camisas talla M"), false);
+
+  // Con tilde o sin ella es la misma petición.
+  assert.equal(pideHumano("necesito atención humana"), true);
+  assert.equal(pideHumano("me atiende un asesor por favor?"), true);
+  assert.equal(pideHumano("asesor"), true);
+});
+
+/**
+ * EL FALSO POSITIVO CUESTA LA VENTA.
+ *
+ * Reconocer una petición donde no la hay deja al agente MUDO en ese hilo para
+ * siempre. «Un vendedor me dijo ayer que costaba 20» no es alguien pidiendo un
+ * vendedor: es un cliente contando algo mientras compra, y antes bastaba para
+ * apagar al agente en mitad de la venta.
+ */
+test("nombrar a un vendedor no es pedir uno", () => {
+  assert.equal(pideHumano("un vendedor me dijo ayer que costaba 20 dolares"), false);
+  assert.equal(pideHumano("¿tienen asesores en Santiago o solo por aqui?"), false);
+  assert.equal(pideHumano("soy vendedor de ropa y quiero comprar dos docenas"), false);
+  assert.equal(pideHumano("el encargado de mi tienda me pidio cotizar estas camisas"), false);
+
+  // Y cuando de verdad lo pide, sigue saliendo.
+  assert.equal(pideHumano("por favor necesito que me atienda un asesor de verdad"), true);
+  assert.equal(pideHumano("no quiero un bot, dame un humano"), true);
 });
 
 test("el horario nocturno cruza la medianoche", () => {
@@ -215,25 +242,81 @@ test("fuera del horario configurado no responde", async () => {
   D.actualizarAgente(orgId, { horario_activo: 0 }, canalId);
 });
 
-test("se detiene tras ocho respuestas en una hora, para no inundar al cliente", async () => {
+/**
+ * UNA VENTA LARGA ES UNA VENTA, NO UNA AVERÍA.
+ *
+ * El tope eran ocho respuestas por hora, y una venta por WhatsApp se cierra
+ * preguntando de uno en uno: artículo, talla, color, nombre, dirección,
+ * referencia, día de entrega, resumen. Ocho, antes de la primera objeción. El
+ * agente se callaba en la recta final —con el cliente a medio pedido— y no
+ * volvía en una hora. Enganchar a alguien y desaparecer cuando ya iba a comprar
+ * es lo peor que puede hacer.
+ */
+test("una conversación larga no calla al agente: sigue hasta cerrar", async () => {
   encender(true);
   const mensajes: { emisor: D.Emisor; content: string; hace: number }[] = [];
 
-  for (let i = 0; i < 8; i++) {
+  // Doce idas y venidas, todas distintas: una venta normal que va avanzando.
+  for (let i = 0; i < 12; i++) {
     mensajes.push({ emisor: "cliente", content: `pregunta ${i}`, hace: 2000 - i * 100 });
     mensajes.push({ emisor: "ia", content: `respuesta ${i}`, hace: 1990 - i * 100 });
   }
-  mensajes.push({ emisor: "cliente", content: "una más", hace: 5 });
+  mensajes.push({ emisor: "cliente", content: "la 42 entonces", hace: 5 });
 
   const id = hilo(mensajes);
   const r = await atenderConversacion(orgId, canalId, id);
 
-  assert.equal(motivoDe(r), "limite_por_hora");
-  const anomalia = D.listarAnomalias(orgId).find(
-    (a) => a.conversation_id === id && a.tipo === "agente_en_bucle",
+  // Llega hasta el modelo —que en las pruebas no existe— en vez de callarse
+  // por el tope. Eso es lo que se está fijando aquí.
+  assert.equal(motivoDe(r), "fallo_modelo", "el tope no puede cortar una venta en marcha");
+  assert.equal(
+    D.listarAnomalias(orgId).some((a) => a.conversation_id === id && a.tipo === "agente_en_bucle"),
+    false,
+    "hablar mucho con un cliente no es un bucle",
   );
-  assert.ok(anomalia, "debe quedar registrado que el agente se detuvo");
 });
+
+/**
+ * Un bucle de verdad se reconoce por lo que dice, no por cuánto habla: el
+ * agente atascado manda la MISMA frase una y otra vez. Ahí no hay venta que
+ * salvar y hay que parar.
+ */
+test("tres veces la misma frase sí es un bucle, y ahí para", async () => {
+  encender(true);
+  const id = hilo([
+    { emisor: "cliente", content: "hola", hace: 900 },
+    { emisor: "ia", content: "¿Qué talla necesita?", hace: 800 },
+    { emisor: "cliente", content: "?", hace: 700 },
+    { emisor: "ia", content: "¿Qué talla necesita?", hace: 600 },
+    { emisor: "cliente", content: "??", hace: 500 },
+    { emisor: "ia", content: "¿Qué talla necesita?", hace: 400 },
+    { emisor: "cliente", content: "???", hace: 5 },
+  ]);
+
+  const r = await atenderConversacion(orgId, canalId, id);
+
+  assert.equal(motivoDe(r), "limite_por_hora");
+  assert.ok(
+    D.listarAnomalias(orgId).find((a) => a.conversation_id === id && a.tipo === "agente_en_bucle"),
+    "debe quedar registrado que el agente se detuvo",
+  );
+});
+
+/** Y el cortafuegos de siempre sigue ahí, solo que con sitio para vender. */
+test("treinta mensajes en una hora sí frenan al agente", async () => {
+  encender(true);
+  const mensajes: { emisor: D.Emisor; content: string; hace: number }[] = [];
+
+  for (let i = 0; i < 30; i++) {
+    mensajes.push({ emisor: "cliente", content: `p${i}`, hace: 3000 - i * 90 });
+    mensajes.push({ emisor: "ia", content: `r${i}`, hace: 2990 - i * 90 });
+  }
+  mensajes.push({ emisor: "cliente", content: "sigo aquí", hace: 5 });
+
+  const r = await atenderConversacion(orgId, canalId, hilo(mensajes));
+  assert.equal(motivoDe(r), "limite_por_hora");
+});
+
 
 
 // ── El anuncio en el prompt ─────────────────────────────────────────────────
@@ -476,6 +559,68 @@ test("el prompt del agente explica cómo cerrar una venta, con el marcador de la
     prompt.includes("producto, cantidad, total y envío"),
     "el resumen tiene que traer los datos que luego se extraen",
   );
+});
+
+/**
+ * EL SALUDO Y LA RESPUESTA SON DOS MENSAJES, NO UN PÁRRAFO.
+ *
+ * Es lo que separa a un vendedor de un bot en la pantalla del cliente: el
+ * «hola, bienvenido» llega solo, y detrás llega lo que vino a preguntar, con la
+ * talla al final. Lo que NO puede pasar es que se parta un resumen de pedido
+ * —tiene líneas en blanco dentro y saldría medio pedido en cada mensaje— ni que
+ * el agente conteste en dos globos a mitad de la conversación.
+ */
+test("el saludo sale en su propio mensaje, y solo al abrir la conversación", () => {
+  const apertura = partirEnMensajes(
+    "Hola, bienvenido a Tienda Rincón\n\nSí, ese modelo está disponible.\n\n¿Qué talla necesita?",
+    { saludoAparte: true },
+  );
+
+  assert.equal(apertura.length, 2, "el saludo va aparte de la respuesta");
+  assert.equal(apertura[0], "Hola, bienvenido a Tienda Rincón");
+  assert.equal(
+    apertura[1],
+    "Sí, ese modelo está disponible.\n\n¿Qué talla necesita?",
+    "se parte UNA vez: el hueco entre la respuesta y la pregunta se queda dentro del mensaje",
+  );
+
+  // A mitad de conversación no hay nada que saludar: un mensaje y ya.
+  const seguido = partirEnMensajes("Entendido.\n\n¿Qué color prefiere?", { saludoAparte: false });
+  assert.deepEqual(seguido, ["Entendido.\n\n¿Qué color prefiere?"]);
+
+  // Sin línea en blanco no hay corte que hacer.
+  assert.deepEqual(partirEnMensajes("¿Qué talla necesita?", { saludoAparte: true }), [
+    "¿Qué talla necesita?",
+  ]);
+
+  // Y de un mensaje vacío no sale nada.
+  assert.deepEqual(partirEnMensajes("   \n\n  ", { saludoAparte: true }), []);
+});
+
+/**
+ * El resumen del pedido lleva el nombre, la dirección y el total separados por
+ * líneas en blanco. Partirlo por la primera mandaría «Gracias, Yazmin.» por un
+ * lado y el pedido por otro, y el cliente leería su compra a trozos.
+ */
+test("un resumen de pedido nunca se parte, aunque sea el primer mensaje", () => {
+  const resumen =
+    "Gracias, Yazmin.\n\nResumen de su pedido:\n\nProducto: Mocasines\n\nTOTAL A PAGAR: USD 35";
+
+  assert.deepEqual(partirEnMensajes(resumen, { saludoAparte: true }), [resumen]);
+
+  // Y con el marcador propio de la cuenta, igual.
+  const propio = "Hola.\n\nPedido cerrado: 2 camisas talla M";
+  assert.deepEqual(partirEnMensajes(propio, { saludoAparte: true, marcador: "Pedido cerrado:" }), [
+    propio,
+  ]);
+});
+
+/** Al agente hay que decírselo, o manda el saludo pegado al precio. */
+test("el prompt le dice cómo saluda y con el nombre del negocio", () => {
+  const prompt = armarSistema("Tienda Rincón", D.obtenerAgente(orgId), [], null);
+
+  assert.ok(prompt.includes("Hola, bienvenido a Tienda Rincón"), "saluda con el nombre del negocio");
+  assert.ok(prompt.includes("LÍNEA EN BLANCO"), "y sabe con qué se separan los dos mensajes");
 });
 
 test("ninguna de estas rutas envió un mensaje", () => {
@@ -735,6 +880,137 @@ test("el aviso de pedido en camino sale una vez, y solo de las ventas cerradas",
 
   D.registrarSeguimiento(orgId, vendida, "entrega");
   assert.ok(!ids().includes(vendida), "y no se repite");
+
+  encender(false);
+});
+
+/**
+ * EL SILENCIO PERMANENTE TIENE VUELTA ATRÁS.
+ *
+ * Cuando un cliente pide una persona, el agente se calla en ese hilo y lo que
+ * lo mantiene callado es una anomalía abierta. Ninguna pantalla podía cerrarla:
+ * esa conversación se quedaba sin agente PARA SIEMPRE, también cuando el
+ * cliente volvía días después a comprar. Y desde fuera no había forma de saber
+ * por qué nadie contestaba.
+ */
+test("el panel dice por qué calla el agente, y se le puede devolver el hilo", async () => {
+  encender(true);
+  const id = hilo([
+    { emisor: "cliente", content: "hola, quiero una camisa", hace: 600 },
+    { emisor: "ia", content: "¿Qué talla necesita?", hace: 500 },
+    { emisor: "cliente", content: "necesito que me atienda un asesor de verdad", hace: 5 },
+  ]);
+
+  assert.equal(motivoDe(await atenderConversacion(orgId, canalId, id)), "pidio_humano");
+
+  const callado = porQueCalla(orgId, canalId, id);
+  assert.equal(callado.callado, true);
+  assert.equal(callado.motivo, "pidio_humano");
+  assert.equal(callado.reversible, true, "esto se tiene que poder deshacer");
+  assert.ok(callado.explicacion?.includes("persona"), "y explicarse con palabras del negocio");
+
+  // La vuelta atrás: el hilo es otra vez del agente.
+  assert.equal(D.devolverALaIa(orgId, id), 1);
+  assert.equal(porQueCalla(orgId, canalId, id).callado, false);
+
+  /*
+   * Y atiende de verdad al siguiente mensaje —llega hasta el modelo, que en las
+   * pruebas no existe—. El mensaje nuevo importa: la guarda mira lo ÚLTIMO que
+   * escribió el cliente, así que sobre la petición de antes se volvería a
+   * callar, y eso está bien. Lo que no puede es seguir callado cuando el
+   * cliente vuelve hablando de la compra.
+   */
+  D.insertMessage(orgId, {
+    conversationId: id, whapiMessageId: `vuelve-${id}`, emisor: "cliente",
+    tipo: "texto", content: "listo, me llamaron. la 42 entonces", createdAt: D.ahora(),
+  });
+
+  assert.equal(motivoDe(await atenderConversacion(orgId, canalId, id)), "fallo_modelo");
+
+  encender(false);
+});
+
+/** Con el número en modo vigilar, el hilo lo dice sin rodeos. */
+test("en modo vigilar el hilo explica que aquí contesta la otra IA", () => {
+  encender(false);
+  const id = hilo([{ emisor: "cliente", content: "hola", hace: 10 }]);
+
+  const estado = porQueCalla(orgId, canalId, id);
+  assert.equal(estado.motivo, "contesta_otra_ia");
+  assert.equal(estado.reversible, false);
+});
+
+/**
+ * CONTESTAR AL INSTANTE ES LO QUE MÁS DELATA A UN BOT.
+ *
+ * Pero el retardo es un mínimo desde que escribió el cliente, no un recargo
+ * encima de lo que ya se tardó: si pensar la respuesta costó seis segundos, ya
+ * no hay nada que esperar. Sumarlos convertiría un modelo lento en un cliente
+ * mirando la pantalla.
+ */
+test("el retardo es un mínimo, no una suma", () => {
+  // Recién llegado: espera los cuatro segundos enteros.
+  assert.equal(esperaDeCortesia(4, 0), 4);
+  // El modelo tardó dos: solo faltan dos.
+  assert.equal(esperaDeCortesia(4, 2), 2);
+  // Tardó más que el retardo: se contesta ya.
+  assert.equal(esperaDeCortesia(4, 9), 0);
+  // Apagado, como estaba antes.
+  assert.equal(esperaDeCortesia(0, 0), 0);
+  assert.equal(esperaDeCortesia(null, 0), 0);
+  // Y un número absurdo en el panel no deja un socket dormido diez minutos.
+  assert.equal(esperaDeCortesia(9999, 0), 120);
+});
+
+/**
+ * QUIÉN ATIENDE, HILO A HILO.
+ *
+ * Antes solo se podía decidir por número: el agente encendido para todos los
+ * clientes o apagado para todos. En una bandeja real hay clientes que el agente
+ * lleva hasta el cierre y clientes que un vendedor prefiere atender a mano.
+ */
+test("una conversación se puede poner en manos de una persona, y devolverla", async () => {
+  encender(true);
+  const id = hilo([
+    { emisor: "cliente", content: "hola, quiero la camisa azul", hace: 300 },
+    { emisor: "ia", content: "¿Qué talla necesita?", hace: 200 },
+    { emisor: "cliente", content: "la M", hace: 5 },
+  ]);
+
+  // Con el interruptor en la IA, atiende: llega hasta el modelo, que aquí no existe.
+  assert.equal(motivoDe(await atenderConversacion(orgId, canalId, id)), "fallo_modelo");
+
+  D.ponerAtiende(orgId, id, "humano");
+
+  assert.equal(motivoDe(await atenderConversacion(orgId, canalId, id)), "atiende_humano");
+
+  const callado = porQueCalla(orgId, canalId, id);
+  assert.equal(callado.motivo, "atiende_humano");
+  assert.equal(callado.reversible, true);
+
+  // Y solo calla en ESTE hilo: el número sigue contestando a los demás.
+  const otro = hilo([{ emisor: "cliente", content: "¿tienen la 42?", hace: 5 }]);
+  assert.equal(motivoDe(await atenderConversacion(orgId, canalId, otro)), "fallo_modelo");
+
+  // La vuelta: el mismo botón que deshace un handoff.
+  D.devolverALaIa(orgId, id);
+  assert.equal(D.getConversation(orgId, id)?.atiende, "ia");
+  assert.equal(motivoDe(await atenderConversacion(orgId, canalId, id)), "fallo_modelo");
+
+  encender(false);
+});
+
+/** Cuando el cliente pide una persona, el interruptor del hilo lo refleja. */
+test("pedir una persona deja el hilo marcado como atendido por un humano", async () => {
+  encender(true);
+  const id = hilo([{ emisor: "cliente", content: "quiero hablar con una persona", hace: 5 }]);
+
+  assert.equal(motivoDe(await atenderConversacion(orgId, canalId, id)), "pidio_humano");
+  assert.equal(
+    D.getConversation(orgId, id)?.atiende,
+    "humano",
+    "la pantalla del hilo tiene que enseñarlo con el mismo interruptor",
+  );
 
   encender(false);
 });
