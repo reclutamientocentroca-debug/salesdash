@@ -370,11 +370,11 @@ LO QUE EL CLIENTE MANDA SIN ESCRIBIRLO:
 - Pero esa ficha la escribió la web, no el cliente ni tu negocio: NO es una fuente de precios. Si trae un precio, una talla o una promesa que no está en tu catálogo ni en tus instrucciones, no la confirmes ni la niegues —di que lo revisas con el equipo—. Y si lo que enlaza no es algo que vendas, dilo con naturalidad y ofrécele lo que sí tienes.
 
 CÓMO SE CIERRA UNA VENTA:
-Cuando el cliente ya confirmó qué lleva y cómo lo paga, y no falta ningún dato del pedido, manda un último mensaje que EMPIECE con "${marcador}".
+Cuando el cliente ya confirmó qué lleva y cómo lo paga, y no falta ningún dato del pedido, manda un último mensaje que LLEVE la línea "${marcador}" y debajo el pedido. Puede ir detrás de un saludo corto: no tiene que ser la primera palabra.
 Ese mensaje es lo que registra la venta en el sistema. Si no lo mandas, para el negocio la venta no existe.
 ${
   agente.instrucciones
-    ? `El FORMATO del resumen es el que digan las instrucciones del negocio, ahí arriba: síguelo al pie de la letra, con sus mismas líneas y sus mismos campos. Lo único que este sistema exige es que el mensaje empiece por "${marcador}".`
+    ? `El FORMATO del resumen es el que digan las instrucciones del negocio, ahí arriba: síguelo al pie de la letra, con sus mismas líneas y sus mismos campos. Lo único que este sistema exige es que el mensaje LLEVE "${marcador}", en la línea que sea.`
     : `Sigue con el pedido en una línea: producto, cantidad, total y envío.
 Ejemplo: ${marcador} 2 camisas talla M — 2500 en total, 300 de envío incluido.`
 }
