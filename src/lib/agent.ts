@@ -45,6 +45,7 @@ import { anuncioParaModelo, type DatosAnuncio } from "./anuncio";
 import { contieneMarcador, MARCADOR_POR_DEFECTO, registrarCierre } from "./cierre";
 import { completar, ErrorIA, hoyISO } from "./ia";
 import { bloqueDePais, obtenerPais } from "./paises";
+import { bloqueDeEnvio } from "./envio";
 import { conLoVistoYOido, modelosDePercepcion, percibir } from "./percepcion";
 import { ubicacionParaModelo, validarUbicacion, type UbicacionValidada } from "./ubicacion";
 
@@ -127,6 +128,29 @@ async function enviarTexto(canalId: number, para: string, texto: string): Promis
 const PAUSA_ENTRE_MENSAJES = 1_200;
 
 const esperar = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Con qué nombre saluda el agente.
+ *
+ * Por orden: lo que el dueño escribió a mano, el perfil de WhatsApp de ESE
+ * número —o el nombre de la página de Meta, que es el que firma los anuncios— y
+ * por último el nombre de la cuenta del panel.
+ *
+ * Ese último era el único que había, y es el que estaba mal: lo escribe quien
+ * abre la cuenta, no tiene por qué ser el nombre de la tienda, y el cliente
+ * lleva el nombre bueno delante desde antes de escribir —es lo que ve arriba
+ * del chat—. Recibir «bienvenido a» otro nombre suena a conversación
+ * equivocada, que es justo lo contrario de lo que un saludo tiene que hacer.
+ */
+export function nombreDelNegocio(
+  agente: { negocio?: string | null },
+  canal: { negocio?: string | null } | null,
+  org: { nombre?: string | null } | null,
+): string {
+  return (
+    agente.negocio?.trim() || canal?.negocio?.trim() || org?.nombre?.trim() || "el negocio"
+  );
+}
 
 /**
  * Cuántos segundos falta esperar antes de contestar.
@@ -496,6 +520,24 @@ export function armarSistema(
   const pais = obtenerPais(agente.pais);
 
   /*
+   * EL COSTO DE ENVÍO, ATADO AL MAPA.
+   *
+   * El agente no puede inventarse un envío, y es lo más fácil que hay: le falta
+   * una línea para cerrar y escribe una cifra. Aquí van las tarifas que cargó el
+   * dueño y, cuando el cliente ya mandó su ubicación, el importe EXACTO que le
+   * toca —la provincia del pin decide si va con el mensajero o al interior—.
+   * Sin tarifas cargadas, el bloque dice que no las hay y prohíbe estimarlas.
+   * Ver `envio.ts`.
+   */
+  const envio = pais
+    ? bloqueDeEnvio(
+        pais,
+        { envio_cerca: agente.envio_cerca, envio_lejos: agente.envio_lejos },
+        ubicacion?.direccion?.provincia ?? ubicacion?.zona?.nombre ?? null,
+      )
+    : null;
+
+  /*
    * El anuncio que trajo al cliente entra en el prompt, y esto no es un lujo.
    *
    * Es lo que el cliente vino buscando: sin ello el agente abre preguntando
@@ -512,6 +554,7 @@ export function armarSistema(
 ${TONOS[agente.tono] ?? TONOS.cercano}
 
 ${pais ? `${bloqueDePais(pais)}\n` : ""}
+${envio ? `${envio}\n` : ""}
 ${queVende}
 
 ${deAnuncio ? `${deAnuncio}\n` : ""}
@@ -532,6 +575,7 @@ Reglas que no puedes romper:
 - Responde corto, como se escribe por WhatsApp: una o dos frases. Nada de listas largas ni de textos de catálogo.
 - LO QUE EL CLIENTE YA TE DIJO ES TUYO PARA EL RESTO DE LA CONVERSACIÓN. La talla, el color, el nombre, la dirección, la cantidad: en cuanto lo diga UNA vez, dalo por sabido y no se lo vuelvas a preguntar nunca, ni «para confirmar». Antes de preguntar algo, mira hacia arriba: si ya está dicho, no se pregunta.
 - Y NO SE LO REPITAS DE VUELTA. Cuando te dé un dato no se lo devuelvas entero —nada de «perfecto, mocasines chocolate talla 42»—: acaba de escribirlo y ya sabe lo que dijo. Con un «entendido», «listo» o «perfecto» basta, y sigues con lo que falte en el mismo mensaje. Repetirle lo suyo alarga la conversación sin acercarla ni un paso al cierre.
+- NO PROMETAS UN DÍA NI UNA HORA DE ENTREGA. Nada de «te llega mañana», «el viernes» ni «pasado mañana»: quien reparte no eres tú y un día prometido que no se cumple es una devolución y un cliente enfadado. Lo que se dice es que el pedido SE DESPACHA dentro de 24 a 48 horas. Solo puedes dar un día concreto si tus instrucciones de arriba lo dicen con esas palabras.
 - Si el cliente pide hablar con una persona, dile que ya avisas a alguien del equipo y no sigas vendiendo.
 - Escribe solo el mensaje que va a leer el cliente. Sin comillas, sin explicaciones, sin firmar.
 
@@ -577,6 +621,50 @@ No escribas "${marcador}" en ningún otro momento: ni para resumir lo que llevan
      */
     ubicacion ? `\n\n${ubicacionParaModelo(ubicacion, pais?.nombre ?? null)}` : ""
   }`;
+}
+
+/**
+ * LO QUE EL AGENTE YA PREGUNTÓ, puesto delante de sus ojos.
+ *
+ * Decirle «no repitas preguntas» no basta: en una conversación de treinta
+ * mensajes, la pregunta que hizo hace ocho turnos está tan lejos como cualquier
+ * otra frase, y vuelve a hacerla. Al cliente le llega «¿qué talla necesitas?»
+ * por segunda vez y entiende, con razón, que no le están escuchando.
+ *
+ * Esto lo saca del propio hilo y sin gastar una llamada: las frases de sus
+ * mensajes que terminan en interrogación. No hay que adivinar nada —lo escribió
+ * él— y el modelo lo lee como una lista corta al final del prompt, que es donde
+ * más pesa.
+ *
+ * Las últimas ocho y sin repetidas: una lista larga se lee como ruido, y las
+ * que importan son las de esta conversación, no las de hace media hora.
+ */
+export function preguntasYaHechas(mensajes: Mensaje[], tope = 8): string[] {
+  const vistas = new Map<string, string>();
+
+  for (const m of mensajes) {
+    if (m.emisor !== "ia") continue;
+
+    // Se corta DESPUÉS de un cierre de frase, nunca después del signo de
+    // apertura: partir en «¿» dejaría la pregunta sin él.
+    for (const bruta of m.content.split(/(?<=[?.!\n])/)) {
+      const frase = bruta.trim();
+      if (!frase.endsWith("?") || frase.length < 8) continue;
+
+      // Sin tildes ni signos para que «¿Qué talla?» y «que talla» sean la misma.
+      const clave = frase
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9 ]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      if (clave) vistas.set(clave, frase);
+    }
+  }
+
+  return [...vistas.values()].slice(-tope);
 }
 
 /**
@@ -641,6 +729,25 @@ export async function generarRespuesta(
   const catalogo = listarCatalogo(orgId, true);
 
   /*
+   * CON QUÉ NOMBRE SE PRESENTA, y de dónde sale.
+   *
+   * El cliente lleva el nombre del negocio delante desde antes de escribir: es
+   * lo que ve arriba del chat, y en un anuncio es el nombre de la página que lo
+   * publicó. Saludarle con OTRO nombre —el de la cuenta del panel, que lo
+   * escribió quien la abrió y no tiene por qué coincidir con la tienda— suena a
+   * que se ha equivocado de conversación.
+   *
+   * Por orden: lo que el dueño haya escrito a mano, el perfil de WhatsApp de
+   * este número (o la página de Meta), y por último el nombre de la cuenta, que
+   * es lo que había antes y sigue valiendo cuando no hay nada mejor.
+   */
+  const negocio = nombreDelNegocio(
+    agente,
+    (canalId ? obtenerCanal(orgId, canalId) : null) ?? null,
+    org ?? null,
+  );
+
+  /*
    * LA CONVERSACIÓN TIENE QUE ACABAR EN EL CLIENTE.
    *
    * No es un capricho nuestro: los modelos actuales rechazan con un 400 una
@@ -661,6 +768,24 @@ export async function generarRespuesta(
     );
   }
 
+  /*
+   * LO QUE YA PREGUNTÓ, al final del prompt y no en medio de las reglas.
+   *
+   * Lo último que lee el modelo es lo que más pesa, y esto es una instrucción
+   * para ESTA respuesta: no vuelvas a preguntar lo que está en esta lista. Ver
+   * `preguntasYaHechas`.
+   */
+  const yaPregunto = preguntasYaHechas(mensajes);
+
+  const memoria = yaPregunto.length
+    ? "\n\nESTO YA SE LO PREGUNTASTE EN ESTA CONVERSACIÓN:\n" +
+      yaPregunto.map((p) => `- ${p}`).join("\n") +
+      "\nNo repitas ninguna de esas preguntas. Si el cliente ya te contestó, dalo por sabido y " +
+      "sigue con lo que falte; si no te contestó, no se la vuelvas a hacer igual: pasa al " +
+      "siguiente dato del pedido y déjala para el final. Repetir una pregunta que el cliente ya " +
+      "leyó le dice que no le estás escuchando, y ahí se cae la venta."
+    : "";
+
   const r = await completar({
     orgId,
     proposito: "agente",
@@ -671,14 +796,14 @@ export async function generarRespuesta(
         role: "system",
         content:
           armarSistema(
-            org?.nombre ?? "el negocio",
+            negocio,
             agente,
             catalogo,
             anuncio,
             org?.marcador_cierre ?? MARCADOR_POR_DEFECTO,
             cliente,
             ubicacion,
-          ) + (reglaPrecio ? `\n\n${reglaPrecio}` : ""),
+          ) + (reglaPrecio ? `\n\n${reglaPrecio}` : "") + memoria,
       },
       ...aHistorial(mensajes),
     ],

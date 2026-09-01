@@ -996,3 +996,53 @@ test("un número con seguimientos y anomalías se puede borrar de verdad", () =>
     "no queda ninguna anomalía apuntando a un número que ya no existe",
   );
 });
+
+// ── El país, la dirección y el envío ────────────────────────────────────────
+
+/**
+ * PEDIR LA DIRECCIÓN NO ES UN INTERROGATORIO.
+ *
+ * El agente pedía la dirección, el cliente la mandaba entera, y él volvía a
+ * preguntar por el punto de referencia y por el color de la casa. Cada
+ * repregunta es una oportunidad de que el cliente se canse, y el pedido ya se
+ * podía despachar desde la primera respuesta. Lo caro no es una dirección con
+ * menos detalle: es la venta que se pierde pidiéndolo.
+ */
+test("la dirección se pide una vez, con provincia, y se da por buena", async () => {
+  const { bloqueDePais, obtenerPais } = await import("../src/lib/paises");
+  const rd = obtenerPais("do")!;
+  const bloque = bloqueDePais(rd);
+
+  assert.ok(bloque.includes("PROVINCIA"), "en RD la provincia decide cómo se envía");
+  assert.ok(bloque.includes("DALA POR BUENA"), "y lo que da el cliente se acepta");
+  assert.ok(
+    bloque.includes("no la dirección otra vez"),
+    "si falta un dato se pide ese dato, no todo de nuevo",
+  );
+  assert.ok(bloque.includes("RD$"), "y los importes van en pesos dominicanos");
+});
+
+/**
+ * Un guion panameño en un número dominicano se delata en el primer mensaje:
+ * habla de usted, cobra en dólares y pregunta por un corregimiento que aquí no
+ * existe. Y cotiza US$5.00 de envío, que no es el envío de este país.
+ */
+test("la plantilla dominicana cobra en pesos y pide sector y provincia", async () => {
+  const { PLANTILLAS } = await import("../src/lib/plantillas");
+  const rd = PLANTILLAS.find((p) => p.clave === "moda-dominicana");
+
+  assert.ok(rd, "tiene que haber una plantilla de República Dominicana");
+  assert.ok(rd.instrucciones.includes("RD$200"), "el envío del Gran Santo Domingo");
+  assert.ok(rd.instrucciones.includes("RD$350"), "y el del interior");
+  assert.ok(!rd.instrucciones.includes("US$"), "aquí no se cobra en dólares");
+  assert.ok(!rd.instrucciones.toLowerCase().includes("corregimiento"), "eso es de Panamá");
+  assert.ok(rd.instrucciones.includes("provincia"), "la dirección lleva provincia");
+  assert.ok(rd.instrucciones.includes("DALA POR BUENA Y SIGUE"), "y no se repregunta");
+
+  // El dueño tiene que ver, antes de aplicarla, que esos montos son suyos.
+  assert.ok(rd.descripcion.includes("CAMBIA ESOS DOS MONTOS"));
+
+  // Y la panameña sigue siendo la panameña.
+  const pa = PLANTILLAS.find((p) => p.clave === "moda-panama");
+  assert.ok(pa?.instrucciones.includes("US$5.00"));
+});

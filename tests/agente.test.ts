@@ -7,7 +7,9 @@ import {
   atenderConversacion,
   dentroDeHorario,
   esperaDeCortesia,
+  nombreDelNegocio,
   partirEnMensajes,
+  preguntasYaHechas,
   pideHumano,
   porQueCalla,
   revisarAgente,
@@ -77,6 +79,16 @@ function hilo(mensajes: { emisor: D.Emisor; content: string; hace: number }[]) {
  */
 const encender = (v: boolean) =>
   D.actualizarCanal(orgId, canalId, { agente_activo: v ? 1 : 0, contesta_ia: v ? 0 : 1 });
+
+
+/** Mensajes de mentira, para las funciones puras que leen un hilo. */
+function hiloFalso(turnos: { emisor: D.Emisor; content: string }[]): D.Mensaje[] {
+  return turnos.map((t, i) => ({
+    id: i + 1, org_id: orgId, conversation_id: 0, whapi_message_id: null,
+    emisor: t.emisor, tipo: "texto", descripcion_imagen: null, categoria_imagen: null,
+    transcripcion: null, media_url: null, content: t.content, created_at: 1_700_000_000 + i,
+  }));
+}
 
 // ── Funciones puras ─────────────────────────────────────────────────────────
 
@@ -1013,4 +1025,150 @@ test("pedir una persona deja el hilo marcado como atendido por un humano", async
   );
 
   encender(false);
+});
+
+// ── Con qué nombre saluda ───────────────────────────────────────────────────
+
+/**
+ * EL CLIENTE YA SABE CON QUIÉN HABLA.
+ *
+ * Lleva el nombre del negocio delante desde antes de escribir: es lo que ve
+ * arriba del chat, y en un anuncio el de la página que lo publicó. El agente
+ * saludaba con el nombre de la CUENTA del panel —lo escribe quien la abre, y no
+ * tiene por qué ser el de la tienda—, así que el cliente recibía «bienvenido a»
+ * un nombre ajeno. Suena a conversación equivocada, que es lo contrario de lo
+ * que un saludo tiene que hacer.
+ */
+test("saluda con el nombre del perfil de WhatsApp, no con el de la cuenta", () => {
+  // Lo normal: manda el perfil del número por encima del nombre de la cuenta.
+  assert.equal(
+    nombreDelNegocio({ negocio: "" }, { negocio: "Tienda Rincon" }, { nombre: "Cuenta Nueva" }),
+    "Tienda Rincon",
+  );
+
+  // Escrito a mano en el panel, manda sobre todo lo demás.
+  assert.equal(
+    nombreDelNegocio({ negocio: "Rincon Store" }, { negocio: "Tienda Rincon" }, { nombre: "Cuenta" }),
+    "Rincon Store",
+  );
+
+  // Sin perfil todavía —un número recién creado— sigue valiendo la cuenta.
+  assert.equal(nombreDelNegocio({ negocio: "" }, { negocio: null }, { nombre: "Cuenta" }), "Cuenta");
+  assert.equal(nombreDelNegocio({ negocio: "" }, null, null), "el negocio");
+
+  // Y con ese nombre se le dice al modelo cómo saludar.
+  const prompt = armarSistema("Tienda Rincon", D.obtenerAgente(orgId), [], null);
+  assert.ok(prompt.includes("Hola, bienvenido a Tienda Rincon"));
+});
+
+// ── Memoria, envío y entrega ────────────────────────────────────────────────
+
+/**
+ * PREGUNTAR DOS VECES LO MISMO ES DECIRLE AL CLIENTE QUE NO LE ESCUCHAS.
+ *
+ * Decirle al modelo «no repitas preguntas» no basta: en una conversación de
+ * treinta mensajes, la que hizo hace ocho turnos está tan lejos como cualquier
+ * otra frase. Esto se las saca del propio hilo y se las pone delante, sin
+ * gastar una llamada: son suyas, las escribió él.
+ */
+test("el agente lleva delante las preguntas que ya hizo", () => {
+  const mensajes = hiloFalso([
+    { emisor: "cliente", content: "hola, quiero los mocasines" },
+    { emisor: "ia", content: "Están disponibles. ¿Qué talla necesitas?" },
+    { emisor: "cliente", content: "la 42" },
+    { emisor: "ia", content: "Listo. ¿En qué color lo prefieres?" },
+    { emisor: "cliente", content: "chocolate" },
+    { emisor: "ia", content: "Perfecto. ¿A qué dirección te lo enviamos?" },
+    { emisor: "cliente", content: "espera" },
+  ]);
+
+  const preguntas = preguntasYaHechas(mensajes);
+
+  assert.deepEqual(preguntas, [
+    "¿Qué talla necesitas?",
+    "¿En qué color lo prefieres?",
+    "¿A qué dirección te lo enviamos?",
+  ]);
+
+  // La misma pregunta dos veces sale una sola vez, con o sin tildes.
+  const repetida = preguntasYaHechas(
+    hiloFalso([
+      { emisor: "cliente", content: "hola" },
+      { emisor: "ia", content: "¿Qué talla necesitas?" },
+      { emisor: "cliente", content: "?" },
+      { emisor: "ia", content: "Que talla necesitas?" },
+    ]),
+  );
+  assert.equal(repetida.length, 1);
+
+  // Lo que dice el CLIENTE no cuenta: son las preguntas del agente.
+  assert.deepEqual(
+    preguntasYaHechas(hiloFalso([{ emisor: "cliente", content: "¿cuánto cuesta el envío?" }])),
+    [],
+  );
+});
+
+/** Un día de entrega prometido que no se cumple es una devolución. */
+test("el prompt prohíbe prometer un día de entrega", () => {
+  const prompt = armarSistema("Tienda", D.obtenerAgente(orgId), [], null);
+
+  assert.ok(prompt.includes("NO PROMETAS UN DÍA NI UNA HORA DE ENTREGA"));
+  assert.ok(prompt.includes("SE DESPACHA dentro de 24 a 48 horas"));
+});
+
+/**
+ * EL COSTO DE ENVÍO NO SE INVENTA, SE BUSCA.
+ *
+ * Es el error más fácil: al agente le falta una línea para cerrar y escribe una
+ * cifra. Si se pasa, pierde la venta; si se queda corto, el negocio paga la
+ * diferencia en cada pedido de esa zona. La provincia del pin del mapa es la
+ * que decide cuál de las dos tarifas le toca.
+ */
+test("el envío sale de la provincia del mapa, y sin tarifas no se inventa", async () => {
+  const { obtenerPais } = await import("../src/lib/paises");
+  const { bloqueDeEnvio, zonaDeEnvio } = await import("../src/lib/envio");
+  const rd = obtenerPais("do")!;
+
+  // El Gran Santo Domingo y Santiago son del mensajero; el resto, interior.
+  assert.equal(zonaDeEnvio(rd, "Santo Domingo Este"), "cerca");
+  assert.equal(zonaDeEnvio(rd, "Distrito Nacional"), "cerca");
+  assert.equal(zonaDeEnvio(rd, "Santiago"), "cerca");
+  assert.equal(zonaDeEnvio(rd, "La Vega"), "lejos");
+  assert.equal(zonaDeEnvio(rd, "Puerto Plata"), "lejos");
+  // Lo que no se reconoce no se adivina: ahí se pregunta.
+  assert.equal(zonaDeEnvio(rd, "por el parque"), null);
+  assert.equal(zonaDeEnvio(rd, null), null);
+
+  const tarifas = { envio_cerca: 200, envio_lejos: 350 };
+
+  // Con el pin en el interior, el importe que le toca a ESE cliente.
+  const lejos = bloqueDeEnvio(rd, tarifas, "Provincia La Vega");
+  assert.ok(lejos.includes("RD$350"), "el del interior");
+  assert.ok(lejos.includes("A ESTE CLIENTE"), "dicho para este cliente, no las dos tarifas");
+
+  const cerca = bloqueDeEnvio(rd, tarifas, "Santo Domingo Norte");
+  assert.ok(cerca.includes("A ESTE CLIENTE le corresponde RD$200"));
+
+  // Sin pin, las dos tarifas delante desde el primer mensaje.
+  const sinPin = bloqueDeEnvio(rd, tarifas, null);
+  assert.ok(sinPin.includes("RD$200") && sinPin.includes("RD$350"));
+  assert.ok(!sinPin.includes("A ESTE CLIENTE"));
+
+  // Y sin tarifas cargadas: prohibido decir un costo.
+  const sinTarifas = bloqueDeEnvio(rd, { envio_cerca: null, envio_lejos: null }, "Santiago");
+  assert.ok(sinTarifas.includes("NO TE LO INVENTES"));
+  assert.ok(!sinTarifas.includes("RD$"), "no puede salir ni una cifra");
+});
+
+/** Y el bloque llega al prompt con la cifra de este cliente. */
+test("las tarifas cargadas entran en el prompt del agente", () => {
+  D.actualizarAgente(orgId, { pais: "do", envio_cerca: 200, envio_lejos: 350 }, canalId);
+  const prompt = armarSistema("Tienda", D.obtenerAgente(orgId, canalId), [], null);
+
+  assert.ok(prompt.includes("COSTO DE ENVÍO"));
+  assert.ok(prompt.includes("RD$200") && prompt.includes("RD$350"));
+
+  D.actualizarAgente(orgId, { envio_cerca: null, envio_lejos: null }, canalId);
+  const sin = armarSistema("Tienda", D.obtenerAgente(orgId, canalId), [], null);
+  assert.ok(sin.includes("NO TE LO INVENTES"));
 });

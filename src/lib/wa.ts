@@ -444,11 +444,27 @@ async function abrir(canalId: number): Promise<void> {
         // `id` llega como `<número>:<dispositivo>@s.whatsapp.net`.
         s.phone = (sock.user?.id ?? "").split(":")[0]?.replace(/\D/g, "") || null;
 
+        /*
+         * EL NOMBRE CON EL QUE SE PRESENTA ESTE NÚMERO.
+         *
+         * Es el del perfil de WhatsApp: lo que el cliente ve arriba del chat
+         * antes de escribir. El agente saludaba con el nombre de la CUENTA del
+         * panel —un dato interno, escrito por quien abrió la cuenta— y el
+         * cliente recibía «bienvenido a» un nombre que no era el de la tienda.
+         * El bueno es este, y no hay que teclearlo: WhatsApp lo manda al
+         * conectar. `verifiedName` es el de las cuentas de empresa verificadas.
+         */
+        const usuario = sock.user as { name?: string; verifiedName?: string; notify?: string } | undefined;
+        const negocio = (usuario?.verifiedName ?? usuario?.name ?? usuario?.notify ?? "").trim();
+
         try {
           actualizarCanal(canal.org_id, canalId, {
             estado: "conectado",
             ...(s.phone ? { phone: s.phone } : {}),
+            ...(negocio ? { negocio } : {}),
           });
+
+          if (negocio) console.log(`[wa] el canal ${canalId} se presenta como «${negocio}»`);
 
           /*
            * ESTE es el instante en que se sabe de qué país es el número.

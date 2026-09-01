@@ -17,6 +17,9 @@ function paraElPanel(a: Agente) {
     nombre: a.nombre,
     tono: a.tono,
     instrucciones: a.instrucciones,
+    negocio: a.negocio,
+    envio_cerca: a.envio_cerca,
+    envio_lejos: a.envio_lejos,
     pais: a.pais,
     conocimiento: a.conocimiento,
     usar_catalogo: a.usar_catalogo === 1,
@@ -83,6 +86,7 @@ export default async function PaginaAgente() {
           agente_activo: c.agente_activo === 1,
           contesta_ia: c.contesta_ia === 1,
           conectado: c.estado === "conectado",
+          negocio: c.negocio,
           /*
            * El agente de ESTE número. Se pide aquí y no en el cliente porque
            * pedirlo lo crea si no existe: al abrir la página, cada canal ya

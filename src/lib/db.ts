@@ -119,6 +119,18 @@ CREATE TABLE IF NOT EXISTS canales (
      acreditan al equipo en vez de a la IA. */
   contesta_ia INTEGER NOT NULL DEFAULT 1,
   activo INTEGER NOT NULL DEFAULT 1,
+  /* CÓMO SE LLAMA EL NEGOCIO EN ESTE NÚMERO.
+
+     El nombre del perfil de WhatsApp, tal y como lo ve el cliente en su móvil
+     antes de escribir —y el nombre de la página en un canal de Meta—. Lo
+     escribe solo el propio socket al conectar; nadie tiene que teclearlo.
+
+     Existe porque el agente saludaba con el nombre de la CUENTA del panel, que
+     es un dato interno: quien abrió la cuenta escribió ahí cualquier cosa, y el
+     cliente recibía «bienvenido a» un nombre que no es el de la tienda con la
+     que cree estar hablando. El nombre bueno es el que el cliente ya está
+     viendo arriba del chat. */
+  negocio TEXT,
   created_at INTEGER NOT NULL DEFAULT (unixepoch()),
   UNIQUE(org_id, phone)
 );
@@ -215,6 +227,10 @@ CREATE TABLE IF NOT EXISTS agentes (
      sí. */
   canal_id INTEGER NOT NULL DEFAULT 0,
   nombre TEXT NOT NULL DEFAULT 'Asistente',
+  /* CON QUÉ NOMBRE SALUDA. Vacío = el del perfil de WhatsApp de este número,
+     que es el que el cliente ya está viendo. Esto es para corregirlo a mano
+     cuando el perfil dice una cosa y la tienda se llama de otra. */
+  negocio TEXT NOT NULL DEFAULT '',
   tono TEXT NOT NULL DEFAULT 'cercano',
   instrucciones TEXT NOT NULL DEFAULT '',
   /* EL PAÍS EN EL QUE VENDE ESTE CANAL. Código ISO de dos letras, o vacío.
@@ -242,6 +258,16 @@ CREATE TABLE IF NOT EXISTS agentes (
      que oye no tienen por qué ser el mismo que el que habla. */
   modelo_vision TEXT,
   modelo_audio TEXT,
+  /* CUÁNTO COBRA DE ENVÍO, por zona y en la moneda del país.
+
+     Dos precios porque son dos servicios distintos: donde llega el mensajero
+     propio en el día, y el resto del país, que sale por encomienda y el cliente
+     retira. Nulos = el dueño no los ha cargado, y entonces el agente tiene
+     PROHIBIDO decir un costo de envío. Ver envio.ts: de ahí sale la única
+     cifra que puede escribir, y la zona la decide la provincia del pin del
+     mapa. */
+  envio_cerca REAL,
+  envio_lejos REAL,
   pasar_a_humano INTEGER NOT NULL DEFAULT 1,
   silenciar_si_humano INTEGER NOT NULL DEFAULT 1,
   /* CUÁNTO ESPERA ANTES DE CONTESTAR, en segundos.
@@ -469,6 +495,22 @@ function migrar(conexion: DB): void {
 
       DROP TABLE uso_modelo_viejo;
     `);
+  }
+
+  // canales: el nombre del negocio tal y como lo ve el cliente.
+  if (!columnas("canales").includes("negocio")) {
+    conexion.exec(`ALTER TABLE canales ADD COLUMN negocio TEXT`);
+  }
+
+  // agentes: con qué nombre saluda, cuando el del perfil no sirve.
+  if (!columnas("agentes").includes("negocio")) {
+    conexion.exec(`ALTER TABLE agentes ADD COLUMN negocio TEXT NOT NULL DEFAULT ''`);
+  }
+
+  // agentes: las tarifas de envío por zona, para no inventarse el costo.
+  if (!columnas("agentes").includes("envio_cerca")) {
+    conexion.exec(`ALTER TABLE agentes ADD COLUMN envio_cerca REAL`);
+    conexion.exec(`ALTER TABLE agentes ADD COLUMN envio_lejos REAL`);
   }
 
   // agentes: el retardo con el que contesta, para no responder al instante.
@@ -1024,6 +1066,9 @@ export interface Canal {
   agente_activo: number; contesta_ia: number; activo: number; created_at: number;
   /** 'whatsapp' o 'meta'. En un canal de Meta, `phone` es el ID de la página. */
   tipo: string;
+  /** El nombre del negocio tal y como lo ve el cliente: el perfil de WhatsApp
+      de este número, o el de la página de Meta. Lo rellena la conexión. */
+  negocio: string | null;
   /** Cuenta de Instagram enlazada a la página, si la hay. */
   meta_ig_id: string | null;
 }
@@ -1062,6 +1107,8 @@ export interface Mensaje {
 
 export interface Agente {
   id: number; org_id: number;
+  /** Con qué nombre saluda. Vacío = el del perfil de WhatsApp del número. */
+  negocio: string;
   /** El canal al que atiende. 0 es la plantilla de la cuenta. */
   canal_id: number;
   nombre: string; tono: string;
@@ -1079,6 +1126,8 @@ export interface Agente {
   /** Nulos = los de la cuenta. */
   modelo_vision: string | null; modelo_audio: string | null;
   pasar_a_humano: number; silenciar_si_humano: number;
+  /** Lo que cobra de envío en la zona del mensajero y en el resto del país. */
+  envio_cerca: number | null; envio_lejos: number | null;
   /** Segundos que espera antes de contestar, contados desde que entró el mensaje. */
   retardo_seg: number;
   horario_activo: number; horario_desde: string | null; horario_hasta: string | null;
@@ -1225,7 +1274,7 @@ export function crearCanal(orgId: number, datos: {
 }
 
 const COLUMNAS_CANAL = [
-  "nombre", "phone", "token_cifrado", "whapi_channel_id",
+  "nombre", "negocio", "phone", "token_cifrado", "whapi_channel_id",
   "estado", "ultimo_evento_at", "agente_activo", "contesta_ia", "activo",
   "meta_ig_id",
 ] as const;
@@ -2174,10 +2223,10 @@ export function corregirEmisorAIa(orgId: number, whapiMessageId: string): number
 export const AGENTE_DE_LA_CUENTA = 0;
 
 /** Todo lo que se copia de un agente a otro al crear el de un canal nuevo. */
-const HEREDABLES = `nombre, tono, instrucciones, pais, conocimiento,
+const HEREDABLES = `nombre, negocio, tono, instrucciones, pais, conocimiento,
   usar_catalogo, ver_imagenes, oir_audios, validar_mapa,
   modelo, modelo_respaldo, modelo_vision, modelo_audio,
-  pasar_a_humano, silenciar_si_humano, retardo_seg,
+  pasar_a_humano, silenciar_si_humano, retardo_seg, envio_cerca, envio_lejos,
   horario_activo, horario_desde, horario_hasta,
   recordatorio_visto, recordatorio_visto_horas,
   recordatorio_entrega, recordatorio_entrega_horas`;
@@ -2305,10 +2354,11 @@ export function ponerPaisPorTelefono(orgId: number, canalId: number): string | n
 }
 
 const COLUMNAS_AGENTE = [
-  "nombre", "tono", "instrucciones", "pais", "conocimiento", "usar_catalogo",
+  "nombre", "negocio", "tono", "instrucciones", "pais", "conocimiento", "usar_catalogo",
   "ver_imagenes", "oir_audios", "validar_mapa",
   "modelo", "modelo_respaldo", "modelo_vision", "modelo_audio",
-  "pasar_a_humano", "silenciar_si_humano", "retardo_seg", "horario_activo",
+  "pasar_a_humano", "silenciar_si_humano", "retardo_seg",
+  "envio_cerca", "envio_lejos", "horario_activo",
   "horario_desde", "horario_hasta",
   "recordatorio_visto", "recordatorio_visto_horas",
   "recordatorio_entrega", "recordatorio_entrega_horas",
@@ -2843,11 +2893,19 @@ export function crearPaginaMeta(orgId: number, datos: {
   pageId: string; nombre: string; tokenCifrado: string; webhookSecret: string;
   igUserId: string | null;
 }): number {
+  /*
+   * `negocio` sale del mismo sitio que el nombre del canal: así se llama la
+   * PÁGINA que publica los anuncios, y es el nombre que el cliente vio antes de
+   * escribir. Con él saluda el agente. Ver `armarSistema`.
+   */
   const r = s(
     `INSERT INTO canales
-       (org_id, nombre, phone, token_cifrado, webhook_secret, tipo, meta_ig_id, estado, contesta_ia)
-     VALUES (?, ?, ?, ?, ?, 'meta', ?, 'conectado', 1)`,
-  ).run(orgId, datos.nombre, datos.pageId, datos.tokenCifrado, datos.webhookSecret, datos.igUserId);
+       (org_id, nombre, negocio, phone, token_cifrado, webhook_secret, tipo, meta_ig_id, estado, contesta_ia)
+     VALUES (?, ?, ?, ?, ?, ?, 'meta', ?, 'conectado', 1)`,
+  ).run(
+    orgId, datos.nombre, datos.nombre, datos.pageId,
+    datos.tokenCifrado, datos.webhookSecret, datos.igUserId,
+  );
   return Number(r.lastInsertRowid);
 }
 

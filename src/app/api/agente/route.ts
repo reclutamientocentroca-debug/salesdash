@@ -50,6 +50,9 @@ function paraElPanel(a: Agente) {
     modelo_respaldo: a.modelo_respaldo,
     modelo_vision: a.modelo_vision,
     modelo_audio: a.modelo_audio,
+    negocio: a.negocio,
+    envio_cerca: a.envio_cerca,
+    envio_lejos: a.envio_lejos,
     pasar_a_humano: a.pasar_a_humano === 1,
     silenciar_si_humano: a.silenciar_si_humano === 1,
     retardo_seg: a.retardo_seg,
@@ -130,6 +133,15 @@ const Cambio = z.object({
   modelo_respaldo: z.string().trim().max(120).nullable().optional(),
   modelo_vision: z.string().trim().max(120).nullable().optional(),
   modelo_audio: z.string().trim().max(120).nullable().optional(),
+  /* Con qué nombre saluda. Vacío = el del perfil de WhatsApp de ese número. */
+  negocio: z.string().trim().max(80).optional(),
+  /*
+   * Las tarifas de envío. Nulo es un valor con significado —«no lo he
+   * cargado»— y es lo que hace que el agente tenga prohibido decir un costo,
+   * así que se acepta explícitamente en vez de tratarlo como «sin cambio».
+   */
+  envio_cerca: z.number().min(0).max(1_000_000).nullable().optional(),
+  envio_lejos: z.number().min(0).max(1_000_000).nullable().optional(),
   pasar_a_humano: z.boolean().optional(),
   silenciar_si_humano: z.boolean().optional(),
   /*
@@ -189,6 +201,9 @@ export async function PATCH(req: NextRequest) {
       // Vacío = el modelo de la cuenta, que es lo que dice el panel.
       modelo_vision: d.modelo_vision === "" ? null : d.modelo_vision,
       modelo_audio: d.modelo_audio === "" ? null : d.modelo_audio,
+      negocio: d.negocio,
+      envio_cerca: d.envio_cerca,
+      envio_lejos: d.envio_lejos,
       pasar_a_humano: bit(d.pasar_a_humano),
       silenciar_si_humano: bit(d.silenciar_si_humano),
       retardo_seg: d.retardo_seg,

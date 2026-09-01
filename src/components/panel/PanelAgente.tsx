@@ -35,6 +35,9 @@ interface Agente {
   pasar_a_humano: boolean;
   silenciar_si_humano: boolean;
   retardo_seg: number;
+  negocio: string;
+  envio_cerca: number | null;
+  envio_lejos: number | null;
   horario_activo: boolean;
   horario_desde: string | null;
   horario_hasta: string | null;
@@ -59,6 +62,8 @@ interface CanalAgente {
   /** En este número contesta una IA ajena: el nuestro se calla, esté como esté. */
   contesta_ia: boolean;
   conectado: boolean;
+  /** Cómo se presenta este número: el nombre de su perfil de WhatsApp. */
+  negocio: string | null;
   revision: RevisionAgente;
   /** El agente de este canal, tal y como está guardado. */
   agente: Agente;
@@ -647,6 +652,57 @@ export default function PanelAgente({
                 en cuanto puede.
               </p>
             </div>
+            {/*
+              EL COSTO DE ENVÍO NO SE INVENTA.
+              Es el error más caro y el más fácil: al agente le falta una línea
+              para cerrar y escribe una cifra. Si se pasa, pierde la venta; si
+              se queda corto, el negocio paga la diferencia en cada pedido de
+              esa zona. Con esto cargado, la provincia del pin del mapa decide
+              cuál de los dos importes le toca al cliente. Vacío, el agente
+              tiene PROHIBIDO decir un costo: dice que lo confirma.
+            */}
+            <div>
+              <div className="etiqueta-campo">Costo de envío</div>
+
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <div>
+                  <label className="tenue" style={{ fontSize: 12 }} htmlFor="envio-cerca">
+                    Donde llega tu mensajero
+                  </label>
+                  <input
+                    id="envio-cerca" type="number" min={0} className="campo"
+                    style={{ width: 150, display: "block", marginTop: 4 }}
+                    placeholder="sin cargar"
+                    value={agente.envio_cerca ?? ""}
+                    onChange={(e) =>
+                      cambiar("envio_cerca", e.target.value === "" ? null : Number(e.target.value))
+                    }
+                  />
+                </div>
+
+                <div>
+                  <label className="tenue" style={{ fontSize: 12 }} htmlFor="envio-lejos">
+                    Al resto del país
+                  </label>
+                  <input
+                    id="envio-lejos" type="number" min={0} className="campo"
+                    style={{ width: 150, display: "block", marginTop: 4 }}
+                    placeholder="sin cargar"
+                    value={agente.envio_lejos ?? ""}
+                    onChange={(e) =>
+                      cambiar("envio_lejos", e.target.value === "" ? null : Number(e.target.value))
+                    }
+                  />
+                </div>
+              </div>
+
+              <p className="tenue" style={{ fontSize: 12, marginTop: 6, lineHeight: 1.5 }}>
+                En la moneda de este número. Cuando el cliente manda su ubicación, la provincia del
+                mapa decide cuál de los dos le toca. Déjalos vacíos y el agente no dirá ningún costo
+                de envío: dirá que se lo confirmas.
+              </p>
+            </div>
+
             <Interruptor
               activo={agente.horario_activo}
               onChange={(v) => cambiar("horario_activo", v)}
@@ -846,6 +902,26 @@ export default function PanelAgente({
             id="nombre-agente" className="campo" style={{ marginBottom: 14 }}
             value={agente.nombre} onChange={(e) => cambiar("nombre", e.target.value)}
           />
+
+          {/*
+            CON QUÉ NOMBRE SALUDA AL CLIENTE.
+            El cliente lleva el nombre del negocio delante desde antes de
+            escribir —es lo que ve arriba del chat, y en un anuncio el de la
+            página que lo publicó—. Saludarle con otro suena a conversación
+            equivocada. Vacío se rellena solo con el perfil de WhatsApp del
+            número; esto es para corregirlo cuando el perfil dice una cosa y la
+            tienda se llama de otra.
+          */}
+          <label className="etiqueta-campo" htmlFor="negocio-agente">Nombre del negocio</label>
+          <input
+            id="negocio-agente" className="campo"
+            placeholder={canal?.negocio ?? "El del perfil de WhatsApp de este número"}
+            value={agente.negocio} onChange={(e) => cambiar("negocio", e.target.value)}
+          />
+          <p className="tenue" style={{ fontSize: 12, margin: "6px 0 14px", lineHeight: 1.5 }}>
+            Con este nombre saluda: «Hola, bienvenido a …». Déjalo vacío y usa el del perfil de
+            WhatsApp de este número, que es el que el cliente ya está viendo.
+          </p>
 
           <div className="etiqueta-campo">Tono</div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>

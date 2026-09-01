@@ -64,6 +64,16 @@ export interface Pais {
   expresiones: string[];
   /** Provincias, cantones y barrios que se nombran al dar una dirección. */
   zonas: string[];
+  /**
+   * Dónde entrega un mensajero propio en el día, frente al resto del país.
+   *
+   * No es geografía: es la línea que parte la tarifa de envío en dos. En
+   * República Dominicana, al Gran Santo Domingo y Santiago va un motorista y
+   * cobra una cosa; al interior sale por Caribe Express y cobra otra. Cobrar la
+   * primera por un pedido de la segunda es perder dinero en cada venta del
+   * interior. Ver `envio.ts`.
+   */
+  zonasCercanas: string[];
   /** Cómo se dan las direcciones. En Costa Rica esto lo cambia TODO. */
   direcciones: string;
   /** Cómo llega un pedido y quién lo lleva. */
@@ -101,6 +111,11 @@ const REPUBLICA_DOMINICANA: Pais = {
     "«claro que sí» para confirmar",
     "«chequea» para pedir que revisen algo",
   ],
+  zonasCercanas: [
+    "Distrito Nacional",
+    "Santo Domingo",
+    "Santiago",
+  ],
   zonas: [
     "Distrito Nacional",
     "Santo Domingo Este",
@@ -120,9 +135,12 @@ const REPUBLICA_DOMINICANA: Pais = {
     "San Francisco de Macorís",
   ],
   direcciones:
-    "Se dan por calle y número, con el sector detrás: «calle Duarte #45, Los Prados, Santo " +
-    "Domingo». El SECTOR es el dato que no puede faltar: sin él, dos calles con el mismo nombre " +
-    "están a media hora una de otra. En los edificios hace falta el nombre y el apartamento.",
+    "Se dan por calle y número, con el sector detrás y la provincia al final: «calle Duarte #45, " +
+    "Los Prados, Santo Domingo, Distrito Nacional». Los dos datos que sitúan un pedido son la " +
+    "PROVINCIA —de ella depende si lo lleva el mensajero o sale por Caribe Express— y el SECTOR, " +
+    "porque sin él dos calles con el mismo nombre están a media hora una de otra. En los edificios " +
+    "hace falta el nombre y el apartamento. Con calle, sector y provincia ya se despacha: lo demás " +
+    "—punto de referencia, color de la casa— ayuda, pero no se exige.",
   entrega: [
     "En el Gran Santo Domingo y Santiago, mensajero propio en 24–48 horas",
     "Al interior, por Caribe Express, Vimenca o Deprisa: el cliente retira en la sucursal de su pueblo",
@@ -173,6 +191,12 @@ const COSTA_RICA: Pais = {
     "«diay» al empezar una frase",
     "«¿me confirma?» para pedir un dato",
     "«ocupo» en lugar de «necesito»",
+  ],
+  zonasCercanas: [
+    "San José",
+    "Heredia",
+    "Alajuela",
+    "Cartago",
   ],
   zonas: [
     "San José",
@@ -239,6 +263,11 @@ const PANAMA: Pais = {
     "«¿me confirma?» al pedir un dato",
     "«ahí mismo» o «de una» para algo inmediato",
     "«chuzo» y «xopá» son de calle: no van en una venta",
+  ],
+  zonasCercanas: [
+    "Ciudad de Panamá",
+    "San Miguelito",
+    "Panamá Oeste",
   ],
   zonas: [
     "Ciudad de Panamá (Bella Vista, Betania, Juan Díaz, Costa del Este, San Francisco)",
@@ -358,6 +387,23 @@ export function bloqueDePais(pais: Pais): string {
     "",
     `CÓMO SE DAN LAS DIRECCIONES AQUÍ: ${pais.direcciones}`,
     `Zonas que vas a oír nombrar: ${pais.zonas.join(", ")}.`,
+    "",
+    /*
+     * CÓMO SE PIDE, que es distinto de cómo se escribe.
+     *
+     * Sin esto el agente hace un interrogatorio: pide la dirección, el cliente
+     * la manda entera, y él vuelve a preguntar por el punto de referencia, y
+     * luego por el color de la casa. Cada repregunta es una oportunidad de que
+     * el cliente se canse, y el pedido ya se podía despachar desde la primera
+     * respuesta. Lo caro no es una dirección con menos detalle: es la venta que
+     * se pierde pidiéndolo.
+     */
+    "CÓMO SE PIDE: una sola vez y entera, en una pregunta. Cuando el cliente te la dé, DALA POR " +
+      "BUENA y sigue con lo que falte del pedido: nada de repreguntar el punto de referencia, el " +
+      "color de la casa ni la calle de al lado. Solo vuelves a preguntar si de verdad no se puede " +
+      "entregar ahí —falta la provincia o la zona, o te dijeron únicamente el nombre de una " +
+      "ciudad— y entonces pides EXACTAMENTE el dato que falta, no la dirección otra vez. Si te " +
+      "mandan la ubicación por el mapa, con eso basta: pide como mucho el número de casa.",
     "",
     `Cómo llegan los pedidos en este país:\n${pais.entrega.map((e) => `- ${e}`).join("\n")}`,
     `Con qué paga la gente aquí:\n${pais.pagos.map((e) => `- ${e}`).join("\n")}`,
