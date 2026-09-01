@@ -15,6 +15,14 @@
  *   npm run probar-agente -- cr      (Costa Rica)
  *   npm run probar-agente -- pa      (Panamá)
  *
+ * Y con un modelo distinto al que tiene puesto la cuenta, para comparar sin
+ * tocar nada:
+ *
+ *   npm run probar-agente -- cr openai/gpt-4o
+ *
+ * Eso es lo que contesta la pregunta que de verdad importa cuando una
+ * conversación sale mal: ¿es el guion o es el modelo?
+ *
  * Gasta llamadas al modelo de verdad, así que no entra en `npm test`.
  */
 import "../scripts/env-loader";
@@ -45,14 +53,21 @@ const GUIONES: Record<string, { anuncio: string; precio: string; describe: strin
       "sí, confirmo",
     ],
   },
+  /*
+   * El tico compra una camisa: lleva talla POR LETRA y color, así que se ve el
+   * camino entero —talla, color, dirección, número, nombre, resumen— y se ve si
+   * pide la talla como la pide el anuncio.
+   */
   cr: {
-    anuncio: "Set de sábanas 2 plazas",
+    anuncio: "Camisa de lino manga larga",
     precio: "₡25.000",
-    describe: "Set de sábanas 2 plazas en microfibra. Incluye 1 sábana, 1 ajustable y 2 fundas.",
+    describe: "Camisa de lino manga larga. Tallas S, M, L y XL. Colores blanco, celeste y beige.",
     dice: [
-      "Hola, vi el anuncio de las sábanas, ¿cuánto vale?",
-      "¿y el envío? soy de Heredia",
-      "San Rafael, 200 metros norte de la iglesia, casa verde",
+      "Hola, vi el anuncio de la camisa, ¿cuánto vale?",
+      "la M",
+      "celeste",
+      "Heredia, San Rafael, 200 metros norte de la iglesia",
+      "sí, a este mismo",
       "Marcela Jiménez",
       "sí, confirmo",
     ],
@@ -89,6 +104,7 @@ function mensaje(emisor: "cliente" | "ia", content: string, i: number): Mensaje 
 
 async function main() {
   const pais = (process.argv[2] ?? "do").toLowerCase();
+  const modeloPedido = process.argv[3]?.trim() || null;
   const guion = GUIONES[pais];
   const clave = CLAVES[pais];
 
@@ -129,6 +145,7 @@ async function main() {
       instrucciones: PLANTILLAS.find((p) => p.clave === clave)!.instrucciones,
       envio_cerca: tarifas.cerca,
       envio_lejos: tarifas.lejos,
+      ...(modeloPedido ? { modelo: modeloPedido } : {}),
       conocimiento: `${guion.anuncio}: ${guion.precio}. ${guion.describe}`,
     },
     canalId,

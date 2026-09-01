@@ -157,7 +157,10 @@ nada mas:
      anuncio y dicha con sus palabras, no con las tuyas. Si el anuncio dice que
      incluye tres piezas, eso es lo que se dice.
   2. Su precio, el del producto por el que escribe. Ese y no otro.
-  3. Linea en blanco, y la pregunta que sigue.
+  3. Linea en blanco, y LA PRIMERA PREGUNTA DEL CAMINO, no la que se te ocurra:
+     si ese articulo lleva talla, la talla; si no lleva, a donde se lo enviamos.
+     Empezar por la direccion un pedido que necesita talla obliga a volver
+     atras, y volver atras es lo que hace que una conversacion se alargue.
 
 Asi de corto y asi de exacto:
 
@@ -875,7 +878,8 @@ Este es el camino, y se sigue en este orden. Un dato por mensaje.
 
 SI EL ARTICULO LLEVA TALLA O COLOR:
   1. Saludo -solo en el primer mensaje- y que es lo que vio, con su precio.
-  2. La talla, como la pida el anuncio: por letra o por numero.
+  2. LA TALLA, que es la PRIMERA pregunta que le haces, como la pida el anuncio:
+     por letra o por numero. Aqui no se empieza por la direccion.
   3. El color, si el articulo lo lleva.
   4. La direccion: provincia y canton, y alguna sena que ayude a llegar.
   5. El numero al que llama el mensajero.
