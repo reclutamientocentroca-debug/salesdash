@@ -120,6 +120,10 @@ export function bloqueDeEnvio(
       "El costo de envío es el que esté escrito en tus instrucciones o en el catálogo. Si no está " +
         "escrito en ninguno de los dos, NO TE LO INVENTES ni lo estimes: dile al cliente que le " +
         "confirmas el costo del envío en un momento y sigue con el resto del pedido.",
+      `Y desconfía de un monto de envío escrito en OTRA MONEDA: aquí se cobra en ` +
+        `${pais.moneda.nombre} (${pais.moneda.simbolo}). Un envío en dólares, en colones o en ` +
+        "cualquier moneda que no sea esta es de un guion de otro país y NO vale para este cliente: " +
+        "no lo uses, di que confirmas el costo.",
     ].join("\n");
   }
 
@@ -139,9 +143,10 @@ export function bloqueDeEnvio(
   }
 
   lineas.push(
-    "Esas cifras mandan sobre cualquier otro monto de envío que aparezca escrito en otro sitio, y " +
-      "no se redondean ni se negocian. El envío va en su propia línea del resumen y sumado en el " +
-      "total.",
+    "Esas cifras mandan sobre cualquier otro monto de envío que aparezca escrito en otro sitio " +
+      `—y con más razón sobre uno en otra moneda: aquí se cobra en ${pais.moneda.nombre} ` +
+      `(${pais.moneda.simbolo})—, y no se redondean ni se negocian. El envío va en su propia ` +
+      "línea del resumen y sumado en el total.",
   );
 
   /*

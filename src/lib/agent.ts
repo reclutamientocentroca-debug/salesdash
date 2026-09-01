@@ -337,6 +337,46 @@ export interface RevisionAgente {
   avisos: string[];
 }
 
+/**
+ * ¿HAY DINERO DE OTRO PAÍS ESCRITO EN ESTE GUION?
+ *
+ * El caso real: un número dominicano con el guion de la tienda de Panamá
+ * aplicado. Todo parece bien —el agente contesta, vende, cierra— y en cada
+ * pedido dice que el envío son US$5.00, que es el envío de Panamá. Nadie lo ve
+ * hasta que un cliente lo repite en voz alta, y para entonces lleva semanas
+ * cotizando mal.
+ *
+ * Se reconoce por la MONEDA, que es lo que no se puede falsificar: si el guion
+ * habla de dólares y este número vende en pesos dominicanos, ese guion es de
+ * otro sitio. No se toca nada —lo escribió el dueño y puede tener sus razones—
+ * pero se dice en la pantalla que enciende el número, que es donde se mira.
+ *
+ * Panamá es la excepción justa: allí se cobra en balboas y en dólares
+ * indistintamente, y su propio guion escribe US$.
+ */
+const MONEDAS: { codigo: string; nombre: string; marca: RegExp }[] = [
+  { codigo: "USD", nombre: "dólares", marca: /\bUS\$|\bUSD\b|\bd[oó]lar/i },
+  { codigo: "DOP", nombre: "pesos dominicanos", marca: /\bRD\$|\bDOP\b/i },
+  { codigo: "CRC", nombre: "colones", marca: /₡|\bCRC\b|\bcol[oó]n(es)?\b/i },
+  { codigo: "PAB", nombre: "balboas", marca: /B\/\.|\bPAB\b|\bbalboa/i },
+];
+
+/** Lo que un país acepta como suyo. En Panamá el dólar es de casa. */
+function monedasPropias(codigo: string): string[] {
+  return codigo === "PAB" ? ["PAB", "USD"] : [codigo];
+}
+
+export function monedaAjena(texto: string, codigoDelPais: string): string | null {
+  const propias = monedasPropias(codigoDelPais);
+
+  for (const m of MONEDAS) {
+    if (propias.includes(m.codigo)) continue;
+    if (m.marca.test(texto)) return m.nombre;
+  }
+
+  return null;
+}
+
 export function revisarAgente(orgId: number, canalId: number): RevisionAgente {
   const impedimentos: string[] = [];
   const avisos: string[] = [];
@@ -391,6 +431,26 @@ export function revisarAgente(orgId: number, canalId: number): RevisionAgente {
       "Este número no tiene de dónde sacar precios: ni catálogo ni artículos escritos. El agente " +
         "atenderá, pero a cada pregunta de precio dirá que lo confirma con el equipo.",
     );
+  }
+
+  /*
+   * EL GUION DE OTRO PAÍS. Ver `monedaAjena`: es el fallo que no se ve solo,
+   * porque el agente sigue vendiendo y cerrando mientras cotiza el envío de
+   * otra tienda.
+   */
+  const pais = obtenerPais(agente.pais);
+
+  if (pais) {
+    const ajena = monedaAjena(`${agente.instrucciones} ${agente.conocimiento}`, pais.moneda.codigo);
+
+    if (ajena) {
+      avisos.push(
+        `Lo que tiene escrito este número habla de ${ajena}, y aquí se vende en ` +
+          `${pais.moneda.nombre} (${pais.moneda.simbolo}). Casi seguro es el guion de otro país: ` +
+          "revisa los precios y sobre todo el COSTO DE ENVÍO, porque el agente lo está diciendo " +
+          "en cada pedido. En Agente puedes aplicar la plantilla de este país y cargar el envío.",
+      );
+    }
   }
 
   if (agente.horario_activo === 1 && !dentroDeHorario(agente.horario_desde, agente.horario_hasta)) {

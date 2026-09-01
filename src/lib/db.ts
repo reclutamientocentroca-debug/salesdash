@@ -3133,3 +3133,63 @@ export function esperandoRespuesta(orgId: number, antesDe: number): Conversacion
       ORDER BY c.last_message_at DESC LIMIT 100`,
   ).all(orgId, antesDe) as Conversacion[];
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Comentarios de Meta
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ComentarioMeta {
+  /** La conversación donde vive. Un comentario NO es una tabla aparte. */
+  id: number;
+  canalId: number;
+  canal: string;
+  cliente: string | null;
+  texto: string;
+  cuando: number;
+  /** Cuántas veces se le ha contestado, sea la IA o una persona. */
+  respuestas: number;
+}
+
+/**
+ * Lo que la gente ha escrito debajo de las publicaciones y los anuncios.
+ *
+ * No hay tabla de comentarios y no debe haberla: quien comenta «¿cuánto
+ * cuesta?» bajo un anuncio es el MISMO lead que escribe por Messenger, y
+ * guardarlo aparte lo perdería para las ventas, para el informe y para el
+ * agente. Un comentario es una conversación con `superficie = 'comentario'`, y
+ * esto solo la va a buscar.
+ *
+ * Por eso cada fila enlaza a su conversación: al abrirla se ve el hilo entero
+ * —el comentario público y lo que vino después por privado— en vez de un
+ * fragmento suelto.
+ */
+export function listarComentariosMeta(
+  orgId: number,
+  opciones: { canalId?: number; limite?: number } = {},
+): ComentarioMeta[] {
+  const cond = ["c.org_id = ?", "c.superficie = 'comentario'"];
+  const val: unknown[] = [orgId];
+
+  if (opciones.canalId !== undefined) {
+    cond.push("c.canal_id = ?");
+    val.push(opciones.canalId);
+  }
+
+  return s(
+    `SELECT c.id                AS id,
+            c.canal_id          AS canalId,
+            ca.nombre           AS canal,
+            c.cliente_nombre    AS cliente,
+            COALESCE((SELECT m.content FROM messages m
+                       WHERE m.conversation_id = c.id AND m.emisor = 'cliente'
+                       ORDER BY m.created_at DESC, m.id DESC LIMIT 1), '') AS texto,
+            COALESCE(c.last_message_at, c.fecha_inicio) AS cuando,
+            (SELECT COUNT(*) FROM messages m
+              WHERE m.conversation_id = c.id AND m.emisor <> 'cliente')    AS respuestas
+       FROM conversations c
+       JOIN canales ca ON ca.id = c.canal_id
+      WHERE ${cond.join(" AND ")}
+      ORDER BY cuando DESC
+      LIMIT ?`,
+  ).all(...val, opciones.limite ?? 40) as ComentarioMeta[];
+}

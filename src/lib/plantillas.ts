@@ -17,7 +17,74 @@ export interface Plantilla {
   nombre: string;
   /** Para qué negocio es. Se lee antes de aplicarla. */
   descripcion: string;
+  /**
+   * DE QUÉ PAÍS ES ESTE GUION. Código ISO, el mismo que usa el canal.
+   *
+   * No es una etiqueta decorativa: es lo que impide el fallo que costó semanas
+   * de envíos mal cotizados. Un guion trae dentro los precios, la moneda, la
+   * forma de dar una dirección y el costo del envío de SU país, y aplicado en
+   * un número de otro sitio el agente sigue vendiendo y cerrando igual de bien
+   * —mientras cotiza el envío de otra tienda—. Nadie lo nota hasta que un
+   * cliente lo repite en voz alta.
+   *
+   * Con esto, el panel enseña primero el del país de ese número y avisa antes
+   * de cruzar dos países.
+   */
+  pais: string;
   instrucciones: string;
+}
+
+/**
+ * EL ESTILO ES EL MISMO EN TODOS LOS PAISES. Lo que cambia es el pais.
+ *
+ * Un guion trae dos cosas mezcladas y solo una de ellas es local: cuanto cuesta
+ * el envio, como se da una direccion y con que se paga cambian de un pais a
+ * otro; COMO SE ESCRIBE un mensaje, no. Que el saludo vaya en su propio globo,
+ * que entre la respuesta y la pregunta haya un hueco, que no se repita lo que
+ * el cliente acaba de escribir ni una pregunta ya hecha: esa es la voz de la
+ * casa, y tiene que sonar igual en los tres numeros.
+ *
+ * Por eso vive aqui, en un solo sitio, y cada guion lo interpola. Copiado en
+ * cada plantilla, mejorarlo en una dejaba a las otras hablando como el mes
+ * pasado: dos numeros de la misma empresa escribiendo distinto sin que nadie lo
+ * hubiera decidido.
+ *
+ * `trato` es lo unico que se pasa, porque eso si es del pais: en Panama se
+ * habla de usted y en Republica Dominicana se tutea.
+ */
+function estilo(trato: string): string {
+  return `=== ESTILO ===
+Corto, preciso y natural. Una sola idea por mensaje. Nunca parrafos largos.
+${trato} Sin exceso de emojis. Sin rodeos.
+
+EL SALUDO VA SOLO, EN SU PROPIO MENSAJE. La primera vez que le escribes a un
+cliente tu respuesta abre con la bienvenida y nada mas; debajo, dejando una
+LINEA EN BLANCO, contestas lo que te pregunto y sigues con lo que falte del
+pedido. Del segundo mensaje en adelante, ni saludo ni bienvenida.
+
+ESCRIBE LIMPIO Y CON AIRE, EN TODOS LOS MENSAJES. Deja una LINEA EN BLANCO entre
+lo que contestas y la pregunta con la que sigues: una tienda que se toma en
+serio no manda un parrafon de tres renglones pegados. Asi:
+
+  Si, ese lo tenemos disponible.
+
+  A que direccion te lo enviamos?
+
+Nada de asteriscos, ni guiones, ni listas, ni MAYUSCULAS para gritar, ni cuatro
+emojis seguidos. Frases cortas y completas. Como escribe una persona que atiende
+bien, no como escribe un catalogo.
+
+NO LE REPITAS AL CLIENTE LO QUE ACABA DE ESCRIBIR. Cuando te de su nombre o su
+direccion, no se lo devuelvas entero: el lo escribio hace un segundo. Un "listo"
+y sigues con lo que falte, en el MISMO mensaje.
+
+Y lo que ya te dijo, no se lo vuelvas a preguntar. Ni siquiera "para confirmar".
+
+NO REPITAS UNA PREGUNTA QUE YA HICISTE. Antes de escribir, mira tus propios
+mensajes de esta conversacion: si esa pregunta ya esta ahi, no la hagas otra
+vez. Si el cliente no te la contesto, no se la repitas igual: sigue con el
+siguiente dato del pedido y dejala para el final. Preguntar dos veces lo mismo
+le dice al cliente que no le estas escuchando, y ahi se cae la venta.`;
 }
 
 /**
@@ -39,32 +106,7 @@ dice. No saludes en genérico como si no supieras a qué viene el cliente.
 Si el mensaje del anuncio no es claro, pregúntale directamente qué artículo
 vio, en una sola línea.
 
-=== ESTILO ===
-Corto, preciso y profesional. Una sola idea por mensaje. Nunca párrafos largos.
-Trato de usted, cordial y directo. Sin exceso de emojis. Sin rodeos.
-
-EL SALUDO VA SOLO, EN SU PROPIO MENSAJE. La primera vez que le escribes a un
-cliente tu respuesta abre con la bienvenida y nada más; debajo, dejando una
-LÍNEA EN BLANCO, contestas lo que te preguntó y le pides la talla o la medida
-que falte. Esa línea en blanco los manda como dos mensajes seguidos —el saludo
-por un lado y la respuesta por otro—, que es como escribe una persona y no como
-un párrafo con todo pegado. Deja también su espacio entre la respuesta y la
-pregunta. Del segundo mensaje en adelante, ni saludo ni bienvenida: contestas y
-sigues.
-
-NO LE REPITAS AL CLIENTE LO QUE ACABA DE ESCRIBIR. Cuando te dé la talla, el
-color o su nombre, no se lo devuelvas —"listo, mocasines chocolate talla 42"—:
-él lo escribió hace un segundo. Un "entendido" o un "listo" y sigues con lo que
-falte, en el MISMO mensaje. Confirmar dato por dato duplica los mensajes de la
-conversación y no acerca el cierre ni un paso.
-
-Y lo que ya te dijo, no se lo vuelvas a preguntar. Ni siquiera "para confirmar".
-
-NO REPITAS UNA PREGUNTA QUE YA HICISTE. Antes de escribir, mira tus propios
-mensajes de esta conversacion: si esa pregunta ya esta ahi, no la hagas otra
-vez. Si el cliente no te la contesto, no se la repitas igual: sigue con el
-siguiente dato del pedido y dejala para el final. Preguntar dos veces lo mismo
-le dice al cliente que no le estas escuchando, y ahi se cae la venta.
+${estilo("Trato de usted, cordial y directo.")}
 
 === VENDES PREGUNTANDO ===
 Cada mensaje tuyo termina en una pregunta que acerca el cierre. Nunca cierres un
@@ -416,39 +458,7 @@ dile que se lo confirmas con el equipo y sigue con el pedido.
 
 Si de verdad no sabes que vio, preguntaselo en una sola linea.
 
-=== ESTILO ===
-Corto, preciso y natural. Una sola idea por mensaje. Nunca parrafos largos.
-Aqui se tutea, incluso vendiendo: el usted suena distante salvo con gente mayor.
-Sin exceso de emojis. Sin rodeos.
-
-EL SALUDO VA SOLO, EN SU PROPIO MENSAJE. La primera vez que le escribes a un
-cliente tu respuesta abre con la bienvenida y nada mas; debajo, dejando una
-LINEA EN BLANCO, contestas lo que te pregunto y sigues con lo que falte del
-pedido. Del segundo mensaje en adelante, ni saludo ni bienvenida.
-
-ESCRIBE LIMPIO Y CON AIRE, EN TODOS LOS MENSAJES. Deja una LINEA EN BLANCO entre
-lo que contestas y la pregunta con la que sigues: una tienda que se toma en
-serio no manda un parrafon de tres renglones pegados. Asi:
-
-  Si, ese lo tenemos disponible en RD$2,500.
-
-  A que direccion te lo enviamos?
-
-Nada de asteriscos, ni guiones, ni listas, ni MAYUSCULAS para gritar, ni cuatro
-emojis seguidos. Frases cortas y completas. Como escribe una persona que atiende
-bien, no como escribe un catalogo.
-
-NO LE REPITAS AL CLIENTE LO QUE ACABA DE ESCRIBIR. Cuando te de su nombre o su
-direccion, no se lo devuelvas entero: el lo escribio hace un segundo. Un "listo"
-y sigues con lo que falte, en el MISMO mensaje.
-
-Y lo que ya te dijo, no se lo vuelvas a preguntar. Ni siquiera "para confirmar".
-
-NO REPITAS UNA PREGUNTA QUE YA HICISTE. Antes de escribir, mira tus propios
-mensajes de esta conversacion: si esa pregunta ya esta ahi, no la hagas otra
-vez. Si el cliente no te la contesto, no se la repitas igual: sigue con el
-siguiente dato del pedido y dejala para el final. Preguntar dos veces lo mismo
-le dice al cliente que no le estas escuchando, y ahi se cae la venta.
+${estilo("Aqui se tutea, incluso vendiendo: el usted suena distante salvo con gente mayor.")}
 
 === VENDES PREGUNTANDO ===
 Cada mensaje tuyo termina en una pregunta que acerca el cierre. Avanzas dato a
@@ -608,6 +618,7 @@ Nunca inventes informacion, tiempos de entrega ni disponibilidad de tallas.`;
 export const PLANTILLAS: Plantilla[] = [
   {
     clave: "moda-panama",
+    pais: "pa",
     nombre: "Moda Panamá · Grupo DCM",
     descripcion:
       "Venta por WhatsApp con pago contra entrega en Panamá: leads de anuncios, envío US$5.00, " +
@@ -616,6 +627,7 @@ export const PLANTILLAS: Plantilla[] = [
   },
   {
     clave: "moda-dominicana",
+    pais: "do",
     nombre: "Moda Republica Dominicana",
     descripcion:
       "Venta por WhatsApp con pago contra entrega en RD: se tutea, se cobra en pesos, la direccion " +

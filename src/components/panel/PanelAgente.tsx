@@ -365,12 +365,28 @@ export default function PanelAgente({
     router.refresh();
   }
 
+  /*
+   * LOS GUIONES DE ESTE NÚMERO PRIMERO.
+   *
+   * Cada guion trae dentro la moneda, los precios y el envío de SU país. El de
+   * este número va arriba porque es el único que no hay que corregir antes de
+   * vender; los demás siguen ahí, pero detrás y avisados.
+   */
+  const guiones = [...PLANTILLAS].sort((a, b) => {
+    const suyo = (p: { pais: string }) => (agente.pais && p.pais === agente.pais ? 0 : 1);
+    return suyo(a) - suyo(b);
+  });
+
+  /** Este guion es de otro país que el que vende este número. */
+  const cruzaPais = (p: { pais: string }) => !!agente.pais && p.pais !== agente.pais;
+
   function aplicarGuion(clave: string, confirmada: boolean) {
     const p = PLANTILLAS.find((x) => x.clave === clave);
     if (!p) return;
 
-    // Con el cuadro vacío no hay nada que perder: se aplica directa.
-    if (!confirmada && agente.instrucciones.trim()) {
+    // Con el cuadro vacío no hay nada que perder... salvo que el guion sea de
+    // otro país, que es el fallo que no se ve hasta que se está cobrando mal.
+    if (!confirmada && (agente.instrucciones.trim() || cruzaPais(p))) {
       setGuion(clave);
       return;
     }
@@ -1005,17 +1021,27 @@ export default function PanelAgente({
           {PLANTILLAS.length > 0 && (
             <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--line)" }}>
               <div className="rotulo" style={{ marginBottom: 8 }}>Empezar desde un guion hecho</div>
-              {PLANTILLAS.map((p) => (
+              {guiones.map((p) => (
                 <div key={p.clave} style={{ display: "grid", gap: 6 }}>
                   <div style={{ fontSize: 13, fontWeight: 600 }}>{p.nombre}</div>
                   <p className="tenue" style={{ margin: 0 }}>{p.descripcion}</p>
 
                   {guion === p.clave ? (
                     <div className="aviso aviso-ambar" style={{ display: "grid", gap: 10 }}>
-                      <div>
-                        Ya tienes instrucciones escritas en {etiquetaCanal}. Si aplicas el guion, se
-                        sustituyen por las suyas y lo que tenías se pierde.
-                      </div>
+                      {cruzaPais(p) && (
+                        <div>
+                          <strong>Este guion es de otro país.</strong> Trae dentro su moneda, sus
+                          precios y su costo de envío, y este número no vende ahí. Si lo aplicas sin
+                          corregirlo, el agente va a cotizar el envío de otra tienda en cada pedido
+                          —y desde fuera parece que todo va bien—.
+                        </div>
+                      )}
+                      {agente.instrucciones.trim() && (
+                        <div>
+                          Ya tienes instrucciones escritas en {etiquetaCanal}. Si aplicas el guion, se
+                          sustituyen por las suyas y lo que tenías se pierde.
+                        </div>
+                      )}
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                         <button
                           type="button"

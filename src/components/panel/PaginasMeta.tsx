@@ -7,17 +7,9 @@ import { Vacio, hace } from "@/components/panel/Piezas";
 export interface PaginaMeta {
   id: number;
   nombre: string;
-  pageId: string;
   igUserId: string | null;
   agenteActivo: boolean;
   ultimoEventoAt: number | null;
-}
-
-export interface AnuncioPorVincular {
-  adId: string;
-  titulo: string | null;
-  productoId: number | null;
-  productoNombre: string | null;
 }
 
 /** Lo que devuelve Meta por cada página que administra quien entró. */
@@ -68,28 +60,27 @@ const PERMISOS = [
 ].join(",");
 
 /**
- * Conectar páginas de Meta y vincular sus anuncios a productos.
+ * Conectar páginas de Facebook.
  *
- * Dos caminos hacia lo mismo. El botón de Facebook abre la ventana de Meta y el
- * token no pasa por el navegador: la ventana devuelve un código y el servidor
- * lo cambia. Pegar el ID y el token a mano sigue estando, plegado, porque el
- * botón necesita que la app tenga su configuración puesta en Meta y pegar un
- * token se puede hacer siempre.
+ * Dos caminos hacia lo mismo. El botón abre la ventana de Meta y el token no
+ * pasa por el navegador: la ventana devuelve un código y el servidor lo cambia.
+ * Pegar el identificador y el token a mano sigue estando, pero solo lo ve quien
+ * administra la plataforma: a un dueño de tienda esa pantalla no le dice nada y
+ * le da una forma nueva de equivocarse.
  */
 export default function PaginasMeta({
   paginas,
-  anuncios,
-  productos,
   appId,
   configId,
   graphVersion,
+  avanzado,
 }: {
   paginas: PaginaMeta[];
-  anuncios: AnuncioPorVincular[];
-  productos: { id: number; nombre: string }[];
   appId: string | null;
   configId: string | null;
   graphVersion: string;
+  /** Enseña el camino manual. Reservado a quien administra la plataforma. */
+  avanzado: boolean;
 }) {
   const router = useRouter();
 
@@ -147,7 +138,7 @@ export default function PaginasMeta({
       const cuerpo = await r.json();
 
       if (!r.ok) {
-        setError(cuerpo.error ?? "Meta no devolvió las páginas");
+        setError(cuerpo.error ?? "Facebook no devolvió tus páginas");
         return;
       }
 
@@ -259,182 +250,160 @@ export default function PaginasMeta({
     router.refresh();
   }
 
-  async function vincular(adId: string, productoId: number | null) {
-    await fetch("/api/meta/canales", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ adId, productoId }),
-    });
-    router.refresh();
-  }
-
   return (
-    <>
-      <div className="sd-mitades" style={{ marginBottom: 14 }}>
-        <section className="tarjeta">
-          <h2 className="titulo-tarjeta" style={{ marginBottom: 12 }}>
-            Páginas conectadas
-          </h2>
+    <div className="sd-mitades" style={{ marginBottom: 14 }}>
+      <section className="tarjeta">
+        <h2 className="titulo-tarjeta" style={{ marginBottom: 12 }}>
+          Páginas conectadas
+        </h2>
 
-          {paginas.length === 0 ? (
-            <Vacio
-              titulo="Todavía no hay ninguna página"
-              texto="Conecta una página de Facebook para recibir sus mensajes de Messenger, los directos de su Instagram y los comentarios de sus anuncios."
-            />
-          ) : (
-            <ul style={{ display: "grid", gap: 11 }}>
-              {paginas.map((p) => (
+        {paginas.length === 0 ? (
+          <Vacio
+            titulo="Todavía no hay ninguna página"
+            texto="Conecta una página de Facebook para recibir sus mensajes de Messenger, los directos de su Instagram y los comentarios de sus anuncios."
+          />
+        ) : (
+          <ul style={{ display: "grid", gap: 11 }}>
+            {paginas.map((p) => (
+              <li
+                key={p.id}
+                style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12.5 }}
+              >
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ fontWeight: 600 }}>{p.nombre}</span>
+                  {/* Ni identificadores ni tokens: al dueño de la tienda le
+                      importa si su página está viva y quién contesta. */}
+                  <span className="tenue" style={{ display: "block" }}>
+                    {p.igUserId ? "Facebook e Instagram" : "Facebook"}
+                    {" · "}
+                    {p.ultimoEventoAt ? `activa ${hace(p.ultimoEventoAt)}` : "sin actividad todavía"}
+                  </span>
+                </span>
+
+                {/* El agente se enciende donde se encienden todos: en Números.
+                    Aquí solo se dice si está, para no partir el interruptor en
+                    dos sitios que puedan contradecirse. */}
+                <span className={`pastilla ${p.agenteActivo ? "pastilla-ia" : "pastilla-abierta"}`}>
+                  {p.agenteActivo ? "Responde la IA" : "Solo mira"}
+                </span>
+
+                <button
+                  type="button"
+                  className="btn btn-secundario"
+                  disabled={ocupado}
+                  onClick={() => desconectar(p.id, p.nombre)}
+                >
+                  Quitar
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="tarjeta">
+        <h2 className="titulo-tarjeta" style={{ marginBottom: 4 }}>
+          Conectar una página
+        </h2>
+        <p className="tenue" style={{ marginBottom: 14 }}>
+          Entra con la cuenta de Facebook que administra la página. Facebook abre su propia
+          ventana y eliges ahí qué páginas nos dejas atender.
+        </p>
+
+        {appId ? (
+          <button
+            type="button"
+            className="btn"
+            onClick={entrarConFacebook}
+            disabled={!sdkListo || ocupado}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 9,
+              width: "100%", background: "#1877F2", color: "#fff", border: "none",
+              fontWeight: 600, padding: "11px 14px",
+            }}
+          >
+            <svg width="17" height="17" viewBox="0 0 24 24" aria-hidden="true" fill="#fff">
+              <path d="M24 12.07C24 5.4 18.63 0 12 0S0 5.4 0 12.07C0 18.1 4.39 23.1 10.13 24v-8.44H7.08v-3.49h3.05V9.41c0-3.02 1.79-4.69 4.53-4.69 1.31 0 2.68.24 2.68.24v2.96h-1.51c-1.49 0-1.955.93-1.955 1.89v2.26h3.33l-.53 3.49h-2.8V24C19.61 23.1 24 18.1 24 12.07Z" />
+            </svg>
+            {!sdkListo ? "Abriendo Facebook…" : ocupado ? "Un momento…" : "Entrar con Facebook"}
+          </button>
+        ) : (
+          <div className="aviso aviso-ambar" role="status">
+            La conexión con Facebook todavía no está disponible en este panel.
+          </div>
+        )}
+
+        {/* ── Las páginas que devolvió Facebook ─────────────────────────
+            Aparece justo debajo del botón, en la misma tarjeta: la elección
+            es el segundo tiempo del mismo gesto, no otra pantalla. */}
+        {disponibles && (
+          <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--line)" }}>
+            <p style={{ fontWeight: 600, fontSize: 12.5, marginBottom: 9 }}>
+              Elige la página que atenderá el panel
+            </p>
+
+            <ul style={{ display: "grid", gap: 9 }}>
+              {disponibles.map((d) => (
                 <li
-                  key={p.id}
+                  key={d.pageId}
                   style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12.5 }}
                 >
                   <span style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ fontWeight: 600 }}>{p.nombre}</span>
+                    <span style={{ fontWeight: 600 }}>{d.nombre}</span>
                     <span className="tenue" style={{ display: "block" }}>
-                      <span className="num">{p.pageId}</span>
-                      {p.igUserId ? " · Instagram enlazado" : " · sin Instagram"}
-                      {" · "}
-                      {p.ultimoEventoAt ? hace(p.ultimoEventoAt) : "sin actividad"}
+                      {d.tieneInstagram ? "Facebook e Instagram" : "Facebook"}
                     </span>
                   </span>
 
-                  {/* El agente se enciende donde se encienden todos: en Números.
-                      Aquí solo se dice si está, para no partir el interruptor en
-                      dos sitios que puedan contradecirse. */}
-                  <span
-                    className={`pastilla ${p.agenteActivo ? "pastilla-ia" : "pastilla-abierta"}`}
-                  >
-                    {p.agenteActivo ? "Responde la IA" : "Solo mira"}
-                  </span>
-
-                  <button
-                    type="button"
-                    className="btn btn-secundario"
-                    disabled={ocupado}
-                    onClick={() => desconectar(p.id, p.nombre)}
-                  >
-                    Quitar
-                  </button>
+                  {d.conectada ? (
+                    <span className="pastilla pastilla-ia">Ya conectada</span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn btn-acento"
+                      disabled={ocupado}
+                      onClick={() => conectarElegida(d.pageId)}
+                    >
+                      Conectar
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
-          )}
-        </section>
+          </div>
+        )}
 
-        <section className="tarjeta">
-          <h2 className="titulo-tarjeta" style={{ marginBottom: 4 }}>
-            Conectar una página
-          </h2>
-          <p className="tenue" style={{ marginBottom: 14 }}>
-            Entra con la cuenta de Facebook que administra la página. Meta abre su propia ventana
-            y elige ahí qué páginas nos dejas usar.
-          </p>
+        {error && (
+          <div className="aviso aviso-error" role="alert" style={{ marginTop: 12 }}>
+            {error}
+          </div>
+        )}
+        {aviso && (
+          <div className="aviso aviso-ambar" role="status" style={{ marginTop: 12 }}>
+            {aviso}
+          </div>
+        )}
 
-          {appId ? (
-            <>
-              <button
-                type="button"
-                className="btn"
-                onClick={entrarConFacebook}
-                disabled={!sdkListo || ocupado}
-                style={{
-                  display: "flex", alignItems: "center", justifyContent: "center", gap: 9,
-                  width: "100%", background: "#1877F2", color: "#fff", border: "none",
-                  fontWeight: 600, padding: "11px 14px",
-                }}
-              >
-                <svg width="17" height="17" viewBox="0 0 24 24" aria-hidden="true" fill="#fff">
-                  <path d="M24 12.07C24 5.4 18.63 0 12 0S0 5.4 0 12.07C0 18.1 4.39 23.1 10.13 24v-8.44H7.08v-3.49h3.05V9.41c0-3.02 1.79-4.69 4.53-4.69 1.31 0 2.68.24 2.68.24v2.96h-1.51c-1.49 0-1.955.93-1.955 1.89v2.26h3.33l-.53 3.49h-2.8V24C19.61 23.1 24 18.1 24 12.07Z" />
-                </svg>
-                {!sdkListo ? "Cargando Facebook…" : ocupado ? "Hablando con Meta…" : "Entrar con Facebook"}
-              </button>
+        <p className="tenue" style={{ marginTop: 12 }}>
+          El acceso se guarda cifrado y puedes quitarlo cuando quieras. No publicamos nada en tu
+          nombre: solo respondemos a quien te escribe.
+        </p>
 
-              {!configId && (
-                <p className="tenue" style={{ marginTop: 9 }}>
-                  Sin <span className="num">META_LOGIN_CONFIG_ID</span> la ventana pide los permisos
-                  uno a uno en vez de enseñar el selector de páginas de Meta. Funciona igual, pero
-                  con la configuración de Business Login puesta es la pantalla que ya conoces.
-                </p>
-              )}
-            </>
-          ) : (
-            <div className="aviso aviso-ambar" role="status">
-              Falta <span className="num">META_APP_ID</span> en el servidor. Sin eso no se puede
-              abrir la ventana de Facebook: conecta la página con el token de abajo, o pon la
-              variable y reinicia.
-            </div>
-          )}
-
-          {/* ── Las páginas que devolvió Meta ─────────────────────────────
-              Aparece justo debajo del botón, en la misma tarjeta: la elección
-              es el segundo tiempo del mismo gesto, no otra pantalla. */}
-          {disponibles && (
-            <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--line)" }}>
-              <p style={{ fontWeight: 600, fontSize: 12.5, marginBottom: 9 }}>
-                Elige la página que atenderá el panel
-              </p>
-
-              <ul style={{ display: "grid", gap: 9 }}>
-                {disponibles.map((d) => (
-                  <li
-                    key={d.pageId}
-                    style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12.5 }}
-                  >
-                    <span style={{ flex: 1, minWidth: 0 }}>
-                      <span style={{ fontWeight: 600 }}>{d.nombre}</span>
-                      <span className="tenue" style={{ display: "block" }}>
-                        <span className="num">{d.pageId}</span>
-                        {d.tieneInstagram ? " · Instagram enlazado" : " · sin Instagram"}
-                      </span>
-                    </span>
-
-                    {d.conectada ? (
-                      <span className="pastilla pastilla-ia">Ya conectada</span>
-                    ) : (
-                      <button
-                        type="button"
-                        className="btn btn-acento"
-                        disabled={ocupado}
-                        onClick={() => conectarElegida(d.pageId)}
-                      >
-                        Conectar
-                      </button>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {error && (
-            <div className="aviso aviso-error" role="alert" style={{ marginTop: 12 }}>
-              {error}
-            </div>
-          )}
-          {aviso && (
-            <div className="aviso aviso-ambar" role="status" style={{ marginTop: 12 }}>
-              {aviso}
-            </div>
-          )}
-
-          {/* ── El camino de repuesto ─────────────────────────────────────
-              Plegado, porque es el que casi nadie necesita ya. Sigue aquí
-              porque la ventana depende de la configuración de la app en Meta,
-              y pegar un token funciona el primer día. */}
+        {/* ── El camino de repuesto ─────────────────────────────────────
+            Solo para quien administra la plataforma. Existe porque la ventana
+            depende de la configuración de la app en Meta, y pegar un token
+            funciona siempre; pero enseñárselo a un dueño de tienda es pedirle
+            que maneje una credencial que no debería tocar. */}
+        {avanzado && (
           <details style={{ marginTop: 16 }}>
             <summary
               className="tenue"
               style={{ cursor: "pointer", fontSize: 12.5, userSelect: "none" }}
             >
-              Conectar pegando el token de página
+              Conectar con un token de página
             </summary>
 
             <form onSubmit={conectarAMano} style={{ marginTop: 12 }}>
-              <p className="tenue" style={{ marginBottom: 12 }}>
-                El ID y el token salen de <span className="num">developers.facebook.com</span> → tu
-                app → Messenger → Configuración.
-              </p>
-
               <label className="etiqueta-campo" htmlFor="pageId">
                 ID de la página
               </label>
@@ -463,86 +432,12 @@ export default function PaginasMeta({
               />
 
               <button type="submit" className="btn btn-secundario" disabled={ocupado}>
-                {ocupado ? "Comprobando con Meta…" : "Conectar con el token"}
+                {ocupado ? "Comprobando…" : "Conectar con el token"}
               </button>
             </form>
           </details>
-
-          <p className="tenue" style={{ marginTop: 12 }}>
-            Por cualquiera de los dos caminos, el token se comprueba contra Meta antes de guardarlo
-            y se guarda cifrado. La suscripción a los eventos se hace sola.
-          </p>
-        </section>
-      </div>
-
-      {/*
-        LA REGLA DEL PRECIO, EN PANTALLA.
-
-        Un anuncio sin producto es un hilo donde el agente NO cotiza: contesta
-        que le atiende una persona y se calla. Esta lista es donde eso se
-        arregla, y por eso vive aquí y no escondida en otra pantalla.
-      */}
-      <section className="tarjeta">
-        <h2 className="titulo-tarjeta" style={{ marginBottom: 4 }}>
-          Anuncios y sus productos
-        </h2>
-        <p className="tenue" style={{ marginBottom: 12 }}>
-          El precio sale del catálogo, nunca del modelo. Si un anuncio no tiene producto, el
-          agente no cotiza en esa conversación: la pasa a una persona.
-        </p>
-
-        {anuncios.length === 0 ? (
-          <Vacio
-            titulo="Todavía no ha llegado nadie por un anuncio"
-            texto="Cuando alguien escriba desde un anuncio, aparecerá aquí para que le digas qué producto es."
-          />
-        ) : (
-          <div style={{ overflowX: "auto" }}>
-            <table className="tabla">
-              <thead>
-                <tr>
-                  <th>Anuncio</th>
-                  <th>Producto del catálogo</th>
-                  <th style={{ textAlign: "right" }}>Estado</th>
-                </tr>
-              </thead>
-              <tbody>
-                {anuncios.map((a) => (
-                  <tr key={a.adId}>
-                    <td>
-                      <div style={{ fontWeight: 600 }}>{a.titulo ?? "Anuncio sin título"}</div>
-                      <div className="tenue num">{a.adId}</div>
-                    </td>
-                    <td>
-                      <select
-                        className="campo"
-                        value={a.productoId ?? ""}
-                        onChange={(e) =>
-                          vincular(a.adId, e.target.value ? Number(e.target.value) : null)
-                        }
-                      >
-                        <option value="">— sin vincular —</option>
-                        {productos.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.nombre}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td style={{ textAlign: "right" }}>
-                      <span
-                        className={`pastilla ${a.productoId ? "pastilla-ia" : "pastilla-revision"}`}
-                      >
-                        {a.productoId ? "Cotiza" : "No cotiza"}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
         )}
       </section>
-    </>
+    </div>
   );
 }

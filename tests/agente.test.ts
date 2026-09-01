@@ -5,6 +5,7 @@ import * as D from "../src/lib/db";
 import {
   armarSistema,
   atenderConversacion,
+  monedaAjena,
   dentroDeHorario,
   esperaDeCortesia,
   nombreDelNegocio,
@@ -1180,7 +1181,10 @@ test("el envío sale de la provincia del mapa, y sin tarifas no se inventa", asy
   // Y sin tarifas cargadas: prohibido decir un costo.
   const sinTarifas = bloqueDeEnvio(rd, { envio_cerca: null, envio_lejos: null }, "Santiago");
   assert.ok(sinTarifas.includes("NO TE LO INVENTES"));
-  assert.ok(!sinTarifas.includes("RD$"), "no puede salir ni una cifra");
+  // Nombra la moneda del país —para que reconozca un monto ajeno— pero no
+  // suelta ni un importe: eso es justo lo que no puede inventarse.
+  assert.match(sinTarifas, /peso dominicano/);
+  assert.doesNotMatch(sinTarifas, /RD\\$\\d/, "no puede salir ni una cifra");
 });
 
 /** Y el bloque llega al prompt con la cifra de este cliente. */
@@ -1194,4 +1198,52 @@ test("las tarifas cargadas entran en el prompt del agente", () => {
   D.actualizarAgente(orgId, { envio_cerca: null, envio_lejos: null }, canalId);
   const sin = armarSistema("Tienda", D.obtenerAgente(orgId, canalId), [], null);
   assert.ok(sin.includes("NO TE LO INVENTES"));
+});
+
+/**
+ * EL GUION DE OTRO PAÍS, QUE NO SE VE SOLO.
+ *
+ * Un número dominicano con el guion de la tienda de Panamá aplicado contesta,
+ * vende y cierra igual de bien —y en cada pedido cotiza el envío en US$5.00,
+ * que es el envío de Panamá—. Nadie lo nota hasta que un cliente lo repite en
+ * voz alta, y para entonces lleva semanas cobrando mal.
+ *
+ * La moneda es lo que lo delata, porque es lo que no se puede falsificar.
+ */
+test("un guion escrito en otra moneda se detecta", () => {
+  // El caso real: la plantilla de Panamá en un número que vende en pesos.
+  assert.equal(monedaAjena("El envío son US$5.00 siempre, en todo el país.", "DOP"), "dólares");
+  assert.equal(monedaAjena("Costo de envío: USD 5", "DOP"), "dólares");
+  assert.equal(monedaAjena("El envío son 5 dólares", "DOP"), "dólares");
+
+  // Un guion dominicano en un número dominicano no molesta a nadie.
+  assert.equal(monedaAjena("Envío RD$250 en Santo Domingo y RD$290 al interior.", "DOP"), null);
+
+  // En Panamá el dólar es de casa: allí no es un guion ajeno.
+  assert.equal(monedaAjena("El envío son US$5.00 siempre.", "PAB"), null);
+  // Pero los colones sí lo serían.
+  assert.equal(monedaAjena("El envío son ₡2.500", "PAB"), "colones");
+
+  // Y no salta con palabras que solo TERMINAN en esas letras.
+  assert.equal(monedaAjena("El estatus del pedido y el bus de la Duarte", "DOP"), null);
+});
+
+/** Y el panel del número lo dice, que es donde se mira antes de encender. */
+test("el panel avisa de que ese número lleva el guion de otro país", () => {
+  D.actualizarAgente(orgId, { pais: "do", instrucciones: "El envío son US$5.00 siempre." }, canalId);
+
+  const revision = revisarAgente(orgId, canalId);
+  const aviso = revision.avisos.find((a) => a.includes("dólares"));
+
+  assert.ok(aviso, "tiene que avisar de que el guion habla de otra moneda");
+  assert.ok(aviso.includes("COSTO DE ENVÍO"), "y señalar lo que más caro sale");
+
+  // Con el guion de su país, ni una palabra.
+  D.actualizarAgente(orgId, { instrucciones: "Envío RD$250 en Santo Domingo." }, canalId);
+  assert.equal(
+    revisarAgente(orgId, canalId).avisos.some((a) => a.includes("dólares")),
+    false,
+  );
+
+  D.actualizarAgente(orgId, { instrucciones: "" }, canalId);
 });
