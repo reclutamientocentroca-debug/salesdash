@@ -35,22 +35,42 @@ import { paisDeTelefono } from "./paises";
  * había nada roto que mirar. El análisis de ventas, con el mismo modelo por
  * defecto, tampoco extraía un pedido.
  *
- * El agente escribe a los clientes y es lo que decide si una venta se cierra:
- * ahí va el mejor. El análisis lee un hilo ya cerrado y saca producto, total y
- * envío —trabajo estructurado y de volumen—, así que va uno más barato que lo
- * hace igual de bien. Ninguno de los dos es gratuito a propósito: los modelos
- * gratuitos tienen cupo diario y enmudecen a media tarde, que es exactamente el
- * fallo que no se puede tener en un número que atiende clientes.
+ * El agente escribe a los clientes y el analista lee un hilo ya cerrado para
+ * sacar producto, total y envío. Los dos van con el MISMO modelo pequeño, y no
+ * por ahorrar a ciegas: lo que se le pide al agente son mensajes de WhatsApp de
+ * dos líneas con las reglas del negocio delante, no literatura. Con uno grande
+ * la factura de un número que atiende todo el día se dispara sin que la venta se
+ * cierre mejor.
+ *
+ * Ninguno es gratuito a propósito: los modelos gratuitos tienen cupo diario y
+ * enmudecen a media tarde, que es exactamente el fallo que no se puede tener en
+ * un número que atiende clientes.
  *
  * El respaldo es la red: si el principal falla o topa su límite, `ia.ts` lo
  * intenta una vez con este antes de rendirse.
  */
-export const MODELO_AGENTE = "anthropic/claude-opus-5";
-export const MODELO_RESPALDO = "anthropic/claude-sonnet-5";
-export const MODELO_ANALISIS = "anthropic/claude-sonnet-5";
+export const MODELO_AGENTE = "openai/gpt-4o-mini";
+export const MODELO_ANALISIS = "openai/gpt-4o-mini";
 /** Para leer imágenes: facturas, comprobantes y la creatividad del anuncio. */
 export const MODELO_VISION = "openai/gpt-4o-mini";
-/** Para oír las notas de voz. Bastantes menos modelos oyen que ven. */
+/**
+ * EL RESPALDO ES DE OTRA CASA A PROPÓSITO.
+ *
+ * Un respaldo solo entra cuando el principal falla o topa su límite, y si es el
+ * mismo modelo —o del mismo proveedor— falla con él: cuando OpenAI se cae, se
+ * cae para los dos. Este cuesta más por mensaje y da igual, porque en un día
+ * normal no manda ni uno; lo que paga es la venta que no se pierde la tarde que
+ * el principal deja de contestar.
+ */
+export const MODELO_RESPALDO = "anthropic/claude-sonnet-5";
+/**
+ * Para oír las notas de voz, y NO es el de todo lo demás.
+ *
+ * `gpt-4o-mini` lee imágenes pero no oye: mandarle un audio devuelve un error, y
+ * la nota de voz del cliente se quedaría en «[nota de voz]» sin que nadie
+ * entendiera por qué. Bastantes menos modelos oyen que ven, así que este se
+ * queda donde está.
+ */
 export const MODELO_AUDIO = "google/gemini-3.5-flash-lite";
 
 /** El que se retiró. Solo lo usa la migración, para saber a quién rescatar. */
@@ -987,6 +1007,28 @@ function migrar(conexion: DB): void {
     conexion.prepare(`UPDATE orgs SET modelo_analisis = ? WHERE modelo_analisis = ?`)
       .run(MODELO_ANALISIS, MODELO_RETIRADO);
     conexion.exec(`PRAGMA user_version = 5`);
+  }
+
+  /*
+   * MENOS GASTO POR MENSAJE, sin tocar lo que alguien haya elegido.
+   *
+   * El agente y el analista corrían con los modelos grandes de Anthropic, que
+   * contestan de maravilla y cuestan lo suyo en un número que atiende todo el
+   * día. Con `gpt-4o-mini` la factura baja un orden de magnitud y la venta se
+   * cierra igual: son mensajes de WhatsApp de dos líneas, no literatura.
+   *
+   * Se mueve SOLO a quien tenía el valor por defecto, que es quien nunca eligió
+   * nada. Al que entró en Agente y puso su modelo no se le toca: eligió, y esto
+   * no es una corrección de un error suyo. Va detrás de `user_version` porque
+   * esto corre en cada arranque, y sin la marca le desharíamos mañana el cambio
+   * al que hoy prefiera volver a Opus.
+   */
+  if (version < 6) {
+    conexion.prepare(`UPDATE agentes SET modelo = ? WHERE modelo = ?`)
+      .run(MODELO_AGENTE, "anthropic/claude-opus-5");
+    conexion.prepare(`UPDATE orgs SET modelo_analisis = ? WHERE modelo_analisis = ?`)
+      .run(MODELO_ANALISIS, "anthropic/claude-sonnet-5");
+    conexion.exec(`PRAGMA user_version = 6`);
   }
 
   // anomalies: las anomalías de canal no tienen conversación.

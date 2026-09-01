@@ -1422,3 +1422,36 @@ test("el primer mensaje de venta sale de la descripción del anuncio", () => {
   assert.ok(prompt.includes("Ni una línea más"), "sin listas de características");
   assert.ok(prompt.includes("Incluye sábana, ajustable y 2 fundas"), "y con lo que el anuncio dice");
 });
+
+/**
+ * UN ARTÍCULO QUE NO CONOCE SE PASA, NO SE IMPROVISA.
+ *
+ * Es el momento en que un agente hace más daño: el cliente pregunta por algo
+ * que no está en ningún sitio, y contestar «déjame ver» para volver con un
+ * precio inventado promete algo que el negocio no puede sostener —y el cliente
+ * ya lo leyó—. Pasar el chat es peor experiencia y mejor negocio.
+ */
+test("lo que no conoce se pasa a un representante, con su etiqueta", () => {
+  const prompt = armarSistema("Tienda", D.obtenerAgente(orgId, canalId), [], null);
+
+  assert.ok(prompt.includes("UN ARTÍCULO DEL QUE NO SABES NADA SE PASA A UN REPRESENTANTE"));
+  assert.ok(prompt.includes("[HANDOFF]"), "y con la etiqueta que avisa al equipo");
+  assert.ok(
+    prompt.includes("no inventes colores ni medidas"),
+    "ni precio, ni colores, ni medidas de algo que no tiene delante",
+  );
+
+  // Y no se confunde con un dato que falta de algo que sí vende: eso se
+  // confirma, no se transfiere.
+  assert.ok(prompt.includes("cuando lo que no conoces es EL ARTÍCULO"));
+});
+
+/** La etiqueta llega hasta el final: se quita del mensaje y marca el hilo. */
+test("la etiqueta del representante no le llega al cliente", () => {
+  const salida = leerEtiquetaDeAsesor(
+    "Con mucho gusto le paso con un representante que le atiende eso.\n[HANDOFF]",
+  );
+
+  assert.equal(salida.pideAsesor, true);
+  assert.equal(salida.texto, "Con mucho gusto le paso con un representante que le atiende eso.");
+});
