@@ -1046,8 +1046,13 @@ test("la plantilla dominicana cobra en pesos y pide sector y provincia", async (
   assert.ok(rd.instrucciones.includes("NO LLEVAN TALLA NI COLOR"));
   assert.ok(!rd.instrucciones.includes("S, M, L, XL"), "esa tabla no es de aquí");
 
-  // Y aquí no se aparta mercancía.
+  // Y aquí no se aparta mercancía ni se manda un muestrario.
   assert.ok(rd.instrucciones.includes("AQUI NO SE RESERVA NADA"));
+  assert.ok(rd.instrucciones.includes("NO SE MANDAN DOS PARA PROBAR"));
+  assert.ok(
+    rd.instrucciones.includes("Mandame dos para medirme"),
+    "y tiene contestación preparada para cuando lo pidan",
+  );
 
   // El dueño tiene que ver, antes de aplicarla, de dónde salen esos montos.
   assert.ok(rd.descripcion.includes("RD$250"));
