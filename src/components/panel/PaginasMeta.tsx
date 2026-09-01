@@ -172,6 +172,41 @@ export default function PaginasMeta({
     ventana.focus();
   }
 
+  /**
+   * Encender o apagar la IA en esta página.
+   *
+   * Es la misma ruta que usa Números para un WhatsApp, así que la regla de «por
+   * canal contesta uno solo» se aplica igual: encender el agente apaga el modo
+   * vigilar, y apagarlo lo devuelve. No se duplica aquí ninguna decisión.
+   */
+  async function alternarAgente(id: number, activo: boolean) {
+    setOcupado(true);
+    setError(null);
+
+    const r = await fetch(`/api/canales/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ agente_activo: activo }),
+    });
+    const datos = await r.json().catch(() => ({}));
+    setOcupado(false);
+
+    if (!r.ok) {
+      setError(datos.error ?? "No se pudo cambiar quién contesta en esta página.");
+      return;
+    }
+
+    /*
+     * Se contesta con el estado REAL del agente, no con un «guardado»: puede
+     * faltar la clave del modelo o el país, y quien acaba de encenderlo tiene
+     * que enterarse ahora y no cuando un cliente se quede sin respuesta.
+     */
+    const impedimento = datos.agente?.impedimentos?.[0];
+    if (activo && impedimento) setError(impedimento);
+
+    router.refresh();
+  }
+
   async function conectarElegida(elegida: string) {
     setOcupado(true);
     setError(null);
@@ -279,12 +314,41 @@ export default function PaginasMeta({
                   </span>
                 </span>
 
-                {/* El agente se enciende donde se encienden todos: en Números.
-                    Aquí solo se dice si está, para no partir el interruptor en
-                    dos sitios que puedan contradecirse. */}
-                <span className={`pastilla ${p.agenteActivo ? "pastilla-ia" : "pastilla-abierta"}`}>
+                {/*
+                  EL AGENTE SE ENCIENDE AQUÍ, en la página, y no en otra
+                  pantalla. Estaba en Números —donde viven los WhatsApp— y a una
+                  página de Facebook no se llega por ahí: quien conectaba una
+                  página se quedaba con la bandeja llena y sin forma de decirle
+                  a la IA que contestara.
+
+                  Encenderlo aquí es lo mismo que encenderlo allí: la misma
+                  ruta, la misma regla de que por canal contesta uno solo.
+                */}
+                <button
+                  type="button"
+                  className={`btn ${p.agenteActivo ? "btn-acento" : "btn-secundario"}`}
+                  disabled={ocupado}
+                  aria-pressed={p.agenteActivo}
+                  onClick={() => alternarAgente(p.id, !p.agenteActivo)}
+                  title={
+                    p.agenteActivo
+                      ? "La IA contesta los mensajes de esta página"
+                      : "El panel solo mira: nadie contesta desde aquí"
+                  }
+                >
                   {p.agenteActivo ? "Responde la IA" : "Solo mira"}
-                </span>
+                </button>
+
+                {/* Y su guion, que es donde se le pone el país. Cada página
+                    tiene el suyo, como cada número. */}
+                <a
+                  className="btn btn-tenue"
+                  style={{ textDecoration: "none" }}
+                  href={`/agente?canal=${p.id}`}
+                  title="El país, el guion y el modelo de esta página"
+                >
+                  Su agente
+                </a>
 
                 <button
                   type="button"

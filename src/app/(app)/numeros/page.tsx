@@ -15,7 +15,15 @@ export default async function PaginaNumeros() {
    * pantalla desapareció con el proveedor, y con ella el riesgo de filtrar un
    * token por la interfaz.
    */
-  const canales = listarCanales(ctx.orgId).map((c) => ({
+  /*
+   * SOLO LOS WHATSAPP. Una página de Facebook es un canal más para el resto del
+   * panel, pero aquí no pinta nada: no tiene QR que escanear, ni historial que
+   * pedirle al teléfono, ni sesión que reconectar. Se conecta y se enciende en
+   * Messenger, que es donde vive.
+   */
+  const canales = listarCanales(ctx.orgId)
+    .filter((c) => c.tipo !== "meta")
+    .map((c) => ({
     id: c.id,
     nombre: c.nombre,
     phone: c.phone.startsWith("pendiente:") ? null : c.phone,

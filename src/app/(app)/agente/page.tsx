@@ -86,6 +86,7 @@ export default async function PaginaAgente() {
           agente_activo: c.agente_activo === 1,
           contesta_ia: c.contesta_ia === 1,
           conectado: c.estado === "conectado",
+          tipo: c.tipo,
           negocio: c.negocio,
           /*
            * El agente de ESTE número. Se pide aquí y no en el cliente porque

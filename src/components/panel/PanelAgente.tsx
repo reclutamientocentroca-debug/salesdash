@@ -62,6 +62,8 @@ interface CanalAgente {
   /** En este número contesta una IA ajena: el nuestro se calla, esté como esté. */
   contesta_ia: boolean;
   conectado: boolean;
+  /** 'whatsapp' o 'meta'. Una página no tiene teléfono que enseñar. */
+  tipo: string;
   /** Cómo se presenta este número: el nombre de su perfil de WhatsApp. */
   negocio: string | null;
   revision: RevisionAgente;
@@ -230,11 +232,21 @@ export default function PanelAgente({
   const [plantilla, setPlantilla] = useState(plantillaInicial);
 
   /*
-   * Se abre por el primer canal conectado, no por la plantilla. Quien entra
-   * aquí viene a tocar un número suyo; la plantilla es para cuando no hay
-   * ninguno, o para dejar preparado lo que heredará el siguiente.
+   * Se abre por el canal que pida la dirección —«/agente?canal=7», que es a
+   * donde lleva el botón «Su agente» de una página de Messenger— y si no, por
+   * el primero. Sin eso, quien viene a configurar una página concreta aterriza
+   * en otra y cambia el guion equivocado.
+   *
+   * La plantilla es para cuando no hay ningún canal, o para dejar preparado lo
+   * que heredará el siguiente.
    */
-  const [seleccion, setSeleccion] = useState<number>(canalesIniciales[0]?.id ?? PLANTILLA);
+  const [seleccion, setSeleccion] = useState<number>(() => {
+    if (typeof window !== "undefined") {
+      const pedido = Number(new URLSearchParams(window.location.search).get("canal"));
+      if (pedido && canalesIniciales.some((c) => c.id === pedido)) return pedido;
+    }
+    return canalesIniciales[0]?.id ?? PLANTILLA;
+  });
 
   const [modelos, setModelos] = useState<Modelo[]>([]);
   const [guardando, setGuardando] = useState(false);
@@ -488,7 +500,13 @@ export default function PanelAgente({
                   <span aria-hidden>{suPais?.bandera ?? "🌐"}</span>
                   {c.nombre}
                 </span>
-                <span className="num tenue">{c.phone ? `+${c.phone}` : "sin vincular"}</span>
+                <span className="num tenue">
+                  {c.tipo === "meta"
+                    ? "Página de Facebook"
+                    : c.phone
+                      ? `+${c.phone}`
+                      : "sin vincular"}
+                </span>
                 <span
                   className={`pastilla ${c.agente_activo && !c.contesta_ia ? "pastilla-ia" : "pastilla-abierta"}`}
                   style={{ justifySelf: "start", marginTop: 3 }}
@@ -560,7 +578,11 @@ export default function PanelAgente({
                   Que el agente conteste en {canal.nombre}
                 </div>
                 <div className="num tenue">
-                  {canal.phone ? `+${canal.phone}` : "sin vincular"}
+                  {canal.tipo === "meta"
+                    ? "Página de Facebook"
+                    : canal.phone
+                      ? `+${canal.phone}`
+                      : "sin vincular"}
                   {!canal.conectado && " · desconectado"}
                   {canal.contesta_ia && " · aquí contesta tu IA, el panel solo mira"}
                 </div>
