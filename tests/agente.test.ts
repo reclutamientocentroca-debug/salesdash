@@ -1152,6 +1152,15 @@ test("el prompt pide mensajes limpios y no inventa variantes", () => {
     prompt.includes("¿necesita algo más?"),
     "y cuando está cerrada, se cierra: esa pregunta la vuelve a abrir",
   );
+
+  /*
+   * Lo que separa a una tienda seria de un bot con buenos modales. El cliente
+   * está a punto de darle su dirección a alguien que no conoce, y lo único que
+   * tiene para juzgarlo es cómo le escribe.
+   */
+  assert.ok(prompt.includes("ESCRIBE BIEN"), "con tildes y puntos");
+  assert.ok(prompt.includes("NO EMPIECES DOS MENSAJES SEGUIDOS IGUAL"), "sin «Perfecto» en bucle");
+  assert.ok(prompt.includes("NADA DE FRASES DE FORMULARIO"), "ni «estamos para servirle»");
   assert.ok(prompt.includes("PREGUNTA SOLO LO QUE ESTE PEDIDO NECESITA"));
   assert.ok(prompt.includes("no preguntes la talla"), "si el artículo no la lleva");
 
