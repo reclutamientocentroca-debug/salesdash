@@ -30,10 +30,11 @@ import { generarRespuesta, partirEnMensajes } from "../src/lib/agent";
 import { PLANTILLAS } from "../src/lib/plantillas";
 
 /** Qué le escribe el cliente, en orden, en cada país. */
-const GUIONES: Record<string, { anuncio: string; precio: string; dice: string[] }> = {
+const GUIONES: Record<string, { anuncio: string; precio: string; describe: string; dice: string[] }> = {
   do: {
     anuncio: "Set de sábanas 2 plazas",
     precio: "RD$2,500",
+    describe: "Set de sábanas 2 plazas en microfibra. Incluye 1 sábana, 1 ajustable y 2 fundas. Paga al recibir.",
     dice: [
       "Hola, vi el anuncio de las sábanas, ¿cuánto es?",
       "¿y el envío? soy de Santiago",
@@ -45,6 +46,7 @@ const GUIONES: Record<string, { anuncio: string; precio: string; dice: string[] 
   cr: {
     anuncio: "Set de sábanas 2 plazas",
     precio: "₡25.000",
+    describe: "Set de sábanas 2 plazas en microfibra. Incluye 1 sábana, 1 ajustable y 2 fundas.",
     dice: [
       "Hola, vi el anuncio de las sábanas, ¿cuánto vale?",
       "¿y el envío? soy de Heredia",
@@ -56,6 +58,7 @@ const GUIONES: Record<string, { anuncio: string; precio: string; dice: string[] 
   pa: {
     anuncio: "Mocasines de cuero",
     precio: "US$30",
+    describe: "Mocasines de cuero genuino, suela antideslizante. Tallas de la 39 a la 45.",
     dice: [
       "Hola, vi el anuncio de los mocasines, ¿cuánto es?",
       "talla 42, color chocolate",
@@ -120,7 +123,7 @@ async function main() {
       instrucciones: PLANTILLAS.find((p) => p.clave === clave)!.instrucciones,
       envio_cerca: tarifas.cerca,
       envio_lejos: tarifas.lejos,
-      conocimiento: `${guion.anuncio}: ${guion.precio}.`,
+      conocimiento: `${guion.anuncio}: ${guion.precio}. ${guion.describe}`,
     },
     canalId,
   );
@@ -133,7 +136,7 @@ async function main() {
   const anuncio = {
     origen: "anuncio",
     producto_anuncio: guion.anuncio,
-    descripcion_anuncio: `${guion.anuncio} por ${guion.precio}. Pago al recibir.`,
+    descripcion_anuncio: `${guion.describe} ${guion.precio}.`,
   };
 
   const cliente = { telefono: "18095551234", nombre: "Yazmin" };

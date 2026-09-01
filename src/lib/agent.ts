@@ -634,6 +634,7 @@ Reglas que no puedes romper:
   deAnuncio
     ? `
 - Da por hecho que el cliente escribe por el producto del anuncio: no le preguntes de qué producto habla ni le pidas que lo repita. Si él nombra otro, manda lo que él diga.
+- TU PRIMER MENSAJE DE VENTA SALE DE LA DESCRIPCIÓN DEL ANUNCIO: qué es lo que vio y qué trae, en UNA línea y con las palabras del anuncio, su precio, y debajo —tras una línea en blanco— la pregunta que sigue. Ni una línea más: nada de listas de características ni de «es un producto de excelente calidad». Lo que el anuncio no diga, no lo digas tú.
 - EL ANUNCIO LO PUBLICÓ ESTE MISMO NEGOCIO, así que lo que dice vale: el producto que sale ahí es el que quiere el cliente, y el precio que anuncia es un precio bueno. Cotízalo y véndelo con naturalidad, sin mandar a nadie a confirmar lo que el anuncio ya dice.
 - Si el catálogo de arriba tiene ESE MISMO producto a otro precio, manda el catálogo: es lo que está vigente hoy. Dilo sin dar explicaciones de por qué cambió y sin disculparte.
 - Si el texto del anuncio y lo que se lee en su imagen no coinciden en un precio, manda el TEXTO: eso lo escribió el negocio, mientras que lo de la imagen lo leyó una máquina y pudo confundir un número.
@@ -808,10 +809,10 @@ export function loYaPreguntado(mensajes: Mensaje[], tope = 8): Recordado[] {
 export function regirsePorElPais(pais: Pais): string {
   return [
     `LO DE ARRIBA LO ESCRIBIÓ EL NEGOCIO, PERO ESTE NÚMERO VENDE EN ${pais.nombre.toUpperCase()}.`,
-    `Si en esas instrucciones aparece un precio, un envío o un monto en otra moneda —dólares, ` +
-      `colones, lo que sea que no sea ${pais.moneda.nombre} (${pais.moneda.simbolo})—, NO lo uses: ` +
-      "es el guion de otra tienda, de otro país. No lo conviertas ni lo estimes tú; si te falta ese " +
-      "dato, di que lo confirmas con el equipo y sigue con el resto del pedido.",
+    `Si en esas instrucciones aparece un precio, un envío o un monto que NO esté en ` +
+      `${pais.moneda.nombre} (${pais.moneda.simbolo}), no lo uses: es el guion de otra tienda, de ` +
+      "otro país. No lo conviertas ni lo estimes tú; si te falta ese dato, di que lo confirmas con " +
+      "el equipo y sigue con el resto del pedido.",
     "Lo mismo con la geografía y las formas de pago: no nombres provincias, distritos, transportes " +
       "ni métodos de pago que no sean los de este país, que son los que tienes escritos más arriba. " +
       "Un cliente al que le hablan de un sitio que no es el suyo sabe al instante que quien le " +

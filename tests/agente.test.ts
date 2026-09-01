@@ -1346,3 +1346,75 @@ test("el cierre exige los datos que pide cada país", () => {
 
   D.actualizarAgente(orgId, { pais: "do" }, canalId);
 });
+
+/**
+ * CADA PAÍS, SU AGENTE, Y NADA DEL VECINO.
+ *
+ * Tres números de la misma cuenta son tres vendedores distintos: cada uno con
+ * su moneda, su forma de dar una dirección, su forma de cobrar y su envío. Lo
+ * que no puede pasar es que se mezclen —que el tico hable de pesos, que el
+ * dominicano pregunte por un corregimiento— porque el cliente lo nota en el
+ * primer mensaje: sabe que quien le escribe no está donde dice estar.
+ *
+ * Esto lo comprueba en el prompt entero, que es lo que de verdad lee el modelo:
+ * el país, el guion, el envío y las reglas de cierre juntos.
+ */
+test("el prompt de un país no lleva nada de los otros dos", async () => {
+  const { PLANTILLAS } = await import("../src/lib/plantillas");
+
+  /** Lo que delata a otro país: su dinero y su geografía. */
+  const ajeno: Record<string, RegExp[]> = {
+    do: [/₡/, /colones/i, /SINPE/i, /corregimiento/i, /US\$/, /Yappy/i],
+    cr: [/RD\$/, /pesos dominicanos/i, /corregimiento/i, /Caribe Express/i, /US\$/, /Yappy/i],
+    pa: [/₡/, /colones/i, /SINPE/i, /RD\$/, /Caribe Express/i, /Vimenca/i],
+  };
+
+  /** Y lo que tiene que estar, porque es lo suyo. */
+  const propio: Record<string, RegExp[]> = {
+    do: [/RD\$/, /sector/i, /Caribe Express/i],
+    cr: [/₡|colon/i, /cant[óo]n/i, /SINPE/i],
+    pa: [/corregimiento/i],
+  };
+
+  for (const p of PLANTILLAS) {
+    D.actualizarAgente(
+      orgId,
+      {
+        pais: p.pais,
+        instrucciones: p.instrucciones,
+        envio_cerca: 100,
+        envio_lejos: 200,
+      },
+      canalId,
+    );
+
+    const prompt = armarSistema(
+      "Tienda",
+      D.obtenerAgente(orgId, canalId),
+      [],
+      { origen: "anuncio", producto_anuncio: "Set de sábanas", descripcion_anuncio: "Un set" },
+    );
+
+    for (const marca of ajeno[p.pais]!) {
+      assert.doesNotMatch(prompt, marca, `${p.pais}: se le coló ${marca} de otro país`);
+    }
+    for (const marca of propio[p.pais]!) {
+      assert.match(prompt, marca, `${p.pais}: le falta lo suyo (${marca})`);
+    }
+  }
+
+  D.actualizarAgente(orgId, { pais: "do", instrucciones: "", envio_cerca: null, envio_lejos: null }, canalId);
+});
+
+/** Y la apertura sale del anuncio: qué vio y qué trae, en una línea. */
+test("el primer mensaje de venta sale de la descripción del anuncio", () => {
+  const prompt = armarSistema("Tienda", D.obtenerAgente(orgId, canalId), [], {
+    origen: "anuncio",
+    producto_anuncio: "Set de sábanas 2 plazas",
+    descripcion_anuncio: "Incluye sábana, ajustable y 2 fundas.",
+  });
+
+  assert.ok(prompt.includes("TU PRIMER MENSAJE DE VENTA SALE DE LA DESCRIPCIÓN DEL ANUNCIO"));
+  assert.ok(prompt.includes("Ni una línea más"), "sin listas de características");
+  assert.ok(prompt.includes("Incluye sábana, ajustable y 2 fundas"), "y con lo que el anuncio dice");
+});

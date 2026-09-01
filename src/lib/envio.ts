@@ -121,9 +121,8 @@ export function bloqueDeEnvio(
         "escrito en ninguno de los dos, NO TE LO INVENTES ni lo estimes: dile al cliente que le " +
         "confirmas el costo del envío en un momento y sigue con el resto del pedido.",
       `Y desconfía de un monto de envío escrito en OTRA MONEDA: aquí se cobra en ` +
-        `${pais.moneda.nombre} (${pais.moneda.simbolo}). Un envío en dólares, en colones o en ` +
-        "cualquier moneda que no sea esta es de un guion de otro país y NO vale para este cliente: " +
-        "no lo uses, di que confirmas el costo.",
+        `${pais.moneda.nombre} (${pais.moneda.simbolo}), y un importe que no esté en esa moneda es ` +
+        "de un guion de otro país. No vale para este cliente: no lo uses y di que confirmas el costo.",
     ].join("\n");
   }
 
