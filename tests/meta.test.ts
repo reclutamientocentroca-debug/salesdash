@@ -470,3 +470,63 @@ test("un anuncio ya intentado sale de la cola, aunque no se pudiera describir", 
   const prompt = anuncioParaPrompt(resolverAnuncio(orgId, "ad_cola", "Algo"));
   assert.equal(prompt.includes("sin describir"), false);
 });
+
+// ── Entrar con Facebook ─────────────────────────────────────────────────────
+
+/**
+ * LA MEMORIA CORTA ENTRE ELEGIR Y CONECTAR ES UNA FRONTERA DE CUENTAS.
+ *
+ * El PUT que conecta una página NO acepta un token: lo saca de esta memoria,
+ * buscándolo por el `orgId` de la sesión. Eso es lo que impide que alguien
+ * conecte la página de otro mandando un token suyo. Si la memoria se leyera sin
+ * mirar la cuenta, esa garantía se cae entera y el `orgId` de la sesión no
+ * serviría de nada.
+ */
+test("las páginas recordadas de una cuenta no se ven desde otra", async () => {
+  const { olvidarPaginas, paginaRecordada, recordarPaginas } = await import("../src/lib/meta/login");
+
+  const pagina = {
+    pageId: "555000111222333",
+    nombre: "Tienda de A",
+    igUserId: null,
+    token: "token-de-pagina-de-A",
+  };
+
+  recordarPaginas(1, [pagina]);
+
+  // La suya, con su token, para que `conectarPagina` pueda usarlo.
+  assert.equal(paginaRecordada(1, pagina.pageId)?.token, "token-de-pagina-de-A");
+
+  // La de otra cuenta: nada. Ni sabiendo el identificador de la página.
+  assert.equal(paginaRecordada(2, pagina.pageId), null);
+
+  // Una página que esa cuenta no eligió tampoco sale.
+  assert.equal(paginaRecordada(1, "999888777666555"), null);
+
+  // Y en cuanto se conecta, el token deja de estar en memoria: un token que no
+  // hace falta guardar es un token que no se puede filtrar.
+  olvidarPaginas(1);
+  assert.equal(paginaRecordada(1, pagina.pageId), null);
+});
+
+/**
+ * Sin las claves de la app en el servidor no se sale a la red: se dice qué
+ * falta. Ese es justo el fallo que deja al dueño mirando una ventana que se
+ * cierra sola sin explicar nada.
+ */
+test("sin META_APP_ID o META_APP_SECRET no se intenta hablar con Meta", async () => {
+  const { intercambiarCodigo } = await import("../src/lib/meta/login");
+
+  const antesId = process.env.META_APP_ID;
+  const antesSecreto = process.env.META_APP_SECRET;
+  delete process.env.META_APP_ID;
+  delete process.env.META_APP_SECRET;
+
+  await assert.rejects(
+    () => intercambiarCodigo("un-codigo-cualquiera-de-la-ventana"),
+    /META_APP_ID o META_APP_SECRET/,
+  );
+
+  if (antesId !== undefined) process.env.META_APP_ID = antesId;
+  if (antesSecreto !== undefined) process.env.META_APP_SECRET = antesSecreto;
+});
