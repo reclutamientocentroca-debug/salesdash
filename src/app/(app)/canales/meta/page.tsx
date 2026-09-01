@@ -113,11 +113,27 @@ export default async function PaginaMeta() {
         </div>
       )}
 
+      {/*
+        LA URL DE VUELTA, que es el paso donde se atasca la conexión.
+        El botón lleva a facebook.com y Facebook devuelve al dueño a esta
+        dirección. Si no está dada de alta en la app, Meta corta con «URL
+        bloqueada» y el dueño ve una pantalla de error de Facebook sin saber qué
+        hacer. Solo se le enseña a quien administra la plataforma: es lo único
+        que puede arreglarlo, y a un dueño de tienda esto no le dice nada.
+      */}
+      {ctx.superadmin && appId && (
+        <div className="aviso" role="status" style={{ marginBottom: 14 }}>
+          En la app de Meta, en <strong>Inicio de sesión con Facebook → Configuración</strong>, la
+          lista de «URI de redireccionamiento de OAuth válidos» tiene que incluir exactamente esta:
+          <br />
+          <span className="num">{(process.env.APP_URL ?? "").replace(/\/$/, "")}/api/meta/oauth/volver</span>
+        </div>
+      )}
+
       <PaginasMeta
         paginas={paginas}
         appId={appId}
         configId={(process.env.META_LOGIN_CONFIG_ID ?? "").trim() || null}
-        graphVersion={process.env.META_GRAPH_VERSION || "v23.0"}
         avanzado={ctx.superadmin}
       />
 

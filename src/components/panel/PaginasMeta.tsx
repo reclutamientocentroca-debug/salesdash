@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Vacio, hace } from "@/components/panel/Piezas";
 
@@ -20,50 +20,21 @@ interface Disponible {
   conectada: boolean;
 }
 
-/*
- * ─── EL SDK DE FACEBOOK ───
- *
- * Se declara solo lo que se usa. El SDK trae decenas de funciones y tiparlo
- * entero sería inventarse un contrato que no controlamos; con esto TypeScript
- * comprueba lo único que llamamos.
- */
-interface RespuestaLogin {
-  authResponse?: { code?: string; accessToken?: string } | null;
-  status?: string;
-}
-
-interface SdkFacebook {
-  init(opciones: { appId: string; version: string; xfbml: boolean; cookie: boolean }): void;
-  login(cb: (r: RespuestaLogin) => void, opciones: Record<string, unknown>): void;
-}
-
-declare global {
-  interface Window {
-    FB?: SdkFacebook;
-    fbAsyncInit?: () => void;
-  }
-}
-
-/**
- * Los permisos del camino de respaldo.
- *
- * Solo se usan cuando NO hay configuración de Business Login: con ella, los
- * permisos y los activos los decide esa configuración en el panel de Meta, que
- * es lo que hace que la ventana enseñe el selector de páginas.
- */
-const PERMISOS = [
-  "pages_show_list",
-  "pages_messaging",
-  "pages_manage_metadata",
-  "pages_read_engagement",
-  "pages_manage_engagement",
-].join(",");
-
 /**
  * Conectar páginas de Facebook.
  *
- * Dos caminos hacia lo mismo. El botón abre la ventana de Meta y el token no
- * pasa por el navegador: la ventana devuelve un código y el servidor lo cambia.
+ * EL BOTÓN LLEVA A FACEBOOK, no abre una ventanita. El dueño pulsa, va a
+ * facebook.com con la sesión que ya tiene abierta, elige ahí la página en la
+ * pantalla de Meta —la misma que ya conoce de conectar cualquier otra
+ * herramienta— y vuelve al panel con la lista lista para elegir.
+ *
+ * Antes esto era el SDK de Facebook y una ventana emergente. Se cayó por lo de
+ * siempre: medio navegador de móvil bloquea los popups, y cuando lo bloquea no
+ * pasa NADA —el dueño pulsa el botón azul y se queda mirando una pantalla que
+ * no se mueve, sin un error que enseñar porque no hubo error—. De paso se van
+ * doscientos kilobytes de JavaScript de un tercero y sus cookies del dominio
+ * del panel.
+ *
  * Pegar el identificador y el token a mano sigue estando, pero solo lo ve quien
  * administra la plataforma: a un dueño de tienda esa pantalla no le dice nada y
  * le da una forma nueva de equivocarse.
@@ -72,13 +43,11 @@ export default function PaginasMeta({
   paginas,
   appId,
   configId,
-  graphVersion,
   avanzado,
 }: {
   paginas: PaginaMeta[];
   appId: string | null;
   configId: string | null;
-  graphVersion: string;
   /** Enseña el camino manual. Reservado a quien administra la plataforma. */
   avanzado: boolean;
 }) {
@@ -90,96 +59,48 @@ export default function PaginasMeta({
   const [error, setError] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
 
-  const [sdkListo, setSdkListo] = useState(false);
   const [disponibles, setDisponibles] = useState<Disponible[] | null>(null);
+  const [cargando, setCargando] = useState(false);
 
   /*
-   * El SDK se carga una sola vez y solo si hay app configurada. Sin appId el
-   * botón no se enseña, así que tampoco hay nada que cargar: pedir un script a
-   * Facebook en una instalación que no usa Meta es tráfico y es un tercero
-   * mirando, los dos a cambio de nada.
+   * LA VUELTA DE FACEBOOK.
+   *
+   * El servidor deja las páginas en su memoria y manda al panel con `?elegir=1`
+   * —o con un `?error=` si el dueño canceló o Meta se quejó—. La lista no viaja
+   * por la dirección del navegador: enseñar en la barra qué páginas administra
+   * alguien no aporta nada y se queda en su historial. Se pide aquí, con su
+   * sesión.
    */
   useEffect(() => {
-    if (!appId || typeof window === "undefined") return;
+    const q = new URLSearchParams(window.location.search);
+    const problema = q.get("error");
+    const elegir = q.get("elegir") === "1";
 
-    if (window.FB) {
-      setSdkListo(true);
+    if (!problema && !elegir) return;
+
+    // La dirección se limpia en cuanto se lee: recargar no puede repetir un
+    // error viejo ni volver a abrir un selector que ya se usó.
+    window.history.replaceState({}, "", window.location.pathname);
+
+    if (problema) {
+      setError(problema);
       return;
     }
 
-    if (document.getElementById("fb-sdk")) return;
-
-    window.fbAsyncInit = () => {
-      window.FB?.init({ appId, version: graphVersion, xfbml: false, cookie: false });
-      setSdkListo(true);
-    };
-
-    const s = document.createElement("script");
-    s.id = "fb-sdk";
-    s.async = true;
-    s.defer = true;
-    s.crossOrigin = "anonymous";
-    s.src = "https://connect.facebook.net/es_LA/sdk.js";
-    document.body.appendChild(s);
-  }, [appId, graphVersion]);
-
-  /** Manda a nuestro servidor lo que devolvió la ventana y pide las páginas. */
-  const pedirPaginas = useCallback(async (datos: { code?: string; token?: string }) => {
-    setOcupado(true);
-    setError(null);
-    setAviso(null);
-
-    try {
-      const r = await fetch("/api/meta/oauth", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(datos),
-      });
-      const cuerpo = await r.json();
-
-      if (!r.ok) {
-        setError(cuerpo.error ?? "Facebook no devolvió tus páginas");
-        return;
-      }
-
-      setDisponibles(cuerpo.paginas as Disponible[]);
-    } catch {
-      setError("No se pudo hablar con el servidor");
-    } finally {
-      setOcupado(false);
-    }
+    setCargando(true);
+    fetch("/api/meta/oauth")
+      .then((r) => r.json())
+      .then((d) => {
+        const lista = (d.paginas ?? []) as Disponible[];
+        if (lista.length === 0) {
+          setError("La sesión con Facebook caducó. Vuelve a pulsar el botón.");
+          return;
+        }
+        setDisponibles(lista);
+      })
+      .catch(() => setError("No se pudo hablar con el servidor"))
+      .finally(() => setCargando(false));
   }, []);
-
-  function entrarConFacebook() {
-    if (!window.FB) return;
-
-    setError(null);
-    setAviso(null);
-
-    /*
-     * Con configuración de Business Login se pide un CÓDIGO: así el token de
-     * página no llega al navegador ni un instante, y la ventana enseña el
-     * selector de páginas de Meta. Sin ella, el SDK solo sabe devolver un token
-     * de usuario, que vale para preguntar las páginas y nada más.
-     */
-    const opciones: Record<string, unknown> = configId
-      ? { config_id: configId, response_type: "code", override_default_response_type: true }
-      : { scope: PERMISOS };
-
-    window.FB.login((r) => {
-      const code = r.authResponse?.code;
-      const accessToken = r.authResponse?.accessToken;
-
-      if (!code && !accessToken) {
-        // Cerrar la ventana no es un fallo: es una decisión. Se dice sin
-        // alarma y no se deja el botón girando.
-        setError("Se cerró la ventana de Facebook sin dar acceso.");
-        return;
-      }
-
-      void pedirPaginas(code ? { code } : { token: accessToken });
-    }, opciones);
-  }
 
   async function conectarElegida(elegida: string) {
     setOcupado(true);
@@ -306,31 +227,42 @@ export default function PaginasMeta({
           Conectar una página
         </h2>
         <p className="tenue" style={{ marginBottom: 14 }}>
-          Entra con la cuenta de Facebook que administra la página. Facebook abre su propia
-          ventana y eliges ahí qué páginas nos dejas atender.
+          Te lleva a Facebook con la sesión que ya tienes abierta. Eliges ahí qué página nos dejas
+          atender y vuelves aquí para terminar.
         </p>
 
         {appId ? (
-          <button
-            type="button"
+          /*
+            UN ENLACE, NO UN BOTÓN CON JAVASCRIPT.
+            Es una navegación de verdad: el navegador va a facebook.com y vuelve.
+            Ningún popup que bloquear, ninguna espera a que cargue un SDK, y
+            funciona igual en el móvil —que es donde se conecta la mitad de las
+            páginas— y con la pestaña de Facebook ya abierta al lado.
+          */
+          <a
+            href="/api/meta/oauth/entrar"
             className="btn"
-            onClick={entrarConFacebook}
-            disabled={!sdkListo || ocupado}
             style={{
               display: "flex", alignItems: "center", justifyContent: "center", gap: 9,
               width: "100%", background: "#1877F2", color: "#fff", border: "none",
-              fontWeight: 600, padding: "11px 14px",
+              fontWeight: 600, padding: "11px 14px", textDecoration: "none",
             }}
           >
             <svg width="17" height="17" viewBox="0 0 24 24" aria-hidden="true" fill="#fff">
               <path d="M24 12.07C24 5.4 18.63 0 12 0S0 5.4 0 12.07C0 18.1 4.39 23.1 10.13 24v-8.44H7.08v-3.49h3.05V9.41c0-3.02 1.79-4.69 4.53-4.69 1.31 0 2.68.24 2.68.24v2.96h-1.51c-1.49 0-1.955.93-1.955 1.89v2.26h3.33l-.53 3.49h-2.8V24C19.61 23.1 24 18.1 24 12.07Z" />
             </svg>
-            {!sdkListo ? "Abriendo Facebook…" : ocupado ? "Un momento…" : "Entrar con Facebook"}
-          </button>
+            Continuar con Facebook
+          </a>
         ) : (
           <div className="aviso aviso-ambar" role="status">
             La conexión con Facebook todavía no está disponible en este panel.
           </div>
+        )}
+
+        {cargando && (
+          <p className="tenue" style={{ marginTop: 10 }}>
+            Trayendo tus páginas de Facebook…
+          </p>
         )}
 
         {/* ── Las páginas que devolvió Facebook ─────────────────────────

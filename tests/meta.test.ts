@@ -530,3 +530,27 @@ test("sin META_APP_ID o META_APP_SECRET no se intenta hablar con Meta", async ()
   if (antesId !== undefined) process.env.META_APP_ID = antesId;
   if (antesSecreto !== undefined) process.env.META_APP_SECRET = antesSecreto;
 });
+
+/**
+ * La lista entera de páginas recordadas, que es lo que pide el panel al volver
+ * de Facebook. La caducidad importa: un token de página no puede quedarse en la
+ * memoria del servidor esperando a que alguien vuelva mañana.
+ */
+test("las páginas recordadas se devuelven a su cuenta y se olvidan al usarse", async () => {
+  const { olvidarPaginas, paginasRecordadas, recordarPaginas } = await import(
+    "../src/lib/meta/login"
+  );
+
+  assert.deepEqual(paginasRecordadas(77), [], "una cuenta sin nada recordado no recuerda nada");
+
+  recordarPaginas(77, [
+    { pageId: "111222333444555", nombre: "Una página", igUserId: null, token: "t1" },
+    { pageId: "555444333222111", nombre: "Otra", igUserId: "999", token: "t2" },
+  ]);
+
+  assert.equal(paginasRecordadas(77).length, 2);
+  assert.deepEqual(paginasRecordadas(78), [], "y no se ven desde otra cuenta");
+
+  olvidarPaginas(77);
+  assert.deepEqual(paginasRecordadas(77), []);
+});

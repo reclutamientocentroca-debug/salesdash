@@ -31,15 +31,26 @@ export interface PaginaDisponible {
 }
 
 /**
- * El código de la ventana → un token con el que preguntar por las páginas.
+ * El código que devuelve Facebook → un token con el que preguntar las páginas.
  *
- * Con el SDK de JavaScript, Meta espera el cambio SIN `redirect_uri`: no hubo
- * redirección, hubo una ventana. Algunas configuraciones de la app lo piden
- * igual, así que si el primer intento falla se reintenta con la URL del panel
- * antes de dar el error por bueno. Es un reintento y no una adivinanza: el
- * mensaje que se propaga sigue siendo el de Meta.
+ * Los dos caminos entran por aquí y no piden lo mismo:
+ *
+ *  - Volviendo de una REDIRECCIÓN —el botón que lleva a facebook.com— Meta
+ *    exige el mismo `redirect_uri` con el que se fue, letra por letra. Sin él
+ *    responde que el código no vale, sin decir por qué.
+ *  - Con el SDK de JavaScript no hubo redirección, hubo una ventana, y ahí el
+ *    cambio va SIN `redirect_uri`.
+ *
+ * Por eso `vuelta` es opcional: quien la tenga la pasa. Y si el primer intento
+ * falla se prueba la otra forma antes de dar el error por bueno, que es lo que
+ * evita una pantalla de «Meta no aceptó el código» por una diferencia de
+ * configuración. Es un reintento, no una adivinanza: el mensaje que se propaga
+ * sigue siendo el de Meta.
  */
-export async function intercambiarCodigo(codigo: string): Promise<string> {
+export async function intercambiarCodigo(
+  codigo: string,
+  vuelta: string | null = null,
+): Promise<string> {
   const appId = (process.env.META_APP_ID ?? "").trim();
   const secreto = (process.env.META_APP_SECRET ?? "").trim();
 
@@ -56,11 +67,14 @@ export async function intercambiarCodigo(codigo: string): Promise<string> {
     return { ok: r.ok, d };
   };
 
-  let { ok, d } = await pedir(null);
+  let { ok, d } = await pedir(vuelta);
 
   if (!ok) {
+    // La otra forma: sin dirección de vuelta si veníamos con ella, y con la del
+    // panel si no.
     const base = (process.env.APP_URL ?? "").replace(/\/$/, "");
-    if (base) ({ ok, d } = await pedir(`${base}/canales/meta`));
+    const segundo = vuelta ? null : base ? `${base}/canales/meta` : null;
+    if (vuelta || segundo) ({ ok, d } = await pedir(segundo));
   }
 
   if (!ok) {
@@ -125,6 +139,19 @@ const memoria = new Map<number, { paginas: PaginaDisponible[]; expira: number }>
 
 export function recordarPaginas(orgId: number, paginas: PaginaDisponible[]): void {
   memoria.set(orgId, { paginas, expira: Date.now() + CADUCA_MS });
+}
+
+/** Todo lo que se recuerda de esta cuenta, o vacío si caducó. */
+export function paginasRecordadas(orgId: number): PaginaDisponible[] {
+  const guardado = memoria.get(orgId);
+  if (!guardado) return [];
+
+  if (guardado.expira < Date.now()) {
+    memoria.delete(orgId);
+    return [];
+  }
+
+  return guardado.paginas;
 }
 
 export function paginaRecordada(orgId: number, pageId: string): PaginaDisponible | null {
