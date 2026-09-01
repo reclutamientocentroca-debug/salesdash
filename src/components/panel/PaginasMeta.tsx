@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Vacio, hace } from "@/components/panel/Piezas";
+import { hace } from "@/components/panel/Piezas";
 
 export interface PaginaMeta {
   id: number;
@@ -62,14 +62,64 @@ export default function PaginasMeta({
   const [disponibles, setDisponibles] = useState<Disponible[] | null>(null);
   const [cargando, setCargando] = useState(false);
 
-  /*
-   * LA VUELTA DE FACEBOOK.
+  /**
+   * Traerse las páginas que el servidor dejó en su memoria al volver.
    *
-   * El servidor deja las páginas en su memoria y manda al panel con `?elegir=1`
-   * —o con un `?error=` si el dueño canceló o Meta se quejó—. La lista no viaja
-   * por la dirección del navegador: enseñar en la barra qué páginas administra
-   * alguien no aporta nada y se queda en su historial. Se pide aquí, con su
-   * sesión.
+   * La lista no viaja por la dirección del navegador —enseñar en la barra qué
+   * páginas administra alguien no aporta nada y se le queda en el historial—:
+   * se pide aquí, con su sesión.
+   */
+  const traerPaginas = useCallback(async () => {
+    setCargando(true);
+    setError(null);
+
+    try {
+      const r = await fetch("/api/meta/oauth");
+      const d = await r.json();
+      const lista = (d.paginas ?? []) as Disponible[];
+
+      if (lista.length === 0) {
+        setError("La sesión con Facebook caducó. Vuelve a pulsar el botón.");
+        return;
+      }
+      setDisponibles(lista);
+    } catch {
+      setError("No se pudo hablar con el servidor");
+    } finally {
+      setCargando(false);
+    }
+  }, []);
+
+  /*
+   * LO QUE DICE LA VENTANA FLOTANTE AL CERRARSE.
+   *
+   * Se comprueba el origen ANTES de mirar nada: `message` lo puede mandar
+   * cualquier página que tenga una referencia a esta, así que un aviso de otro
+   * sitio no puede hacer que el panel se ponga a pedir páginas. Y la marca
+   * `fuente` descarta el ruido de extensiones, que hablan por este mismo canal.
+   */
+  useEffect(() => {
+    function recibir(e: MessageEvent) {
+      if (e.origin !== window.location.origin) return;
+
+      const d = e.data as { fuente?: string; error?: string; elegir?: string } | null;
+      if (!d || d.fuente !== "salesdash-meta") return;
+
+      if (d.error) {
+        setError(d.error);
+        return;
+      }
+      if (d.elegir === "1") void traerPaginas();
+    }
+
+    window.addEventListener("message", recibir);
+    return () => window.removeEventListener("message", recibir);
+  }, [traerPaginas]);
+
+  /*
+   * Y EL CAMINO DE RESPALDO: cuando el navegador bloqueó la ventana flotante,
+   * el panel navegó a Facebook y vuelve por la dirección, con `?elegir=1` o con
+   * un `?error=`. Es el mismo final por otro camino.
    */
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
@@ -82,25 +132,45 @@ export default function PaginasMeta({
     // error viejo ni volver a abrir un selector que ya se usó.
     window.history.replaceState({}, "", window.location.pathname);
 
-    if (problema) {
-      setError(problema);
+    if (problema) setError(problema);
+    else void traerPaginas();
+  }, [traerPaginas]);
+
+  /**
+   * ABRIR FACEBOOK EN UNA VENTANA FLOTANTE.
+   *
+   * Encima del panel y sin perderlo de vista: el dueño ve dónde estaba mientras
+   * elige la página, y al cerrarse la ventana la lista aparece donde estaba
+   * mirando. Irse de la página entera funciona igual, pero se siente como salir
+   * del sitio.
+   *
+   * `window.open` va DENTRO del clic y sin nada asíncrono delante: así es como
+   * los navegadores lo dejan pasar. Aun así puede bloquearse —hay quien lo tiene
+   * apagado del todo—, y entonces no se le enseña un error: se navega, que es
+   * el camino que siempre funciona.
+   */
+  function entrarConFacebook() {
+    setError(null);
+    setDisponibles(null);
+
+    const ancho = 620;
+    const alto = 760;
+    const x = window.screenX + Math.max(0, (window.outerWidth - ancho) / 2);
+    const y = window.screenY + Math.max(0, (window.outerHeight - alto) / 3);
+
+    const ventana = window.open(
+      "/api/meta/oauth/entrar?flotante=1",
+      "salesdash-facebook",
+      `popup=1,width=${ancho},height=${alto},left=${Math.round(x)},top=${Math.round(y)}`,
+    );
+
+    if (!ventana || ventana.closed) {
+      window.location.href = "/api/meta/oauth/entrar";
       return;
     }
 
-    setCargando(true);
-    fetch("/api/meta/oauth")
-      .then((r) => r.json())
-      .then((d) => {
-        const lista = (d.paginas ?? []) as Disponible[];
-        if (lista.length === 0) {
-          setError("La sesión con Facebook caducó. Vuelve a pulsar el botón.");
-          return;
-        }
-        setDisponibles(lista);
-      })
-      .catch(() => setError("No se pudo hablar con el servidor"))
-      .finally(() => setCargando(false));
-  }, []);
+    ventana.focus();
+  }
 
   async function conectarElegida(elegida: string) {
     setOcupado(true);
@@ -171,19 +241,27 @@ export default function PaginasMeta({
     router.refresh();
   }
 
-  return (
-    <div className="sd-mitades" style={{ marginBottom: 14 }}>
-      <section className="tarjeta">
-        <h2 className="titulo-tarjeta" style={{ marginBottom: 12 }}>
-          Páginas conectadas
-        </h2>
+  /*
+   * DOS PANORAMAS, Y EL PRIMERO ES UN BOTÓN.
+   *
+   * Sin ninguna página conectada, partir la pantalla en dos mitades deja media
+   * pantalla diciendo «aquí no hay nada» al lado de lo único que hay que hacer.
+   * Cuando no hay nada conectado, esta pantalla ES el botón: una tarjeta sola,
+   * con lo que se gana al conectar y el botón azul debajo.
+   *
+   * Con páginas ya conectadas manda la lista —que es lo que se viene a mirar— y
+   * conectar otra pasa a ser lo secundario, en su mitad de siempre.
+   */
+  const sinPaginas = paginas.length === 0;
 
-        {paginas.length === 0 ? (
-          <Vacio
-            titulo="Todavía no hay ninguna página"
-            texto="Conecta una página de Facebook para recibir sus mensajes de Messenger, los directos de su Instagram y los comentarios de sus anuncios."
-          />
-        ) : (
+  return (
+    <div className={sinPaginas ? "" : "sd-mitades"} style={{ marginBottom: 14 }}>
+      {!sinPaginas && (
+        <section className="tarjeta">
+          <h2 className="titulo-tarjeta" style={{ marginBottom: 12 }}>
+            Páginas conectadas
+          </h2>
+
           <ul style={{ display: "grid", gap: 11 }}>
             {paginas.map((p) => (
               <li
@@ -219,29 +297,34 @@ export default function PaginasMeta({
               </li>
             ))}
           </ul>
-        )}
-      </section>
+        </section>
+      )}
 
-      <section className="tarjeta">
+      <section className="tarjeta" style={sinPaginas ? { maxWidth: 560, margin: "0 auto" } : undefined}>
         <h2 className="titulo-tarjeta" style={{ marginBottom: 4 }}>
-          Conectar una página
+          {sinPaginas ? "Conecta tu página de Facebook" : "Conectar una página"}
         </h2>
         <p className="tenue" style={{ marginBottom: 14 }}>
-          Te lleva a Facebook con la sesión que ya tienes abierta. Eliges ahí qué página nos dejas
-          atender y vuelves aquí para terminar.
+          {sinPaginas
+            ? "Sus mensajes de Messenger, los directos de su Instagram y los comentarios de sus anuncios entran aquí, en las mismas conversaciones y en las mismas ventas."
+            : "Se abre Facebook en una ventana encima de esta, con la sesión que ya tienes. Eliges ahí qué página nos dejas atender, la ventana se cierra sola y terminas aquí."}
         </p>
 
         {appId ? (
           /*
-            UN ENLACE, NO UN BOTÓN CON JAVASCRIPT.
-            Es una navegación de verdad: el navegador va a facebook.com y vuelve.
-            Ningún popup que bloquear, ninguna espera a que cargue un SDK, y
-            funciona igual en el móvil —que es donde se conecta la mitad de las
-            páginas— y con la pestaña de Facebook ya abierta al lado.
+            UN ENLACE DE VERDAD, que además abre la ventana flotante.
+            El `href` no es decorativo: es lo que hace que funcione el «abrir en
+            otra pestaña» del botón derecho, y es a donde cae el navegador que
+            bloquea las ventanas emergentes. El clic normal abre la flotante y
+            cancela la navegación.
           */
           <a
             href="/api/meta/oauth/entrar"
             className="btn"
+            onClick={(e) => {
+              e.preventDefault();
+              entrarConFacebook();
+            }}
             style={{
               display: "flex", alignItems: "center", justifyContent: "center", gap: 9,
               width: "100%", background: "#1877F2", color: "#fff", border: "none",

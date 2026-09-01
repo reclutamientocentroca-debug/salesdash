@@ -37,6 +37,17 @@ export const runtime = "nodejs";
 export const COOKIE_ESTADO = "sd_meta_oauth";
 
 /**
+ * La marca de que esto se abrió en una ventana flotante.
+ *
+ * La vuelta tiene que saberlo para hacer lo correcto: en una ventana flotante
+ * se le avisa al panel y se cierra sola; en la pestaña de siempre, se redirige.
+ * Va en una cookie y no en el `state` porque el `state` se compara letra por
+ * letra con lo que devuelve Facebook, y meterle información dentro es pedirle
+ * problemas a lo único que aquí protege de un CSRF.
+ */
+export const COOKIE_FLOTANTE = "sd_meta_popup";
+
+/**
  * Los permisos, cuando no hay una configuración de Business Login.
  *
  * Con `META_LOGIN_CONFIG_ID` no se piden así: los lleva dentro la configuración
@@ -58,9 +69,11 @@ export function urlDeVuelta(): string {
   return `${base}/api/meta/oauth/volver`;
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   const s = await sesionApi();
   if (!s.ok) return s.respuesta;
+
+  const flotante = new URL(req.url).searchParams.get("flotante") === "1";
 
   const appId = (process.env.META_APP_ID ?? "").trim();
   const base = (process.env.APP_URL ?? "").trim();
@@ -97,6 +110,10 @@ export async function GET() {
   );
 
   respuesta.cookies.set(COOKIE_ESTADO, estado, { ...opcionesCookie(), maxAge: 600 });
+
+  if (flotante) respuesta.cookies.set(COOKIE_FLOTANTE, "1", { ...opcionesCookie(), maxAge: 600 });
+  else respuesta.cookies.delete(COOKIE_FLOTANTE);
+
   return respuesta;
 }
 
