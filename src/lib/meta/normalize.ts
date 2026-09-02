@@ -205,6 +205,15 @@ function normalizarMensaje(
      * imágenes y ahí se pararía.
      */
     imagenAnuncioUrl: texto(contextoAnuncio.photo_url) || texto(contextoAnuncio.video_url) || null,
+    /*
+     * LA PUBLICACIÓN DETRÁS DEL ANUNCIO.
+     *
+     * El referral no trae el texto del anuncio, solo el identificador del post.
+     * Con él se le pide a la Graph API lo que el negocio escribió —donde suele
+     * estar la promesa por la que el cliente escribe— y el enlace para abrirlo
+     * desde el panel. Aquí solo se transporta: pedirlo es cosa de `ingesta`.
+     */
+    postAnuncioId: texto(contextoAnuncio.post_id) || null,
     superficie: esInstagram ? "instagram" : "messenger",
     metaAdId: adId,
     comentarioId: null,
@@ -253,8 +262,10 @@ function normalizarComentario(
     deAnuncio: !!texto(v.post_id),
     productoAnuncio: null,
     descripcionAnuncio: null,
-    // Un comentario no trae creatividad: solo el post bajo el que se escribió.
+    // Un comentario no trae creatividad, pero sí la publicación bajo la que
+    // se escribió: es de lo que está hablando quien comenta.
     imagenAnuncioUrl: null,
+    postAnuncioId: texto(v.post_id) || null,
     superficie: "comentario",
     metaAdId: texto(v.ad_id) || null,
     comentarioId,

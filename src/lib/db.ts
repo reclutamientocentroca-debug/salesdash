@@ -382,6 +382,13 @@ CREATE TABLE IF NOT EXISTS anuncios_meta (
      todos los leads que traiga, que pueden ser cientos. */
   imagen TEXT,
   descripcion_imagen TEXT,
+  /* La publicacion de Facebook que hay detras del anuncio, y su enlace.
+     Meta manda el post_id en el referral y nada mas; con el se le pide a la
+     Graph API el texto que escribio el negocio -que es donde suele estar el
+     precio- y el permalink, para que el dueno pueda abrir el anuncio desde el
+     panel y ver de que le estan hablando sus clientes. */
+  post_id TEXT,
+  enlace TEXT,
   created_at INTEGER NOT NULL DEFAULT (unixepoch()),
   UNIQUE(org_id, ad_id)
 );
@@ -493,6 +500,30 @@ function abrir(): DB {
 function migrar(conexion: DB): void {
   const columnas = (tabla: string) =>
     (conexion.pragma(`table_info(${tabla})`) as { name: string }[]).map((c) => c.name);
+
+  /**
+   * AÑADE UNA COLUMNA SI FALTA, Y AGUANTA QUE OTRO LA AÑADA A LA VEZ.
+   *
+   * Preguntar si la columna está y añadirla después son DOS operaciones, y
+   * entre una y otra cabe otro proceso haciendo lo mismo. No es teórico:
+   * `next build` levanta tres workers y el arranque de producción puede
+   * levantar varios. Los dos ven que falta, los dos lanzan el ALTER, y el
+   * segundo revienta con «duplicate column name» y se lleva por delante la
+   * ruta que estuviera arrancando. Se reproduce a la primera.
+   *
+   * El error de columna duplicada significa que la columna YA ESTÁ, que es
+   * exactamente lo que se quería: se traga. Cualquier otro sube, porque un
+   * ALTER que falla por otro motivo es una base a medio migrar y eso hay que
+   * verlo. Toda columna nueva debería entrar por aquí.
+   */
+  const agregarColumna = (tabla: string, columna: string, tipo = "TEXT") => {
+    if (columnas(tabla).includes(columna)) return;
+    try {
+      conexion.exec(`ALTER TABLE ${tabla} ADD COLUMN ${columna} ${tipo}`);
+    } catch (e) {
+      if (!/duplicate column name/i.test((e as Error).message)) throw e;
+    }
+  };
 
   /*
    * uso_modelo: el CHECK de `proposito` no admitía 'audio'. Una restricción no
@@ -661,10 +692,8 @@ function migrar(conexion: DB): void {
    * guarda que pregunte solo por `imagen` vuelve a intentar añadir `texto` y
    * revienta el arranque con «duplicate column name». Pasó de verdad.
    */
-  for (const columna of ["texto", "imagen", "descripcion_imagen"]) {
-    if (!columnas("anuncios_meta").includes(columna)) {
-      conexion.exec(`ALTER TABLE anuncios_meta ADD COLUMN ${columna} TEXT`);
-    }
+  for (const columna of ["texto", "imagen", "descripcion_imagen", "post_id", "enlace"]) {
+    agregarColumna("anuncios_meta", columna);
   }
 
   if (!columnas("agentes").includes("recordatorio_visto")) {
@@ -3005,6 +3034,8 @@ export interface AnuncioMeta {
   producto_id: number | null; titulo: string | null; created_at: number;
   /** El texto del anuncio y lo que se ve en su imagen. Ver el esquema. */
   texto: string | null; imagen: string | null; descripcion_imagen: string | null;
+  /** La publicación detrás del anuncio y su enlace público. Ver el esquema. */
+  post_id: string | null; enlace: string | null;
 }
 
 export function listarAnunciosMeta(orgId: number) {
@@ -3054,16 +3085,56 @@ export function registrarAnuncioVisto(
   orgId: number,
   adId: string,
   titulo: string | null,
-  /** El texto y la imagen del anuncio, cuando el mensaje los trae. */
-  extra: { texto?: string | null; imagen?: string | null } = {},
+  /**
+   * El texto, la imagen y la publicación del anuncio, cuando el mensaje los
+   * trae. `postId` es lo que permite pedirle a Meta el resto más tarde.
+   */
+  extra: { texto?: string | null; imagen?: string | null; postId?: string | null } = {},
 ): void {
   s(
-    `INSERT INTO anuncios_meta (org_id, ad_id, titulo, texto, imagen) VALUES (?, ?, ?, ?, ?)
+    `INSERT INTO anuncios_meta (org_id, ad_id, titulo, texto, imagen, post_id)
+          VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT(org_id, ad_id) DO UPDATE SET
-       titulo = COALESCE(anuncios_meta.titulo, excluded.titulo),
-       texto  = COALESCE(anuncios_meta.texto,  excluded.texto),
-       imagen = COALESCE(anuncios_meta.imagen, excluded.imagen)`,
-  ).run(orgId, adId, titulo, extra.texto ?? null, extra.imagen ?? null);
+       titulo  = COALESCE(anuncios_meta.titulo,  excluded.titulo),
+       texto   = COALESCE(anuncios_meta.texto,   excluded.texto),
+       imagen  = COALESCE(anuncios_meta.imagen,  excluded.imagen),
+       post_id = COALESCE(anuncios_meta.post_id, excluded.post_id)`,
+  ).run(orgId, adId, titulo, extra.texto ?? null, extra.imagen ?? null, extra.postId ?? null);
+}
+
+/**
+ * Lo que la Graph API contó de la publicación que hay detrás del anuncio.
+ *
+ * Se guarda aparte de `registrarAnuncioVisto` porque llega en otro momento: el
+ * referral trae el `post_id` en el acto y el texto hay que ir a buscarlo.
+ */
+export function guardarPublicacionAnuncio(
+  orgId: number,
+  adId: string,
+  datos: { texto: string | null; enlace: string | null },
+): void {
+  s(
+    `UPDATE anuncios_meta
+        SET texto  = COALESCE(texto, ?),
+            enlace = COALESCE(enlace, ?)
+      WHERE org_id = ? AND ad_id = ?`,
+  ).run(datos.texto, datos.enlace, orgId, adId);
+}
+
+/**
+ * Anuncios de los que sabemos la publicación pero todavía no su texto.
+ *
+ * `enlace IS NULL` y no `texto IS NULL` como condición de pendiente: hay
+ * publicaciones que de verdad no llevan texto —una foto y nada más—, y con
+ * `texto` como guarda esas se pedirían otra vez con cada cliente que traiga el
+ * anuncio. El enlace SIEMPRE viene, así que sirve de marca de «ya preguntamos».
+ */
+export function anunciosPorCompletar(orgId: number, limite = 3) {
+  return s(
+    `SELECT ad_id, post_id FROM anuncios_meta
+      WHERE org_id = ? AND post_id IS NOT NULL AND enlace IS NULL
+      ORDER BY created_at DESC LIMIT ?`,
+  ).all(orgId, limite) as { ad_id: string; post_id: string }[];
 }
 
 /**

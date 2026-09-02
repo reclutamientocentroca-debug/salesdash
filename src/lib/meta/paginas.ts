@@ -6,7 +6,11 @@
  * lo que sí habla con clientes y que solo `agent.ts` puede importar.
  */
 import { descifrar } from "@/lib/auth";
-import type { Canal } from "@/lib/db";
+import {
+  anunciosPorCompletar,
+  guardarPublicacionAnuncio,
+  type Canal,
+} from "@/lib/db";
 import { getGraph, postGraph } from "./graph";
 
 /**
@@ -191,4 +195,73 @@ export async function datosDePagina(
     nombre: typeof datos.name === "string" ? datos.name : pageId,
     igUserId: typeof ig.id === "string" ? ig.id : null,
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// La publicación que hay detrás del anuncio
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * DE QUÉ VIENE EL CLIENTE, en las palabras que escribió el propio negocio.
+ *
+ * El referral de un anuncio trae el título y la creatividad, pero NO el texto:
+ * ese vive en la publicación de Facebook, y del referral solo llega su
+ * `post_id`. Con el título a secas —«Set de sábanas»— el agente no sabe si se
+ * prometían dos fundas, envío gratis o un 2x1, que es justo por lo que el
+ * cliente escribe.
+ *
+ * Se le pide a la Graph API con el token de la propia página y `message` es lo
+ * que el negocio publicó, así que vale como fuente: no es el modelo
+ * inventándose una promesa, es leer lo que ya estaba escrito. El `permalink_url`
+ * se guarda para el panel, para que el dueño abra el anuncio y vea de qué le
+ * hablan sus clientes.
+ *
+ * NO le escribe a nadie: por eso vive aquí y no en `send.ts`.
+ */
+export async function publicacionDelAnuncio(
+  canal: Canal,
+  postId: string,
+): Promise<{ texto: string | null; enlace: string | null }> {
+  const datos = await getGraph(postId, "message,permalink_url", descifrar(canal.token_cifrado));
+
+  const texto = typeof datos.message === "string" ? datos.message.trim() : "";
+  const enlace = typeof datos.permalink_url === "string" ? datos.permalink_url : "";
+
+  return { texto: texto || null, enlace: enlace || null };
+}
+
+/**
+ * Trae el texto de los anuncios que todavía no lo tienen.
+ *
+ * Una llamada por ANUNCIO, no por cliente: el texto se guarda en el anuncio y
+ * sirve para los cientos de leads que traiga. Los fallos no se propagan —un
+ * anuncio sin texto deja al agente con el título, que es peor pero no roto— y
+ * el enlace se marca igualmente para que un post que no se puede leer no se
+ * vuelva a pedir con cada cliente.
+ */
+export async function completarAnunciosPendientes(canal: Canal, limite = 2): Promise<number> {
+  const pendientes = anunciosPorCompletar(canal.org_id, limite);
+  let hechos = 0;
+
+  for (const a of pendientes) {
+    try {
+      const p = await publicacionDelAnuncio(canal, a.post_id);
+      guardarPublicacionAnuncio(canal.org_id, a.ad_id, p);
+      if (p.texto) hechos++;
+    } catch (e) {
+      /*
+       * SE MARCA COMO INTENTADO, y esto no es opcional.
+       *
+       * Sin marcarlo, `anunciosPorCompletar` devuelve el MISMO anuncio fallido
+       * con cada mensaje que entra, y esta llamada corre antes de que el agente
+       * conteste: con el permiso revocado, cada cliente de la cuenta esperaría
+       * una llamada a Meta condenada a fallar. Es el mismo escarmiento que ya
+       * está escrito en `describirAnunciosPendientes`.
+       */
+      console.error(`[anuncio] no se pudo leer la publicación ${a.post_id}`, e);
+      guardarPublicacionAnuncio(canal.org_id, a.ad_id, { texto: null, enlace: "(no se pudo leer)" });
+    }
+  }
+
+  return hechos;
 }

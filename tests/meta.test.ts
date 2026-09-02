@@ -829,3 +829,100 @@ test("el token nunca viaja dentro del mensaje de error de Meta", async () => {
     graph.restaurar();
   }
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// De qué viene el cliente: la publicación detrás del anuncio
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * El `post_id` es lo ÚNICO con lo que se recupera el texto del anuncio.
+ *
+ * El referral trae el título y la creatividad, pero no lo que el negocio
+ * escribió. Si el post_id no se guarda en el primer mensaje, se pierde: del
+ * segundo en adelante ya no viene, y entonces no hay forma de saber qué se le
+ * prometió al cliente que está escribiendo.
+ */
+test("el identificador de la publicación se guarda con el anuncio", () => {
+  const { orgId } = cuentaConPagina("post-guardado");
+
+  D.registrarAnuncioVisto(orgId, "ad_con_post", "Set de sábanas", {
+    postId: "120214567890123456",
+  });
+
+  const fila = D.anuncioMetaPorAdId(orgId, "ad_con_post");
+  assert.equal(fila?.post_id, "120214567890123456");
+  assert.equal(fila?.enlace, null, "el enlace llega después, al preguntarle a Meta");
+});
+
+/** Con el post guardado y sin enlace todavía, el anuncio está por completar. */
+test("un anuncio con publicación y sin enlace sale como pendiente", () => {
+  const { orgId } = cuentaConPagina("pendiente-de-texto");
+
+  D.registrarAnuncioVisto(orgId, "ad_pendiente", null, { postId: "p_1" });
+  D.registrarAnuncioVisto(orgId, "ad_sin_post", null, {});
+
+  const pendientes = D.anunciosPorCompletar(orgId);
+  assert.deepEqual(
+    pendientes.map((p) => p.ad_id),
+    ["ad_pendiente"],
+    "sin post_id no hay nada que preguntar",
+  );
+});
+
+/**
+ * PREGUNTADO UNA VEZ, NO UNA POR CLIENTE.
+ *
+ * La marca de «ya preguntamos» es el enlace y no el texto, porque hay
+ * publicaciones que de verdad no llevan texto —una foto y nada más—. Con
+ * `texto` como guarda, esas volverían a pedirse con cada lead que traiga el
+ * anuncio, y la llamada corre antes de que el agente conteste.
+ */
+test("una publicación sin texto no se vuelve a pedir", () => {
+  const { orgId } = cuentaConPagina("solo-foto");
+
+  D.registrarAnuncioVisto(orgId, "ad_solo_foto", null, { postId: "p_2" });
+  D.guardarPublicacionAnuncio(orgId, "ad_solo_foto", {
+    texto: null,
+    enlace: "https://facebook.com/123/posts/456",
+  });
+
+  assert.equal(D.anunciosPorCompletar(orgId).length, 0);
+  assert.equal(D.anuncioMetaPorAdId(orgId, "ad_solo_foto")?.texto, null);
+});
+
+/**
+ * Y EL TEXTO LLEGA AL PROMPT, que es para lo que se fue a buscar.
+ *
+ * Con el título a secas —«Set de sábanas»— el agente no sabe si se prometían
+ * dos fundas, envío gratis o un 2x1, que es justo por lo que el cliente
+ * escribe. Esto comprueba el tramo entero: lo que Meta contó de la publicación
+ * acaba delante del modelo.
+ */
+test("lo que dice la publicación del anuncio llega al prompt", () => {
+  const { orgId } = cuentaConPagina("texto-al-prompt");
+
+  D.registrarAnuncioVisto(orgId, "ad_texto", "Set de sábanas", { postId: "p_3" });
+  D.guardarPublicacionAnuncio(orgId, "ad_texto", {
+    texto: "Set de sábanas en microfibra: incluye 2 fundas y envío gratis a la capital.",
+    enlace: "https://facebook.com/123/posts/789",
+  });
+
+  const prompt = anuncioParaPrompt(resolverAnuncio(orgId, "ad_texto"));
+
+  assert.ok(prompt.includes("ESTO ES LO QUE VIO EL CLIENTE EN EL ANUNCIO"));
+  assert.ok(prompt.includes("incluye 2 fundas y envío gratis a la capital"));
+});
+
+/** El enlace es para el dueño, no para el modelo: no se le cuela al prompt. */
+test("el enlace de la publicación no viaja al prompt", () => {
+  const { orgId } = cuentaConPagina("enlace-fuera");
+
+  D.registrarAnuncioVisto(orgId, "ad_enlace", "Camisa", { postId: "p_4" });
+  D.guardarPublicacionAnuncio(orgId, "ad_enlace", {
+    texto: "Camisa de lino",
+    enlace: "https://facebook.com/123/posts/999",
+  });
+
+  const prompt = anuncioParaPrompt(resolverAnuncio(orgId, "ad_enlace"));
+  assert.equal(prompt.includes("facebook.com"), false);
+});

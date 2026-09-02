@@ -110,6 +110,15 @@ export interface MensajeEntrante {
    * la creatividad es la misma para todos.
    */
   imagenAnuncioUrl?: string | null;
+  /**
+   * La publicación de Facebook que hay detrás del anuncio.
+   *
+   * Es lo único con lo que se puede recuperar el TEXTO del anuncio, que el
+   * referral no manda: con el título a secas —«Set de sábanas»— el agente no
+   * sabe si se prometían dos fundas o un 2x1, que es por lo que el cliente
+   * escribe. Ver `completarAnunciosPendientes`.
+   */
+  postAnuncioId?: string | null;
 }
 
 export interface Resultado {
@@ -278,6 +287,7 @@ export async function ingerir(
           registrarAnuncioVisto(orgId, m.metaAdId, m.productoAnuncio ?? null, {
             texto: m.descripcionAnuncio ?? null,
             imagen,
+            postId: m.postAnuncioId ?? null,
           });
         } catch (e) {
           // El anuncio es contexto, no la conversación: que falle no puede
@@ -369,6 +379,28 @@ export async function ingerir(
          * justo el que llega con el anuncio, y es en esa primera respuesta
          * donde el agente tiene que saber de qué foto le hablan.
          */
+        /*
+         * DE QUÉ VIENE EL CLIENTE, en las palabras del propio negocio.
+         *
+         * Va DELANTE de mirar la imagen y no detrás: leerle a Meta un post
+         * tarda un pestañeo y describir una creatividad tarda segundos. Si el
+         * modelo de visión está lento o caído, el agente se queda al menos con
+         * el texto del anuncio, que es donde está la promesa por la que el
+         * cliente escribió.
+         *
+         * Solo en Meta: en WhatsApp el anuncio llega entero dentro del mensaje
+         * y no hay nada que ir a buscar.
+         */
+        if (canal.tipo === "meta") {
+          try {
+            const { completarAnunciosPendientes } = await import("@/lib/meta/paginas");
+            await completarAnunciosPendientes(canal, 1);
+          } catch (e) {
+            // Sin el texto, el agente sigue con el título y la imagen.
+            console.error("No se pudo leer la publicación de un anuncio:", e);
+          }
+        }
+
         try {
           const { describirAnunciosPendientes } = await import("@/lib/analyzer");
           /*

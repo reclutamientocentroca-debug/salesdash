@@ -80,6 +80,16 @@ export default async function PaginaMeta() {
     titulo: a.titulo,
     productoId: a.producto_id,
     productoNombre: a.producto_nombre,
+    /*
+     * El anuncio, para poder abrirlo. Vincularlo a un producto a ciegas —con
+     * un título de cuatro palabras o, si no lo trae, con un número de quince
+     * cifras— es adivinar: el enlace es lo que deja VER cuál de los seis
+     * anuncios de esta semana es este antes de elegir el producto.
+     *
+     * «(no se pudo leer)» es la marca de que se preguntó y Meta no contestó.
+     * No es un enlace y no se pinta como tal.
+     */
+    enlace: a.enlace && a.enlace.startsWith("http") ? a.enlace : null,
   }));
 
   const productos = listarCatalogo(orgId, true).map((p) => ({ id: p.id, nombre: p.nombre }));

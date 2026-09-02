@@ -8,6 +8,8 @@ export interface AnuncioPorVincular {
   titulo: string | null;
   productoId: number | null;
   productoNombre: string | null;
+  /** El permalink de la publicación, para poder abrir el anuncio y verlo. */
+  enlace: string | null;
 }
 
 /**
@@ -68,6 +70,19 @@ export default function AnunciosMeta({
                     {/* El identificador de Meta, solo cuando el anuncio no
                         trae título: es lo único que lo distingue de otro. */}
                     {!a.titulo && <div className="tenue num">{a.adId}</div>}
+                    {/* Abrir el anuncio y verlo, que es lo que hace que
+                        elegir el producto deje de ser adivinar. */}
+                    {a.enlace && (
+                      <a
+                        className="enlace"
+                        style={{ fontSize: 11.5 }}
+                        href={a.enlace}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Ver el anuncio ↗
+                      </a>
+                    )}
                   </td>
                   <td>
                     <select
