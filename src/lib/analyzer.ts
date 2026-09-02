@@ -350,7 +350,9 @@ Reglas:
 - El resumen de pedido MANDA sobre la factura: si en algún punto del hilo aparece el resumen, la venta es "cerrada_ia" aunque la foto de factura llegue antes o después.
 - Un "sí, te lo mando", un "confirmado" o cualquier otro texto sin el marcador NO cierra nada. Sin resumen y sin factura, la conversación está abierta.
 - Entre dos señales del mismo tipo gana la PRIMERA, en orden.
+- SI EL HILO TRAE VARIOS RESÚMENES DE PEDIDO, los datos del pedido —"resumen_pedido", "producto_vendido", "total", "envio"— salen del ÚLTIMO. Ese es el pedido que el cliente va a pagar; los de antes quedaron viejos en cuanto se añadió un artículo o se ajustó el envío. Quién cerró la venta y cuándo ya está decidido y no lo decides tú: aquí solo sacas el pedido bueno.
 - "total" y "envio" son números, sin símbolo de moneda. Si no aparecen, null.
+- No rellenes "total" ni "envio" a ojo. Si el resumen los deja en blanco, con un guion o con un "por confirmar", van null: una cifra inventada entra en la contabilidad del negocio como si fuera real.
 - "total" es TODO lo que el cliente va a pagar, con el envío dentro si lo hay. "envio" es la parte de ese total que es transporte. Si el cliente dice "2500 más 300 de envío", entonces total=2800 y envio=300.
 - "datos_faltantes" lista lo que el pedido necesita y no está (talla, color, dirección…).
 - Un mensaje que empieza por "[ubicación]" es el cliente mandando su ubicación por WhatsApp: ESO ES LA DIRECCIÓN DE ENTREGA. Si aparece, la dirección no falta, aunque nadie la haya escrito con letras.

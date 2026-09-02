@@ -219,6 +219,49 @@ export function partirEnMensajes(
   return [saludo, resto];
 }
 
+/**
+ * UN PEDIDO SE CIERRA UNA VEZ. Quita el resumen de un mensaje que llega tarde.
+ *
+ * El agente manda el resumen, la venta queda sellada, y en los mensajes que
+ * siguen vuelve a escribirlo: al despedirse, cuando el cliente pregunta cuándo
+ * llega, cada vez que confirma algo. Está en el guion que no lo haga y aun así
+ * lo hace, porque para el modelo repetir el pedido se parece a ser servicial.
+ *
+ * Lo que rompe no es la conversación, es el dinero. El primero que cierra se
+ * lleva la venta —regla maestra—, así que el segundo resumen no vuelve a sellar
+ * nada; lo que hace es dejar el hilo con tres pedidos escritos, con totales que
+ * no coinciden porque entre uno y otro se añadió un artículo o se ajustó el
+ * envío. Cuando el analista va a sacar el monto, no hay UN pedido en el hilo:
+ * hay tres, y el que elija puede no ser el que el cliente va a pagar.
+ *
+ * Al cliente tampoco le sienta bien: recibir la misma orden tres veces se lee
+ * como que se le cobró tres veces.
+ *
+ * Se corta desde la línea del marcador hasta el final, que es donde vive el
+ * resumen —el guion lo pide como último bloque del último mensaje—, y se manda
+ * lo de delante: la respuesta a lo que el cliente acababa de preguntar, que sí
+ * hace falta. Si delante no había nada, no hay mensaje que mandar.
+ *
+ * Devuelve `null` cuando no queda nada, y el texto tal cual si no había
+ * marcador que quitar.
+ */
+export function quitarResumenRepetido(texto: string, marcador: string): string | null {
+  if (!contieneMarcador(texto, marcador)) return texto;
+
+  const lineas = texto.split("\n");
+  /*
+   * La PRIMERA línea que dispara el marcador, y no la que lo contenga
+   * literalmente: `contieneMarcador` admite «Resumen de su pedido:» y el título
+   * sin dos puntos, y buscar el texto crudo se dejaría fuera justo las formas
+   * que el agente usa de verdad.
+   */
+  const corte = lineas.findIndex((l) => contieneMarcador(l, marcador));
+  if (corte < 0) return texto;
+
+  const delante = lineas.slice(0, corte).join("\n").trim();
+  return delante || null;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Condiciones de silencio
 // ─────────────────────────────────────────────────────────────────────────────
@@ -560,7 +603,12 @@ export type MotivoSilencio =
   | "vendedor_reciente"
   | "pidio_humano"
   | "fuera_de_horario"
-  | "limite_por_hora";
+  | "limite_por_hora"
+  /**
+   * La respuesta era el resumen de un pedido YA cerrado, y nada más. Ver
+   * `quitarResumenRepetido`: al quitarlo no quedaba mensaje que mandar.
+   */
+  | "resumen_repetido";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Generación
@@ -766,6 +814,14 @@ Compruébalos UNO POR UNO antes de escribir el pedido, y que te los haya dado EL
 Si tus instrucciones piden ALGO MÁS que esto —una talla, un color, un comprobante de pago—, eso también hace falta y se pide igual.`
     : ""
 }
+EL RESUMEN SE MANDA UNA VEZ, Y CUANDO YA NO FALTA NADA. Es lo que registra la venta: el pedido que escribas ahí es el que el negocio va a despachar y cobrar, así que mandarlo antes de tiempo no adelanta la venta, la falsea.
+
+ANTES DE ESCRIBIRLO, REPASA LÍNEA POR LÍNEA. Cada línea del resumen tiene que llevar un dato REAL: o te lo dio el cliente, o sale del catálogo, del anuncio o de tus instrucciones. Si una sola línea fuera a quedarse vacía, con un guion, con «por confirmar», «a coordinar», «pendiente», «el equipo le dice» o con algo que estás suponiendo, entonces TODAVÍA NO TOCA EL RESUMEN: contesta lo que el cliente acaba de decirte y pregunta ese dato, uno por mensaje.
+
+Y EL DINERO, CON MÁS RAZÓN. El costo del envío y el total a pagar van en números, no en promesas. Si no sabes cuánto cuesta llevarlo a donde va, el pedido no está cerrado: pregunta la dirección que falte o dile que el envío a esa zona lo confirma el equipo, y NO mandes el resumen. Un resumen con el total en blanco entra en el sistema como una venta de cero pesos.
+
+NO LO REPITAS NUNCA. En cuanto lo mandes, ese pedido está cerrado y registrado: a partir de ahí no vuelves a escribirlo, ni entero ni en trozos, ni para confirmar, ni al despedirte, ni cuando el cliente pregunte cuándo le llega, ni aunque él te lo pida. Si el cliente quiere cambiar algo del pedido después de cerrado, dile que lo ajusta el equipo y no escribas otro resumen. Mandarlo dos veces le hace creer al cliente que se le levantaron dos órdenes, y deja el pedido con dos totales distintos.
+
 Cuando el cliente ya confirmó qué lleva y cómo lo paga, y no falta ningún dato del pedido, manda un último mensaje que LLEVE la línea "${marcador}" y debajo el pedido. Puede ir detrás de un saludo corto: no tiene que ser la primera palabra.
 Ese mensaje es la excepción a lo de escribir corto: va con formato, y así se lee limpio —cada dato en su línea y una línea en blanco entre secciones—. En texto plano: nada de asteriscos, ni almohadillas, ni guiones de adorno.
 Ese mensaje es lo que registra la venta en el sistema. Si no lo mandas, para el negocio la venta no existe.
@@ -1514,6 +1570,55 @@ export async function atenderConversacion(
 
   if (!respuesta.texto) return { atendida: false, motivo: "fallo_modelo", detalle: "respuesta vacía" };
 
+  /*
+   * ── EL SEGUNDO RESUMEN NO SALE ──────────────────────────────────────────
+   *
+   * Si esta conversación ya tiene su venta sellada y el modelo vuelve a
+   * escribir el pedido, se le quita antes de mandarlo. Ver
+   * `quitarResumenRepetido`: el hilo se queda con UN pedido, que es el que el
+   * cliente va a pagar y el que el analista tiene que leer.
+   *
+   * Se relee la conversación en vez de usar la copia de arriba: entre aquella
+   * lectura y esta línea está la llamada al modelo, que son segundos, y en esos
+   * segundos un vendedor puede haber cerrado la venta desde su móvil.
+   *
+   * Va aquí y no en el guion porque en el guion ya está —«no escribas el
+   * marcador en ningún otro momento»— y el modelo lo escribe igual. Lo que se
+   * le pide a un prompt casi siempre se cumple; lo que no puede pasar, se
+   * impide.
+   */
+  const marcadorOrg = obtenerOrg(orgId)?.marcador_cierre ?? MARCADOR_POR_DEFECTO;
+  // `?? null` a propósito: sin conversación no hay venta cerrada, y un `undefined`
+  // comparado con `null` daría «cerrada» y callaría al agente por nada.
+  const yaCerrada = (getConversation(orgId, conversationId)?.fecha_cierre ?? null) !== null;
+
+  if (yaCerrada && contieneMarcador(respuesta.texto, marcadorOrg)) {
+    const recortado = quitarResumenRepetido(respuesta.texto, marcadorOrg);
+
+    crearAnomalia(orgId, {
+      conversationId,
+      tipo: "resumen_repetido",
+      severidad: "media",
+      detalle:
+        "El agente volvió a escribir el resumen de un pedido que ya estaba cerrado. Se le quitó " +
+        "antes de enviarlo" +
+        (recortado
+          ? ": el cliente recibió solo la respuesta a lo que preguntaba."
+          : ", y no quedaba nada más que mandar, así que no se le escribió."),
+    });
+
+    /*
+     * Sin nada delante del resumen, el mensaje entero ERA el resumen. Callar
+     * es lo correcto: el cliente no se queda sin respuesta a nada —no había
+     * respuesta, había un pedido repetido— y el próximo mensaje suyo se atiende
+     * con normalidad.
+     */
+    if (!recortado) {
+      return { atendida: false, motivo: "resumen_repetido" };
+    }
+    respuesta.texto = recortado;
+  }
+
   // ── Enviar ──────────────────────────────────────────────────────────────
   /*
    * Cada canal por su transporte. Es el ÚNICO sitio del código donde se elige,
@@ -1558,7 +1663,7 @@ export async function atenderConversacion(
    */
   const partes = partirEnMensajes(respuesta.texto, {
     saludoAparte: conv.superficie !== "comentario" && historial.every((m) => m.emisor === "cliente"),
-    marcador: obtenerOrg(orgId)?.marcador_cierre ?? MARCADOR_POR_DEFECTO,
+    marcador: marcadorOrg,
   });
 
   /*

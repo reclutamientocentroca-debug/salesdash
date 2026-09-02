@@ -10,6 +10,7 @@ import {
   esperaDeCortesia,
   nombreDelNegocio,
   partirEnMensajes,
+  quitarResumenRepetido,
   loYaPreguntado,
   pideHumano,
   porQueCalla,
@@ -593,6 +594,55 @@ test("el prompt del agente explica cómo cerrar una venta, con el marcador de la
  * —tiene líneas en blanco dentro y saldría medio pedido en cada mensaje— ni que
  * el agente conteste en dos globos a mitad de la conversación.
  */
+/**
+ * UN PEDIDO SE CIERRA UNA VEZ.
+ *
+ * El agente manda el resumen, la venta queda sellada, y en los mensajes que
+ * siguen vuelve a escribirlo —al despedirse, cuando le preguntan cuándo llega—.
+ * El segundo resumen no vuelve a sellar nada, pero deja el hilo con dos pedidos
+ * escritos y dos totales distintos, y ahí el analista ya no sabe cuál es el que
+ * el cliente va a pagar. Se le quita antes de salir.
+ */
+test("el resumen repetido se recorta y se manda solo lo de delante", () => {
+  const conRespuesta = quitarResumenRepetido(
+    "Su pedido sale hoy mismo.\n\nResumen:\n\nProducto: 1 camisa\nTotal a pagar: 2500",
+    "Resumen:",
+  );
+  assert.equal(
+    conRespuesta,
+    "Su pedido sale hoy mismo.",
+    "lo que el cliente preguntaba sí se contesta; el pedido repetido no se manda",
+  );
+});
+
+test("un mensaje que era solo el resumen repetido no deja nada que mandar", () => {
+  assert.equal(
+    quitarResumenRepetido("Resumen:\n\nProducto: 1 camisa\nTotal a pagar: 2500", "Resumen:"),
+    null,
+  );
+});
+
+/**
+ * Se corta por la línea que DISPARA el marcador, no por el texto crudo: el
+ * agente escribe «Resumen de su pedido:» y «RESUMEN DEL PEDIDO» sin dos puntos,
+ * que son las formas que `contieneMarcador` acepta y las que usa de verdad.
+ */
+test("el recorte reconoce las mismas variantes del marcador que el sellado", () => {
+  assert.equal(
+    quitarResumenRepetido("Con gusto.\n\nResumen de su pedido:\nTotal: 1850", "Resumen:"),
+    "Con gusto.",
+  );
+  assert.equal(
+    quitarResumenRepetido("Listo.\n\n📋 RESUMEN DEL PEDIDO\nTotal: 1850", "Resumen:"),
+    "Listo.",
+  );
+});
+
+test("un mensaje sin marcador sale intacto", () => {
+  const normal = "Entendido.\n\n¿A qué dirección se lo enviamos?";
+  assert.equal(quitarResumenRepetido(normal, "Resumen:"), normal);
+});
+
 test("el saludo sale en su propio mensaje, y solo al abrir la conversación", () => {
   const apertura = partirEnMensajes(
     "Hola, bienvenido a Tienda Rincón\n\nSí, ese modelo está disponible.\n\n¿Qué talla necesita?",
@@ -1143,6 +1193,12 @@ test("el prompt prohíbe prometer un día de entrega", () => {
  * pregunta una variante que el artículo no tiene: hay negocios cuyos productos
  * no llevan talla ni color, y preguntarlas delata al instante que no sabes lo
  * que estás vendiendo.
+ *
+ * Cuál de las dos es cada artículo NO se adivina: lo dice el anuncio —su texto
+ * y lo que se lee en su imagen—, el catálogo y las instrucciones del negocio.
+ * Si ahí salen tallas o colores, el artículo los lleva y se preguntan antes de
+ * cerrar; si no sale ninguno, no se pregunta ninguno. Ver `PROMPT_ANUNCIO` en
+ * `analyzer.ts`, que es quien saca de la imagen esa mitad de la respuesta.
  */
 test("el prompt pide mensajes limpios y no inventa variantes", () => {
   const prompt = armarSistema("Tienda", D.obtenerAgente(orgId), [], null);
@@ -1168,7 +1224,15 @@ test("el prompt pide mensajes limpios y no inventa variantes", () => {
   assert.ok(prompt.includes("NO EMPIECES DOS MENSAJES SEGUIDOS IGUAL"), "sin «Perfecto» en bucle");
   assert.ok(prompt.includes("NADA DE FRASES DE FORMULARIO"), "ni «estamos para servirle»");
   assert.ok(prompt.includes("PREGUNTA SOLO LO QUE ESTE PEDIDO NECESITA"));
-  assert.ok(prompt.includes("no preguntes la talla"), "si el artículo no la lleva");
+  assert.ok(
+    prompt.includes("es un artículo que no los lleva y NO se preguntan"),
+    "si no sale ninguna talla ni ningún color, no se pregunta ninguno",
+  );
+  assert.ok(
+    prompt.includes("lo que se lee en su imagen"),
+    "y de dónde se saca: del anuncio, el catálogo y las instrucciones",
+  );
+  assert.ok(prompt.includes("La ropa y el calzado"), "con su excepción, que siempre lleva talla");
 
   // Y el ejemplo del saludo no da por hecho que existan las tallas.
   assert.ok(!prompt.includes("¿Qué talla necesita?"));
