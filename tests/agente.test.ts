@@ -1427,8 +1427,11 @@ test("el primer mensaje de venta sale de la descripción del anuncio", () => {
     descripcion_anuncio: "Incluye sábana, ajustable y 2 fundas.",
   });
 
-  assert.ok(prompt.includes("TU PRIMER MENSAJE DE VENTA SALE DE LA DESCRIPCIÓN DEL ANUNCIO"));
-  assert.ok(prompt.includes("Ni una línea más"), "sin listas de características");
+  assert.ok(prompt.includes("TU PRIMER MENSAJE DE VENTA VENDE EL ARTÍCULO"));
+  assert.ok(
+    prompt.includes("ni una lista de características"),
+    "un apunte de calidad sí, una ficha técnica no",
+  );
   assert.ok(prompt.includes("Incluye sábana, ajustable y 2 fundas"), "y con lo que el anuncio dice");
 });
 
@@ -1605,4 +1608,37 @@ test("el panel avisa cuando el saludo arrastra el nombre largo del perfil", () =
     revisarAgente(org, canal).avisos.some((a) => a.includes("nombre del perfil")),
     false,
   );
+});
+
+/**
+ * EL ANUNCIO ES DE DÓNDE SACA LO QUE SABE, NO DE LO QUE HABLA.
+ *
+ * El agente abría con «Lo que sale en el anuncio es una chacabana para
+ * caballeros a RD$1,790…»: le devolvía narrado al cliente lo que el cliente
+ * acababa de ver y pinchar. Suena a que le atiende un catálogo en vez de un
+ * vendedor, y no le acerca ni un paso a comprar. La regla vieja lo pedía sin
+ * querer —«qué es lo que vio y qué trae»—, así que esto fija que ya no.
+ */
+test("con un anuncio delante, el prompt prohíbe narrarle el anuncio al cliente", () => {
+  const prompt = armarSistema("Tienda", D.obtenerAgente(orgId), [], {
+    origen: "anuncio",
+    producto_anuncio: "Chacabana para caballeros",
+    descripcion_anuncio: "Chacabana para caballeros RD$1,790",
+  });
+
+  assert.ok(prompt.includes("NO LE CUENTA EL ANUNCIO"));
+  assert.ok(
+    prompt.includes("lo que sale en el anuncio"),
+    "la frase prohibida tiene que estar escrita para que el modelo la reconozca",
+  );
+  assert.ok(
+    prompt.includes("LA PREGUNTA DEL FINAL ES LA QUE ADELANTA EL PEDIDO"),
+    "vender es acercar el cierre, no preguntar si le interesa",
+  );
+});
+
+/** Sin anuncio no aparece ninguna de esas reglas: solo estorbarían. */
+test("sin anuncio, las reglas del anuncio no entran en el prompt", () => {
+  const prompt = armarSistema("Tienda", D.obtenerAgente(orgId), [], null);
+  assert.equal(prompt.includes("NO LE CUENTA EL ANUNCIO"), false);
 });
