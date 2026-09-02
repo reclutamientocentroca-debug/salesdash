@@ -554,3 +554,193 @@ test("las páginas recordadas se devuelven a su cuenta y se olvidan al usarse", 
   olvidarPaginas(77);
   assert.deepEqual(paginasRecordadas(77), []);
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// «Está conectada y no me llega nada»
+//
+// El peor estado de toda la integración: la página se ve conectada en el panel,
+// Meta se ve configurado en el suyo, y no entra un mensaje. Casi siempre es la
+// suscripción, que se hace al conectar y puede fallar sin dejar rastro visible.
+// `revisarPagina` es lo que lo detecta Y lo repara.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Contesta a la Graph API con un guion, y apunta a qué rutas se llamó. */
+function fingirGraph(guion: (url: string, metodo: string) => { ok: boolean; datos: unknown }) {
+  const llamadas: string[] = [];
+  const original = globalThis.fetch;
+
+  globalThis.fetch = (async (entrada: unknown, opciones?: { method?: string }) => {
+    const url = String(entrada);
+    const metodo = opciones?.method ?? "GET";
+    llamadas.push(`${metodo} ${url.split("?")[0]!.replace(/^.*\/v[\d.]+\//, "")}`);
+
+    const r = guion(url, metodo);
+    return { ok: r.ok, status: r.ok ? 200 : 400, json: async () => r.datos } as Response;
+  }) as typeof fetch;
+
+  return { llamadas, restaurar: () => { globalThis.fetch = original; } };
+}
+
+test("una página suscrita a todo pasa la revisión sin tocar nada", async () => {
+  const { revisarPagina } = await import("../src/lib/meta/paginas");
+  const { orgId, canalId } = cuentaConPagina("Suscrita");
+  const canal = D.obtenerCanal(orgId, canalId)!;
+
+  const graph = fingirGraph((url) => {
+    if (url.includes("/subscribed_apps")) {
+      return {
+        ok: true,
+        datos: {
+          data: [
+            {
+              subscribed_fields: [
+                "messages", "messaging_postbacks", "message_echoes",
+                "messaging_referrals", "feed",
+              ],
+            },
+          ],
+        },
+      };
+    }
+    return { ok: true, datos: { name: "Página de prueba" } };
+  });
+
+  try {
+    const r = await revisarPagina(canal);
+
+    assert.equal(r.tokenVale, true);
+    assert.equal(r.suscrita, true);
+    assert.deepEqual(r.faltan, []);
+    assert.equal(r.reparada, false, "no hacía falta reparar nada");
+    assert.equal(r.error, null);
+
+    // Lo importante: NO se llamó al POST que suscribe. Volver a suscribir una
+    // página que ya lo está es ruido contra Meta en cada comprobación.
+    assert.equal(
+      graph.llamadas.some((l) => l.startsWith("POST")),
+      false,
+      "no se toca la suscripción de una página que ya recibe",
+    );
+  } finally {
+    graph.restaurar();
+  }
+});
+
+/**
+ * EL CASO POR EL QUE EXISTE TODO ESTO.
+ *
+ * La suscripción falló el día que se conectó —le faltaba un permiso al acceso—,
+ * el aviso se enseñó una vez y se cerró, y desde entonces la página está en la
+ * lista igual que las que funcionan. Comprobar no puede limitarse a decirlo: el
+ * dueño no puede suscribir la página desde Meta, porque la app no es suya.
+ */
+test("una página sin suscribir se repara durante la revisión", async () => {
+  const { revisarPagina } = await import("../src/lib/meta/paginas");
+  const { orgId, canalId } = cuentaConPagina("SinSuscribir");
+  const canal = D.obtenerCanal(orgId, canalId)!;
+
+  let suscrita = false;
+
+  const graph = fingirGraph((url, metodo) => {
+    if (url.includes("/subscribed_apps")) {
+      if (metodo === "POST") {
+        suscrita = true;
+        return { ok: true, datos: { success: true } };
+      }
+      return {
+        ok: true,
+        datos: suscrita
+          ? {
+              data: [
+                {
+                  subscribed_fields: [
+                    "messages", "messaging_postbacks", "message_echoes",
+                    "messaging_referrals", "feed",
+                  ],
+                },
+              ],
+            }
+          : { data: [] },
+      };
+    }
+    return { ok: true, datos: { name: "Página de prueba" } };
+  });
+
+  try {
+    const r = await revisarPagina(canal);
+
+    assert.equal(r.reparada, true);
+    assert.equal(r.suscrita, true);
+    assert.deepEqual(r.faltan, [], "y se comprueba DESPUÉS de reparar, no se da por hecho");
+    assert.equal(r.error, null);
+  } finally {
+    graph.restaurar();
+  }
+});
+
+test("con el token caducado se devuelve el texto de Meta y no se suscribe nada", async () => {
+  const { revisarPagina } = await import("../src/lib/meta/paginas");
+  const { orgId, canalId } = cuentaConPagina("TokenMuerto");
+  const canal = D.obtenerCanal(orgId, canalId)!;
+
+  const graph = fingirGraph(() => ({
+    ok: false,
+    datos: { error: { message: "Error validating access token: Session has expired", code: 190 } },
+  }));
+
+  try {
+    const r = await revisarPagina(canal);
+
+    assert.equal(r.tokenVale, false);
+    assert.equal(r.suscrita, false);
+    assert.match(r.error ?? "", /Session has expired/, "el error de Meta se propaga con su texto");
+
+    // Con el token muerto, insistir con la suscripción solo cambia un error
+    // claro por otro que apunta al sitio equivocado.
+    assert.equal(graph.llamadas.some((l) => l.startsWith("POST")), false);
+  } finally {
+    graph.restaurar();
+  }
+});
+
+/**
+ * EL ERROR DE META NO PUEDE LLEVAR EL TOKEN DENTRO.
+ *
+ * Meta contesta «Malformed access token EAAG…» con la credencial escrita en el
+ * texto. Ese texto se propaga a propósito hasta el panel —es lo que distingue
+ * un token caducado de un permiso que falta— y acabaría pintado en pantalla y
+ * en la captura que el dueño manda para pedir ayuda.
+ */
+test("el token nunca viaja dentro del mensaje de error de Meta", async () => {
+  const { revisarPagina } = await import("../src/lib/meta/paginas");
+
+  const TOKEN = "EAAGsecretodepaginaqueNOpuedesalir";
+  const { orgId } = D.crearOrgConDueno({
+    negocio: "ConToken", color: "#000", nombre: "Dueña",
+    email: `token-${Date.now()}@prueba.local`, passwordHash: "x",
+  });
+  const canalId = D.crearPaginaMeta(orgId, {
+    pageId: `66${Date.now()}`, nombre: "Con token",
+    tokenCifrado: cifrar(TOKEN), webhookSecret: secretoAleatorio(), igUserId: null,
+  });
+  const canal = D.obtenerCanal(orgId, canalId)!;
+
+  const graph = fingirGraph(() => ({
+    ok: false,
+    datos: { error: { message: `Malformed access token ${TOKEN}`, code: 190 } },
+  }));
+
+  try {
+    const r = await revisarPagina(canal);
+
+    assert.equal(r.tokenVale, false);
+    assert.equal(
+      (r.error ?? "").includes(TOKEN),
+      false,
+      `el token salió en el mensaje: ${r.error}`,
+    );
+    assert.match(r.error ?? "", /Malformed access token/, "pero el motivo de Meta sí se conserva");
+  } finally {
+    graph.restaurar();
+  }
+});

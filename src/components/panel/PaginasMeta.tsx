@@ -12,6 +12,14 @@ export interface PaginaMeta {
   ultimoEventoAt: number | null;
 }
 
+/** El veredicto de «¿esta página recibe de verdad?». Ver `revisar/route.ts`. */
+interface Revision {
+  ok: boolean;
+  reparada: boolean;
+  titulo: string;
+  detalle: string | null;
+}
+
 /** Lo que devuelve Meta por cada página que administra quien entró. */
 interface Disponible {
   pageId: string;
@@ -61,6 +69,10 @@ export default function PaginasMeta({
 
   const [disponibles, setDisponibles] = useState<Disponible[] | null>(null);
   const [cargando, setCargando] = useState(false);
+
+  /** El veredicto de la última comprobación, por página. */
+  const [revisiones, setRevisiones] = useState<Record<number, Revision>>({});
+  const [revisando, setRevisando] = useState<number | null>(null);
 
   /**
    * Traerse las páginas que el servidor dejó en su memoria al volver.
@@ -207,6 +219,42 @@ export default function PaginasMeta({
     router.refresh();
   }
 
+  /**
+   * COMPROBAR QUE LA PÁGINA RECIBE, Y ARREGLARLA SI NO.
+   *
+   * «Conectada» en esta lista solo quiere decir que guardamos su acceso. Que
+   * Facebook nos MANDE sus mensajes es otra cosa —la suscripción— y puede
+   * haberse caído sin que nada cambie de aspecto aquí. Este botón se lo pregunta
+   * a Facebook y, si dice que no, la suscribe en el momento.
+   *
+   * Está en cada fila y no en una pantalla de ajustes porque la pregunta llega
+   * mirando esta lista: «pone conectada, ¿por qué no me entra nada?».
+   */
+  async function revisar(id: number) {
+    setRevisando(id);
+    setError(null);
+
+    try {
+      const r = await fetch(`/api/meta/canales/${id}/revisar`, { method: "POST" });
+      const datos = await r.json().catch(() => ({}));
+
+      if (!r.ok) {
+        setError(datos.error ?? "No se pudo comprobar la página.");
+        return;
+      }
+
+      setRevisiones((antes) => ({ ...antes, [id]: datos as Revision }));
+
+      // Si se reparó algo, la fila de al lado ya no dice la verdad: la actividad
+      // y el estado los pinta el servidor.
+      if (datos.reparada) router.refresh();
+    } catch {
+      setError("No se pudo hablar con el servidor");
+    } finally {
+      setRevisando(null);
+    }
+  }
+
   async function conectarElegida(elegida: string) {
     setOcupado(true);
     setError(null);
@@ -299,65 +347,92 @@ export default function PaginasMeta({
 
           <ul style={{ display: "grid", gap: 11 }}>
             {paginas.map((p) => (
-              <li
-                key={p.id}
-                style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12.5 }}
-              >
-                <span style={{ flex: 1, minWidth: 0 }}>
-                  <span style={{ fontWeight: 600 }}>{p.nombre}</span>
-                  {/* Ni identificadores ni tokens: al dueño de la tienda le
-                      importa si su página está viva y quién contesta. */}
-                  <span className="tenue" style={{ display: "block" }}>
-                    {p.igUserId ? "Facebook e Instagram" : "Facebook"}
-                    {" · "}
-                    {p.ultimoEventoAt ? `activa ${hace(p.ultimoEventoAt)}` : "sin actividad todavía"}
+              <li key={p.id} style={{ display: "grid", gap: 8, fontSize: 12.5 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ fontWeight: 600 }}>{p.nombre}</span>
+                    {/* Ni identificadores ni tokens: al dueño de la tienda le
+                        importa si su página está viva y quién contesta. */}
+                    <span className="tenue" style={{ display: "block" }}>
+                      {p.igUserId ? "Facebook e Instagram" : "Facebook"}
+                      {" · "}
+                      {p.ultimoEventoAt ? `activa ${hace(p.ultimoEventoAt)}` : "sin actividad todavía"}
+                    </span>
                   </span>
-                </span>
 
-                {/*
-                  EL AGENTE SE ENCIENDE AQUÍ, en la página, y no en otra
-                  pantalla. Estaba en Números —donde viven los WhatsApp— y a una
-                  página de Facebook no se llega por ahí: quien conectaba una
-                  página se quedaba con la bandeja llena y sin forma de decirle
-                  a la IA que contestara.
+                  {/*
+                    EL AGENTE SE ENCIENDE AQUÍ, en la página, y no en otra
+                    pantalla. Estaba en Números —donde viven los WhatsApp— y a una
+                    página de Facebook no se llega por ahí: quien conectaba una
+                    página se quedaba con la bandeja llena y sin forma de decirle
+                    a la IA que contestara.
 
-                  Encenderlo aquí es lo mismo que encenderlo allí: la misma
-                  ruta, la misma regla de que por canal contesta uno solo.
-                */}
-                <button
-                  type="button"
-                  className={`btn ${p.agenteActivo ? "btn-acento" : "btn-secundario"}`}
-                  disabled={ocupado}
-                  aria-pressed={p.agenteActivo}
-                  onClick={() => alternarAgente(p.id, !p.agenteActivo)}
-                  title={
-                    p.agenteActivo
-                      ? "La IA contesta los mensajes de esta página"
-                      : "El panel solo mira: nadie contesta desde aquí"
-                  }
-                >
-                  {p.agenteActivo ? "Responde la IA" : "Solo mira"}
-                </button>
+                    Encenderlo aquí es lo mismo que encenderlo allí: la misma
+                    ruta, la misma regla de que por canal contesta uno solo.
+                  */}
+                  <button
+                    type="button"
+                    className={`btn ${p.agenteActivo ? "btn-acento" : "btn-secundario"}`}
+                    disabled={ocupado}
+                    aria-pressed={p.agenteActivo}
+                    onClick={() => alternarAgente(p.id, !p.agenteActivo)}
+                    title={
+                      p.agenteActivo
+                        ? "La IA contesta los mensajes de esta página"
+                        : "El panel solo mira: nadie contesta desde aquí"
+                    }
+                  >
+                    {p.agenteActivo ? "Responde la IA" : "Solo mira"}
+                  </button>
 
-                {/* Y su guion, que es donde se le pone el país. Cada página
-                    tiene el suyo, como cada número. */}
-                <a
-                  className="btn btn-tenue"
-                  style={{ textDecoration: "none" }}
-                  href={`/agente?canal=${p.id}`}
-                  title="El país, el guion y el modelo de esta página"
-                >
-                  Su agente
-                </a>
+                  {/* Y su guion, que es donde se le pone el país. Cada página
+                      tiene el suyo, como cada número. */}
+                  <a
+                    className="btn btn-tenue"
+                    style={{ textDecoration: "none" }}
+                    href={`/agente?canal=${p.id}`}
+                    title="El país, el guion y el modelo de esta página"
+                  >
+                    Su agente
+                  </a>
 
-                <button
-                  type="button"
-                  className="btn btn-secundario"
-                  disabled={ocupado}
-                  onClick={() => desconectar(p.id, p.nombre)}
-                >
-                  Quitar
-                </button>
+                  {/*
+                    «Pone conectada y no me llega nada» se contesta aquí, sin
+                    entrar al servidor ni al panel de Meta. Ver `revisar`.
+                  */}
+                  <button
+                    type="button"
+                    className="btn btn-tenue"
+                    disabled={revisando !== null}
+                    onClick={() => revisar(p.id)}
+                    title="Le pregunta a Facebook si de verdad nos está mandando los mensajes de esta página"
+                  >
+                    {revisando === p.id ? "Comprobando…" : "Comprobar"}
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn btn-secundario"
+                    disabled={ocupado}
+                    onClick={() => desconectar(p.id, p.nombre)}
+                  >
+                    Quitar
+                  </button>
+                </div>
+
+                {revisiones[p.id] && (
+                  <div
+                    className={`aviso ${revisiones[p.id]!.ok ? "aviso-acento" : "aviso-ambar"}`}
+                    role="status"
+                  >
+                    <strong style={{ fontWeight: 600 }}>{revisiones[p.id]!.titulo}</strong>
+                    {revisiones[p.id]!.detalle && (
+                      <span style={{ display: "block", marginTop: 3 }}>
+                        {revisiones[p.id]!.detalle}
+                      </span>
+                    )}
+                  </div>
+                )}
               </li>
             ))}
           </ul>

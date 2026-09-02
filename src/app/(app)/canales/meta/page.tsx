@@ -5,6 +5,7 @@ import PestanasMeta from "@/components/panel/PestanasMeta";
 import { fechaHora } from "@/components/panel/Piezas";
 import {
   bandejaMeta,
+  eventosMetaHuerfanos,
   listarAnunciosMeta,
   listarCatalogo,
   listarPaginasMeta,
@@ -88,7 +89,30 @@ export default async function PaginaMeta() {
 
   const config = VARIABLES.map((v) => ({ ...v, puesta: estaPuesta(v.clave) }));
   const faltanCriticas = config.filter((v) => v.critica && !v.puesta);
-  const eventos = ctx.superadmin ? ultimosEventosMeta(orgId, 8) : [];
+  /*
+   * LOS EVENTOS QUE HACEN FALTA SON, JUSTAMENTE, LOS QUE NO TIENEN DUEÑO.
+   *
+   * `ultimosEventosMeta` filtra por `org_id`, y los dos fallos que dejan una
+   * página conectada sin recibir nada se guardan con `org_id = NULL`: la firma
+   * inválida —que se registra antes de saber de quién es el evento— y la página
+   * que nadie conectó. Enseñando solo los de la cuenta, esta pantalla decía
+   * «todavía no ha llegado ningún evento» mientras Meta mandaba y nosotros
+   * tirábamos uno tras otro: la respuesta exacta que manda a buscar el problema
+   * a Meta cuando está aquí dentro.
+   *
+   * Los huérfanos son de la plataforma, no de la cuenta, y por eso este bloque
+   * entero es solo de superadmin. Ver `eventosMetaHuerfanos` en `db.ts`.
+   */
+  const eventos = ctx.superadmin
+    ? [
+        ...ultimosEventosMeta(orgId, 8).map((e) => ({ ...e, huerfano: false })),
+        ...eventosMetaHuerfanos(8).map((e) => ({
+          ...e, procesado: 0, mensajes: 0, huerfano: true,
+        })),
+      ]
+        .sort((a, b) => b.recibido_at - a.recibido_at || b.id - a.id)
+        .slice(0, 10)
+    : [];
   const urlWebhook = `${(process.env.APP_URL ?? "").replace(/\/$/, "")}/api/meta/webhook`;
 
   /*
@@ -258,7 +282,9 @@ export default async function PaginaMeta() {
             <section>
               <h2 className="titulo-tarjeta" style={{ marginBottom: 4 }}>Últimos eventos recibidos</h2>
               <p className="tenue" style={{ marginBottom: 12 }}>
-                Lo que Meta mandó a esta cuenta, antes de interpretarlo.
+                Lo que Meta mandó, antes de interpretarlo. Incluye lo que se descartó por firma
+                inválida o por venir de una página que nadie conectó: sin eso, la lista vacía
+                y «Meta no manda nada» se ven igual.
               </p>
 
               {eventos.length === 0 ? (
@@ -282,7 +308,7 @@ export default async function PaginaMeta() {
                       </span>
                       <span
                         className={`pastilla ${
-                          e.firma_ok !== 1
+                          e.firma_ok !== 1 || e.huerfano
                             ? "pastilla-revision"
                             : e.procesado === 1
                               ? "pastilla-ia"
@@ -291,9 +317,11 @@ export default async function PaginaMeta() {
                       >
                         {e.firma_ok !== 1
                           ? "firma mala"
-                          : e.procesado === 1
-                            ? `${e.mensajes} mensaje${e.mensajes === 1 ? "" : "s"}`
-                            : "sin procesar"}
+                          : e.huerfano
+                            ? "descartado"
+                            : e.procesado === 1
+                              ? `${e.mensajes} mensaje${e.mensajes === 1 ? "" : "s"}`
+                              : "sin procesar"}
                       </span>
                     </li>
                   ))}

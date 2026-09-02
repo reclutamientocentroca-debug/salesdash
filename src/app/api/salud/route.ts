@@ -134,6 +134,9 @@ export function GET(req: NextRequest) {
     avisos.push("Falta OPENROUTER_API_KEY: no se puede analizar ni responder.");
   }
 
+  const meta = revisarMeta();
+  avisos.push(...meta.avisos);
+
   const correo = revisarCorreo();
   avisos.push(...correo.avisos);
 
@@ -163,6 +166,7 @@ export function GET(req: NextRequest) {
         correo_destinatarios: correo.destinatarios,
         whapi_partner: !!process.env.WHAPI_PARTNER_TOKEN,
       },
+      meta: meta.estado,
       avisos,
     },
     // Ver la nota de arriba: 200 salvo que se pida `?estricto=1` a propósito.
@@ -215,6 +219,66 @@ function montajesDeDatos(): string[] | null {
   const RUIDO = /^\/(proc|sys|dev|run|etc\/(hosts|hostname|resolv\.conf)|usr|lib|bin|sbin|var\/lib\/docker)/;
 
   return [...new Set(montajes.filter((m) => m !== "/" && !RUIDO.test(m)))];
+}
+
+/**
+ * Revisa el canal de Meta (Messenger, directos de Instagram y comentarios).
+ *
+ * Los dos primeros fallan EN SILENCIO y de la peor manera posible: la página se
+ * ve «conectada» en el panel, Meta se ve configurado en su panel, y no llega ni
+ * un mensaje. Ninguno da un error en ninguna pantalla.
+ *
+ *   META_APP_SECRET — es con lo que se comprueba la firma. Sin él, cada evento
+ *     que manda Meta entra, se guarda con `firma_ok = 0` y se DESCARTA. El
+ *     webhook responde 200 a todo —tiene que hacerlo, si no Meta lo desactiva—
+ *     así que desde fuera se ve idéntico a que todo funcione.
+ *   META_VERIFY_TOKEN — sin él, el panel de Meta ni siquiera deja dar de alta
+ *     la URL del webhook. Es el primer eslabón de la integración.
+ *
+ * `META_APP_ID` es de otra clase: sin él la pantalla se queda sin el botón de
+ * «Continuar con Facebook» y solo se puede conectar pegando un token a mano. Se
+ * dice, pero el canal existente sigue recibiendo.
+ *
+ * Los valores no se leen NUNCA: solo si están puestos.
+ */
+function revisarMeta(): {
+  estado: { secreto: boolean; verify_token: boolean; app_id: boolean; version: string };
+  avisos: string[];
+} {
+  const puesta = (clave: string) => (process.env[clave] ?? "").trim() !== "";
+  const avisos: string[] = [];
+
+  const secreto = puesta("META_APP_SECRET");
+  const verify = puesta("META_VERIFY_TOKEN");
+  const appId = puesta("META_APP_ID");
+
+  if (!secreto) {
+    avisos.push(
+      "Falta META_APP_SECRET: los eventos de Meta llegan y se descartan todos por firma " +
+        "inválida. Las páginas se ven conectadas y no entra ni un mensaje.",
+    );
+  }
+
+  if (!verify) {
+    avisos.push(
+      "Falta META_VERIFY_TOKEN: el panel de Meta no deja dar de alta la URL del webhook.",
+    );
+  }
+
+  if (!appId && (secreto || verify)) {
+    avisos.push(
+      "Falta META_APP_ID: la pantalla de Messenger se queda sin el botón de «Continuar con " +
+        "Facebook» y solo se puede conectar una página pegando su token a mano.",
+    );
+  }
+
+  return {
+    estado: {
+      secreto, verify_token: verify, app_id: appId,
+      version: process.env.META_GRAPH_VERSION || "v23.0",
+    },
+    avisos,
+  };
 }
 
 /**

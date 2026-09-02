@@ -24,6 +24,29 @@ export class ErrorMeta extends Error {
   }
 }
 
+/**
+ * EL ERROR DE META PUEDE TRAER EL TOKEN DENTRO.
+ *
+ * «Malformed access token EAAG…» — Meta te devuelve la credencial escrita en
+ * el texto del error. Ese texto se propaga a propósito hasta el panel, porque
+ * es lo que distingue un token caducado de un permiso que falta, y ahí acaba
+ * pintado en pantalla, en un registro del servidor y en la captura que el dueño
+ * manda por WhatsApp para pedir ayuda.
+ *
+ * Se tapa aquí, en el único sitio por el que pasan todas las llamadas, y no en
+ * cada pantalla: una pantalla que se olvide de hacerlo publica la credencial.
+ */
+function sinToken(mensaje: string, token: string): string {
+  const limpio = token.trim();
+  if (limpio.length < 8) return mensaje;
+
+  // También los fragmentos: Meta a veces recorta el token en el mensaje.
+  return mensaje.split(limpio).join("(el acceso guardado)").replace(
+    new RegExp(`\\b${limpio.slice(0, 8).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\S*`, "g"),
+    "(el acceso guardado)",
+  );
+}
+
 /** POST a la Graph API con el token de la página, ya descifrado. */
 export async function postGraph(
   canal: Canal,
@@ -54,7 +77,7 @@ export async function postConToken(
      * mensaje original quien lo lea no sabe cuál le tocó.
      */
     const e = (datos.error ?? {}) as { message?: string; code?: number };
-    throw new ErrorMeta(e.message ?? `Meta respondió ${r.status}`, e.code);
+    throw new ErrorMeta(sinToken(e.message ?? `Meta respondió ${r.status}`, token), e.code);
   }
 
   return datos;
@@ -74,7 +97,7 @@ export async function getGraph(
 
   if (!r.ok) {
     const e = (datos.error ?? {}) as { message?: string; code?: number };
-    throw new ErrorMeta(e.message ?? `Meta respondió ${r.status}`, e.code);
+    throw new ErrorMeta(sinToken(e.message ?? `Meta respondió ${r.status}`, token), e.code);
   }
 
   return datos;
