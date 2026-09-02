@@ -1551,6 +1551,54 @@ test("el guion dominicano cierra con las tres lineas, y el pedido va una sola ve
 });
 
 /**
+ * EL TOTAL TICO SE CALCULA, NO SE COPIA.
+ *
+ * El guion decia "producto mas envio" y nada mas, asi que con dos unidades el
+ * modelo escribia el precio de UNA y le sumaba el envio: la tienda cobraba una
+ * unidad y mandaba dos. El pedido salia perfecto -con su cantidad, su envio y su
+ * total- y ninguna pantalla podia verlo, porque el numero que registra la venta
+ * es justo el que estaba mal.
+ *
+ * Por eso la cuenta va escrita con sus dos pasos: el precio POR la cantidad, y a
+ * eso el envio.
+ */
+test("el guion tico multiplica por la cantidad antes de sumar el envio", async () => {
+  const { PLANTILLAS } = await import("../src/lib/plantillas");
+  const tica = PLANTILLAS.find((p) => p.pais === "cr");
+
+  assert.ok(tica, "la plantilla tica tiene que existir");
+
+  assert.match(
+    tica.instrucciones,
+    /POR la cantidad/,
+    "el precio se multiplica por lo que lleva, no se copia",
+  );
+  assert.match(
+    tica.instrucciones,
+    /se le suma el envio/,
+    "y el envio se suma despues, sobre el resultado",
+  );
+  assert.match(
+    tica.instrucciones,
+    /EL PRECIO SE MULTIPLICA/,
+    "dicho tambien donde se decide la cantidad, que es donde se equivoca",
+  );
+
+  // La cuenta va con un ejemplo hecho: dos unidades y su envio, ya sumados.
+  assert.ok(
+    tica.instrucciones.includes("2 articulos de 12.500 son 25.000, + 2.500 de envio = 27.500"),
+    "con la cuenta de dos unidades resuelta delante",
+  );
+
+  // Y la cantidad de la orden es la real, que es lo que lee el analista.
+  assert.match(
+    tica.instrucciones,
+    /"Cantidad:" de la orden lleva el numero real/,
+    "nunca 1 por defecto",
+  );
+});
+
+/**
  * CADA PAÍS, SU AGENTE, Y NADA DEL VECINO.
  *
  * Tres números de la misma cuenta son tres vendedores distintos: cada uno con
