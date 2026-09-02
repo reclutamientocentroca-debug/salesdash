@@ -157,18 +157,103 @@ test("un mensaje sin id de Meta no se guarda", () => {
   assert.equal(normalizarEvento(evento, PAGINA).length, 0);
 });
 
+/*
+ * EL REFERRAL, CON LA FORMA QUE META MANDA DE VERDAD.
+ *
+ * Esta prueba pasaba con un `ad_title` colgado del `referral`, que es una forma
+ * que Meta no manda nunca: el título va dentro de `ads_context_data`. La prueba
+ * estaba escrita desde el mismo error que el código, así que lo tapaba en vez
+ * de encontrarlo — en produccion el producto anunciado llegaba siempre vacío y
+ * aquí todo salía verde.
+ *
+ * La carga de abajo es la documentada por Meta para un anuncio click-to-
+ * Messenger. Si alguien vuelve a leer un campo del nivel equivocado, falla.
+ */
+const REFERRAL_ANUNCIO = {
+  ref: "promo-septiembre",
+  ad_id: "23851234567890",
+  source: "ADS",
+  type: "OPEN_THREAD",
+  ads_context_data: {
+    ad_title: "Camisa manga larga",
+    photo_url: "https://scontent.xx.fbcdn.net/creatividad.jpg",
+    post_id: "120214567890123456",
+  },
+};
+
 test("el referral del anuncio se saca del primer evento", () => {
+  const [m] = normalizarEvento(eventoMensaje({ referral: REFERRAL_ANUNCIO }), PAGINA);
+
+  assert.ok(m);
+  assert.equal(m.deAnuncio, true);
+  assert.equal(m.metaAdId, "23851234567890");
+  assert.equal(
+    m.productoAnuncio,
+    "Camisa manga larga",
+    "el título vive en ads_context_data, no colgado del referral",
+  );
+});
+
+/**
+ * El `post_id` NO es la descripción del anuncio.
+ *
+ * Se colaba en `descripcionAnuncio`, y de ahí al prompt por `anuncioParaModelo`,
+ * que lo imprime como «Lo que promete el anuncio: 120214567890123456». Un
+ * número no le dice nada al modelo y ocupa el sitio de lo que sí importa.
+ */
+test("el identificador de la publicación no se cuela como descripción", () => {
+  const [m] = normalizarEvento(eventoMensaje({ referral: REFERRAL_ANUNCIO }), PAGINA);
+
+  assert.ok(m);
+  assert.equal(m.descripcionAnuncio, null);
+});
+
+/**
+ * LA CREATIVIDAD TIENE QUE LLEGAR, que es donde está escrito el precio.
+ *
+ * En media publicidad de Facebook el precio, los colores y las tallas van
+ * ENCIMA de la foto y no en el texto. WhatsApp manda esa imagen en bytes y se
+ * describía; Messenger manda su enlace y no se leía, así que el mismo anuncio
+ * se entendía o no según por dónde entrara el cliente.
+ */
+test("el enlace de la creatividad del anuncio sale del referral", () => {
+  const [m] = normalizarEvento(eventoMensaje({ referral: REFERRAL_ANUNCIO }), PAGINA);
+
+  assert.ok(m);
+  assert.equal(m.imagenAnuncioUrl, "https://scontent.xx.fbcdn.net/creatividad.jpg");
+});
+
+/** En un anuncio de vídeo, la miniatura viene en `video_url`. */
+test("sin foto, la creatividad se toma de la miniatura del vídeo", () => {
   const [m] = normalizarEvento(
     eventoMensaje({
-      referral: { ad_id: "23851234567890", source: "ADS", ad_title: "Camisa manga larga" },
+      referral: {
+        ad_id: "23859999",
+        source: "ADS",
+        ads_context_data: {
+          ad_title: "Set de sábanas",
+          video_url: "https://scontent.xx.fbcdn.net/miniatura.jpg",
+        },
+      },
     }),
     PAGINA,
   );
 
   assert.ok(m);
-  assert.equal(m.deAnuncio, true);
-  assert.equal(m.metaAdId, "23851234567890");
-  assert.equal(m.productoAnuncio, "Camisa manga larga");
+  assert.equal(m.imagenAnuncioUrl, "https://scontent.xx.fbcdn.net/miniatura.jpg");
+});
+
+/** Un anuncio sin creatividad no inventa un enlace: se queda sin ella. */
+test("un referral sin creatividad deja la imagen en nulo", () => {
+  const [m] = normalizarEvento(
+    eventoMensaje({ referral: { ad_id: "2385000", source: "ADS" } }),
+    PAGINA,
+  );
+
+  assert.ok(m);
+  assert.equal(m.metaAdId, "2385000");
+  assert.equal(m.productoAnuncio, null);
+  assert.equal(m.imagenAnuncioUrl, null);
 });
 
 test("un mensaje directo de Instagram se distingue del de Messenger", () => {

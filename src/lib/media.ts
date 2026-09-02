@@ -113,3 +113,50 @@ export function borrarDeOrg(orgId: number): void {
     console.error("[media] no se pudieron borrar los archivos", e);
   }
 }
+
+/**
+ * DESCARGA UNA IMAGEN DE FUERA, para lo que llega como enlace y no como bytes.
+ *
+ * WhatsApp manda la miniatura del anuncio DENTRO del mensaje —Baileys la
+ * entrega en bytes y no hay nada que pedir—. Messenger no: en su referral
+ * manda `photo_url`, un enlace al CDN de Facebook. Sin esta función, el mismo
+ * anuncio se describe cuando el cliente llega por WhatsApp y no se describe
+ * cuando llega por Messenger, que es la mitad de la publicidad.
+ *
+ * Los tres límites son los mismos que gobiernan todo este archivo, y ninguno
+ * es decorativo:
+ *
+ *   - EL TIEMPO. Esto corre dentro de la petición del webhook, y Meta
+ *     desactiva un webhook que tarda. Cuatro segundos es de sobra para una
+ *     imagen de anuncio y es poco para hacer daño: si no llega, se sigue sin
+ *     ella y el agente conserva el título.
+ *   - EL TAMAÑO, dos veces. Antes de leer, por lo que diga la cabecera; y
+ *     después, por lo que de verdad pesa, porque `content-length` puede venir
+ *     mentido o no venir.
+ *   - EL TIPO. Solo imágenes. Un anuncio de vídeo devuelve la miniatura en
+ *     `video_url`, pero si algún día devolviera el vídeo entero, aquí se para.
+ *
+ * Devuelve null ante cualquier problema y NUNCA lanza: el anuncio es contexto,
+ * y quedarse sin él no puede impedir que entre el mensaje del cliente.
+ */
+export async function descargarImagen(url: string, timeoutMs = 4000): Promise<Buffer | null> {
+  if (!/^https:\/\//i.test(url)) return null;
+
+  const corte = AbortSignal.timeout(timeoutMs);
+
+  try {
+    const r = await fetch(url, { signal: corte, redirect: "follow" });
+    if (!r.ok) return null;
+
+    const tipo = r.headers.get("content-type") ?? "";
+    if (!tipo.startsWith("image/")) return null;
+
+    const declarado = Number(r.headers.get("content-length"));
+    if (Number.isFinite(declarado) && declarado > MAX_BYTES) return null;
+
+    const datos = Buffer.from(await r.arrayBuffer());
+    return datos.length > 0 && datos.length <= MAX_BYTES ? datos : null;
+  } catch {
+    return null;
+  }
+}

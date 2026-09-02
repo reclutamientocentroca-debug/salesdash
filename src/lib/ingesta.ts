@@ -37,13 +37,14 @@ import {
   getOrCreateConversation,
   insertMessage,
   marcarActividadCanal,
+  anuncioMetaPorAdId,
   registrarAnuncioVisto,
   type Canal,
   type Emisor,
   type TipoMensaje,
 } from "@/lib/db";
 import { registrarCierre } from "@/lib/cierre";
-import { guardar as guardarArchivo } from "@/lib/media";
+import { descargarImagen, guardar as guardarArchivo } from "@/lib/media";
 import { esChatDePersona, esGrupo, normalizarTelefono } from "@/lib/telefono";
 
 /**
@@ -100,6 +101,15 @@ export interface MensajeEntrante {
    * guarda una vez por anuncio y se describe una vez, no una por cliente.
    */
   imagenAnuncio?: Buffer | null;
+  /**
+   * La imagen del anuncio, como enlace, para lo que no viaja en bytes.
+   *
+   * WhatsApp manda la miniatura dentro del mensaje; Messenger manda un enlace
+   * al CDN de Facebook. Se descarga aquí y NO en el traductor, que no llama a
+   * nadie, y una sola vez por anuncio: un anuncio trae decenas de clientes y
+   * la creatividad es la misma para todos.
+   */
+  imagenAnuncioUrl?: string | null;
 }
 
 export interface Resultado {
@@ -246,11 +256,28 @@ export async function ingerir(
        */
       if (m.metaAdId) {
         try {
+          /*
+           * LA CREATIVIDAD SE TRAE UNA VEZ, no una por cliente.
+           *
+           * Un anuncio que funciona trae decenas de leads, y todos llegan con
+           * el mismo `photo_url`. Preguntar primero si ya la tenemos convierte
+           * decenas de descargas dentro del webhook —donde tardar cuesta que
+           * Meta lo desactive— en una sola.
+           */
+          const guardado = anuncioMetaPorAdId(orgId, m.metaAdId);
+          let imagen = guardado?.imagen ?? null;
+
+          if (!imagen) {
+            const bytes =
+              m.imagenAnuncio ??
+              (m.imagenAnuncioUrl ? await descargarImagen(m.imagenAnuncioUrl) : null);
+
+            if (bytes) imagen = guardarArchivo(orgId, `anuncio:${m.metaAdId}`, "imagen", bytes);
+          }
+
           registrarAnuncioVisto(orgId, m.metaAdId, m.productoAnuncio ?? null, {
             texto: m.descripcionAnuncio ?? null,
-            imagen: m.imagenAnuncio
-              ? guardarArchivo(orgId, `anuncio:${m.metaAdId}`, "imagen", m.imagenAnuncio)
-              : null,
+            imagen,
           });
         } catch (e) {
           // El anuncio es contexto, no la conversación: que falle no puede

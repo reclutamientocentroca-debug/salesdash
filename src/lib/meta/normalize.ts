@@ -123,10 +123,38 @@ function normalizarMensaje(
   const id = texto(mensaje.mid);
   if (!id) return null;
 
-  // El referral del anuncio: llega en el primer evento del hilo y solo ahí.
+  /*
+   * EL REFERRAL DEL ANUNCIO: llega en el primer evento del hilo y solo ahí.
+   *
+   * `referral` cuelga del evento —hermano de `message`, no dentro de él—, y en
+   * un botón del anuncio viene colgado del `postback`. Los tres sitios se
+   * miran porque los tres ocurren.
+   */
   const referral = objeto(e.referral ?? objeto(e.postback).referral ?? mensaje.referral);
   const adId = texto(referral.ad_id) || null;
   const deAnuncio = !!adId || texto(referral.source).toLowerCase() === "ads";
+
+  /*
+   * LO QUE EL CLIENTE VIO VIVE UN NIVEL MÁS ABAJO, en `ads_context_data`.
+   *
+   * Esto estaba mal y se notaba donde más caro sale. El título se leía de
+   * `referral.ad_title`, que Meta no manda nunca —lo manda en
+   * `ads_context_data.ad_title`—, así que el producto anunciado llegaba SIEMPRE
+   * vacío. Y en el hueco de la descripción se metía `ads_context_data.post_id`,
+   * que es un identificador: el prompt acababa diciéndole al modelo «Lo que
+   * promete el anuncio: 120214…».
+   *
+   * Con las dos cosas rotas, el agente sabía que el cliente venía de un anuncio
+   * y no sabía de cuál, así que abría preguntando qué artículo había visto a
+   * alguien que acababa de pinchar la foto de ese artículo. Es exactamente la
+   * pregunta que hace que no conteste.
+   *
+   * Meta NO manda el cuerpo del anuncio por aquí: manda el título y la
+   * creatividad. Por eso `descripcionAnuncio` se queda en null y no se rellena
+   * con lo primero que haya a mano — lo que dice el anuncio se saca de su
+   * imagen, que es donde de verdad está escrito el precio. Ver `photo_url`.
+   */
+  const contextoAnuncio = objeto(referral.ads_context_data);
 
   const adjuntos = Array.isArray(mensaje.attachments) ? mensaje.attachments : [];
   const primero = objeto(adjuntos[0]);
@@ -161,8 +189,22 @@ function normalizarMensaje(
     // Se deja nulo y `getOrCreateConversation` lo rellenará cuando llegue.
     nombre: null,
     deAnuncio,
-    productoAnuncio: texto(referral.ad_title) || null,
-    descripcionAnuncio: texto(referral.ads_context_data ? objeto(referral.ads_context_data).post_id : "") || null,
+    productoAnuncio: texto(contextoAnuncio.ad_title) || null,
+    // Meta no manda el cuerpo del anuncio en el referral. Antes aquí iba su
+    // `post_id`, que no es una descripción sino un número.
+    descripcionAnuncio: null,
+    /*
+     * LA CREATIVIDAD, que es donde está el precio en media publicidad de
+     * Facebook: escrito ENCIMA de la foto y no en el texto. Va como enlace y no
+     * como bytes —este archivo no llama a nadie—; lo descarga `ingesta.ts` una
+     * sola vez por anuncio y lo describe el modelo de visión, igual que ya se
+     * hacía con la miniatura que manda WhatsApp.
+     *
+     * En un anuncio de vídeo, `video_url` trae la miniatura. Va de segundo por
+     * si algún día trajera el vídeo entero: `descargarImagen` solo acepta
+     * imágenes y ahí se pararía.
+     */
+    imagenAnuncioUrl: texto(contextoAnuncio.photo_url) || texto(contextoAnuncio.video_url) || null,
     superficie: esInstagram ? "instagram" : "messenger",
     metaAdId: adId,
     comentarioId: null,
@@ -211,6 +253,8 @@ function normalizarComentario(
     deAnuncio: !!texto(v.post_id),
     productoAnuncio: null,
     descripcionAnuncio: null,
+    // Un comentario no trae creatividad: solo el post bajo el que se escribió.
+    imagenAnuncioUrl: null,
     superficie: "comentario",
     metaAdId: texto(v.ad_id) || null,
     comentarioId,
