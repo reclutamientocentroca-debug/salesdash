@@ -1599,6 +1599,49 @@ test("el guion tico multiplica por la cantidad antes de sumar el envio", async (
 });
 
 /**
+ * "QUIERO MAS INFORMACION" SE CONTESTA, NO SE DEVUELVE.
+ *
+ * El caso real, con el anuncio delante y el precio dentro: el cliente escribio
+ * «¡Hola! Quiero mas informacion» y el agente contesto «Dime a ver que
+ * informacion necesitas sobre las chacabanas». Le devolvio el trabajo a quien
+ * ya lo habia hecho al pulsar el anuncio, y esa es la respuesta que mata la
+ * conversacion: el que tiene que escribir dos veces para que le den un precio
+ * no escribe la segunda.
+ *
+ * El guion ya pedia la estructura -que es, cuanto, y la pregunta que sigue-,
+ * pero en una linea suelta al final y sin nombrar la respuesta prohibida. A un
+ * modelo hay que decirle la frase que NO puede escribir: la regla en abstracto
+ * la cumple y la frase se le escapa igual.
+ */
+test("pedir informacion se contesta con el producto y su precio, no con otra pregunta", async () => {
+  const { PLANTILLAS } = await import("../src/lib/plantillas");
+
+  const prompt = armarSistema("Tienda", D.obtenerAgente(orgId), [], {
+    origen: "anuncio",
+    producto_anuncio: "Chacabanas para caballeros",
+    descripcion_anuncio: "Chacabanas para caballeros a RD$1,790. Size S M L XL y XXL",
+  });
+
+  assert.ok(
+    prompt.includes("NO ES UNA PREGUNTA QUE TENGAS QUE DEVOLVER"),
+    "el prompt base lo dice, que es lo que lee un agente sin plantilla propia",
+  );
+  assert.ok(
+    prompt.includes("¿qué información necesitas?"),
+    "y nombra la frase prohibida: en abstracto la regla se cumple y la frase se escapa",
+  );
+
+  // Y en las tres plantillas, que es lo que de verdad lleva puesto cada agente.
+  for (const p of PLANTILLAS) {
+    assert.match(
+      p.instrucciones,
+      /ESTA PROHIBIDO CONTESTAR PREGUNTANDO/,
+      p.pais + ": puede devolverle la pregunta al cliente",
+    );
+  }
+});
+
+/**
  * CADA PAÍS, SU AGENTE, Y NADA DEL VECINO.
  *
  * Tres números de la misma cuenta son tres vendedores distintos: cada uno con
