@@ -177,10 +177,16 @@ export async function buscarPrimeraSenal(
 /**
  * LO QUE DICE LA IMAGEN DEL ANUNCIO.
  *
- * En los anuncios de Facebook e Instagram, el precio y los colores van escritos
- * ENCIMA de la foto muchísimas veces, no en el texto. El cliente llega diciendo
- * «quiero la del anuncio» y el agente, que solo veía el título, no sabía de qué
- * hablaba ni cuánto cuesta.
+ * En los anuncios de Facebook e Instagram, el precio, los colores y las tallas
+ * van escritos ENCIMA de la foto muchísimas veces, no en el texto. El cliente
+ * llega diciendo «quiero la del anuncio» y el agente, que solo veía el título,
+ * no sabía de qué hablaba ni cuánto cuesta.
+ *
+ * Y LA TALLA Y EL COLOR SE DICEN AUNQUE NO LOS HAYA. Con esta descripción
+ * delante, el agente decide si le pregunta al cliente la talla y el color o si
+ * es un artículo que no los lleva —una licuadora, un perfume— y no hay nada que
+ * preguntar. Callarlos porque no se ven deja las dos cosas con la misma cara, y
+ * lo que sale de ahí es preguntarle la talla a quien compra una plancha.
  *
  * Se describe UNA vez por anuncio y la descripción sirve para todos los leads
  * que traiga —que pueden ser cientos—, así que esto es una llamada al modelo
@@ -194,10 +200,11 @@ const PROMPT_ANUNCIO = `Esta es la imagen de un anuncio de una tienda. Descríbe
 
 En dos o tres frases, y solo con lo que SE VE:
 - Qué producto es.
-- Qué colores o modelos aparecen. Si solo hay uno, dilo: "solo se ve en negro".
+- Qué colores aparecen. Si solo hay uno, dilo: "solo se ve en negro". Si no hay colores a elegir, dilo también.
+- Qué TALLAS o medidas se leen, copiadas tal cual: "S, M, L, XL", "de la 36 a la 42". Si no se lee ninguna, dilo: "no se ve ninguna talla".
 - CUALQUIER precio, cifra u oferta escrita en la imagen, copiada tal cual.
 
-Si algo no se ve, no lo menciones. No inventes nada, no adornes y no saludes.`;
+La talla y el color SE DICEN SIEMPRE, aunque sea para decir que no los hay: quien lea esto decide con ello si se los pregunta al cliente, y callarlos es lo que le hace preguntar una talla que ese artículo no tiene. Del resto, lo que no se vea no lo menciones. No inventes nada, no adornes y no saludes.`;
 
 
 

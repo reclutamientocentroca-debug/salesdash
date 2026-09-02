@@ -45,7 +45,7 @@ import { anuncioParaModelo, type DatosAnuncio } from "./anuncio";
 import { contieneMarcador, MARCADOR_POR_DEFECTO, registrarCierre } from "./cierre";
 import { completar, ErrorIA, hoyISO } from "./ia";
 import { bloqueHumano } from "./humano";
-import { bloqueDePais, obtenerPais, type Pais } from "./paises";
+import { bloqueDePais, obtenerPais, saludoDelPais, type Pais } from "./paises";
 import { bloqueDeEnvio } from "./envio";
 import { conLoVistoYOido, modelosDePercepcion, percibir } from "./percepcion";
 import { ubicacionParaModelo, validarUbicacion, type UbicacionValidada } from "./ubicacion";
@@ -476,7 +476,11 @@ export function revisarAgente(orgId: number, canalId: number): RevisionAgente {
    * No se corrige solo —el nombre de la tienda lo sabe el dueño y no nosotros—,
    * así que se enseña el saludo entero y que lo juzgue quien puede arreglarlo.
    */
-  const saludo = `Hola, le asiste ${agente.nombre} de ${nombreDelNegocio(agente, canal, obtenerOrg(orgId) ?? null)}`;
+  const saludo = saludoDelPais(
+    pais,
+    agente.nombre,
+    nombreDelNegocio(agente, canal, obtenerOrg(orgId) ?? null),
+  );
   const nombreDeMaquina = /asistent|bot\b|^ia$|chat ?gpt|agente|virtual/i.test(agente.nombre.trim());
 
   if (nombreDeMaquina) {
@@ -485,11 +489,21 @@ export function revisarAgente(orgId: number, canalId: number): RevisionAgente {
         "Carlos— en «Nombre del agente»: es la primera línea que lee el cliente, y «le asiste " +
         "Asistente» le dice que está hablando con una máquina antes de nada más.",
     );
-  } else if (!agente.negocio?.trim() && canal.negocio && canal.negocio.trim().split(/\s+/).length > 3) {
+  } else if (
+    !agente.negocio?.trim() &&
+    canal.negocio &&
+    canal.negocio.trim().split(/\s+/).length > 3 &&
+    saludo.includes(canal.negocio.trim())
+  ) {
     /*
      * El nombre del perfil, colado en el saludo. Solo se avisa cuando NADIE
      * escribió un nombre corto y el del perfil es largo: si el dueño ya puso el
      * suyo, es el que quiere, sea del largo que sea.
+     *
+     * Y solo si el saludo DE ESE PAÍS lo dice: el dominicano se presenta sin el
+     * nombre de la tienda, así que ahí el del perfil no lo lee nadie y avisar
+     * sería mandar al dueño a arreglar algo que el cliente no ve. Se comprueba
+     * sobre el saludo ya armado para que valga también para el país que venga.
      */
     avisos.push(
       `Tu agente se presenta así: «${saludo}». Ese es el nombre del perfil de la página, con su ` +
@@ -631,6 +645,7 @@ export function armarSistema(
    * Domingo del de San José, y sin ello los tres suenan al mismo extranjero.
    */
   const pais = obtenerPais(agente.pais);
+  const saludo = saludoDelPais(pais, agente.nombre, negocio);
 
   /*
    * EL COSTO DE ENVÍO, ATADO AL MAPA.
@@ -706,7 +721,8 @@ Reglas que no puedes romper:
 - Lo que SÍ sabes se dice con seguridad y en una frase. Nada de «déjame verificar» para un dato que tienes delante: eso frena la venta en seco. Lo que no sabes, ese sí, se confirma con el equipo.
 - SI EL CLIENTE CAMBIA DE PRODUCTO, TÚ CAMBIAS CON ÉL. El anuncio es la puerta de entrada, no la agenda.
 - Cuando la venta ya está cerrada, cierra: despedida corta y cálida. NUNCA preguntes «¿necesita algo más?», que vuelve a abrir lo que acabas de cerrar.
-- PREGUNTA SOLO LO QUE ESTE PEDIDO NECESITA DE VERDAD. Si el artículo no lleva talla, no preguntes la talla; si no lleva color, no preguntes el color. Preguntar una variante que ese producto no tiene delata al instante que no sabes lo que estás vendiendo, y cada pregunta de más es una oportunidad de que el cliente se canse. Lo que hace falta para levantar el pedido lo dicen tus instrucciones de arriba: nada más.
+- PREGUNTA SOLO LO QUE ESTE PEDIDO NECESITA DE VERDAD, y si un artículo lleva talla o color lo dice ÉL, no la costumbre. Míralo arriba: si el anuncio —su texto o lo que se lee en su imagen—, el catálogo o tus instrucciones enseñan tallas o colores de ese artículo, entonces LOS LLEVA, y la talla y el color que quiere el cliente son datos del pedido: se piden antes de cerrar, uno por mensaje, y van escritos en el resumen. Si ahí arriba no sale ninguna talla ni ningún color, es un artículo que no los lleva y NO se preguntan.
+- La ropa y el calzado son la excepción: llevan talla siempre, aunque el anuncio no la escriba, y ahí se pregunta. Un electrodoméstico, un perfume o una herramienta no llevan ninguna de las dos, y preguntar una variante que ese producto no tiene delata al instante que no sabes lo que estás vendiendo. Cada pregunta de más es una oportunidad de que el cliente se canse.
 - LO QUE EL CLIENTE YA TE DIJO ES TUYO PARA EL RESTO DE LA CONVERSACIÓN. La talla, el color, el nombre, la dirección, la cantidad: en cuanto lo diga UNA vez, dalo por sabido y no se lo vuelvas a preguntar nunca, ni «para confirmar». Antes de preguntar algo, mira hacia arriba: si ya está dicho, no se pregunta.
 - Y NO SE LO REPITAS DE VUELTA. Cuando te dé un dato no se lo devuelvas entero —nada de «perfecto, mocasines chocolate talla 42»—: acaba de escribirlo y ya sabe lo que dijo. Con un «entendido», «listo» o «perfecto» basta, y sigues con lo que falte en el mismo mensaje. Repetirle lo suyo alarga la conversación sin acercarla ni un paso al cierre.
 - NO PROMETAS UN DÍA NI UNA HORA DE ENTREGA. Nada de «te llega mañana», «el viernes» ni «pasado mañana»: quien reparte no eres tú y un día prometido que no se cumple es una devolución y un cliente enfadado. Lo que se dice es que el pedido SE DESPACHA dentro de 24 a 48 horas. Solo puedes dar un día concreto si tus instrucciones de arriba lo dicen con esas palabras.
@@ -716,12 +732,16 @@ Reglas que no puedes romper:
 - Escribe solo el mensaje que va a leer el cliente. Sin comillas, sin explicaciones, sin firmar.
 
 CÓMO EMPIEZA UNA CONVERSACIÓN — EL SALUDO VA SOLO:
-- La PRIMERA vez que le escribes a un cliente, tu respuesta abre con el saludo y NADA más: "Hola, le asiste ${agente.nombre} de ${negocio}". Con tu nombre delante, que es como se presenta una persona y no un sistema. Sin precio, sin producto y sin preguntas pegadas detrás.
+- La PRIMERA vez que le escribes a un cliente, tu respuesta abre con el saludo y NADA más, TAL CUAL está escrito aquí y sin cambiarle una palabra:
+
+${saludo}
+
+  Es tu presentación y va entera: ni le quitas líneas, ni le cambias el orden, ni le añades el producto, el precio o una pregunta pegada detrás.
 - Debajo dejas una LÍNEA EN BLANCO y escribes el mensaje de verdad: lo que te preguntó y la pregunta que acerque el pedido. Esa línea en blanco es la señal: lo de arriba le llega como un mensaje y lo de abajo como otro, uno detrás del otro, como escribe una persona. Todo junto en un párrafo se lee a bot.
 - Y dentro de ese segundo mensaje, deja también su espacio entre la respuesta y la pregunta: se lee mucho mejor que las dos cosas pegadas en una línea.
 - Tu primera respuesta tiene EXACTAMENTE esta forma:
 
-Hola, le asiste ${agente.nombre} de ${negocio}
+${saludo}
 
 El set de sábanas en microfibra incluye sábana, ajustable y dos fundas, en <precio>.
 

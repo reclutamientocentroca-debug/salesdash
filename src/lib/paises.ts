@@ -74,6 +74,19 @@ export interface Pais {
   husoHorario: string;
   /** De usted, de tú o de vos. Es lo primero que delata a un agente de fuera. */
   tratamiento: string;
+  /**
+   * CON QUÉ ABRE LA CONVERSACIÓN, que es la única frase que sale siempre.
+   *
+   * No es lo mismo en los tres y por eso vive aquí: en Santo Domingo y en San
+   * José se abre con «Saludos cordiales» y el nombre de quien atiende, y en
+   * Panamá con el «Hola, le asiste X de Tienda», que lleva la tienda delante.
+   * Cambiarlo en un país no puede cambiárselo a los otros dos.
+   *
+   * `<agente>` es el nombre que el dueño puso en el panel y `<negocio>` el de
+   * la tienda. Van con marcador y NUNCA con un nombre escrito: un nombre propio
+   * dentro del prompt acaba siendo el de todos los clientes.
+   */
+  saludo: string;
   /** Cómo se habla ahí. Sirve para sonar natural, no para imitar un acento. */
   expresiones: string[];
   /** Provincias, cantones y barrios que se nombran al dar una dirección. */
@@ -145,6 +158,7 @@ const REPUBLICA_DOMINICANA: Pais = {
   husoHorario: "America/Santo_Domingo",
   tratamiento:
     "Se tutea con naturalidad, incluso vendiendo. El usted suena distante salvo con gente mayor.",
+  saludo: "Saludos cordiales 👋\nLe asiste <agente>.",
   expresiones: [
     "«dime» o «dime a ver» para invitar a que sigan hablando",
     "«a la orden» al despedirse o al confirmar",
@@ -242,6 +256,7 @@ const COSTA_RICA: Pais = {
   tratamiento:
     "Se habla de USTED casi siempre, incluso con confianza; el vos aparece entre conocidos. " +
     "Tutear suena a extranjero.",
+  saludo: "Hola, le asiste <agente> de <negocio>",
   expresiones: [
     "«con mucho gusto» en lugar de «de nada»: es la muletilla nacional",
     "«pura vida» para saludar, agradecer y despedirse",
@@ -323,6 +338,7 @@ const PANAMA: Pais = {
   husoHorario: "America/Panama",
   tratamiento:
     "De usted al vender, cordial y directo. El tuteo se usa con clientes jóvenes o de confianza.",
+  saludo: "Hola, le asiste <agente> de <negocio>",
   expresiones: [
     "«a la orden» para ofrecerse y para cerrar",
     "«listo» para confirmar",
@@ -568,6 +584,8 @@ export interface PaisResumen {
     ejemplo: string;
   };
   tratamiento: string;
+  /** Con qué abre, con sus marcadores sin rellenar. Ver `saludoDelPais`. */
+  saludo: string;
   expresiones: string[];
   direcciones: string;
   zonas: string[];
@@ -578,6 +596,27 @@ export interface PaisResumen {
   pagos: string[];
   /** Cuántas ciudades conoce, para poder situar un pin del mapa. */
   ciudades: number;
+}
+
+/**
+ * EL SALUDO YA ESCRITO, tal cual lo va a leer el cliente.
+ *
+ * Sale de aquí y no de dos plantillas sueltas porque hay DOS sitios que lo
+ * necesitan y tienen que decir lo mismo: el prompt, que se lo manda al modelo,
+ * y el aviso del panel, que le enseña al dueño cómo se presenta su agente. El
+ * día que se cambia uno y no el otro, el panel jura que dice una cosa y el
+ * cliente lee otra, y nadie lo descubre porque el dueño no se escribe a sí
+ * mismo.
+ *
+ * Sin país, el de siempre: el agente vende en neutro y el saludo también.
+ */
+export function saludoDelPais(
+  pais: Pick<Pais, "saludo"> | null,
+  agente: string,
+  negocio: string,
+): string {
+  const forma = pais?.saludo ?? "Hola, le asiste <agente> de <negocio>";
+  return forma.replace("<agente>", agente).replace("<negocio>", negocio);
 }
 
 /** El país tal y como lo lee el panel. Ver `PaisResumen`. */
@@ -591,6 +630,7 @@ export function resumenDePais(p: Pais): PaisResumen {
     husoHorario: p.husoHorario,
     moneda: { ...p.moneda },
     tratamiento: p.tratamiento,
+    saludo: p.saludo,
     expresiones: p.expresiones,
     direcciones: p.direcciones,
     zonas: p.zonas,

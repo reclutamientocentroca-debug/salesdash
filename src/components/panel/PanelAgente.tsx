@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import FichaPais from "./FichaPais";
-import type { PaisResumen } from "@/lib/paises";
+import { saludoDelPais, type PaisResumen } from "@/lib/paises";
 import { PLANTILLAS } from "@/lib/plantillas";
 import { useRouter } from "next/navigation";
 
@@ -1017,11 +1017,22 @@ export default function PanelAgente({
             placeholder="Mildred"
             value={agente.nombre} onChange={(e) => cambiar("nombre", e.target.value)}
           />
+          {/*
+            Y EL EJEMPLO SE ARMA, NO SE ESCRIBE.
+            Aquí estaba puesto a mano —«Hola, le asiste Mildred de …»—, que es el
+            saludo de Panamá y de Costa Rica pero no el de República Dominicana.
+            Un ejemplo que no coincide con lo que el cliente va a leer enseña a
+            no fiarse de la ayuda del panel, así que sale de `saludoDelPais`:
+            el mismo sitio del que sale el que se le manda al modelo.
+          */}
           <p className="tenue" style={{ margin: "6px 0 14px", lineHeight: 1.5 }}>
-            El nombre de una PERSONA: Mildred, Ana, Carlos. Con él se presenta —«Hola, le asiste
-            Mildred de {agente.negocio.trim() || canal?.negocio || "tu tienda"}»— y es la primera
-            línea que lee el cliente. «Asistente» o «Bot» le dicen que habla con una máquina antes
-            de nada más.
+            El nombre de una PERSONA: Mildred, Ana, Carlos. Con él se presenta —«
+            {saludoDelPais(
+              pais,
+              agente.nombre.trim() || "Mildred",
+              agente.negocio.trim() || canal?.negocio || "tu tienda",
+            )}»— y es la primera línea que lee el cliente. «Asistente» o «Bot» le dicen que
+            habla con una máquina antes de nada más.
           </p>
 
           {/*

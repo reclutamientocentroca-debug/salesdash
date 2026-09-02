@@ -1659,7 +1659,7 @@ test("el panel avisa cuando el saludo arrastra el nombre largo del perfil", () =
   });
 
   D.actualizarCanal(org, canal, { negocio: "Roplis cr. Telleria Pal." });
-  D.actualizarAgente(org, { nombre: "Mildred", negocio: "" }, canal);
+  D.actualizarAgente(org, { nombre: "Mildred", negocio: "", pais: "pa" }, canal);
 
   const r = revisarAgente(org, canal);
   const aviso = r.avisos.find((a) => a.includes("nombre del perfil"));
@@ -1670,8 +1670,23 @@ test("el panel avisa cuando el saludo arrastra el nombre largo del perfil", () =
     "el aviso enseña el saludo tal cual lo lee el cliente",
   );
 
+  /*
+   * Y NO SE AVISA DE LO QUE EL CLIENTE NO OYE.
+   *
+   * El saludo dominicano no dice el nombre de la tienda, así que por muy largo
+   * que sea el del perfil ahí no lo lee nadie. Avisar igual manda al dueño a
+   * arreglar algo que no existe, y un aviso que no es verdad enseña a ignorar
+   * los que sí lo son.
+   */
+  D.actualizarAgente(org, { pais: "do" }, canal);
+  assert.equal(
+    revisarAgente(org, canal).avisos.some((a) => a.includes("nombre del perfil")),
+    false,
+    "en República Dominicana el saludo no dice la tienda: no hay nada que avisar",
+  );
+
   // Con un nombre corto escrito a mano, no hay nada que avisar.
-  D.actualizarAgente(org, { negocio: "Roplis" }, canal);
+  D.actualizarAgente(org, { negocio: "Roplis", pais: "pa" }, canal);
   assert.equal(
     revisarAgente(org, canal).avisos.some((a) => a.includes("nombre del perfil")),
     false,
@@ -1709,6 +1724,70 @@ test("con un anuncio delante, el prompt prohíbe narrarle el anuncio al cliente"
 test("sin anuncio, las reglas del anuncio no entran en el prompt", () => {
   const prompt = armarSistema("Tienda", D.obtenerAgente(orgId), [], null);
   assert.equal(prompt.includes("NO LE CUENTA EL ANUNCIO"), false);
+});
+
+/**
+ * EL SALUDO ES DE CADA PAIS, Y SALE DE UN SOLO SITIO.
+ *
+ * Es la unica frase que el cliente lee SIEMPRE, y hasta ahora estaba escrita a
+ * mano en tres sitios: la regla del prompt, el ejemplo de debajo y el aviso del
+ * panel. Tres copias de la misma frase es una que algun dia se queda atras: el
+ * panel jura que dice una cosa, el cliente lee otra, y nadie lo ve porque el
+ * dueno no se escribe a si mismo. Por eso se cuenta que aparezca dos veces y no
+ * tres ni una.
+ *
+ * Y no se toca en los tres a la vez. Que el dominicano y el tico abran con la
+ * misma frase es una decision tomada en cada uno, no una frase compartida:
+ * cambiarle el saludo al panameno no puede cambiarselo a ninguno de los dos.
+ */
+test("cada pais abre con su saludo, y el prompt lo dice una sola vez", () => {
+  D.actualizarAgente(orgId, { nombre: "Mildred", pais: "do", negocio: "Rincon" }, canalId);
+  const dominicano = armarSistema("Rincon", D.obtenerAgente(orgId, canalId), [], null);
+
+  assert.ok(
+    dominicano.includes("Saludos cordiales 👋\nLe asiste Mildred."),
+    "el dominicano saluda asi, con su nombre y en dos lineas",
+  );
+  assert.equal(
+    dominicano.includes("Hola, le asiste"),
+    false,
+    "y ya no arrastra el saludo viejo por ningun lado",
+  );
+
+  /*
+   * Las dos lineas van pegadas, sin una en blanco entre medias: `partirEnMensajes`
+   * corta por el primer hueco, y un saludo con hueco dentro le llegaria al cliente
+   * partido en dos mensajes -«Saludos cordiales» y, aparte, «Le asiste Mildred»-.
+   */
+  assert.deepEqual(
+    partirEnMensajes("Saludos cordiales 👋\nLe asiste Mildred.\n\nA que direccion?", {
+      saludoAparte: true,
+    }),
+    ["Saludos cordiales 👋\nLe asiste Mildred.", "A que direccion?"],
+  );
+
+  // La regla y el ejemplo dicen LA MISMA frase, no dos parecidas.
+  assert.equal(
+    dominicano.split("Saludos cordiales").length - 1,
+    2,
+    "una vez en la regla y otra en el ejemplo: ni una copia suelta mas",
+  );
+
+  /*
+   * Y A LOS OTROS DOS NO SE LES HA MOVIDO NADA.
+   *
+   * El saludo se pidio para Republica Dominicana y solo para ella. Un cambio
+   * que se cuela en los tres paises no da la cara en ninguna prueba y se
+   * descubre por un cliente tico al que su tienda de siempre empieza a
+   * escribirle como un banco.
+   */
+  for (const pais of ["pa", "cr"]) {
+    D.actualizarAgente(orgId, { pais }, canalId);
+    const otro = armarSistema("Rincon", D.obtenerAgente(orgId, canalId), [], null);
+
+    assert.ok(otro.includes("Hola, le asiste Mildred de Rincon"), pais + ": saluda como siempre");
+    assert.equal(otro.includes("Saludos cordiales"), false, pais + ": se le colo el dominicano");
+  }
 });
 
 /**
