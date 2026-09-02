@@ -1001,11 +1001,28 @@ export default function PanelAgente({
             agente genérico en el vendedor de esta tienda.
           </Apartado>
 
-          <label className="etiqueta-campo" htmlFor="nombre-agente">Nombre del agente</label>
+          {/*
+            UN NOMBRE DE PERSONA, y el campo lo pide.
+            Aquí ponía «Nombre del agente» a secas, y lo que se escribía era
+            «Asistente» —o se dejaba el que venía puesto—. Salía en la primera
+            línea de cada conversación: «Hola, le asiste Asistente de …», que
+            anuncia una máquina antes que nada. El aviso del panel lo cazaba
+            después; decirlo aquí lo evita antes.
+          */}
+          <label className="etiqueta-campo" htmlFor="nombre-agente">
+            Nombre del agente
+          </label>
           <input
-            id="nombre-agente" className="campo" style={{ marginBottom: 14 }}
+            id="nombre-agente" className="campo"
+            placeholder="Mildred"
             value={agente.nombre} onChange={(e) => cambiar("nombre", e.target.value)}
           />
+          <p className="tenue" style={{ margin: "6px 0 14px", lineHeight: 1.5 }}>
+            El nombre de una PERSONA: Mildred, Ana, Carlos. Con él se presenta —«Hola, le asiste
+            Mildred de {agente.negocio.trim() || canal?.negocio || "tu tienda"}»— y es la primera
+            línea que lee el cliente. «Asistente» o «Bot» le dicen que habla con una máquina antes
+            de nada más.
+          </p>
 
           {/*
             CON QUÉ NOMBRE SALUDA AL CLIENTE.

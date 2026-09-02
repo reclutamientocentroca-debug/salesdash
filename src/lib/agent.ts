@@ -454,6 +454,50 @@ export function revisarAgente(orgId: number, canalId: number): RevisionAgente {
     }
   }
 
+  /*
+   * CÓMO SE PRESENTA, con el saludo delante y escrito tal cual lo lee el cliente.
+   *
+   * Es la primera frase de la conversación y la única que sale SIEMPRE, y a la
+   * vez es lo que menos se mira: se configura una vez al abrir la cuenta y no
+   * se vuelve a ver nunca, porque el dueño no se escribe a sí mismo.
+   *
+   * Los dos fallos que salen de aquí no se notan desde dentro y se notan
+   * muchísimo desde fuera:
+   *
+   *   «Le asiste Asistente» — el nombre que traen los agentes recién creados.
+   *   Anuncia una máquina en la primera línea, después de todo el trabajo que
+   *   hace el resto del prompt para no sonar a una. Y es redundante hasta en
+   *   castellano: le asiste el asistente.
+   *
+   *   «de Roplis cr. Telleria Pal.» — el nombre del PERFIL de la página, con su
+   *   cola de ciudad y categoría, leído en voz alta como si fuera el nombre de
+   *   la tienda. Nadie se presenta así.
+   *
+   * No se corrige solo —el nombre de la tienda lo sabe el dueño y no nosotros—,
+   * así que se enseña el saludo entero y que lo juzgue quien puede arreglarlo.
+   */
+  const saludo = `Hola, le asiste ${agente.nombre} de ${nombreDelNegocio(agente, canal, obtenerOrg(orgId) ?? null)}`;
+  const nombreDeMaquina = /asistent|bot\b|^ia$|chat ?gpt|agente|virtual/i.test(agente.nombre.trim());
+
+  if (nombreDeMaquina) {
+    avisos.push(
+      `Tu agente se presenta así: «${saludo}». Ponle un nombre de PERSONA —Mildred, Ana, ` +
+        "Carlos— en «Nombre del agente»: es la primera línea que lee el cliente, y «le asiste " +
+        "Asistente» le dice que está hablando con una máquina antes de nada más.",
+    );
+  } else if (!agente.negocio?.trim() && canal.negocio && canal.negocio.trim().split(/\s+/).length > 3) {
+    /*
+     * El nombre del perfil, colado en el saludo. Solo se avisa cuando NADIE
+     * escribió un nombre corto y el del perfil es largo: si el dueño ya puso el
+     * suyo, es el que quiere, sea del largo que sea.
+     */
+    avisos.push(
+      `Tu agente se presenta así: «${saludo}». Ese es el nombre del perfil de la página, con su ` +
+        "cola de ciudad y categoría. Si tu tienda se llama más corto, escríbelo en «Nombre del " +
+        "negocio» y el saludo dirá solo eso.",
+    );
+  }
+
   if (agente.horario_activo === 1 && !dentroDeHorario(agente.horario_desde, agente.horario_hasta)) {
     avisos.push(
       `Ahora mismo está fuera del horario (${agente.horario_desde ?? "?"}–${agente.horario_hasta ?? "?"}): ` +

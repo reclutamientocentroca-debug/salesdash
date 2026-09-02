@@ -256,7 +256,16 @@ CREATE TABLE IF NOT EXISTS agentes (
      eso el UNIQUE de abajo funciona: en SQLite dos NULL no chocan, dos ceros
      sí. */
   canal_id INTEGER NOT NULL DEFAULT 0,
-  nombre TEXT NOT NULL DEFAULT 'Asistente',
+  /* CON QUE NOMBRE SE PRESENTA, y por que no es 'Asistente'.
+     Lo era, y salia en la primera linea de cada conversacion: "Hola, le asiste
+     Asistente de ...". Anuncia una maquina antes que nada, que es justo lo
+     contrario de lo que persigue el resto del prompt, y en castellano es hasta
+     redundante -le asiste el asistente-. Un nombre de persona no engana a
+     nadie: nadie cree que la tienda tenga una empleada llamada Ana esperando a
+     las dos de la manana. Lo que hace es no anunciar lo contrario en la
+     primera frase. El dueno lo cambia por el que quiera, y si lo cambia por uno
+     de maquina el panel se lo dice. Ver revisarAgente en agent.ts. */
+  nombre TEXT NOT NULL DEFAULT 'Ana',
   /* CON QUÉ NOMBRE SALUDA. Vacío = el del perfil de WhatsApp de este número,
      que es el que el cliente ya está viendo. Esto es para corregirlo a mano
      cuando el perfil dice una cosa y la tienda se llama de otra. */
@@ -743,7 +752,7 @@ function migrar(conexion: DB): void {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         org_id INTEGER NOT NULL REFERENCES orgs(id),
         canal_id INTEGER NOT NULL DEFAULT 0,
-        nombre TEXT NOT NULL DEFAULT 'Asistente',
+        nombre TEXT NOT NULL DEFAULT 'Ana',
         tono TEXT NOT NULL DEFAULT 'cercano',
         instrucciones TEXT NOT NULL DEFAULT '',
         pais TEXT NOT NULL DEFAULT '',

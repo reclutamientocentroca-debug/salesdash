@@ -1525,3 +1525,84 @@ test("el aviso sobre la jerga panameña llega entero y no se vuelve una sugerenc
     "la jerga se nombra UNA vez, en su aviso, y no se repite como expresión recomendada",
   );
 });
+
+// ── Cómo se presenta ────────────────────────────────────────────────────────
+
+/**
+ * «Hola, le asiste Asistente de …» es la primera línea de cada conversación.
+ *
+ * Y es la que menos se mira: se configura al abrir la cuenta y no se vuelve a
+ * ver nunca, porque el dueño no se escribe a sí mismo. Un agente recién creado
+ * anuncia una máquina antes que nada, justo al revés de lo que persigue el
+ * resto del prompt, así que el panel tiene que decirlo con el saludo delante.
+ */
+test("el panel avisa cuando el agente se presenta con nombre de máquina", () => {
+  const { orgId: org } = D.crearOrgConDueno({
+    negocio: "Roplis",
+    color: "#12876a",
+    nombre: "Dueña",
+    email: `saludo-${Date.now()}@prueba.local`,
+    passwordHash: "x",
+  });
+  const canal = D.crearCanal(org, {
+    nombre: "Tienda", phone: "18095550000", tokenCifrado: "x",
+    webhookSecret: "s", whapiChannelId: null, estado: "conectado",
+  });
+
+  for (const malo of ["Asistente", "Bot", "Agente virtual", "ChatGPT"]) {
+    D.actualizarAgente(org, { nombre: malo }, canal);
+    const r = revisarAgente(org, canal);
+    assert.ok(
+      r.avisos.some((a) => a.includes("nombre de PERSONA")),
+      `«${malo}» tenía que avisar: es lo primero que lee el cliente`,
+    );
+  }
+
+  // Un nombre de persona no avisa, y enseña el saludo tal cual saldrá.
+  D.actualizarAgente(org, { nombre: "Mildred" }, canal);
+  const bien = revisarAgente(org, canal);
+  assert.equal(
+    bien.avisos.some((a) => a.includes("nombre de PERSONA")),
+    false,
+  );
+});
+
+/**
+ * El otro medio saludo: «de Roplis cr. Telleria Pal.».
+ *
+ * Es el nombre del PERFIL de la página, con su cola de ciudad y categoría,
+ * leído en voz alta como si fuera el nombre de la tienda. Solo se avisa cuando
+ * nadie escribió uno corto: si el dueño ya puso el suyo, es el que quiere.
+ */
+test("el panel avisa cuando el saludo arrastra el nombre largo del perfil", () => {
+  const { orgId: org } = D.crearOrgConDueno({
+    negocio: "Roplis",
+    color: "#12876a",
+    nombre: "Dueña",
+    email: `perfil-${Date.now()}@prueba.local`,
+    passwordHash: "x",
+  });
+  const canal = D.crearCanal(org, {
+    nombre: "Tienda", phone: "18095550001", tokenCifrado: "x",
+    webhookSecret: "s", whapiChannelId: null, estado: "conectado",
+  });
+
+  D.actualizarCanal(org, canal, { negocio: "Roplis cr. Telleria Pal." });
+  D.actualizarAgente(org, { nombre: "Mildred", negocio: "" }, canal);
+
+  const r = revisarAgente(org, canal);
+  const aviso = r.avisos.find((a) => a.includes("nombre del perfil"));
+
+  assert.ok(aviso, "el saludo va a decirlo entero, así que hay que enseñarlo");
+  assert.ok(
+    aviso.includes("Hola, le asiste Mildred de Roplis cr. Telleria Pal."),
+    "el aviso enseña el saludo tal cual lo lee el cliente",
+  );
+
+  // Con un nombre corto escrito a mano, no hay nada que avisar.
+  D.actualizarAgente(org, { negocio: "Roplis" }, canal);
+  assert.equal(
+    revisarAgente(org, canal).avisos.some((a) => a.includes("nombre del perfil")),
+    false,
+  );
+});
