@@ -44,6 +44,7 @@ import { descifrar } from "./auth";
 import { anuncioParaModelo, type DatosAnuncio } from "./anuncio";
 import { contieneMarcador, MARCADOR_POR_DEFECTO, registrarCierre } from "./cierre";
 import { completar, ErrorIA, hoyISO } from "./ia";
+import { bloqueHumano } from "./humano";
 import { bloqueDePais, obtenerPais, type Pais } from "./paises";
 import { bloqueDeEnvio } from "./envio";
 import { conLoVistoYOido, modelosDePercepcion, percibir } from "./percepcion";
@@ -622,6 +623,8 @@ export function armarSistema(
 ${TONOS[agente.tono] ?? TONOS.cercano}
 
 ${pais ? `${bloqueDePais(pais)}\n` : ""}
+${bloqueHumano(pais)}
+
 ${envio ? `${envio}\n` : ""}
 ${queVende}
 

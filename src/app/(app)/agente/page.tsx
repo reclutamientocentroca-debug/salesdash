@@ -1,8 +1,8 @@
-import PanelAgente, { type PaisResumen } from "@/components/panel/PanelAgente";
+import PanelAgente from "@/components/panel/PanelAgente";
 import { revisarAgente } from "@/lib/agent";
 import { AGENTE_DE_LA_CUENTA, listarCanales, obtenerAgente, usoDelDia, type Agente } from "@/lib/db";
 import { hoyISO } from "@/lib/ia";
-import { PAISES } from "@/lib/paises";
+import { PAISES, resumenDePais } from "@/lib/paises";
 import { requerirSesion } from "@/lib/tenant";
 
 export const metadata = { title: "Agente de IA · SalesDash" };
@@ -44,20 +44,12 @@ function paraElPanel(a: Agente) {
 }
 
 /**
- * Lo que el panel enseña de cada país: lo justo para que el dueño VEA qué se le
- * está contando al modelo por haber elegido ese país, y no lo repita a mano en
- * sus instrucciones. El paquete entero vive en `paises.ts` y no se edita aquí.
+ * Lo que el panel enseña de cada país: todo lo que se le está contando al
+ * modelo por haber elegido ese país, para que el dueño lo VEA y no lo repita a
+ * mano en sus instrucciones. El paquete entero vive en `paises.ts` —el resumen
+ * también—, así que un país nuevo no se toca aquí.
  */
-const paises: PaisResumen[] = PAISES.map((p) => ({
-  codigo: p.codigo,
-  nombre: p.nombre,
-  bandera: p.bandera,
-  moneda: `${p.moneda.nombre} · se escribe ${p.moneda.ejemplo}`,
-  tratamiento: p.tratamiento,
-  direcciones: p.direcciones,
-  pagos: p.pagos,
-  entrega: p.entrega,
-}));
+const paises = PAISES.map(resumenDePais);
 
 export default async function PaginaAgente() {
   const ctx = await requerirSesion();

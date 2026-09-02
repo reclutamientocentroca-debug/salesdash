@@ -1464,3 +1464,64 @@ test("la etiqueta del representante no le llega al cliente", () => {
   assert.equal(salida.pideAsesor, true);
   assert.equal(salida.texto, "Con mucho gusto le paso con un representante que le atiende eso.");
 });
+
+// ── Cómo suena una persona ──────────────────────────────────────────────────
+
+/**
+ * EL BLOQUE HUMANO NO TIENE INTERRUPTOR, así que la única forma de que se
+ * pierda es que alguien lo desenchufe del prompt sin darse cuenta. Desde fuera
+ * no se notaría: el agente seguiría contestando, solo que como un formulario, y
+ * eso no lo enseña ningún error.
+ */
+test("el prompt lleva siempre el bloque de cómo suena una persona", () => {
+  const agente = D.obtenerAgente(orgId);
+
+  for (const pais of ["", "do", "cr", "pa"]) {
+    const prompt = armarSistema("Tienda", { ...agente, pais }, [], null);
+    assert.ok(
+      prompt.includes("CÓMO SUENA UNA PERSONA"),
+      `sin país o con «${pais}», el agente se queda escribiendo como un formulario`,
+    );
+    assert.ok(
+      prompt.includes("NO CONTESTES SIEMPRE CON LA MISMA FORMA"),
+      "lo que delata a una máquina es el molde repetido, y eso hay que decírselo",
+    );
+  }
+});
+
+/**
+ * Sonar de un sitio y decir que se es una persona son dos cosas distintas.
+ *
+ * Quien pregunta «¿eres un bot?» casi siempre está pidiendo hablar con alguien.
+ * Negarlo para retenerlo pierde al cliente y compromete al negocio que puso el
+ * agente ahí, así que la regla que lo impide viaja en el mismo bloque.
+ */
+test("el agente no niega ser un bot: ofrece una persona", () => {
+  const prompt = armarSistema("Tienda", D.obtenerAgente(orgId), [], null);
+
+  assert.ok(prompt.includes("SI TE PREGUNTAN DE FRENTE SI ERES UN BOT"));
+  assert.ok(prompt.includes("no lo niegues"));
+});
+
+/**
+ * Las expresiones del país se citan, NO se recortan.
+ *
+ * La lista panameña incluye un aviso —«chuzo» y «xopá» son de calle: no van en
+ * una venta—. Recortar cada línea a la palabra suelta para repetirla en el
+ * bloque humano convertiría ese aviso en una recomendación, y el agente
+ * acabaría soltándole «xopá» a un cliente que está a punto de pagar.
+ */
+test("el aviso sobre la jerga panameña llega entero y no se vuelve una sugerencia", () => {
+  const agente = D.obtenerAgente(orgId);
+  const prompt = armarSistema("Tienda", { ...agente, pais: "pa" }, [], null);
+
+  assert.ok(
+    prompt.includes("son de calle: no van en una venta"),
+    "el aviso tiene que llegar con su explicación pegada",
+  );
+  assert.equal(
+    prompt.split("«chuzo»").length - 1,
+    1,
+    "la jerga se nombra UNA vez, en su aviso, y no se repite como expresión recomendada",
+  );
+});

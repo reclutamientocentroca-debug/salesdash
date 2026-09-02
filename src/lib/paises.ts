@@ -38,6 +38,20 @@ export interface Pais {
   codigo: string;
   nombre: string;
   bandera: string;
+  /**
+   * EL COLOR CON EL QUE EL PANEL VISTE ESTE PAÍS.
+   *
+   * No sale de la bandera, y no es un descuido: las tres banderas son azul,
+   * rojo y blanco, así que copiarlas dejaría tres países del mismo color y el
+   * color no serviría para nada. Lo que hace falta es que se distingan de un
+   * vistazo —que quien tiene tres números abiertos sepa en cuál está sin leer
+   * el nombre—, y para eso hacen falta tres tonos separados.
+   *
+   * Va como dato del país y no como una tabla en el CSS porque el país nace
+   * aquí: añadir el cuarto tiene que ser una entrada en este archivo y nada
+   * más.
+   */
+  color: string;
   moneda: {
     codigo: string;
     /** Como lo escribe la gente del país, no como lo escribe un banco. */
@@ -118,6 +132,8 @@ const REPUBLICA_DOMINICANA: Pais = {
   codigo: "do",
   nombre: "República Dominicana",
   bandera: "🇩🇴",
+  // El azul, que es el que manda en su bandera y en su escudo.
+  color: "#1552a8",
   moneda: {
     codigo: "DOP",
     simbolo: "RD$",
@@ -210,6 +226,9 @@ const COSTA_RICA: Pais = {
   codigo: "cr",
   nombre: "Costa Rica",
   bandera: "🇨🇷",
+  // Verde: no está en su bandera —es azul, blanco y rojo, como las otras dos—
+  // y por eso mismo sirve para separarla de un vistazo del dominicano.
+  color: "#0e7f66",
   moneda: {
     codigo: "CRC",
     simbolo: "₡",
@@ -291,6 +310,8 @@ const PANAMA: Pais = {
   codigo: "pa",
   nombre: "Panamá",
   bandera: "🇵🇦",
+  // El rojo del cuartel de su bandera.
+  color: "#b3372c",
   moneda: {
     codigo: "PAB",
     simbolo: "B/.",
@@ -515,4 +536,68 @@ export function ciudadMasCercana(
   }
 
   return mejor;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// El país, escrito para el panel
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * LO QUE EL PANEL ENSEÑA DE UN PAÍS. Se lee, no se edita.
+ *
+ * Vive aquí y no en el componente por la misma razón por la que vive aquí el
+ * país: si el resumen se armara en la página, añadir un dato al país obligaría
+ * a tocar dos archivos y el que se olvidara sería siempre el segundo. Un país
+ * nuevo es una entrada en este archivo, y el panel lo enseña entero sin que
+ * nadie lo cablee.
+ *
+ * Es un tipo aparte de `Pais` a propósito: `Pais` lleva cajas de coordenadas y
+ * prefijos de teléfono que al dueño no le dicen nada, y esto cruza al cliente.
+ */
+export interface PaisResumen {
+  codigo: string;
+  nombre: string;
+  bandera: string;
+  color: string;
+  prefijo: string;
+  husoHorario: string;
+  moneda: {
+    codigo: string;
+    simbolo: string;
+    nombre: string;
+    ejemplo: string;
+  };
+  tratamiento: string;
+  expresiones: string[];
+  direcciones: string;
+  zonas: string[];
+  /** Dónde llega el mensajero propio en el día. Parte la tarifa de envío. */
+  zonasCercanas: string[];
+  datosParaCerrar: string[];
+  entrega: string[];
+  pagos: string[];
+  /** Cuántas ciudades conoce, para poder situar un pin del mapa. */
+  ciudades: number;
+}
+
+/** El país tal y como lo lee el panel. Ver `PaisResumen`. */
+export function resumenDePais(p: Pais): PaisResumen {
+  return {
+    codigo: p.codigo,
+    nombre: p.nombre,
+    bandera: p.bandera,
+    color: p.color,
+    prefijo: p.prefijo,
+    husoHorario: p.husoHorario,
+    moneda: { ...p.moneda },
+    tratamiento: p.tratamiento,
+    expresiones: p.expresiones,
+    direcciones: p.direcciones,
+    zonas: p.zonas,
+    zonasCercanas: p.zonasCercanas,
+    datosParaCerrar: p.datosParaCerrar,
+    entrega: p.entrega,
+    pagos: p.pagos,
+    ciudades: p.ciudades.length,
+  };
 }

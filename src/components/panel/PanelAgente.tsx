@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import FichaPais from "./FichaPais";
+import type { PaisResumen } from "@/lib/paises";
 import { PLANTILLAS } from "@/lib/plantillas";
 import { useRouter } from "next/navigation";
 
@@ -69,18 +71,6 @@ interface CanalAgente {
   revision: RevisionAgente;
   /** El agente de este canal, tal y como está guardado. */
   agente: Agente;
-}
-
-/** Lo que el agente sabe de un país. Se enseña, no se edita. Ver `paises.ts`. */
-export interface PaisResumen {
-  codigo: string;
-  nombre: string;
-  bandera: string;
-  moneda: string;
-  tratamiento: string;
-  direcciones: string;
-  pagos: string[];
-  entrega: string[];
 }
 
 interface Consumo {
@@ -266,6 +256,15 @@ export default function PanelAgente({
   } | null>(null);
   const [probando, setProbando] = useState(false);
 
+  /*
+   * El país cuya ficha está flotando, o null si no hay ninguna abierta.
+   *
+   * Se guarda el CÓDIGO y no el país entero: así la ficha se abre sobre un país
+   * que todavía no está elegido —comparar antes de decidir es medio motivo por
+   * el que existe— sin que eso toque nada del agente.
+   */
+  const [ficha, setFicha] = useState<string | null>(null);
+
   useEffect(() => {
     fetch("/api/modelos")
       .then((r) => r.json())
@@ -278,6 +277,7 @@ export default function PanelAgente({
   const canal = canales.find((c) => c.id === seleccion) ?? null;
   const agente = canal ? canal.agente : plantilla;
   const pais = paises.find((p) => p.codigo === agente.pais) ?? null;
+  const fichaAbierta = ficha ? (paises.find((p) => p.codigo === ficha) ?? null) : null;
 
   const encendidos = canales.filter((c) => c.agente_activo && !c.contesta_ia).length;
   const esGratuito = agente.modelo.endsWith(":free") || modelos.find((m) => m.id === agente.modelo)?.gratis;
@@ -472,7 +472,16 @@ export default function PanelAgente({
   const etiquetaCanal = canal ? canal.nombre : "la plantilla de la cuenta";
 
   return (
-    <div className="rejilla">
+    /*
+      TODO EL PANEL SE VISTE DEL PAÍS ELEGIDO.
+      `--pais` baja desde aquí, así que la bandera del número, las tarjetas de
+      país y la ficha flotante hablan del mismo color sin pasárselo uno a uno.
+      Sin país elegido se queda en la tinta de siempre y no pinta nada de más.
+    */
+    <div
+      className="rejilla sd-tema-pais"
+      style={pais ? ({ ["--pais" as string]: pais.color } as React.CSSProperties) : undefined}
+    >
       {/* ── Qué canal se está configurando ─────────────────────────────────── */}
       <section className="tarjeta">
         <Apartado n={1} titulo="Qué número estás configurando">
@@ -773,53 +782,110 @@ export default function PanelAgente({
       ) : null}
 
       {/* ── País ───────────────────────────────────────────────────────────── */}
-      <section className="tarjeta">
+      <section className="tarjeta sd-pais-tarjeta">
         <Apartado n={canal ? 3 : 2} titulo="En qué país vende este número">
           Es lo que hace que suene de aquí. De esto salen la moneda, el trato, cómo se piden las
           direcciones, con qué paga la gente y contra qué se comprueba un mapa.
         </Apartado>
 
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
-          {paises.map((p) => (
+        {/*
+          UNA TARJETA POR PAÍS, Y CADA UNA CON SU COLOR.
+
+          Antes eran tres pastillas iguales, y tres pastillas iguales no se
+          eligen: se lee el nombre. Aquí cada país trae delante lo que de verdad
+          lo separa de los otros —su moneda escrita como allí se escribe y su
+          prefijo—, así que la diferencia se ve antes de pulsar nada.
+
+          El botón de la esquina abre la ficha entera SIN elegir el país: para
+          decidir hay que poder mirar los tres, y mirar no puede cambiarle el
+          agente a nadie. Elegir es pulsar la tarjeta.
+        */}
+        <div className="sd-paises">
+          {paises.map((p) => {
+            const elegido = agente.pais === p.codigo;
+            return (
+              <div
+                key={p.codigo}
+                className={`sd-pais-carta ${elegido ? "sd-pais-carta-activa" : ""}`}
+                style={{ ["--pais" as string]: p.color } as React.CSSProperties}
+              >
+                <button
+                  type="button"
+                  className="sd-pais-elegir"
+                  aria-pressed={elegido}
+                  onClick={() => cambiar("pais", p.codigo)}
+                >
+                  <span className="sd-pais-bandera" aria-hidden>
+                    {p.bandera}
+                  </span>
+                  <span className="sd-pais-nombre">{p.nombre}</span>
+                  <span className="sd-pais-moneda num">
+                    {p.moneda.ejemplo} · {p.moneda.codigo}
+                  </span>
+                  <span className="sd-pais-prefijo num">{p.prefijo}</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="sd-pais-ficha-btn"
+                  aria-label={`Ver la ficha de ${p.nombre}`}
+                  title={`Ver la ficha de ${p.nombre}`}
+                  onClick={() => setFicha(p.codigo)}
+                >
+                  Ficha
+                </button>
+              </div>
+            );
+          })}
+
+          <div className={`sd-pais-carta sd-pais-carta-neutra ${agente.pais === "" ? "sd-pais-carta-activa" : ""}`}>
             <button
-              key={p.codigo}
               type="button"
-              className={`pastilla ${agente.pais === p.codigo ? "pastilla-ia" : "pastilla-abierta"}`}
-              style={{ cursor: "pointer", border: "none", padding: "6px 13px" }}
-              onClick={() => cambiar("pais", p.codigo)}
+              className="sd-pais-elegir"
+              aria-pressed={agente.pais === ""}
+              onClick={() => cambiar("pais", "")}
             >
-              <span aria-hidden style={{ marginRight: 5 }}>{p.bandera}</span>
-              {p.nombre}
+              <span className="sd-pais-bandera" aria-hidden>
+                🌐
+              </span>
+              <span className="sd-pais-nombre">Ninguno</span>
+              <span className="sd-pais-moneda">Habla en neutro</span>
+              <span className="sd-pais-prefijo">Vendes donde no llegamos</span>
             </button>
-          ))}
-          <button
-            type="button"
-            className={`pastilla ${agente.pais === "" ? "pastilla-ia" : "pastilla-abierta"}`}
-            style={{ cursor: "pointer", border: "none", padding: "6px 13px" }}
-            onClick={() => cambiar("pais", "")}
-          >
-            Ninguno
-          </button>
+          </div>
         </div>
 
         {/*
           Lo que el agente sabe por haber elegido ese país, a la vista. No se
           edita: es lo que este panel ya sabe de cada país, y enseñarlo es lo que
-          evita que el dueño lo repita a mano en sus instrucciones.
+          evita que el dueño lo repita a mano en sus instrucciones. Lo de aquí
+          es el resumen; lo entero está detrás de «Ver la ficha completa».
         */}
         {pais ? (
-          <dl className="sd-pais-datos">
-            <dt>Moneda</dt>
-            <dd>{pais.moneda}</dd>
-            <dt>Trato</dt>
-            <dd>{pais.tratamiento}</dd>
-            <dt>Direcciones</dt>
-            <dd>{pais.direcciones}</dd>
-            <dt>Pagos</dt>
-            <dd>{pais.pagos.join(" · ")}</dd>
-            <dt>Entrega</dt>
-            <dd>{pais.entrega.join(" · ")}</dd>
-          </dl>
+          <div className="sd-pais-resumen">
+            <dl className="sd-pais-datos">
+              <dt>Moneda</dt>
+              <dd>
+                {pais.moneda.nombre} · se escribe {pais.moneda.ejemplo}
+              </dd>
+              <dt>Trato</dt>
+              <dd>{pais.tratamiento}</dd>
+              <dt>Direcciones</dt>
+              <dd>{pais.direcciones}</dd>
+              <dt>Pagos</dt>
+              <dd>{pais.pagos.join(" · ")}</dd>
+              <dt>Entrega</dt>
+              <dd>{pais.entrega.join(" · ")}</dd>
+            </dl>
+
+            <button
+              type="button"
+              className="btn btn-secundario sd-pais-vermas"
+              onClick={() => setFicha(pais.codigo)}
+            >
+              Ver la ficha completa de {pais.nombre}
+            </button>
+          </div>
         ) : (
           <p className="tenue">
             Sin país, el agente habla en neutro: no sabe en qué moneda cobrar, cómo se dan las
@@ -1273,6 +1339,24 @@ export default function PanelAgente({
             : `Responde en ${encendidos} número${encendidos === 1 ? "" : "s"}.`}
         </span>
       </div>
+
+      {/*
+        LA FICHA VA LA ÚLTIMA DEL ÁRBOL, y flota por encima de todo lo demás.
+        Elegir desde dentro cambia el país y la cierra en el mismo gesto: quien
+        abrió tres fichas para comparar acaba de decidir, y hacerle cerrar y
+        volver a buscar la tarjeta sería pedirle que lo haga dos veces.
+      */}
+      {fichaAbierta && (
+        <FichaPais
+          pais={fichaAbierta}
+          activo={agente.pais === fichaAbierta.codigo}
+          onCerrar={() => setFicha(null)}
+          onElegir={() => {
+            cambiar("pais", fichaAbierta.codigo);
+            setFicha(null);
+          }}
+        />
+      )}
     </div>
   );
 }

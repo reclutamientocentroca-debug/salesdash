@@ -1259,6 +1259,374 @@ body {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
+   El pais del agente
+
+   El pais es la decision que mas cambia al agente y la que menos se veia: tres
+   pastillas iguales no se eligen, se lee el nombre. Aqui cada pais tiene su
+   color, y ese color sube hasta la raiz del panel en `--pais`, de modo que la
+   bandera del numero, la tarjeta elegida y la ficha flotante son del mismo
+   tono. Quien tiene tres numeros abiertos sabe en cual esta sin leer.
+
+   `--pais` la escribe React sobre `.sd-tema-pais` con el color del pais
+   elegido. Sin pais elegido no existe, y el fallback de cada `var()` deja la
+   pantalla exactamente como estaba.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* La tarjeta del apartado toma el color por el canto izquierdo. Es la senal
+   mas barata que hay: no gasta ni una linea de texto y se ve de reojo. */
+.sd-pais-tarjeta {
+  border-left: 3px solid var(--pais, var(--line));
+}
+
+.sd-tema-pais .sd-pais-tarjeta .sd-apartado-num {
+  background: color-mix(in srgb, var(--pais, var(--ink-3)) 12%, white);
+  color: var(--pais, var(--ink-2));
+}
+
+/* El numero que se esta configurando, entero en el color de su pais. Es la
+   pieza que hace que el cambio se note de verdad: la barra de arriba deja de
+   ser tres tarjetas iguales y pasa a decir en cual estas sin leer el nombre. */
+.sd-tema-pais .sd-canal-activo,
+.sd-tema-pais .sd-canal-activo:hover {
+  border-color: var(--pais, var(--acc));
+  background: color-mix(in srgb, var(--pais, var(--acc)) 8%, white);
+}
+
+.sd-tema-pais .sd-canal-activo .sd-canal-nombre {
+  color: var(--pais, inherit);
+}
+
+.sd-paises {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+/* La carta y su boton de ficha. El boton no puede ir DENTRO del de elegir
+   —un boton dentro de otro no es HTML valido y el clic se lo come el de
+   fuera—, asi que la carta es el contenedor y dentro van los dos, hermanos. */
+.sd-pais-carta {
+  position: relative;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radio-tarjeta);
+  background: var(--card);
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease;
+}
+
+.sd-pais-carta:hover {
+  border-color: var(--pais, var(--ink-4));
+}
+
+.sd-pais-carta-activa {
+  border-color: var(--pais, var(--acc));
+  background: color-mix(in srgb, var(--pais, var(--acc)) 7%, white);
+}
+
+/* «Ninguno» no tiene pais, asi que no puede heredar el color del pais elegido:
+   se le da la tinta como `--pais` propia y el resto de reglas siguen valiendo
+   tal cual. Sin esto, pasar el raton por «Ninguno» lo pintaba del color del
+   pais que esta puesto, que es justo lo contrario de lo que significa. */
+.sd-pais-carta-neutra {
+  --pais: var(--ink-3);
+}
+
+.sd-pais-carta-neutra.sd-pais-carta-activa {
+  background: var(--soft);
+}
+
+.sd-pais-elegir {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: var(--radio-tarjeta);
+  padding: 11px 13px;
+  padding-right: 58px;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+
+.sd-pais-bandera {
+  font-size: 20px;
+  line-height: 1.1;
+}
+
+.sd-pais-nombre {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.sd-pais-carta-activa .sd-pais-nombre {
+  color: var(--pais, var(--ink));
+}
+
+.sd-pais-carta-neutra.sd-pais-carta-activa .sd-pais-nombre {
+  color: var(--ink);
+}
+
+.sd-pais-moneda {
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.sd-pais-prefijo {
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+/* Mirar los tres paises antes de decidir no puede cambiarle el agente a nadie:
+   este boton abre la ficha y NO elige. Elegir es pulsar la carta. */
+.sd-pais-ficha-btn {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  border: 1px solid var(--line-2);
+  border-radius: 20px;
+  background: var(--card);
+  color: var(--ink-2);
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 3px 9px;
+  cursor: pointer;
+  transition:
+    border-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.sd-pais-ficha-btn:hover {
+  border-color: var(--pais, var(--ink-4));
+  color: var(--pais, var(--ink));
+}
+
+.sd-pais-resumen {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.sd-pais-vermas {
+  margin-top: 12px;
+}
+
+/* ── La ficha flotante ────────────────────────────────────────────────────
+   Se consulta y se cierra. Dentro del formulario, doscientas lineas de lectura
+   empujarian hacia abajo el guion y los modelos, que es donde se trabaja.
+
+   El velo es la unica sombra del sistema de diseno, y no es decoracion: es lo
+   que dice que el panel de debajo esta suspendido. La ficha en si sigue siendo
+   plana, con su hairline, como cualquier otra tarjeta. */
+.sd-velo {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: color-mix(in srgb, var(--lienzo) 55%, transparent);
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.sd-ficha {
+  width: min(640px, 100%);
+  max-height: min(86vh, 900px);
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radio-tarjeta);
+  overflow: hidden;
+}
+
+.sd-ficha-cabecera {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 15px 17px;
+  background: color-mix(in srgb, var(--pais, var(--ink)) 8%, white);
+  border-bottom: 1px solid color-mix(in srgb, var(--pais, var(--line)) 22%, white);
+}
+
+.sd-ficha-bandera {
+  font-size: 30px;
+  line-height: 1;
+}
+
+.sd-ficha-titulo {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--pais, var(--ink));
+}
+
+.sd-ficha-bajada {
+  font-size: 11.5px;
+  color: var(--ink-2);
+  margin-top: 3px;
+  max-width: 46ch;
+}
+
+.sd-ficha-cerrar {
+  margin-left: auto;
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 13px;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.sd-ficha-cerrar:hover {
+  background: var(--card);
+  color: var(--ink);
+}
+
+/* Los cuatro datos que se miran de un vistazo y no se leen: moneda, como se
+   escribe un importe, prefijo y hora. Van arriba y en tabular. */
+.sd-ficha-tiras {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  border-bottom: 1px solid var(--line);
+}
+
+.sd-ficha-tira {
+  display: grid;
+  gap: 2px;
+  padding: 10px 17px;
+  border-right: 1px solid var(--line);
+}
+
+.sd-ficha-tira:last-child {
+  border-right: none;
+}
+
+.sd-ficha-tira-valor {
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.sd-ficha-cuerpo {
+  overflow-y: auto;
+  padding: 4px 17px 17px;
+}
+
+.sd-ficha-bloque {
+  padding: 13px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.sd-ficha-bloque:last-child {
+  border-bottom: none;
+}
+
+.sd-ficha-bloque-titulo {
+  font-size: 9.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ink-3);
+  margin-bottom: 7px;
+}
+
+/* Lo que mas dinero mueve de toda la ficha: sin uno de estos datos el paquete
+   vuelve, y el que vuelve se paga dos veces. Va marcado con el color del pais
+   para que no se lea como un parrafo mas. */
+.sd-ficha-bloque-fuerte {
+  border-left: 2px solid var(--pais, var(--ink-3));
+  padding-left: 12px;
+  margin: 4px 0;
+  background: color-mix(in srgb, var(--pais, var(--soft)) 5%, white);
+  border-radius: 0 var(--radio-control) var(--radio-control) 0;
+}
+
+.sd-ficha-bloque-fuerte .sd-ficha-bloque-titulo {
+  color: var(--pais, var(--ink-2));
+}
+
+.sd-ficha-texto {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+
+.sd-ficha-lista {
+  display: grid;
+  gap: 5px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+  padding-left: 15px;
+  list-style: disc;
+}
+
+.sd-ficha-lista li::marker {
+  color: var(--pais, var(--ink-4));
+}
+
+.sd-ficha-zonas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.sd-ficha-zona {
+  font-size: 11.5px;
+  padding: 3px 9px;
+  border-radius: 20px;
+  background: var(--soft);
+  color: var(--ink-2);
+}
+
+.sd-ficha-zona-cerca {
+  background: color-mix(in srgb, var(--pais, var(--acc)) 11%, white);
+  color: var(--pais, var(--acc));
+  font-weight: 600;
+}
+
+.sd-ficha-pie {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 17px;
+  border-top: 1px solid var(--line);
+  background: var(--soft);
+}
+
+.sd-btn-pais {
+  background: var(--pais, var(--acc));
+  color: #ffffff;
+}
+
+.sd-btn-pais:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--pais, var(--acc)) 85%, white);
+}
+
+@media (max-width: 560px) {
+  .sd-velo {
+    padding: 0;
+    place-items: stretch;
+  }
+  .sd-ficha {
+    width: 100%;
+    max-height: 100%;
+    border: none;
+    border-radius: 0;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
    La bandeja de Meta
 
    Tres columnas: la lista, el hilo y la ficha del pedido. Es la única pantalla
