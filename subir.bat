@@ -1,4 +1,5 @@
 @echo off
+setlocal enabledelayedexpansion
 REM ---------------------------------------------------------------------------
 REM  SalesDash - subir cambios a GitHub
 REM
@@ -7,9 +8,26 @@ REM  Si algo falla, se detiene y no sube: es mucho mas barato enterarse aqui
 REM  que en el despliegue, con el panel caido.
 REM
 REM  Doble clic, y cuando diga LISTO entras a EasyPanel y pulsas Deploy.
+REM
+REM  EL MENSAJE DEL COMMIT SE PREGUNTA, YA NO VIENE ESCRITO AQUI DENTRO.
+REM
+REM  Antes estaba fijo en este archivo. Eso funciona una vez: a la siguiente,
+REM  `git add -A` recoge un cambio nuevo y lo guarda con el titulo del cambio
+REM  anterior. El historial pasa a mentir sin que salte ningun error, y el dia
+REM  que hay que revertir algo en produccion no hay forma de saber que commit
+REM  trajo que. Preguntarlo cuesta una linea escrita y lo cierra.
 REM ---------------------------------------------------------------------------
 cd /d "%~dp0"
 title SalesDash - subir cambios
+
+REM  Que estamos DENTRO del repositorio, antes que nada.
+REM
+REM  Si no lo estuvieramos -el bat copiado a otra carpeta, la carpeta de
+REM  OneDrive a medio sincronizar-, `git status` falla, el paso 3 lo lee como
+REM  "no hay nada que guardar" y el script seguiria feliz hasta el push. Se
+REM  para aqui, que es donde se entiende lo que pasa.
+git rev-parse --is-inside-work-tree >nul 2>&1
+if errorlevel 1 goto :noEsRepo
 
 echo.
 echo ===========================================================
@@ -29,11 +47,41 @@ echo.
 echo ===========================================================
 echo   3 de 4   Guardando el commit
 echo ===========================================================
+
+REM  Sin nada pendiente no se pregunta nada: se pasa directo a subir. Es el
+REM  caso normal cuando el commit ya se hizo por otro lado y solo falta el push.
+set "hay="
+for /f "delims=" %%i in ('git status --porcelain') do set "hay=1"
+if not defined hay goto :nadaQueGuardar
+
+echo.
+echo   Esto es lo que se va a guardar:
+echo.
+git status --short
+echo.
+echo   -----------------------------------------------------------
+echo   Escribe en UNA linea que has cambiado y pulsa Enter.
+echo   Sin comillas ni el simbolo %% - al bat no le sientan bien.
+echo   Si lo dejas vacio no se guarda ni se sube NADA.
+echo   -----------------------------------------------------------
+echo.
+set "mensaje="
+set /p "mensaje=Que has cambiado: "
+if not defined mensaje goto :sinMensaje
+
 git add -A
-git commit -m "Messenger: entrar con Facebook, bandeja de comentarios y pantalla limpia" -m "Conectar una pagina ya no pide pegar un token. Un boton abre la ventana de Facebook, la ventana devuelve un codigo y el servidor lo cambia por el token de pagina usando META_APP_SECRET: el token no pasa por el navegador ni una vez. El camino manual sigue existiendo, pero solo lo ve superadmin." -m "Nuevo: bandeja de comentarios por pagina, con selector y estado de respondido, debajo de las paginas conectadas. Un comentario no es una tabla aparte: es una conversacion con superficie 'comentario', y cada fila abre el hilo entero." -m "Lo tecnico -nombres de variables, URL del webhook, eventos crudos- se pliega en Diagnostico tecnico y solo aparece para superadmin. Al dueno de la tienda se le muestran su pagina, sus comentarios y sus anuncios." -m "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>" -m "Claude-Session: https://claude.ai/code/session_01PPh11ksvXPfByAoQu75rfo"
+if errorlevel 1 goto :fallo
 
-if errorlevel 1 echo    (no habia nada nuevo que guardar - se sigue igual)
+git commit -m "!mensaje!" -m "Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
+if errorlevel 1 goto :fallo
+goto :subir
 
+:nadaQueGuardar
+echo.
+echo   No hay nada nuevo que guardar. Se sigue con lo que ya esta
+echo   en commits sin subir.
+
+:subir
 echo.
 echo ===========================================================
 echo   4 de 4   Subiendo a GitHub
@@ -51,13 +99,25 @@ echo.
 pause
 exit /b 0
 
-:fallo
+:sinMensaje
 echo.
 echo ===========================================================
-echo   ALGO FALLO - NO se ha subido nada
+echo   NO se ha guardado ni subido nada
 echo.
-echo   Mira el mensaje de arriba. Si no lo entiendes, copialo
-echo   y pasamelo tal cual.
+echo   Hace falta una linea que diga que cambiaste. Vuelve a
+echo   darle doble clic cuando la tengas pensada.
+echo ===========================================================
+echo.
+pause
+exit /b 1
+
+:noEsRepo
+echo.
+echo ===========================================================
+echo   ESTA CARPETA NO ES EL PROYECTO
+echo.
+echo   Este bat tiene que vivir dentro de la carpeta Dashboard,
+echo   la que tiene package.json al lado. NO se ha subido nada.
 echo ===========================================================
 echo.
 pause
