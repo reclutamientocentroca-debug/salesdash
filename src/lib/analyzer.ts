@@ -77,19 +77,24 @@ const CIERRA_LA_IMAGEN = (c: CategoriaImagen | null) =>
   c === "factura" || c === "comprobante_pago";
 
 /**
- * La señal que cierra el hilo.
+ * La señal que cierra el hilo, y de qué lado cae.
  *
- * EL RESUMEN DE PEDIDO MANDA SOBRE LA FACTURA. Si en algún punto de la
- * conversación aparece el resumen —el mensaje con el marcador—, la venta es de
- * quien lo escribió, aunque una factura le llegue antes o después. La factura
- * sola no reasigna una venta que ya cerró un resumen.
+ * SOLO HAY DOS SEÑALES, y cada una tiene dueño fijo:
  *
- * Es la única excepción al orden cronológico, y tiene razón de negocio: el
- * resumen es el momento en que el cliente dice que sí y queda cerrado el
- * pedido; la factura que un vendedor manda después —o incluso antes, mientras
- * se despacha— es papeleo alrededor de esa misma venta. Sin esta regla, un
- * vendedor que adelanta la factura le quitaba a la IA una venta que la IA
- * cerró.
+ *   - EL RESUMEN DE PEDIDO → AUTOMATIZADA. Da igual quién lo mandara: nuestro
+ *     agente, el bot propio del dueño en un número que solo vigilamos, o el
+ *     móvil de un vendedor que copia el formato. Desde que se manda el resumen,
+ *     el pedido lo cerró la máquina.
+ *   - LA FOTO DE LA FACTURA, y solo si en TODO el hilo no hubo resumen →
+ *     ASISTIDA. Ahí no hay resumen que cerrara el pedido: lo cerró una persona
+ *     mandando el papeleo desde su móvil.
+ *
+ * De ahí sale la regla que manda sobre todo lo demás: EL RESUMEN MANDA SOBRE LA
+ * FACTURA. Si en algún punto del hilo aparece el resumen, la venta es
+ * automatizada aunque la factura llegue antes o después. Es la única excepción
+ * al orden cronológico y tiene razón de negocio: el resumen es el momento en que
+ * el cliente dice que sí y queda cerrado el pedido; la factura es papeleo
+ * alrededor de esa misma venta.
  *
  * Se busca en dos pases y ese orden ahorra dinero: el resumen es texto y leerlo
  * no cuesta nada, mientras que reconocer una factura pide visión. Si hay
@@ -105,11 +110,12 @@ export async function buscarPrimeraSenal(
 ): Promise<{ senales: Senal[]; imagenSinDescribir: boolean }> {
   // ── Pase 1: el resumen de pedido. Es leer texto: ni un modelo. ──────────
   /*
-   * De quién es el resumen lo decide QUIÉN LO ESCRIBIÓ, y nada más. Si lo
-   * mandó la IA, la venta es de la IA, aunque un vendedor hubiera escrito
-   * antes en el hilo. Que una persona metiera mano se ve en la pastilla de
-   * intervención, que es un dato aparte: quién cerró y si alguien ayudó son
-   * dos preguntas distintas. Gemelo de `duenoDelCierre` en `cierre.ts`.
+   * TODO resumen es de la IA, y no se mira el emisor. Desde fuera, el resumen
+   * que escribe un bot ajeno y el que escribe una persona son el mismo mensaje;
+   * suponer por el emisor era justo lo que le acreditaba al equipo las ventas
+   * que cerró una máquina. Que una persona metiera mano en el hilo se lee en la
+   * pastilla de intervención, que es un dato aparte: quién cerró y si alguien
+   * ayudó son dos preguntas distintas. Gemelo de `duenoDelCierre` en `cierre.ts`.
    */
   const texto: Senal[] = [];
 
@@ -119,22 +125,28 @@ export async function buscarPrimeraSenal(
     const saliente = m.emisor === "ia" || m.emisor === "humano";
     if (!saliente || !contieneMarcador(m.content, marcador)) continue;
 
-    texto.push(
-      m.emisor === "ia"
-        ? { quien: "ia", senal: "resumen_ia", cuando: m.created_at, mensajeId: m.id }
-        : { quien: "humano", senal: "confirmacion_texto", cuando: m.created_at, mensajeId: m.id },
-    );
+    texto.push({ quien: "ia", senal: "resumen_ia", cuando: m.created_at, mensajeId: m.id });
   }
 
   if (texto.length) return { senales: texto, imagenSinDescribir: false };
 
-  // ── Pase 2: la factura. Solo si en TODO el hilo no hubo resumen. ────────
+  /*
+   * ── Pase 2: la factura. Solo si en TODO el hilo no hubo resumen. ────────
+   *
+   * Vale cualquier imagen SALIENTE, no solo las marcadas como de un vendedor.
+   * En un número en modo vigilar todo lo que sale se guarda como de la IA
+   * —porque desde fuera no hay forma de distinguirlo—, y con el filtro puesto
+   * en `emisor === "humano"` la foto de la factura de esos números no cerraba
+   * nada: el hilo se quedaba abierto para siempre. Ningún bot manda fotos de
+   * facturas; la manda una persona, y por eso esta señal es asistida venga
+   * marcada como venga.
+   */
   const senales: Senal[] = [];
   let imagenSinDescribir = false;
 
   for (const m of mensajes) {
     if (senales.length && m.created_at > senales[0]!.cuando) break;
-    if (m.emisor !== "humano" || m.tipo !== "imagen") continue;
+    if (m.emisor === "cliente" || m.tipo !== "imagen") continue;
 
     const categoria = m.categoria_imagen ?? (await describir(m));
 
@@ -321,11 +333,15 @@ function promptAnalista(
   return `Eres un analista de ventas por WhatsApp. Lees una conversación y extraes los datos del pedido.
 
 Responde SOLO con este JSON, sin texto adicional y sin backticks:
-{"estado":"cerrada_ia|cerrada_humano|abierta|revision","senal_de_cierre":"resumen_ia|imagen_factura|confirmacion_texto|ninguna","justificacion":"una línea explicando qué señal usaste","resumen_pedido":"producto, cantidad, talla, total, envío","producto_vendido":"nombre normalizado","total":null,"envio":null,"datos_faltantes":[],"cliente_sin_respuesta":false,"motivo_perdida":"precio|falta de foto|costo de envío|sin respuesta|duda no resuelta|no aplica"}
+{"estado":"cerrada_ia|cerrada_humano|abierta|revision","senal_de_cierre":"resumen_ia|imagen_factura|ninguna","justificacion":"una línea explicando qué señal usaste","resumen_pedido":"producto, cantidad, talla, total, envío","producto_vendido":"nombre normalizado","total":null,"envio":null,"datos_faltantes":[],"cliente_sin_respuesta":false,"motivo_perdida":"precio|falta de foto|costo de envío|sin respuesta|duda no resuelta|no aplica"}
 
 Reglas:
 - El mensaje de cierre de la IA lleva el marcador "${marcador}", y valen sus variantes: con palabras en medio ("${marcador.replace(/:\s*$/, "")} de su pedido:") o como título de una línea, sin dos puntos ("${marcador.replace(/:\s*$/, "").toUpperCase()} DEL PEDIDO"). Las tres son la misma señal.
-- El resumen de pedido MANDA sobre la factura: si en algún punto del hilo aparece el resumen, la venta es de quien lo escribió, aunque la foto de factura llegue antes o después. La factura solo cierra si en todo el hilo no hubo resumen.
+- SOLO HAY DOS SEÑALES DE CIERRE, y cada una tiene su lado fijo:
+  · El resumen de pedido → "cerrada_ia", señal "resumen_ia". SIEMPRE, sin mirar quién lo mandó: da igual que lo escriba la IA o un vendedor desde su móvil. Desde que se manda el resumen, el pedido lo cerró la máquina.
+  · La foto de una factura o un comprobante de pago → "cerrada_humano", señal "imagen_factura". SOLO si en todo el hilo no hubo resumen.
+- El resumen de pedido MANDA sobre la factura: si en algún punto del hilo aparece el resumen, la venta es "cerrada_ia" aunque la foto de factura llegue antes o después.
+- Un "sí, te lo mando", un "confirmado" o cualquier otro texto sin el marcador NO cierra nada. Sin resumen y sin factura, la conversación está abierta.
 - Entre dos señales del mismo tipo gana la PRIMERA, en orden.
 - "total" y "envio" son números, sin símbolo de moneda. Si no aparecen, null.
 - "total" es TODO lo que el cliente va a pagar, con el envío dentro si lo hay. "envio" es la parte de ese total que es transporte. Si el cliente dice "2500 más 300 de envío", entonces total=2800 y envio=300.
@@ -338,7 +354,7 @@ ${
   estadoMecanico
     ? `- El estado YA está determinado como "${estadoMecanico}". Respétalo y limítate a extraer los datos del pedido.`
     : `- Si NO hay ninguna señal de cierre, el estado es "abierta". Que la conversación siga viva no es una duda: es una conversación abierta.
-- Usa "revision" SOLO cuando sí hay indicios de que el pedido se cerró (se habla de pago, de entrega, de una factura) pero no puedes saber si lo cerró la IA o un vendedor. Es un caso raro: si dudas entre "abierta" y "revision", elige "abierta".`
+- Usa "revision" SOLO cuando sí hay indicios de que el pedido se cerró (se habla de pago, de entrega, de una factura) pero no puedes ver ni el resumen ni la foto que lo cerraría. Es un caso raro: si dudas entre "abierta" y "revision", elige "abierta".`
 }`;
 }
 
@@ -424,16 +440,16 @@ export async function analizarConversacion(
     senales = mecanicas.senales;
 
     if (senales.length) {
-      const distintos = new Set(senales.map((x) => x.quien));
-      if (distintos.size > 1) {
-        // Empate de marcas de tiempo: dos señales en el mismo segundo y de
-        // dueños distintos. No se adivina, va a revisión.
-        estado = "revision";
-        motivoRevision = "Dos señales de cierre con la misma hora: no se puede saber cuál fue primero.";
-      } else {
-        estado = senales[0]!.quien;
-        senal = senales[0]!.senal;
-      }
+      /*
+       * No hay empate posible: las señales salen de UN solo pase, y cada pase
+       * tiene un dueño fijo —el resumen es siempre automatizado, la factura
+       * siempre asistida—. Aquí se comprobaba si dos señales del mismo segundo
+       * caían de lados distintos y se mandaba el hilo a revisión; con el dueño
+       * atado a la señal eso ya no puede ocurrir, y lo que hacía era mandar a
+       * revisión ventas perfectamente atribuidas.
+       */
+      estado = senales[0]!.quien;
+      senal = senales[0]!.senal;
     } else if (mecanicas.imagenSinDescribir) {
       estado = "revision";
       motivoRevision = "Hay una imagen del vendedor que no se pudo describir.";

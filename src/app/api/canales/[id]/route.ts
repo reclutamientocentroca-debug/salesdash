@@ -110,12 +110,12 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
    * Solo al encenderlo, y solo si estaba apagado. Apagarlo no deshace nada.
    */
   if (datos.data.contesta_ia === true && canal.contesta_ia !== 1) {
-    const { mensajes, cierres } = reatribuirCanalAIa(s.ctx.orgId, canal.id);
+    const { mensajes } = reatribuirCanalAIa(s.ctx.orgId, canal.id);
     const { sellarCierresPendientes } = await import("@/lib/cierre");
     const selladas = sellarCierresPendientes(s.ctx.orgId);
     console.log(
       `[canal ${canal.id}] atendido por IA: ${mensajes} mensaje(s) reatribuidos, ` +
-        `${cierres} cierre(s) pasados al lado de la IA, ${selladas} venta(s) selladas`,
+        `${selladas} venta(s) selladas`,
     );
   }
 

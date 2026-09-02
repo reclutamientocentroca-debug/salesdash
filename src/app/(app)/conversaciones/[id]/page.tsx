@@ -18,12 +18,13 @@ interface Props {
 }
 
 const SENALES: Record<string, string> = {
-  resumen_ia: "resumen de la IA con el marcador de cierre",
-  resumen_tras_intervencion: "resumen de la IA, pero un vendedor ya había escrito antes",
-  imagen_factura: "el vendedor mandó la factura",
-  imagen_comprobante: "el vendedor mandó un comprobante de pago",
-  confirmacion_texto: "confirmación por texto de un vendedor",
+  resumen_ia: "se mandó el resumen del pedido",
+  imagen_factura: "se mandó la foto de la factura, y en el hilo no hubo resumen",
+  imagen_comprobante: "se mandó un comprobante de pago, y en el hilo no hubo resumen",
   correccion_manual: "lo corrigió una persona desde la bandeja de revisión",
+  // Señales viejas: ya no se producen, pero quedan hilos sellados con ellas.
+  resumen_tras_intervencion: "se mandó el resumen del pedido",
+  confirmacion_texto: "se mandó el resumen del pedido",
 };
 
 export default async function PaginaConversacion({ params, searchParams }: Props) {

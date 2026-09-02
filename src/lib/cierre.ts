@@ -92,26 +92,33 @@ export interface Cierre {
 }
 
 /**
- * De quién es el cierre. LO DECIDE QUIÉN ESCRIBIÓ EL RESUMEN, y nadie más.
+ * De quién es el cierre. LO DECIDE LA SEÑAL, no quién la mandó.
  *
- * Si el resumen de pedido lo mandó la IA, la venta es de la IA. Aunque un
- * vendedor hubiera escrito antes en ese hilo, y aunque llegue una factura
- * después: quien cerró el pedido fue el resumen.
+ * EL RESUMEN DE PEDIDO ES SIEMPRE AUTOMATIZADO. Si en el hilo sale el resumen,
+ * la venta es de la IA: da igual que lo escriba nuestro agente, el bot propio
+ * del dueño en un número que solo vigilamos, o que salga por el móvil de un
+ * vendedor. Desde que se manda el resumen, el pedido lo cerró la máquina.
  *
- * Antes, un mensaje cualquiera de un vendedor —«ya te confirmo», «un momento»—
- * convertía en cierre humano el resumen que la IA mandaba media hora después.
- * Que una persona haya metido mano se sigue viendo, pero se ve donde le toca:
- * en la pastilla de intervención, que es un dato aparte. Quién cerró y si
- * alguien tuvo que ayudar son dos preguntas distintas y tienen dos respuestas
- * distintas; mezclarlas hacía que la IA no se llevara ni las ventas que cerró
- * sola de principio a fin.
+ * Y ESO ES LO ÚNICO QUE HAY AQUÍ. Lo asistido no se cierra con texto: se cierra
+ * con la FOTO DE LA FACTURA sin que en el hilo haya habido resumen, y esa señal
+ * no pasa por esta función —pide visión y la reconoce el analista, en
+ * `buscarPrimeraSenal`—. Si un cierre lleva `resumen_ia`, es de la IA; si lleva
+ * `imagen_factura` o `imagen_comprobante`, es del equipo. No hay un tercer caso.
  *
- * `resumen_tras_intervencion` ya no se produce. Se sigue reconociendo al
- * mostrarlo porque hay conversaciones viejas selladas con esa señal.
+ * Antes esto miraba el emisor del mensaje y de ahí salía el error que el panel
+ * enseñaba: desde fuera, un resumen escrito por el bot ajeno del dueño y uno
+ * escrito a mano son idénticos, así que medio catálogo de ventas automatizadas
+ * se contaba del lado del equipo. Que una persona metiera mano en el hilo se
+ * sigue viendo donde le toca —la pastilla de intervención—, que es otro dato:
+ * quién cerró y si alguien ayudó son dos preguntas distintas.
+ *
+ * `confirmacion_texto` y `resumen_tras_intervencion` ya no se producen. Se
+ * siguen reconociendo al mostrarlos porque hay conversaciones viejas selladas
+ * con esas señales; la migración las convierte, pero un informe exportado antes
+ * puede traerlas.
  */
 export function duenoDelCierre(emisor: Emisor): Cierre | null {
   if (emisor === "cliente") return null;
-  if (emisor === "humano") return { quien: "humano", senal: "confirmacion_texto" };
   return { quien: "ia", senal: "resumen_ia" };
 }
 

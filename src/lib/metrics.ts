@@ -5,6 +5,7 @@
  * porcentajes, normaliza nombres de producto y decide el color del semáforo.
  */
 import {
+  cierresConIntervencionHumana,
   conteoConIntervencionHumana,
   conteoPorEstado,
   resumenDeAnuncio,
@@ -70,7 +71,9 @@ export interface Metricas {
   tasa_cierre_anuncio: number;
   /** Qué producto anunciado los trajo, y qué prometía ese anuncio. */
   productos_anuncio: { producto: string; descripcion: string | null; leads: number; cerrados: number }[];
+  /** Cerradas por un RESUMEN de pedido. Automatizadas, salga de donde salga. */
   cierres_ia: number;
+  /** Cerradas por una FOTO de factura sin resumen en el hilo. Asistidas. */
   cierres_humano: number;
   sin_cerrar: number;
   revision: number;
@@ -167,12 +170,27 @@ export function calcularMetricas(orgId: number, rango: Rango): Metricas {
     .slice(0, 3);
 
   // ── Cobertura y efectividad ───────────────────────────────────────────────
-  // Cobertura: de todo lo que se cerró, cuánto cerró la IA sola.
+  /*
+   * Cobertura: de todo lo que se cerró, cuánto lo cerró un resumen de pedido.
+   * `estados.ia` es exactamente eso —el resumen es automatizado siempre, sin
+   * mirar por qué teclado salió—, y lo asistido es lo que cerró una foto de
+   * factura sin resumen en el hilo.
+   */
   const cobertura = porcentaje(estados.ia, cierresTotales);
-  // Efectividad: de los hilos donde un vendedor llegó a escribir, cuántos
-  // terminaron en venta. Mide al equipo, no a la IA.
+
+  /*
+   * Efectividad: de los hilos donde un vendedor llegó a escribir, cuántos
+   * terminaron en VENTA. Mide al equipo, no a la IA, y por eso el numerador son
+   * los cierres de esos mismos hilos —los cerrara quien los cerrara—, no los
+   * `cerrado_por = 'humano'`.
+   *
+   * Con el numerador puesto en los cierres asistidos, el vendedor que desatasca
+   * la venta y deja que el resumen la cierre no contaba: su hilo sumaba al
+   * denominador y no al numerador. Cada vez que el equipo hacía bien su trabajo,
+   * su propia métrica bajaba.
+   */
   const conHumano = conteoConIntervencionHumana(orgId, rango);
-  const efectividad = porcentaje(estados.humano, conHumano);
+  const efectividad = porcentaje(cierresConIntervencionHumana(orgId, rango), conHumano);
 
   return {
     leads,

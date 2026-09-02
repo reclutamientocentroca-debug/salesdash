@@ -79,18 +79,37 @@ test("un vendedor que escribió antes no le quita el cierre a la IA", async () =
 });
 
 /**
- * Y al revés sigue igual: el marcador escrito por el vendedor desde su móvil
- * cierra para el equipo. Lo que decide es de quién es el mensaje.
+ * Y el marcador escrito desde el móvil del vendedor cierra IGUAL de
+ * automatizado. Lo que decide no es de quién es el mensaje, sino cuál es la
+ * señal: el resumen de pedido es siempre automatizado. Lo asistido se cierra
+ * con la foto de la factura, y solo si en el hilo no hubo resumen.
  */
-test("el marcador escrito por el vendedor cierra para el equipo", async () => {
+test("el marcador escrito por el vendedor también cierra como automatizada", async () => {
   const hilo = [
     m({ emisor: "cliente", created_at: 100, content: "me lo llevo" }),
     m({ emisor: "humano", created_at: 200, content: "Resumen: 1 nevera, total 32000" }),
   ];
 
   const r = await buscarPrimeraSenal(MARCADOR, hilo, nuncaSeLlama);
+  assert.equal(r.senales[0]!.quien, "ia");
+  assert.equal(r.senales[0]!.senal, "resumen_ia");
+});
+
+/**
+ * Y en un número en modo vigilar, donde TODO lo saliente se guarda como de la
+ * IA porque desde fuera no hay forma de distinguirlo, la foto de la factura
+ * sigue cerrando como asistida. Con el pase de imágenes mirando solo al emisor
+ * «humano», esos hilos se quedaban abiertos para siempre.
+ */
+test("la factura cierra como asistida aunque entre marcada como de la IA", async () => {
+  const hilo = [
+    m({ emisor: "cliente", created_at: 100, content: "listo, ya pagué" }),
+    m({ emisor: "ia", created_at: 200, tipo: "imagen", categoria_imagen: "factura", content: "[imagen]" }),
+  ];
+
+  const r = await buscarPrimeraSenal(MARCADOR, hilo, nuncaSeLlama);
   assert.equal(r.senales[0]!.quien, "humano");
-  assert.equal(r.senales[0]!.senal, "confirmacion_texto");
+  assert.equal(r.senales[0]!.senal, "imagen_factura");
 });
 
 test("una foto de producto no cierra nada", async () => {
@@ -117,7 +136,12 @@ test("la imagen sin describir manda el hilo a revisión, nunca se asume factura"
   assert.equal(r.imagenSinDescribir, true);
 });
 
-test("dos señales en el mismo segundo y de dueños distintos: empate", async () => {
+/**
+ * Dos resúmenes en el mismo segundo ya no son un empate que haya que resolver:
+ * los dos son automatizados, así que la venta tiene dueño sin adivinar nada.
+ * Antes esto mandaba el hilo a revisión.
+ */
+test("dos resúmenes en el mismo segundo caen del mismo lado: no hay empate", async () => {
   const hilo = [
     m({ emisor: "ia", created_at: 500, content: "Resumen: 1 camisa" }),
     m({ emisor: "humano", created_at: 500, content: "Resumen: lo cerré yo" }),
@@ -125,7 +149,8 @@ test("dos señales en el mismo segundo y de dueños distintos: empate", async ()
 
   const r = await buscarPrimeraSenal(MARCADOR, hilo, nuncaSeLlama);
   assert.equal(r.senales.length, 2);
-  assert.equal(new Set(r.senales.map((s) => s.quien)).size, 2);
+  assert.equal(new Set(r.senales.map((s) => s.quien)).size, 1, "las dos son de la IA");
+  assert.equal(r.senales[0]!.quien, "ia");
 });
 
 test("solo se pide descripción de las imágenes anteriores al cierre", async () => {

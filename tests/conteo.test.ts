@@ -390,7 +390,7 @@ test("un envío mayor que el total no le resta a la facturación", () => {
   const raro = nuevaConversacion();
   D.actualizarConversacion(orgId, raro, { total: 500, envio: 900 });
   D.sellarCierre(orgId, raro, {
-    cerradoPor: "humano", senal: "confirmacion_texto", fechaCierre: 1_700_000_200,
+    cerradoPor: "humano", senal: "imagen_factura", fechaCierre: 1_700_000_200,
   });
 
   const m = calcularMetricas(orgId, RANGO);
@@ -519,14 +519,14 @@ test("un vendedor que escribió antes no le quita al barrido el cierre de la IA"
  * UN NÚMERO DONDE CONTESTA UNA IA AJENA.
  *
  * El dueño tiene su propio bot en ese WhatsApp. Sus respuestas no salen de aquí
- * —así que no llevan nuestro identificador— y hasta ahora se guardaban como de
- * un humano: el panel enseñaba «intervino un humano» en conversaciones donde no
- * habló ninguno, y le acreditaba al equipo las ventas que cerró esa IA.
+ * —así que no llevan nuestro identificador— y entran guardadas como de un
+ * humano. La venta se cuenta bien igual: quién cerró lo decide la SEÑAL, y el
+ * resumen de pedido es automatizado salga por el teclado que salga.
  *
- * Marcar el número corrige el origen: los mensajes pasan a ser de la IA, y de
- * ahí se derivan solas la pastilla y la atribución de la venta.
+ * Lo que sí queda mal es la pastilla de «intervino un humano» en un hilo donde
+ * no habló ninguno, y eso es lo que corrige el botón del número.
  */
-test("marcar el número como atendido por una IA corrige lo que ya estaba mal", () => {
+test("el resumen del bot ajeno cuenta como automatizada sin pulsar nada", () => {
   const hilo = nuevaConversacion();
   D.insertMessage(orgId, {
     conversationId: hilo, whapiMessageId: `bot-${siguiente++}`, emisor: "cliente",
@@ -540,19 +540,20 @@ test("marcar el número como atendido por una IA corrige lo que ya estaba mal", 
   });
   D.recalcularIntervencionHumana(orgId, hilo);
 
-  assert.equal(sellarCierresPendientes(orgId), 1, "el resumen cierra la venta igual");
-  const mal = D.getConversation(orgId, hilo);
-  assert.equal(mal?.cerrado_por, "humano", "pero se la lleva el equipo, que es lo que el dueño ve mal");
-  assert.equal(mal?.intervencion_humana, 1, "y con la pastilla de intervino");
+  assert.equal(sellarCierresPendientes(orgId), 1, "el resumen cierra la venta");
+
+  const conv = D.getConversation(orgId, hilo);
+  assert.equal(conv?.cerrado_por, "ia", "y la venta es automatizada desde el primer momento");
+  assert.equal(conv?.senal_de_cierre, "resumen_ia");
+  assert.equal(conv?.intervencion_humana, 1, "lo único que queda mal es la pastilla");
 
   const r = D.reatribuirCanalAIa(orgId, canalId);
-  assert.ok(r.mensajes >= 1, "reatribuye los mensajes del número");
-  assert.ok(r.cierres >= 1, "y los cierres que venían de una señal de texto");
+  assert.ok(r.mensajes >= 1, "el botón reatribuye los mensajes del número");
 
   const bien = D.getConversation(orgId, hilo);
-  assert.equal(bien?.cerrado_por, "ia", "la venta es de la IA que la cerró");
+  assert.equal(bien?.cerrado_por, "ia", "la venta no se mueve: ya estaba bien contada");
   assert.equal(bien?.senal_de_cierre, "resumen_ia");
-  assert.equal(bien?.intervencion_humana, 0, "y no intervino nadie");
+  assert.equal(bien?.intervencion_humana, 0, "y ahora sí: no intervino nadie");
   assert.equal(
     D.listarMensajes(orgId, hilo).some((m) => m.emisor === "humano"),
     false,

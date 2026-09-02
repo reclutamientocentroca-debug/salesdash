@@ -289,6 +289,26 @@ export default async function Dashboard({ searchParams }: Props) {
           />
 
           {/*
+            QUÉ SIGNIFICA CADA MITAD, escrito donde se mira el reparto.
+
+            Es la pregunta que el dueño hace en cuanto ve esta rosca, y sin la
+            respuesta a la vista cada uno se inventa la suya —«asistida será
+            donde contestó alguien del equipo»—, que no es lo que cuenta el
+            panel. La regla es corta y cabe en dos líneas: una venta es
+            automatizada si se mandó el resumen del pedido, venga de nuestro
+            agente, del bot del número o del móvil de un vendedor; es asistida
+            si la cerró la foto de la factura y en el hilo no hubo resumen.
+
+            Que además interviniera una persona es otro dato, y se lee en la
+            pastilla de cada conversación.
+          */}
+          <p className="tenue" style={{ marginTop: 12, fontSize: 12, lineHeight: 1.5 }}>
+            <strong style={{ color: "var(--acc)" }}>Automatizada</strong>: se mandó el resumen del
+            pedido. <strong style={{ color: "var(--blue)" }}>Asistida</strong>: la cerró la foto de
+            la factura, sin resumen en el hilo.
+          </p>
+
+          {/*
             Debajo del reparto de cierres, el dinero de esos cierres. La rosca
             dice cuántos hilos cerró cada uno y esta línea dice cuánto entró por
             ellos: son las dos mitades de la misma pregunta, y separarlas en dos

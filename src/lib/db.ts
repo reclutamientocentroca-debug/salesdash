@@ -1098,6 +1098,41 @@ function migrar(conexion: DB): void {
     conexion.exec(`PRAGMA user_version = 7`);
   }
 
+  /*
+   * EL RESUMEN DE PEDIDO ES AUTOMATIZADO SIEMPRE, y el histórico también.
+   *
+   * La regla de conteo del panel es esta y solo esta:
+   *
+   *   - Se mandó el RESUMEN → automatizada. No importa quién lo escribiera: el
+   *     agente del panel, el bot propio del dueño en un número que solo
+   *     vigilamos, o un vendedor copiando el formato desde su móvil.
+   *   - Se mandó la FOTO DE LA FACTURA y en el hilo no hubo resumen → asistida.
+   *
+   * Hasta ahora el resumen se atribuía por el EMISOR del mensaje, y desde fuera
+   * un resumen escrito por un bot ajeno y uno escrito a mano son idénticos: las
+   * ventas que cerró una máquina se contaban del lado del equipo. La migración 4
+   * arregló eso solo en los números marcados como «en modo vigilar»; el resto
+   * del panel seguía contando mal, y con dos criterios distintos conviviendo
+   * ninguna de las dos cifras se podía leer.
+   *
+   * `confirmacion_texto` y `resumen_tras_intervencion` son exactamente «cerró un
+   * resumen de pedido», así que la conversión es exacta y no hay nada que
+   * adivinar. Lo cerrado por una FOTO no se toca: eso es lo asistido. Y
+   * `correccion_manual` tampoco: esa la firmó una persona desde la bandeja de
+   * revisión, y pisarla sería deshacerle el trabajo.
+   *
+   * Una sola vez, detrás de `user_version`: esto corre en cada arranque y sin la
+   * marca le volveríamos a pisar mañana lo que hoy corrija a mano.
+   */
+  if (version < 8) {
+    conexion.prepare(
+      `UPDATE conversations SET cerrado_por = 'ia', senal_de_cierre = 'resumen_ia'
+        WHERE cerrado_por = 'humano'
+          AND senal_de_cierre IN ('confirmacion_texto', 'resumen_tras_intervencion')`,
+    ).run();
+    conexion.exec(`PRAGMA user_version = 8`);
+  }
+
   // anomalies: las anomalías de canal no tienen conversación.
   if (!columnas("anomalies").includes("canal_id")) {
     conexion.exec(`
@@ -1914,18 +1949,19 @@ export function recalcularIntervencionHumana(orgId: number, conversationId: numb
  * «intervino» en conversaciones donde no intervino nadie, y sus ventas
  * acreditadas al equipo en vez de a la IA.
  *
- * Corrige el ORIGEN —el emisor de los mensajes— y deja que lo demás se derive
- * de ahí. Lo que ya estaba sellado como cierre humano se reatribuye solo si su
- * señal fue de texto: una factura o un comprobante los manda una persona desde
- * su móvil, y esos no los toca aunque el número lo lleve un bot.
+ * Corrige el ORIGEN —el emisor de los mensajes— y con eso se apaga la pastilla
+ * de «intervino» en los hilos donde no intervino nadie.
+ *
+ * NO toca los cierres, y ya no hace falta: quién cerró lo decide la SEÑAL y no
+ * el emisor —el resumen es automatizado siempre, la foto de la factura es
+ * asistida siempre—, así que un número marcado como atendido por IA ya cuenta
+ * bien sus ventas antes de pulsar nada. Este botón es para la intervención, que
+ * es el otro dato.
  *
  * Es una corrección explícita del dueño, y no se deshace sola al apagar el
  * ajuste: los mensajes ya reatribuidos se quedan como IA.
  */
-export function reatribuirCanalAIa(
-  orgId: number,
-  canalId: number,
-): { mensajes: number; cierres: number } {
+export function reatribuirCanalAIa(orgId: number, canalId: number): { mensajes: number } {
   const tx = db.transaction(() => {
     const enElCanal = `SELECT id FROM conversations WHERE org_id = ? AND canal_id = ?`;
 
@@ -1939,14 +1975,7 @@ export function reatribuirCanalAIa(
         WHERE org_id = ? AND canal_id = ?`,
     ).run(orgId, canalId);
 
-    const cierres = s(
-      `UPDATE conversations
-          SET cerrado_por = 'ia', senal_de_cierre = 'resumen_ia'
-        WHERE org_id = ? AND canal_id = ? AND cerrado_por = 'humano'
-          AND senal_de_cierre IN ('confirmacion_texto', 'resumen_tras_intervencion')`,
-    ).run(orgId, canalId).changes;
-
-    return { mensajes, cierres };
+    return { mensajes };
   });
 
   return tx();
@@ -2071,33 +2100,6 @@ export function guardarDescripcionImagen(orgId: number, mensajeId: number, datos
     `UPDATE messages SET descripcion_imagen = ?, categoria_imagen = ?
       WHERE org_id = ? AND id = ?`,
   ).run(datos.descripcion, datos.categoria, orgId, mensajeId);
-}
-
-/**
- * ¿Escribió un vendedor ANTES de este momento?
- *
- * Decide de quién es una venta cerrada con el marcador: si un humano ya estaba
- * en la conversación, el resumen que manda la IA cierra una venta que llevaba
- * un vendedor. El «antes» es estricto — un mensaje no se precede a sí mismo.
- */
-export function huboHumanoAntes(orgId: number, conversationId: number, antesDe: number): boolean {
-  const fila = s(
-    /*
-     * ESCRIBIÓ, y una foto no es escribir.
-     *
-     * Las imágenes del vendedor quedan fuera porque casi siempre son la factura
-     * o el comprobante: papeleo alrededor de una venta, no el trabajo de
-     * venderla. Contándolas, un vendedor que adelanta la factura convertía el
-     * resumen que la IA mandaba después en un cierre humano —y eso es
-     * exactamente lo que prohíbe la regla del resumen sobre la factura, solo
-     * que por la puerta de atrás.
-     */
-    `SELECT 1 AS x FROM messages
-      WHERE org_id = ? AND conversation_id = ? AND emisor = 'humano'
-        AND tipo <> 'imagen' AND created_at < ?
-      LIMIT 1`,
-  ).get(orgId, conversationId, antesDe) as { x: number } | undefined;
-  return !!fila;
 }
 
 /**
@@ -2920,6 +2922,25 @@ export function conteoConIntervencionHumana(orgId: number, r: Rango): number {
   const { where, val } = filtroRango(orgId, r);
   return (s(
     `SELECT COUNT(*) AS n FROM conversations WHERE ${where} AND intervencion_humana = 1`,
+  ).get(...val) as { n: number }).n;
+}
+
+/**
+ * De los hilos que tocó un vendedor, cuántos acabaron en VENTA. Da igual quién
+ * los cerrara.
+ *
+ * Es el numerador de la efectividad asistida, y tiene que ser este. El
+ * denominador son los hilos donde una persona llegó a escribir; contar solo los
+ * `cerrado_por = 'humano'` dejaba fuera al vendedor que desatasca la venta y
+ * deja que el resumen la cierre —que es el caso normal y el trabajo bien
+ * hecho—, así que la métrica medía la proporción de ventas cerradas con una
+ * foto de factura y la enseñaba como si midiera al equipo.
+ */
+export function cierresConIntervencionHumana(orgId: number, r: Rango): number {
+  const { where, val } = filtroRango(orgId, r);
+  return (s(
+    `SELECT COUNT(*) AS n FROM conversations
+      WHERE ${where} AND intervencion_humana = 1 AND cerrado_por IN ('ia','humano')`,
   ).get(...val) as { n: number }).n;
 }
 
