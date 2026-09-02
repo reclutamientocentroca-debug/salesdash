@@ -7,7 +7,8 @@ REM  Comprueba que el proyecto compila y pasa las pruebas ANTES de subir nada.
 REM  Si algo falla, se detiene y no sube: es mucho mas barato enterarse aqui
 REM  que en el despliegue, con el panel caido.
 REM
-REM  Doble clic, y cuando diga LISTO entras a EasyPanel y pulsas Deploy.
+REM  Doble clic, y cuando diga LISTO entras a EasyPanel y pulsas Deploy:
+REM  proyecto seledash, servicio seledash.
 REM
 REM  EL MENSAJE DEL COMMIT SE PREGUNTA, YA NO VIENE ESCRITO AQUI DENTRO.
 REM
@@ -93,7 +94,11 @@ echo.
 echo ===========================================================
 echo   LISTO
 echo.
-echo   Entra a EasyPanel, servicio agente1-salesdash, y pulsa Deploy.
+echo   Entra a EasyPanel, proyecto seledash, servicio seledash,
+echo   y pulsa Deploy.
+echo.
+echo   El panel queda en:
+echo   https://seledash-seledash.pltte0.easypanel.host
 echo ===========================================================
 echo.
 pause
