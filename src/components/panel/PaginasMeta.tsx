@@ -24,8 +24,47 @@ interface Revision {
 interface Disponible {
   pageId: string;
   nombre: string;
+  foto: string | null;
   tieneInstagram: boolean;
   conectada: boolean;
+}
+
+/**
+ * La foto de la página, o su inicial.
+ *
+ * Quien administra ocho páginas las reconoce por la foto antes que por un
+ * nombre que a veces solo cambia en una palabra, y aquí equivocarse significa
+ * conectar el Facebook de otro negocio. Cuando Facebook no da foto —o da la
+ * silueta gris, que no distingue nada— queda la inicial, que al menos cambia.
+ */
+function Avatar({ nombre, foto }: { nombre: string; foto: string | null }) {
+  if (foto) {
+    // Imagen de Facebook servida desde su CDN: `next/image` la bloquearía sin
+    // declarar el dominio, y una foto de perfil de 50 px no necesita optimizar.
+    // eslint-disable-next-line @next/next/no-img-element
+    return (
+      <img
+        src={foto}
+        alt=""
+        width={34}
+        height={34}
+        style={{ width: 34, height: 34, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }}
+      />
+    );
+  }
+
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        width: 34, height: 34, borderRadius: "50%", flexShrink: 0,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        background: "var(--soft)", fontWeight: 600, fontSize: 14,
+      }}
+    >
+      {nombre.charAt(0).toUpperCase()}
+    </span>
+  );
 }
 
 /**
@@ -66,6 +105,8 @@ export default function PaginasMeta({
   const [ocupado, setOcupado] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
+  /** «Conectada», con el nombre de la que se conectó. Ver `conectarElegida`. */
+  const [exito, setExito] = useState<string | null>(null);
 
   const [disponibles, setDisponibles] = useState<Disponible[] | null>(null);
   const [cargando, setCargando] = useState(false);
@@ -259,6 +300,7 @@ export default function PaginasMeta({
     setOcupado(true);
     setError(null);
     setAviso(null);
+    setExito(null);
 
     try {
       const r = await fetch("/api/meta/oauth", {
@@ -274,6 +316,15 @@ export default function PaginasMeta({
       }
 
       if (datos.aviso) setAviso(datos.aviso);
+
+      /*
+       * SE DICE QUE SALIÓ BIEN, Y CON EL NOMBRE.
+       *
+       * Antes la lista desaparecía y la página aparecía arriba, y había que
+       * fiarse de haber acertado. Con ocho páginas de nombre parecido eso es
+       * pedirle al dueño que compruebe él si conectó la que quería.
+       */
+      setExito(datos.nombre ? `«${datos.nombre}» ya está conectada.` : "Página conectada.");
       setDisponibles(null);
       router.refresh();
     } catch {
@@ -502,6 +553,8 @@ export default function PaginasMeta({
                   key={d.pageId}
                   style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12.5 }}
                 >
+                  <Avatar nombre={d.nombre} foto={d.foto} />
+
                   <span style={{ flex: 1, minWidth: 0 }}>
                     <span style={{ fontWeight: 600 }}>{d.nombre}</span>
                     <span className="tenue" style={{ display: "block" }}>
@@ -518,7 +571,7 @@ export default function PaginasMeta({
                       disabled={ocupado}
                       onClick={() => conectarElegida(d.pageId)}
                     >
-                      Conectar
+                      {ocupado ? "Conectando…" : "Conectar"}
                     </button>
                   )}
                 </li>
@@ -527,6 +580,11 @@ export default function PaginasMeta({
           </div>
         )}
 
+        {exito && (
+          <div className="aviso aviso-acento" role="status" style={{ marginTop: 12 }}>
+            {exito}
+          </div>
+        )}
         {error && (
           <div className="aviso aviso-error" role="alert" style={{ marginTop: 12 }}>
             {error}

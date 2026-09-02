@@ -26,6 +26,13 @@ export interface PaginaDisponible {
   pageId: string;
   nombre: string;
   igUserId: string | null;
+  /**
+   * La foto de la página. Es lo único de aquí que se ve, y no es adorno: quien
+   * administra ocho páginas las reconoce por la foto mucho antes que por un
+   * nombre que a veces solo se diferencia en una palabra. Elegir la equivocada
+   * significa conectar el Facebook de otro negocio.
+   */
+  foto: string | null;
   /** El token de página. NO sale de este servidor. */
   token: string;
 }
@@ -94,7 +101,11 @@ export async function intercambiarCodigo(
  * falta: el de usuario no sirve para escribir por Messenger.
  */
 export async function paginasDelUsuario(token: string): Promise<PaginaDisponible[]> {
-  const datos = await getGraph("me/accounts", "id,name,access_token,instagram_business_account", token);
+  const datos = await getGraph(
+    "me/accounts",
+    "id,name,access_token,instagram_business_account,picture",
+    token,
+  );
   const lista = Array.isArray(datos.data) ? datos.data : [];
 
   const paginas: PaginaDisponible[] = [];
@@ -110,10 +121,20 @@ export async function paginasDelUsuario(token: string): Promise<PaginaDisponible
 
     const ig = (p.instagram_business_account ?? {}) as { id?: string };
 
+    /*
+     * La foto viene envuelta —`picture.data.url`— y puede ser la silueta gris
+     * de Facebook, que no distingue nada. Cuando lo es se descarta: mejor la
+     * inicial de la página, que al menos cambia de una a otra.
+     */
+    const foto = (p.picture ?? {}) as { data?: { url?: string; is_silhouette?: boolean } };
+    const urlFoto =
+      typeof foto.data?.url === "string" && foto.data.is_silhouette !== true ? foto.data.url : null;
+
     paginas.push({
       pageId,
       nombre: typeof p.name === "string" ? p.name : pageId,
       igUserId: typeof ig.id === "string" ? ig.id : null,
+      foto: urlFoto,
       token: tokenPagina,
     });
   }

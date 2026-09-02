@@ -1,5 +1,6 @@
 import AnunciosMeta from "@/components/panel/AnunciosMeta";
 import BandejaMeta from "@/components/panel/BandejaMeta";
+import EstadoAppMeta from "@/components/panel/EstadoAppMeta";
 import PaginasMeta from "@/components/panel/PaginasMeta";
 import PestanasMeta from "@/components/panel/PestanasMeta";
 import { fechaHora } from "@/components/panel/Piezas";
@@ -287,6 +288,15 @@ export default async function PaginaMeta() {
                   </li>
                 ))}
               </ul>
+
+              {/*
+                Y encima de las variables, lo que de verdad decide si un cliente
+                puede conectar: el estado de la app en Meta. Ninguna variable de
+                este servidor lo dice, porque no vive aquí.
+              */}
+              <div style={{ marginTop: 18, paddingTop: 16, borderTop: "1px solid var(--line)" }}>
+                <EstadoAppMeta />
+              </div>
             </section>
 
             <section>

@@ -574,6 +574,7 @@ test("las páginas recordadas de una cuenta no se ven desde otra", async () => {
     pageId: "555000111222333",
     nombre: "Tienda de A",
     igUserId: null,
+    foto: null,
     token: "token-de-pagina-de-A",
   };
 
@@ -629,8 +630,8 @@ test("las páginas recordadas se devuelven a su cuenta y se olvidan al usarse", 
   assert.deepEqual(paginasRecordadas(77), [], "una cuenta sin nada recordado no recuerda nada");
 
   recordarPaginas(77, [
-    { pageId: "111222333444555", nombre: "Una página", igUserId: null, token: "t1" },
-    { pageId: "555444333222111", nombre: "Otra", igUserId: "999", token: "t2" },
+    { pageId: "111222333444555", nombre: "Una página", igUserId: null, foto: null, token: "t1" },
+    { pageId: "555444333222111", nombre: "Otra", igUserId: "999", foto: null, token: "t2" },
   ]);
 
   assert.equal(paginasRecordadas(77).length, 2);

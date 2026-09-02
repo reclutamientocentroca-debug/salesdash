@@ -47,6 +47,9 @@ export async function GET() {
     paginas: guardadas.map((p) => ({
       pageId: p.pageId,
       nombre: p.nombre,
+      // La foto es pública —es la de la página, la que ve cualquiera— así que
+      // baja al navegador sin problema. El token sigue sin salir de aquí.
+      foto: p.foto,
       tieneInstagram: p.igUserId !== null,
       conectada: yaEstan.has(p.pageId),
     })),
