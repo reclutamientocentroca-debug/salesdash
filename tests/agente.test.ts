@@ -507,14 +507,21 @@ test("aunque un vendedor escribiera antes, el resumen de la IA cierra para la IA
   assert.equal(conv.intervencion_humana, 1, "que una persona escribiera se sigue viendo");
 });
 
-test("el vendedor cierra escribiendo el marcador desde su móvil", () => {
+/**
+ * El resumen es automatizado SALGA DE DONDE SALGA. Desde fuera, el resumen que
+ * manda el bot ajeno del dueño y el que teclea un vendedor son el mismo
+ * mensaje: atribuir por el emisor era lo que le acreditaba al equipo ventas que
+ * cerró una máquina. Lo asistido se cierra con la foto de la factura, no con
+ * texto.
+ */
+test("el marcador escrito desde el móvil también cierra como automatizada", () => {
   const id = conversacionCon([{ emisor: "cliente", content: "me lo llevo", t: 5_000 }]);
 
   registrarCierre(orgId, id, { emisor: "humano", content: "Resumen: 1 nevera, 32000", cuando: 5_100 });
 
   const conv = D.getConversation(orgId, id)!;
-  assert.equal(conv.cerrado_por, "humano");
-  assert.equal(conv.senal_de_cierre, "confirmacion_texto");
+  assert.equal(conv.cerrado_por, "ia");
+  assert.equal(conv.senal_de_cierre, "resumen_ia");
 });
 
 test("el segundo resumen no le quita la venta al primero", () => {
@@ -547,14 +554,13 @@ test("un mensaje del cliente nunca cierra una venta", () => {
 });
 
 /**
- * El resumen es de quien lo escribe. Si lo mandó la IA, la venta es de la IA:
- * ni un vendedor que escribió antes ni una factura que llega después se la
- * quitan. Que una persona metiera mano se ve en la pastilla de intervención,
- * que es otro dato.
+ * TODO resumen es automatizado, y el cliente no cierra ventas. Son los dos
+ * únicos casos que decide esta función: lo asistido —la foto de la factura sin
+ * resumen en el hilo— pide visión y lo reconoce el analista.
  */
 test("la atribución del cierre es la misma regla en todas partes", () => {
   assert.deepEqual(duenoDelCierre("ia"), { quien: "ia", senal: "resumen_ia" });
-  assert.deepEqual(duenoDelCierre("humano"), { quien: "humano", senal: "confirmacion_texto" });
+  assert.deepEqual(duenoDelCierre("humano"), { quien: "ia", senal: "resumen_ia" });
   assert.equal(duenoDelCierre("cliente"), null);
 });
 
@@ -1361,6 +1367,68 @@ test("el cierre exige los datos que pide cada país", () => {
 });
 
 /**
+ * UN NOMBRE QUE EL CLIENTE NO DIO NO ES SU NOMBRE.
+ *
+ * El agente recibe el nombre de la cuenta de WhatsApp —«Yazmin»— porque le
+ * sirve para saludar. Sin decirle para qué NO sirve, lo ha usado como el nombre
+ * del pedido y le ha añadido un apellido que nadie escribió: un paquete a
+ * nombre de una persona que no existe, con la dirección igual de inventada
+ * debajo. El nombre de quien recibe se pregunta, como el teléfono.
+ */
+test("el nombre de la cuenta sirve para saludar, no para levantar el pedido", () => {
+  const prompt = armarSistema("Tienda", D.obtenerAgente(orgId), [], null, "Resumen:", {
+    telefono: "18091234567",
+    nombre: "Yazmin",
+  });
+
+  assert.ok(prompt.includes('aparece como "Yazmin"'), "lo tiene para saludarle");
+  assert.ok(prompt.includes("NO PARA LEVANTAR EL PEDIDO"));
+  assert.ok(
+    prompt.includes("¿A nombre de quién se lo dejamos?"),
+    "y sabe con qué pregunta se consigue el de verdad",
+  );
+  assert.ok(prompt.includes("nunca le añadas un apellido"), "ni se lo completa por su cuenta");
+
+  // Sin nombre de cuenta no hay nada que aclarar, y la regla no aparece.
+  const anonimo = armarSistema("Tienda", D.obtenerAgente(orgId), [], null, "Resumen:", {
+    telefono: "18091234567",
+    nombre: null,
+  });
+  assert.equal(anonimo.includes("NO PARA LEVANTAR EL PEDIDO"), false);
+});
+
+/**
+ * NINGUNA PLANTILLA AUTORIZA UN RESUMEN A MEDIAS.
+ *
+ * La dominicana decía «si te falta algún dato menor, MANDAS EL RESUMEN IGUAL
+ * con lo que tengas», y el modelo hizo exactamente eso: rellenó el nombre, el
+ * teléfono y la dirección con lo primero que sonaba a dominicano y dio el
+ * pedido por confirmado. Un hueco que el prompt permite dejar en blanco es un
+ * hueco que el modelo rellena inventando.
+ */
+test("ninguna plantilla deja mandar el resumen con un dato que falta", async () => {
+  const { PLANTILLAS } = await import("../src/lib/plantillas");
+
+  for (const p of PLANTILLAS) {
+    assert.doesNotMatch(
+      p.instrucciones,
+      /MANDAS EL RESUMEN IGUAL|con lo que tengas/i,
+      `${p.pais}: autoriza cerrar sin los datos`,
+    );
+    assert.match(
+      p.instrucciones,
+      /NO SE CIERRA SIN LOS DATOS/,
+      `${p.pais}: no le prohíbe cerrar sin los datos`,
+    );
+    assert.match(
+      p.instrucciones,
+      /dichos por el cliente|dado el cliente|dichos por él|DADO EL CLIENTE/i,
+      `${p.pais}: no exige que los datos vengan del cliente`,
+    );
+  }
+});
+
+/**
  * CADA PAÍS, SU AGENTE, Y NADA DEL VECINO.
  *
  * Tres números de la misma cuenta son tres vendedores distintos: cada uno con
@@ -1641,4 +1709,50 @@ test("con un anuncio delante, el prompt prohíbe narrarle el anuncio al cliente"
 test("sin anuncio, las reglas del anuncio no entran en el prompt", () => {
   const prompt = armarSistema("Tienda", D.obtenerAgente(orgId), [], null);
   assert.equal(prompt.includes("NO LE CUENTA EL ANUNCIO"), false);
+});
+
+/**
+ * NINGÚN NOMBRE PROPIO DE EJEMPLO DENTRO DEL PROMPT.
+ *
+ * Es la avería que acaba de pasar y no da la cara en ningún sitio. Una regla
+ * escrita con un ejemplo —«si te dijo Yazmin, el pedido va a nombre de
+ * Yazmin»— es perfecta para una persona y veneno para un modelo: no distingue
+ * «esto ilustra la regla» de «esto es el dato del caso», así que levantaba
+ * TODOS los pedidos a nombre de Yazmin. El agente seguía contestando, cerrando
+ * y sonando bien; simplemente cada paquete salía a nombre de una desconocida.
+ *
+ * Es la misma clase de fallo que el precio de ejemplo con «RD$» dentro, que ya
+ * caza la prueba de aislamiento de países. Los ejemplos van con marcador
+ * —<precio>, <nombre del cliente>—, nunca con un valor de verdad.
+ *
+ * Se comprueba SIN país: las zonas de los países traen nombres propios de
+ * verdad —Santa Ana, Juan Díaz, San Cristóbal— y son datos legítimos, no
+ * ejemplos. De esos ya responde `paises.ts`.
+ */
+test("el prompt no lleva ningún nombre de persona de ejemplo", () => {
+  const agente = { ...D.obtenerAgente(orgId), nombre: "Zzyzx", pais: "" };
+
+  const prompt = armarSistema("Tienda", agente, [], null, undefined, {
+    telefono: "18091234567",
+    nombre: "Qwerty",
+  });
+
+  for (const nombre of ["Yazmin", "Mildred", "Ana", "Carlos", "María", "Pedro", "Laura", "Juan"]) {
+    assert.equal(
+      /*
+       * Dos trampas, y las dos dejaban la prueba en verde con el fallo delante:
+       *
+       * `\\b` y no `\b`. Dentro de una plantilla, `\b` es el carácter de
+       * retroceso, así que el regex buscaba «<BS>Yazmin<BS>» y no encontraba
+       * nada nunca.
+       *
+       * Y el límite no puede ser `\b`, porque para JavaScript la «ñ» no es
+       * letra: `\bAna\b` casa con el final de «mañana» y la prueba falla sola.
+       * Con `\p{L}` la ñ y las tildes cuentan como lo que son.
+       */
+      new RegExp(`(?<!\\p{L})${nombre}(?!\\p{L})`, "iu").test(prompt),
+      false,
+      `«${nombre}» está escrito en el prompt: el modelo lo va a usar como si fuera el cliente`,
+    );
+  }
 });

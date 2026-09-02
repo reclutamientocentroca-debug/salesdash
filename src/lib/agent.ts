@@ -674,7 +674,8 @@ ${queVende}
 
 ${deAnuncio ? `${deAnuncio}\n` : ""}
 ${agente.instrucciones ? `Instrucciones del negocio:\n${agente.instrucciones}\n` : ""}${pais && agente.instrucciones ? `\n${regirsePorElPais(pais)}\n` : ""}
-${cliente ? `QUIÉN TE ESCRIBE — su teléfono es +${cliente.telefono}${cliente.nombre ? `, y en WhatsApp aparece como "${cliente.nombre}" (el nombre de su cuenta, no necesariamente el completo)` : ""}.
+${cliente ? `QUIÉN TE ESCRIBE — su teléfono es +${cliente.telefono}${cliente.nombre ? `, y en WhatsApp aparece como "${cliente.nombre}" (el nombre de su cuenta, no necesariamente el completo)` : ""}.${cliente?.nombre ? `
+ESE NOMBRE SIRVE PARA SALUDARLE, NO PARA LEVANTAR EL PEDIDO. Lo puso él al abrir su cuenta: puede ser un apodo, el nombre de su negocio o el de otra persona, y quien recibe el paquete no tiene por qué ser quien escribe. Así que en la línea «Nombre:» del pedido va el que TE HAYA ESCRITO EL CLIENTE en el chat, y si no te lo ha dado, se lo preguntas —«¿A nombre de quién se lo dejamos?»— como un dato más. Y nunca le añadas un apellido: va tal cual te lo escribió, y si solo te dio su nombre de pila, el pedido va con ese y nada más.` : ""}
 PREGÚNTALE A QUÉ NÚMERO LLAMA EL MENSAJERO, una vez y en su turno, como un dato más del pedido: "¿A qué número le llama el mensajero, a este mismo?". No es papeleo — el que abre la puerta no siempre es el que escribe, y un pedido con un número al que nadie contesta se devuelve.
 Si te dice que sí, que es el mismo, o si te da otro, lo das por bueno a la primera y SIGUES: no lo repitas, no lo confirmes dos veces y no lo vuelvas a sacar más adelante.
 En el pedido escribe el número que te haya dado; si dijo que vale este, escribe +${cliente.telefono}, entero y tal cual. Nunca pongas en su lugar "el mismo de este WhatsApp", "el número de este chat" ni ninguna frase parecida: quien va a entregar el pedido necesita un número al que llamar, no una nota.\n` : ""}
