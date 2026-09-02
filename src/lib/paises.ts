@@ -256,7 +256,7 @@ const COSTA_RICA: Pais = {
   tratamiento:
     "Se habla de USTED casi siempre, incluso con confianza; el vos aparece entre conocidos. " +
     "Tutear suena a extranjero.",
-  saludo: "Hola, le asiste <agente> de <negocio>",
+  saludo: "Saludos cordiales 👋\nLe asiste <agente>.",
   expresiones: [
     "«con mucho gusto» en lugar de «de nada»: es la muletilla nacional",
     "«pura vida» para saludar, agradecer y despedirse",

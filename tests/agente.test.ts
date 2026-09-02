@@ -1453,12 +1453,31 @@ test("el nombre de la cuenta sirve para saludar, no para levantar el pedido", ()
   );
   assert.ok(prompt.includes("nunca le añadas un apellido"), "ni se lo completa por su cuenta");
 
-  // Sin nombre de cuenta no hay nada que aclarar, y la regla no aparece.
+  /*
+   * Y SIN NOMBRE, LA REGLA ES OTRA Y TIENE QUE ESTAR.
+   *
+   * Por Messenger no llega ninguno: el webhook de Meta no lo manda y nadie se
+   * lo pide al perfil, así que el agente atiende a un número a secas. Donde
+   * antes no había nada escrito, el modelo se inventaba uno —y como el hueco
+   * es el mismo en todos los chats, se inventaba SIEMPRE EL MISMO—: media
+   * bandeja saludando a clientes distintos por el nombre de una desconocida.
+   * Un hueco callado en el prompt no lo deja el modelo en blanco: lo rellena.
+   */
   const anonimo = armarSistema("Tienda", D.obtenerAgente(orgId), [], null, "Resumen:", {
     telefono: "18091234567",
     nombre: null,
   });
-  assert.equal(anonimo.includes("NO PARA LEVANTAR EL PEDIDO"), false);
+
+  assert.equal(anonimo.includes("NO PARA LEVANTAR EL PEDIDO"), false, "no hay cuenta que aclarar");
+  assert.ok(anonimo.includes("NO SABES CÓMO SE LLAMA"), "y se le dice, en vez de callarlo");
+  assert.ok(
+    anonimo.includes("UN NOMBRE QUE NO TE DIO ÉL NO EXISTE"),
+    "ni del anuncio, ni de la tienda, ni de otro chat",
+  );
+  assert.ok(
+    anonimo.includes("¿A nombre de quién se lo dejamos?"),
+    "sigue sabiendo con qué pregunta se consigue el de verdad",
+  );
 });
 
 /**
@@ -1490,6 +1509,45 @@ test("ninguna plantilla deja mandar el resumen con un dato que falta", async () 
       `${p.pais}: no exige que los datos vengan del cliente`,
     );
   }
+});
+
+/**
+ * CON QUE CIERRA EL PEDIDO DOMINICANO, Y QUE VA UNA SOLA VEZ.
+ *
+ * Las tres lineas de debajo del resumen no son adorno: son lo que le quita el
+ * miedo al cliente en el momento exacto en que acaba de dar su direccion a un
+ * desconocido -es tienda virtual, llega a todo el pais, y no paga hasta tener
+ * el paquete delante-. Puestas en el primer mensaje son ruido; puestas al
+ * cerrar, son la venta.
+ *
+ * Y el resumen va UNA vez. `quitarResumenRepetido` ya recorta el que llega
+ * tarde, pero eso es la red de seguridad: si el guion no lo pide, el modelo lo
+ * repite y la red tiene que trabajar en cada hilo.
+ */
+test("el guion dominicano cierra con las tres lineas, y el pedido va una sola vez", async () => {
+  const { PLANTILLAS } = await import("../src/lib/plantillas");
+  const dominicana = PLANTILLAS.find((p) => p.pais === "do");
+
+  assert.ok(dominicana, "la plantilla dominicana tiene que existir");
+
+  for (const linea of [
+    "Somos tienda virtual y enviamos a todo el pais.",
+    "Paga al momento de recibir su pedido.",
+    "Se despacha dentro de 24 a 48 horas.",
+  ]) {
+    assert.ok(dominicana.instrucciones.includes(linea), "falta la linea de cierre: " + linea);
+  }
+
+  assert.match(
+    dominicana.instrucciones,
+    /UNA SOLA VEZ EN TODA LA CONVERSACION Y ES CON LO QUE CIERRAS/,
+    "el resumen tiene que pedirse una sola vez y como cierre",
+  );
+
+  // Y la regla tambien esta en el prompt base, que es lo que lee el agente sin
+  // instrucciones propias: la plantilla se puede borrar desde el panel.
+  const prompt = armarSistema("Tienda", D.obtenerAgente(orgId), [], null, "Resumen:");
+  assert.ok(prompt.includes("UNA SOLA VEZ EN TODA LA CONVERSACIÓN"));
 });
 
 /**
@@ -1838,20 +1896,39 @@ test("cada pais abre con su saludo, y el prompt lo dice una sola vez", () => {
   );
 
   /*
-   * Y A LOS OTROS DOS NO SE LES HA MOVIDO NADA.
+   * EL TICO ABRE IGUAL, Y AL PANAMENO NO SE LE HA MOVIDO NADA.
    *
-   * El saludo se pidio para Republica Dominicana y solo para ella. Un cambio
-   * que se cuela en los tres paises no da la cara en ninguna prueba y se
-   * descubre por un cliente tico al que su tienda de siempre empieza a
-   * escribirle como un banco.
+   * Costa Rica se pidio despues y con la misma frase que Republica Dominicana,
+   * asi que abre sin el nombre de la tienda detras. Panama sigue con el suyo, y
+   * un cambio que se cuela en los tres paises no da la cara en ninguna prueba:
+   * se descubre por un cliente al que su tienda de siempre empieza a escribirle
+   * de otra manera.
    */
-  for (const pais of ["pa", "cr"]) {
-    D.actualizarAgente(orgId, { pais }, canalId);
-    const otro = armarSistema("Rincon", D.obtenerAgente(orgId, canalId), [], null);
+  D.actualizarAgente(orgId, { pais: "cr" }, canalId);
+  const tico = armarSistema("Rincon", D.obtenerAgente(orgId, canalId), [], null);
 
-    assert.ok(otro.includes("Hola, le asiste Mildred de Rincon"), pais + ": saluda como siempre");
-    assert.equal(otro.includes("Saludos cordiales"), false, pais + ": se le colo el dominicano");
-  }
+  assert.ok(
+    tico.includes("Saludos cordiales 👋\nLe asiste Mildred."),
+    "el tico abre igual que el dominicano, con su nombre y en dos lineas",
+  );
+  assert.equal(
+    tico.includes("Hola, le asiste"),
+    false,
+    "cr: tampoco arrastra el saludo viejo",
+  );
+
+  D.actualizarAgente(orgId, { pais: "pa" }, canalId);
+  const panameno = armarSistema("Rincon", D.obtenerAgente(orgId, canalId), [], null);
+
+  assert.ok(
+    panameno.includes("Hola, le asiste Mildred de Rincon"),
+    "pa: saluda como siempre",
+  );
+  assert.equal(
+    panameno.includes("Saludos cordiales"),
+    false,
+    "pa: se le colo el de los otros dos",
+  );
 });
 
 /**
