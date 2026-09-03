@@ -2,14 +2,26 @@ import "./entorno";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { agenteDePais, bloqueDelPais } from "../src/agents";
-import { campoDeLaPregunta, fichaDelPedido, fichaParaModelo, preguntasRepetidas } from "../src/lib/memoria";
+import {
+  avisoDeClienteQueVuelve,
+  campoDeLaPregunta,
+  clienteCompartioUbicacion,
+  esClienteQueVuelve,
+  fichaDelPedido,
+  fichaParaModelo,
+  inicioDeSesion,
+  preguntasRepetidas,
+} from "../src/lib/memoria";
 import { revisarConReglas, type ContextoRevision } from "../src/lib/revisor";
+import { fallasDelResumen, leerResumen } from "../src/lib/supervisor";
 
 /**
- * LA MEMORIA ES UNA PUERTA, NO UN CONSEJO.
+ * LA MEMORIA ES UNA PUERTA, NO UN CONSEJO. Y ES DE ESTA COMPRA.
  *
  * Lo que el cliente ya dijo se arma en una ficha sin modelo, va al final del
- * prompt y el revisor para cualquier respuesta que lo vuelva a preguntar.
+ * prompt y el revisor para cualquier respuesta que lo vuelva a preguntar. Y
+ * solo cuenta la sesión actual: un cliente que vuelve días después empieza
+ * otro pedido.
  */
 const rd = agenteDePais("do")!;
 
@@ -72,6 +84,84 @@ test("la ficha se arma sola con lo que el cliente contestó", () => {
   assert.equal(corregido.cantidad, "mejor la 43, y dos pares");
 });
 
+/**
+ * EL CASO REAL: «Nombre: Quiero más información sobre el negocio.»
+ *
+ * Un «¿a nombre de quién?» de otro día se emparejó con el primer mensaje de
+ * hoy, y salió en un resumen. Una frase de llegada nunca es un nombre, ni una
+ * dirección, ni una talla.
+ */
+test("una frase de llegada no contesta a ningún dato", () => {
+  for (const frase of ["Quiero más información sobre el negocio.", "Hola, quiero información", "precio?", "Buenas, me interesa", "Hola"]) {
+    const f = fichaDelPedido(
+      [
+        { emisor: "ia", content: "¿A nombre de quién se lo dejamos?" },
+        { emisor: "cliente", content: frase },
+      ],
+      rd,
+    );
+    assert.equal(f.nombre, null, `«${frase}» no es un nombre`);
+  }
+
+  // Un nombre son de una a cuatro palabras de letras.
+  const largo = fichaDelPedido(
+    [
+      { emisor: "ia", content: "¿A nombre de quién se lo dejamos?" },
+      { emisor: "cliente", content: "a nombre de mi esposo que es el que va a estar en la casa" },
+    ],
+    rd,
+  );
+  assert.equal(largo.nombre, null);
+
+  // Y el supervisor y el revisor tampoco se creen una frase como nombre.
+  const resumen = leerResumen("Resumen:\n\nNombre: Quiero más información sobre el negocio.\nCel: 8094353930\nProducto: Camisa\nCantidad: 1\nDirección: calle Duarte #70, Brisas del Este, Santo Domingo Este\nCosto de envío: RD$250\nTotal a pagar: RD$1,750");
+  assert.ok(fallasDelResumen(resumen).some((f) => f.includes("frase")));
+});
+
+/**
+ * EL CLIENTE QUE VUELVE. Tres días después, por otro anuncio, es otro pedido:
+ * la ficha empieza de cero, se saluda otra vez y no se da por hecho nada.
+ */
+test("la ficha solo mira la sesión actual, y el cliente que vuelve empieza de cero", () => {
+  const ayer = 1_700_000_000;
+  const hoy = ayer + 3 * 24 * 3600;
+  const conFechas = hilo.map((m, i) => ({ ...m, created_at: ayer + i * 60 }));
+  const vuelve = [
+    ...conFechas,
+    { emisor: "ia", content: "Resumen:\n\nNombre: Yamil Peña\n...", created_at: ayer + 20 * 60 },
+    { emisor: "cliente", content: "Quiero más información sobre el negocio.", created_at: hoy },
+  ];
+
+  assert.equal(inicioDeSesion(vuelve), vuelve.length - 1, "la sesión empieza en el mensaje de hoy");
+  assert.equal(esClienteQueVuelve(vuelve), true);
+  assert.equal(esClienteQueVuelve(conFechas), false, "sin silencio largo, es la misma compra");
+
+  const f = fichaDelPedido(vuelve, rd);
+  assert.deepEqual(f, { talla: null, color: null, direccion: null, nombre: null, celular: null, cantidad: null });
+  assert.equal(fichaParaModelo(f), "", "sin ficha vieja que empuje al teléfono");
+
+  const aviso = avisoDeClienteQueVuelve(vuelve);
+  assert.ok(aviso.includes("VUELVE A ESCRIBIR"));
+  assert.ok(aviso.includes("salúdalo otra vez"));
+  assert.ok(aviso.includes("no le llegó ninguna ubicación hoy"));
+  assert.equal(avisoDeClienteQueVuelve(conFechas), "");
+
+  // Sin fechas no hay forma de partir el hilo: se toma entero, como antes.
+  assert.equal(fichaDelPedido(hilo, rd).nombre, "Yamil Peña");
+});
+
+test("una contestación que llega horas después no contesta a esa pregunta", () => {
+  const t0 = 1_700_000_000;
+  const f = fichaDelPedido(
+    [
+      { emisor: "ia", content: "¿A nombre de quién se lo dejamos?", created_at: t0 },
+      { emisor: "cliente", content: "Rosa Almonte", created_at: t0 + 8 * 3600 },
+    ],
+    rd,
+  );
+  assert.equal(f.nombre, null);
+});
+
 test("la ficha le dice al modelo lo que tiene y lo que le falta", () => {
   const texto = fichaParaModelo(fichaDelPedido(hilo.slice(0, 5), rd));
   assert.ok(texto.includes("FICHA DEL PEDIDO"));
@@ -103,4 +193,14 @@ test("el revisor para la respuesta que vuelve a preguntar lo que ya está en la 
   const fallas = revisarConReglas("Con gusto. ¿En qué color lo quiere?", ctx);
   assert.ok(fallas.some((f) => f.includes("color")), "el revisor la rechaza por regla, sin modelo");
   assert.deepEqual(revisarConReglas("Con gusto. ¿Me confirma para levantar el pedido?", ctx), []);
+});
+
+test("la ubicación compartida solo cuenta si llegó en esta sesión", () => {
+  const t0 = 1_700_000_000;
+  const conPin = [
+    { emisor: "cliente", content: "[ubicación] Brisas del Este", created_at: t0 },
+    { emisor: "cliente", content: "hola otra vez", created_at: t0 + 3 * 24 * 3600 },
+  ];
+  assert.equal(clienteCompartioUbicacion(conPin), false, "el pin es de otro día");
+  assert.equal(clienteCompartioUbicacion(conPin.slice(0, 1)), true);
 });

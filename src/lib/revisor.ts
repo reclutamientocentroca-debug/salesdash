@@ -37,6 +37,7 @@ import { completarJson, ErrorIA } from "./ia";
 import { MODELO_ANALISIS, type Mensaje } from "./db";
 import { conLoVistoYOido } from "./percepcion";
 import { preguntasRepetidas, type FichaDelPedido } from "./memoria";
+import { zonaDelCliente } from "@/agents";
 
 export interface Veredicto {
   aprobado: boolean;
@@ -63,6 +64,14 @@ export interface ContextoRevision {
   nombreDeCuenta?: string | null;
   /** Si ese nombre el cliente lo escribió él mismo en el chat: entonces sí vale. */
   clienteEscribioSuNombre?: boolean;
+  /** Si el cliente compartió su ubicación por el mapa en esta sesión. */
+  clienteCompartioUbicacion?: boolean;
+  /** Lo que el cliente escribió en esta sesión: el resumen tiene que salir de ahí. */
+  textosDelCliente?: string[];
+  /** El número del chat, que vale como celular si el cliente dijo «a este mismo». */
+  telefonoDelChat?: string | null;
+  /** Dónde está el cliente según lo que escribió o su pin: decide la tarifa. */
+  lugarDelCliente?: string | null;
 }
 
 /** Sin tildes ni mayúsculas. */
@@ -258,8 +267,75 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
     }
   }
 
+  // 9. Tutear donde se vende de usted.
+  if (d.trato === "usted" && TUTEO.test(texto)) {
+    fallas.push("tutea al cliente («quieres», «te lo», «tu pedido»), y aquí se vende de usted");
+  }
+
+  // 10. Una ubicación que el cliente no ha compartido en esta conversación.
+  if (!ctx.clienteCompartioUbicacion && /me lleg[oó] (su|tu) ubicaci[oó]n|recib[ií] (su|tu) ubicaci[oó]n|ubicaci[oó]n (compartida|que (me )?(envi[oó]|mand[oó]))/i.test(texto)) {
+    fallas.push("dice que le llegó una ubicación y el cliente no ha compartido ninguna en esta conversación");
+  }
+
+  // 11. El envío tiene que ser el de la zona del cliente, no el otro.
+  const zonaDe = (donde: string | null | undefined) => {
+    const z = donde ? zonaDelCliente(d, donde) : null;
+    if (z === null) return null;
+    return z === "resto" ? d.envio.restoDelPais.costo : z.costo;
+  };
+  {
+    const tarifaSuya = zonaDe(ctx.lugarDelCliente);
+    if (tarifaSuya !== null) {
+      for (const frase of texto.split(/(?<=[.!?\n])\s+/)) {
+        if (!/env[ií]o/i.test(frase) || /total/i.test(frase)) continue;
+        const otra = importes(frase, d.moneda.simbolo).find((n) => costos.has(n) && n !== tarifaSuya);
+        if (otra !== undefined) {
+          fallas.push(`cotiza el envío en ${d.moneda.simbolo}${otra} y a este cliente, por su zona, le toca ${d.moneda.simbolo}${tarifaSuya}`);
+          break;
+        }
+      }
+    }
+  }
+
+  // 12. Lo que va en el resumen lo tiene que haber escrito el cliente.
+  if (contieneMarcador(texto, marcador) && ctx.textosDelCliente) {
+    const leido = leerResumen(texto, marcador);
+    const escrito = ctx.textosDelCliente.map(llano).join("\n");
+
+    if (leido.nombre && !escrito.includes(llano(leido.nombre.trim()))) {
+      fallas.push(`el resumen va a nombre de «${leido.nombre}» y el cliente no escribió ese nombre en esta conversación: pregúntaselo`);
+    }
+
+    const cel = leido.cel?.replace(/\D/g, "") ?? "";
+    if (cel.length >= 7) {
+      const delChat = (ctx.telefonoDelChat ?? "").replace(/\D/g, "");
+      const loDijo = ctx.textosDelCliente.some((m) => m.replace(/\D/g, "").includes(cel));
+      const esElDelChat = delChat.length >= 7 && (delChat.endsWith(cel) || cel.endsWith(delChat));
+      if (!loDijo && !esElDelChat) {
+        fallas.push(`el celular del resumen (${leido.cel}) no lo dio el cliente en esta conversación ni es el de este chat`);
+      }
+    }
+
+    if (leido.direccion) {
+      const palabras = llano(leido.direccion).split(/[^\p{L}\p{N}]+/u).filter((p) => p.length >= 4);
+      const coinciden = palabras.filter((p) => escrito.includes(p)).length;
+      if (palabras.length >= 2 && coinciden < 2 && !ctx.clienteCompartioUbicacion) {
+        fallas.push("la dirección del resumen no la escribió el cliente en esta conversación: pregúntasela");
+      }
+      const tarifaDeLaDireccion = zonaDe(leido.direccion);
+      const lineaEnvio = texto.split(/\r?\n/).find((l) => /^\W*(costo de )?env[ií]o\b/i.test(llano(l)));
+      const n = lineaEnvio ? importes(lineaEnvio, d.moneda.simbolo)[0] : undefined;
+      if (tarifaDeLaDireccion !== null && n !== undefined && n !== tarifaDeLaDireccion) {
+        fallas.push(`el envío del resumen dice ${d.moneda.simbolo}${n} y a esa dirección le toca ${d.moneda.simbolo}${tarifaDeLaDireccion}`);
+      }
+    }
+  }
+
   return [...new Set(fallas)];
 }
+
+/** Cómo suena tutear a un cliente. «Dime» y «mándame» no van: son expresiones del país. */
+const TUTEO = /\b(quieres|tienes|puedes|necesitas|prefieres|deseas|sabes|vives|est[aá]s|te preparo|te env[ií]o|te llega|te lo|te la|te mando|te dejo|tu pedido|tu direcci[oó]n|tu nombre|tu n[uú]mero|tu talla|tu celular)\b/i;
 
 interface SalidaRevisor {
   aprobado?: boolean;

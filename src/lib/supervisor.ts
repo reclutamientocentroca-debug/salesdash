@@ -166,6 +166,12 @@ export function fallasDelResumen(r: ResumenLeido, nombresDeLaCasa: string[] = []
     fallas.push(`va a nombre de «${r.nombre}», que es el nombre de la casa, no el de un cliente`);
   } else if (/\bcliente\b/i.test(r.nombre!) && llano(r.nombre!).split(" ").length <= 3) {
     fallas.push(`el nombre es «${r.nombre}», que no es un nombre`);
+  } else if (
+    r.nombre!.trim().split(/\s+/).length > 4 ||
+    /\d/.test(r.nombre!) ||
+    /\b(informaci[oó]n|quiero|negocio|hola|buenas|precio|gracias|anuncio|disponible)\b/i.test(r.nombre!)
+  ) {
+    fallas.push(`el nombre es «${r.nombre}», que es una frase y no un nombre`);
   }
 
   if (esHueco(r.cel) || (r.cel!.replace(/\D/g, "").length < 7)) {

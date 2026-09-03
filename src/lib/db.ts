@@ -596,6 +596,24 @@ function migrar(conexion: DB): void {
     conexion.exec(`ALTER TABLE agentes ADD COLUMN retardo_seg INTEGER NOT NULL DEFAULT 4`);
   }
 
+  /*
+   * conversations: EL ANUNCIO ACTUAL, aparte del primero.
+   *
+   * `producto_anuncio` y `descripcion_anuncio` guardan el primer anuncio que
+   * trajo al cliente, y no se pisan: es el lead que la publicidad pagó. Pero
+   * un cliente que vuelve tres días después por OTRO anuncio pregunta por
+   * otro artículo, y el agente cotizaba el de la primera vez. Estas dos
+   * guardan el último anuncio por el que escribió; el agente lee estas.
+   */
+  if (!columnas("conversations").includes("anuncio_actual_producto")) {
+    conexion.exec(`
+      ALTER TABLE conversations ADD COLUMN anuncio_actual_producto TEXT;
+      ALTER TABLE conversations ADD COLUMN anuncio_actual_descripcion TEXT;
+      UPDATE conversations SET anuncio_actual_producto = producto_anuncio,
+                               anuncio_actual_descripcion = descripcion_anuncio;
+    `);
+  }
+
   // conversations: quién atiende este hilo, la IA o una persona.
   if (!columnas("conversations").includes("atiende")) {
     conexion.exec(
@@ -1236,6 +1254,8 @@ export interface Conversacion {
    */
   cliente_jid: string | null;
   origen: string | null; producto_anuncio: string | null; descripcion_anuncio: string | null;
+  /** El último anuncio por el que escribió. Ver `anuncioVigente` en anuncio.ts. */
+  anuncio_actual_producto: string | null; anuncio_actual_descripcion: string | null;
   intervencion_humana: number; cerrado_por: EstadoCierre;
   /** Quién atiende este hilo: 'ia' o 'humano'. Se cambia desde la conversación. */
   atiende: string;
@@ -1595,6 +1615,11 @@ export function getOrCreateConversation(
     if (datos.descripcionAnuncio && !existente.descripcion_anuncio) {
       anuncio.descripcion_anuncio = datos.descripcionAnuncio;
     }
+    // El anuncio ACTUAL sí se pisa: es por el que escribe ahora.
+    if (datos.productoAnuncio || datos.descripcionAnuncio) {
+      anuncio.anuncio_actual_producto = datos.productoAnuncio ?? "";
+      anuncio.anuncio_actual_descripcion = datos.descripcionAnuncio ?? "";
+    }
 
     const campos = Object.keys(anuncio);
     if (campos.length > 0) {
@@ -1611,11 +1636,13 @@ export function getOrCreateConversation(
   const cuando = datos.cuando ?? ahora();
   const r = s(
     `INSERT INTO conversations
-       (org_id, canal_id, cliente_phone, cliente_jid, cliente_nombre, origen, producto_anuncio, descripcion_anuncio, superficie, meta_ad_id, fecha_inicio, last_message_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (org_id, canal_id, cliente_phone, cliente_jid, cliente_nombre, origen, producto_anuncio, descripcion_anuncio,
+        anuncio_actual_producto, anuncio_actual_descripcion, superficie, meta_ad_id, fecha_inicio, last_message_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     orgId, canalId, clientePhone, datos.jid ?? null, datos.nombre ?? null,
     datos.origen ?? null, datos.productoAnuncio ?? null, datos.descripcionAnuncio ?? null,
+    datos.productoAnuncio ?? null, datos.descripcionAnuncio ?? null,
     datos.superficie ?? null, datos.metaAdId ?? null, cuando, cuando,
   );
 

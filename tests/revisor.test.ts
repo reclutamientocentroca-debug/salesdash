@@ -139,3 +139,66 @@ test("el nombre de la cuenta de WhatsApp no sale si el cliente no lo escribió",
   const loDijo = { ...conCuenta, clienteEscribioSuNombre: true };
   assert.deepEqual(revisarConReglas("Perfecto, Marisol. ¿Qué talla necesita?", loDijo), []);
 });
+
+/**
+ * LOS FALLOS DE LA CAPTURA: tuteo en un país de usted, una ubicación que
+ * nadie mandó hoy, un resumen con datos que el cliente no escribió, y el envío
+ * de la zona equivocada.
+ */
+test("tutear donde se vende de usted no sale", () => {
+  assert.ok(revisarConReglas("¿Quieres que te prepare el pedido?", rd).some((f) => f.includes("tutea")));
+  assert.deepEqual(revisarConReglas("¿Me confirma para levantar el pedido?", rd), []);
+  // «Dime a ver» es dominicano, no tuteo de venta.
+  assert.deepEqual(revisarConReglas("Dime a ver, ¿qué talla necesita?", rd), []);
+  // En Costa Rica se tutea: ahí no es falla.
+  assert.deepEqual(revisarConReglas("¿Quieres que te lo mande hoy mismo?", cr), []);
+});
+
+test("una ubicación que el cliente no compartió en esta sesión no se da por recibida", () => {
+  const sinPin = { ...rd, clienteCompartioUbicacion: false };
+  assert.ok(revisarConReglas("Perfecto, ya me llegó su ubicación en Brisas del Este.", sinPin).some((f) => f.includes("ubicación")));
+  const conPin = { ...rd, clienteCompartioUbicacion: true };
+  assert.deepEqual(revisarConReglas("Perfecto, ya me llegó su ubicación en Brisas del Este. El envío es RD$250.", conPin), []);
+});
+
+test("el envío tiene que ser el de la zona del cliente", () => {
+  const enSDE = { ...rd, lugarDelCliente: "calle Duarte #70, Brisas del Este, Santo Domingo Este" };
+  assert.ok(revisarConReglas("El envío a su zona es RD$290.", enSDE).some((f) => f.includes("RD$250")));
+  assert.deepEqual(revisarConReglas("El envío a su zona es RD$250.", enSDE), []);
+
+  const resumen = (envio: string) =>
+    `Resumen:
+
+Nombre: Yamil Peña
+Cel: 8094353930
+Producto: Camisa de lino
+Cantidad: 1
+Dirección: calle Duarte #70, Brisas del Este, Santo Domingo Este
+Costo de envío: ${envio}
+Total a pagar: RD$2,750`;
+  const ctx = { ...rd, textosDelCliente: ["Yamil Peña", "calle Duarte #70, Brisas del Este, Santo Domingo Este", "sí, a este"], telefonoDelChat: "18094353930" };
+  assert.ok(revisarConReglas(resumen("RD$290"), ctx).some((f) => f.includes("le toca RD$250")));
+  assert.deepEqual(revisarConReglas(resumen("RD$250"), ctx), []);
+});
+
+test("el resumen solo lleva lo que el cliente escribió en esta conversación", () => {
+  const pedido = (nombre: string, cel: string) =>
+    `Resumen:
+
+Nombre: ${nombre}
+Cel: ${cel}
+Producto: Camisa de lino
+Cantidad: 1
+Dirección: calle Duarte #70, Brisas del Este, Santo Domingo Este
+Costo de envío: RD$250
+Total a pagar: RD$2,750`;
+  const ctx = { ...rd, textosDelCliente: ["la M", "Yamil Peña", "calle Duarte #70, Brisas del Este, Santo Domingo Este"], telefonoDelChat: "18094353930" };
+
+  assert.deepEqual(revisarConReglas(pedido("Yamil Peña", "8094353930"), ctx), [], "todo lo escribió él, y el celular es el del chat");
+  assert.ok(revisarConReglas(pedido("Quiero más información sobre el negocio.", "8094353930"), ctx).some((f) => f.includes("no escribió ese nombre") || f.includes("frase")));
+  assert.ok(revisarConReglas(pedido("Rosa Almonte", "8094353930"), ctx).some((f) => f.includes("no escribió ese nombre")));
+  assert.ok(revisarConReglas(pedido("Yamil Peña", "8295550000"), ctx).some((f) => f.includes("celular")));
+
+  const otraDireccion = { ...ctx, textosDelCliente: ["la M", "Yamil Peña"] };
+  assert.ok(revisarConReglas(pedido("Yamil Peña", "8094353930"), otraDireccion).some((f) => f.includes("dirección del resumen")));
+});

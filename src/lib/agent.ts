@@ -41,11 +41,19 @@ import {
   type TipoSeguimiento,
 } from "./db";
 import { descifrar } from "./auth";
-import { anuncioParaModelo, type DatosAnuncio } from "./anuncio";
+import { anuncioParaModelo, anuncioVigente, type DatosAnuncio } from "./anuncio";
 import { contieneMarcador, MARCADOR_POR_DEFECTO, registrarCierre } from "./cierre";
 import { completar, ErrorIA, hoyISO } from "./ia";
 import { bloqueHumano } from "./humano";
-import { fichaDelHilo, fichaParaModelo } from "./memoria";
+import {
+  avisoDeClienteQueVuelve,
+  clienteCompartioUbicacion,
+  esClienteQueVuelve,
+  fichaDelHilo,
+  fichaParaModelo,
+  mensajesDeLaSesion,
+  textosDelClienteEnSesion,
+} from "./memoria";
 import {
   agenteDePais,
   baseComportamiento,
@@ -1128,7 +1136,7 @@ export async function generarRespuesta(
    * al final porque es lo que más pesa, y es lo que el revisor usa para parar
    * una pregunta repetida.
    */
-  const ficha = fichaParaModelo(fichaDelHilo(mensajes, agente.pais));
+  const ficha = fichaParaModelo(fichaDelHilo(mensajes, agente.pais)) + avisoDeClienteQueVuelve(mensajes);
 
   const r = await completar({
     orgId,
@@ -1148,8 +1156,8 @@ export async function generarRespuesta(
             cliente,
             ubicacion,
             false,
-            // La zona que el cliente escribió, para decirle SU tarifa de envío.
-            lugarEscritoPorElCliente(agenteDePais(agente.pais), mensajes),
+            // La zona que el cliente escribió EN ESTA SESIÓN, para decirle SU tarifa.
+            lugarEscritoPorElCliente(agenteDePais(agente.pais), mensajesDeLaSesion(mensajes)),
           ) + (reglaPrecio ? `\n\n${reglaPrecio}` : "") + memoria + ficha,
       },
       ...aHistorial(mensajes),
@@ -1626,7 +1634,7 @@ export async function atenderConversacion(
       orgId,
       canalId,
       historial,
-      conv,
+      anuncioVigente(conv),
       reglaPrecio,
       { telefono: conv.cliente_phone, nombre: conv.cliente_nombre },
       ubicacion,
@@ -1679,8 +1687,15 @@ export async function atenderConversacion(
       marcador: org?.marcador_cierre ?? MARCADOR_POR_DEFECTO,
       nombresDeLaCasa: [agente.nombre, agente.negocio, datosPais.nombreAgente ?? "", datosPais.tienda].filter(Boolean),
       catalogo: textoDeLoQueVende(agente, listarCatalogo(orgId, true)),
-      anuncio: [anuncioParaModelo(conv), reglaPrecio].filter(Boolean).join("\n\n") || null,
+      anuncio: [anuncioParaModelo(anuncioVigente(conv)), reglaPrecio].filter(Boolean).join("\n\n") || null,
       ficha: fichaDelHilo(historial, agente.pais),
+      clienteCompartioUbicacion: clienteCompartioUbicacion(historial),
+      textosDelCliente: textosDelClienteEnSesion(historial),
+      telefonoDelChat: conv.cliente_phone,
+      lugarDelCliente:
+        ubicacion?.direccion?.provincia ??
+        ubicacion?.zona?.nombre ??
+        lugarEscritoPorElCliente(datosPais, mensajesDeLaSesion(historial)),
       nombreDeCuenta: conv.cliente_nombre,
       clienteEscribioSuNombre: !!conv.cliente_nombre && historial.some(
         (m) => m.emisor === "cliente" && m.content.toLowerCase().includes(conv.cliente_nombre!.toLowerCase()),
@@ -1689,7 +1704,7 @@ export async function atenderConversacion(
         datosPais,
         ubicacion?.direccion?.provincia ??
           ubicacion?.zona?.nombre ??
-          lugarEscritoPorElCliente(datosPais, historial),
+          lugarEscritoPorElCliente(datosPais, mensajesDeLaSesion(historial)),
         negocio,
       ),
     };
@@ -1706,7 +1721,7 @@ export async function atenderConversacion(
           orgId,
           canalId,
           historial,
-          conv,
+          anuncioVigente(conv),
           [reglaPrecio, correccionParaElAgente(veredicto)].filter(Boolean).join("\n\n"),
           cliente,
           ubicacion,
@@ -1839,7 +1854,9 @@ export async function atenderConversacion(
    * vez delante de todo el mundo.
    */
   const partes = partirEnMensajes(respuesta.texto, {
-    saludoAparte: conv.superficie !== "comentario" && historial.every((m) => m.emisor === "cliente"),
+    saludoAparte:
+      conv.superficie !== "comentario" &&
+      (historial.every((m) => m.emisor === "cliente") || esClienteQueVuelve(historial)),
     marcador: marcadorOrg,
   });
 

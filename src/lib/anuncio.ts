@@ -38,6 +38,26 @@ export interface DatosAnuncio {
 }
 
 /**
+ * EL ANUNCIO VIGENTE: el último por el que escribió el cliente.
+ *
+ * La conversación guarda el PRIMER anuncio para siempre —es el lead que la
+ * publicidad pagó— y aparte el más reciente. Al agente le importa el de ahora:
+ * un cliente que vuelve por otro anuncio pregunta por otro artículo y otro
+ * precio, y venderle el de la primera vez es venderle otra cosa.
+ */
+export function anuncioVigente(
+  c: DatosAnuncio & { anuncio_actual_producto?: string | null; anuncio_actual_descripcion?: string | null },
+): DatosAnuncio {
+  const producto = c.anuncio_actual_producto?.trim() || c.producto_anuncio;
+  const descripcion = c.anuncio_actual_descripcion?.trim() || c.descripcion_anuncio;
+  return {
+    origen: c.origen ?? (producto || descripcion ? "anuncio" : null),
+    producto_anuncio: producto ?? null,
+    descripcion_anuncio: descripcion ?? null,
+  };
+}
+
+/**
  * Llegó por un anuncio.
  *
  * Se pregunta por el origen Y por el título porque Meta no siempre manda

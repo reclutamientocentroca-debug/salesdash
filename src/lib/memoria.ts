@@ -17,10 +17,22 @@
  * cualquier respuesta que vuelva a preguntar un dato que ya está en ella. La
  * memoria deja de ser un consejo y pasa a ser una puerta.
  *
+ * ═══ Y LA MEMORIA ES DE ESTA COMPRA, NO DEL HILO ENTERO ═══
+ *
+ * Un cliente que vuelve tres días después por otro anuncio empieza otro
+ * pedido. Si la ficha leyera el hilo entero, «sabría» la talla y la dirección
+ * del pedido anterior, daría por hecho todo, saltaría al teléfono y emparejaría
+ * un «¿a nombre de quién?» de la semana pasada con el «quiero información» de
+ * hoy —y eso salió a un cliente, como resumen, con su frase entera en la línea
+ * del nombre—. Por eso la ficha solo mira LA SESIÓN ACTUAL: desde el último
+ * mensaje del cliente que llegó tras un silencio largo. Lo anterior sigue en
+ * el hilo para que el modelo lo lea, pero no se da por dicho.
+ *
  * Lo que no se reconoce se deja en blanco: un hueco se pregunta, un dato mal
  * leído se convierte en un paquete a la casa equivocada.
  */
 import { agenteDePais, zonaDelCliente, type DatosPais } from "@/agents";
+import { esUbicacion } from "./ubicacion";
 
 export interface FichaDelPedido {
   talla: string | null;
@@ -33,11 +45,55 @@ export interface FichaDelPedido {
 
 export type CampoDelPedido = keyof FichaDelPedido;
 
+/** Un mensaje del hilo, con lo mínimo que la memoria necesita. */
+export interface MensajeDeMemoria {
+  emisor: string;
+  content: string;
+  /** Segundos. Sin él no se puede separar una sesión de otra y se toma todo. */
+  created_at?: number;
+}
+
+/** Un silencio de más de esto abre otra sesión: otra compra. */
+export const SESION_HORAS = 12;
+
+/** Una contestación que llega más tarde que esto no contesta a esa pregunta. */
+const RESPUESTA_HORAS = 6;
+
 const VACIA: FichaDelPedido = { talla: null, color: null, direccion: null, nombre: null, celular: null, cantidad: null };
 
 /** Sin tildes ni mayúsculas, para comparar. */
 function llano(t: string): string {
   return t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+}
+
+/**
+ * DÓNDE EMPIEZA LA SESIÓN ACTUAL: el índice del último mensaje del cliente
+ * que llegó después de un silencio de más de `SESION_HORAS`. Sin fechas, o
+ * sin silencios, es el principio del hilo.
+ */
+export function inicioDeSesion(mensajes: MensajeDeMemoria[], horas = SESION_HORAS): number {
+  let inicio = 0;
+  for (let i = 1; i < mensajes.length; i++) {
+    const m = mensajes[i]!;
+    const previo = mensajes[i - 1]!;
+    if (m.emisor !== "cliente") continue;
+    if (m.created_at === undefined || previo.created_at === undefined) continue;
+    if (m.created_at - previo.created_at > horas * 3600) inicio = i;
+  }
+  return inicio;
+}
+
+/** Los mensajes de la sesión actual. Ver `inicioDeSesion`. */
+export function mensajesDeLaSesion<T extends MensajeDeMemoria>(mensajes: T[], horas = SESION_HORAS): T[] {
+  return mensajes.slice(inicioDeSesion(mensajes, horas));
+}
+
+/**
+ * ¿EL CLIENTE VUELVE? Hay conversación anterior y esta empieza tras un
+ * silencio largo. Entonces se saluda otra vez y el pedido empieza de cero.
+ */
+export function esClienteQueVuelve(mensajes: MensajeDeMemoria[], horas = SESION_HORAS): boolean {
+  return inicioDeSesion(mensajes, horas) > 0;
 }
 
 /**
@@ -55,14 +111,36 @@ export function campoDeLaPregunta(pregunta: string): CampoDelPedido | null {
   return null;
 }
 
-/** ¿Esto parece una contestación, y no otra pregunta ni un «ok»? */
+/**
+ * Lo que escribe alguien que ACABA de llegar, no alguien que contesta: un
+ * «quiero más información» nunca es un nombre ni una dirección.
+ */
+const APERTURA =
+  /\b(informaci[oó]n|\binfo\b|quiero saber|me interesa|disponible|precio|cu[aá]nto (cuesta|vale|es)|hola|buenas|buenos d[ií]as|buenas tardes|buenas noches|negocio|anuncio|catalogo|cat[aá]logo|gracias)\b/i;
+
+/** ¿Esto parece una contestación a ESE dato, y no otra cosa? */
 function contestaDeVerdad(campo: CampoDelPedido, texto: string): boolean {
   const t = texto.trim();
   if (!t || t.includes("?")) return false;
   const l = llano(t);
   if (campo === "celular") return true;
   if (/^(ok|okey|vale|si|s[ií]|no|hola|gracias|listo|perfecto|bien|claro)\b[.!]*$/.test(l)) return false;
-  return true;
+  if (APERTURA.test(t)) return false;
+
+  const palabras = t.split(/\s+/).length;
+  switch (campo) {
+    case "nombre":
+      // Un nombre son de una a cuatro palabras de letras: ni frases ni números.
+      return palabras <= 4 && /^[\p{L}][\p{L}'’.\- ]*$/u.test(t);
+    case "talla":
+      return t.length <= 25;
+    case "color":
+      return t.length <= 40;
+    case "cantidad":
+      return /\d|\b(un[oa]?|dos|tres|cuatro|cinco|seis|par|pares)\b/i.test(t);
+    case "direccion":
+      return palabras >= 2 || t.length >= 8;
+  }
 }
 
 /** Lo que se guarda en la ficha de una contestación al celular. */
@@ -74,23 +152,27 @@ function celularDe(texto: string): string | null {
 }
 
 /**
- * LA FICHA, sacada del hilo.
+ * LA FICHA, sacada de la sesión actual del hilo.
  *
  * Dos fuentes, y la más reciente manda porque el cliente se puede corregir:
- *   1. Cada pregunta del agente con lo que el cliente contestó justo después.
+ *   1. Cada pregunta del agente con lo que el cliente contestó justo después,
+ *      si contestó dentro de unas horas.
  *   2. Lo que el cliente escribió por su cuenta y se reconoce solo: un sitio
  *      del país (dirección) y un número de teléfono (celular).
  */
 export function fichaDelPedido(
-  mensajes: { emisor: string; content: string }[],
+  mensajes: MensajeDeMemoria[],
   datos: DatosPais | null = null,
 ): FichaDelPedido {
   const ficha: FichaDelPedido = { ...VACIA };
+  const sesion = mensajesDeLaSesion(mensajes);
 
-  for (const [i, m] of mensajes.entries()) {
+  for (const [i, m] of sesion.entries()) {
     if (m.emisor === "cliente") {
       // Un sitio del país escrito por él es su dirección hasta que dé otra.
-      if (datos && zonaDelCliente(datos, m.content) !== null) ficha.direccion = m.content.trim().slice(0, 160);
+      if (datos && !APERTURA.test(m.content) && zonaDelCliente(datos, m.content) !== null) {
+        ficha.direccion = m.content.trim().slice(0, 160);
+      }
       // Un número de teléfono suelto es el celular.
       const tel = m.content.match(/(?:\+?\d[\d\s().-]{8,}\d)/);
       if (tel && tel[0].replace(/\D/g, "").length >= 10) ficha.celular = tel[0].replace(/\D/g, "");
@@ -104,8 +186,15 @@ export function fichaDelPedido(
       .filter((f) => f.endsWith("?") && f.length >= 6);
     if (!preguntas.length) continue;
 
-    const contesto = mensajes.slice(i + 1).find((x) => x.emisor === "cliente");
+    const contesto = sesion.slice(i + 1).find((x) => x.emisor === "cliente");
     if (!contesto) continue;
+    if (
+      contesto.created_at !== undefined &&
+      m.created_at !== undefined &&
+      contesto.created_at - m.created_at > RESPUESTA_HORAS * 3600
+    ) {
+      continue;
+    }
     const respuesta = contesto.content.trim();
 
     // Si el agente hizo varias preguntas, la contestación es de la última.
@@ -142,9 +231,23 @@ export function fichaParaModelo(f: FichaDelPedido): string {
   );
 
   return (
-    "\n\nFICHA DEL PEDIDO — lo que este cliente YA TE DIO. Es tuyo: úsalo tal cual en el pedido y NO lo vuelvas a preguntar, ni «para confirmar», ni con otras palabras.\n" +
+    "\n\nFICHA DEL PEDIDO — lo que este cliente YA TE DIO en esta conversación. Es tuyo: úsalo tal cual en el pedido y NO lo vuelvas a preguntar, ni «para confirmar», ni con otras palabras.\n" +
     lineas.join("\n") +
     "\nLo que dice «(falta)» es LO ÚNICO que te queda por preguntar, en el orden del cierre y de uno en uno. Si el cliente pregunta algo, se lo contestas primero y después pides lo que falte."
+  );
+}
+
+/**
+ * EL AVISO DE QUE EL CLIENTE VUELVE. Va al final del prompt cuando la sesión
+ * actual empieza tras un silencio largo y hay conversación anterior.
+ */
+export function avisoDeClienteQueVuelve(mensajes: MensajeDeMemoria[]): string {
+  if (!esClienteQueVuelve(mensajes)) return "";
+  return (
+    "\n\nESTE CLIENTE VUELVE A ESCRIBIR DESPUÉS DE UN TIEMPO: lo de arriba de la conversación es de otro día y de otro pedido. " +
+    "Esta es una conversación NUEVA: salúdalo otra vez como la primera vez, con el artículo del anuncio de ahora y su precio, y empieza el pedido desde la talla. " +
+    "Lo que dijo en la conversación anterior NO lo des por hecho ni lo escribas en un pedido: no le llegó ninguna ubicación hoy, y el nombre, el celular y la dirección se vuelven a pedir en su paso. " +
+    "Lo único que puedes aprovechar es preguntarle, cuando toque la dirección, si se lo envía a la misma de la vez anterior."
   );
 }
 
@@ -174,7 +277,19 @@ export function preguntasRepetidas(borrador: string, f: FichaDelPedido): string[
   return fallas;
 }
 
+/** ¿El cliente compartió su ubicación por el mapa EN ESTA SESIÓN? */
+export function clienteCompartioUbicacion(mensajes: MensajeDeMemoria[]): boolean {
+  return mensajesDeLaSesion(mensajes).some((m) => m.emisor === "cliente" && esUbicacion(m.content));
+}
+
+/** Lo que el cliente escribió en esta sesión, para comprobar el resumen contra ello. */
+export function textosDelClienteEnSesion(mensajes: MensajeDeMemoria[]): string[] {
+  return mensajesDeLaSesion(mensajes)
+    .filter((m) => m.emisor === "cliente")
+    .map((m) => m.content);
+}
+
 /** Atajo: la ficha del hilo de un canal, por el código de su país. */
-export function fichaDelHilo(mensajes: { emisor: string; content: string }[], pais: string | null | undefined): FichaDelPedido {
+export function fichaDelHilo(mensajes: MensajeDeMemoria[], pais: string | null | undefined): FichaDelPedido {
   return fichaDelPedido(mensajes, agenteDePais(pais));
 }
