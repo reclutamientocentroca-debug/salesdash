@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import {
   devolverALaIa,
+  eliminarConversacion,
   getConversation,
   listarCanales,
   listarMensajes,
@@ -57,6 +58,28 @@ function leerLista(bruto: string | null): string[] {
   } catch {
     return [bruto];
   }
+}
+
+/**
+ * DELETE — el botón «Borrar conversación» del hilo.
+ *
+ * Se borra el hilo entero con lo que cuelga de él, y solo si es de esta
+ * cuenta: `eliminarConversacion` comprueba el `org_id` dentro de la misma
+ * transacción, así que un identificador ajeno devuelve 404 y no toca nada.
+ */
+export async function DELETE(_req: NextRequest, { params }: Ctx) {
+  const s = await sesionApi();
+  if (!s.ok) return s.respuesta;
+  const { orgId } = s.ctx;
+
+  const { id } = await params;
+  const numero = Number(id);
+  if (!Number.isInteger(numero)) return NextResponse.json({ error: "No encontrada" }, { status: 404 });
+
+  if (!eliminarConversacion(orgId, numero)) {
+    return NextResponse.json({ error: "No encontrada" }, { status: 404 });
+  }
+  return NextResponse.json({ ok: true });
 }
 
 const Correccion = z.object({ resolver: z.enum(["ia", "humano"]) });

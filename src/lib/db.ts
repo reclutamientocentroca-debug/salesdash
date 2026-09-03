@@ -1480,6 +1480,31 @@ export function actualizarCanal(orgId: number, id: number, campos: Partial<Canal
  * Se borra de dentro hacia fuera: primero lo que cuelga de las conversaciones,
  * luego las conversaciones, y al final lo que cuelga del canal y el canal.
  */
+/**
+ * BORRAR UNA CONVERSACIÓN, con todo lo que cuelga de ella.
+ *
+ * Mensajes, recordatorios y anomalías del hilo se van con él, en una sola
+ * transacción: un hilo a medio borrar dejaría mensajes huérfanos que ninguna
+ * pantalla puede abrir. Si tenía una venta cerrada, esa venta deja de contar:
+ * el conteo lee `conversations`, y esta fila ya no está.
+ *
+ * Devuelve si había algo que borrar, para que la API conteste 404 y no un
+ * «ok» sobre un hilo que no existía o que era de otra cuenta.
+ */
+export function eliminarConversacion(orgId: number, id: number): boolean {
+  const tx = db.transaction(() => {
+    const existe = s(`SELECT id FROM conversations WHERE org_id = ? AND id = ?`).get(orgId, id);
+    if (!existe) return false;
+
+    s(`DELETE FROM messages WHERE org_id = ? AND conversation_id = ?`).run(orgId, id);
+    s(`DELETE FROM seguimientos WHERE org_id = ? AND conversation_id = ?`).run(orgId, id);
+    s(`DELETE FROM anomalies WHERE org_id = ? AND conversation_id = ?`).run(orgId, id);
+    s(`DELETE FROM conversations WHERE org_id = ? AND id = ?`).run(orgId, id);
+    return true;
+  });
+  return tx();
+}
+
 export function eliminarCanal(orgId: number, id: number): void {
   const tx = db.transaction(() => {
     const hilos = `(SELECT id FROM conversations WHERE org_id = ? AND canal_id = ?)`;

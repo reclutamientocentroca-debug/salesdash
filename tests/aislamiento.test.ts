@@ -1,4 +1,35 @@
 import "./entorno";
+import { test as prueba } from "node:test";
+import assertBorrar from "node:assert/strict";
+import * as DB from "../src/lib/db";
+
+/**
+ * BORRAR UNA CONVERSACIÓN se lleva sus mensajes y nada más: ni otro hilo de la
+ * misma cuenta, ni —sobre todo— un hilo de otra cuenta con el mismo número.
+ */
+prueba("borrar una conversación se lleva lo suyo y no toca lo ajeno", () => {
+  const a = DB.crearOrgConDueno({ negocio: "A", color: "#111111", nombre: "A", email: `borrar-a-${Date.now()}@p.local`, passwordHash: "x" });
+  const b = DB.crearOrgConDueno({ negocio: "B", color: "#222222", nombre: "B", email: `borrar-b-${Date.now()}@p.local`, passwordHash: "x" });
+  const canalA = DB.crearCanal(a.orgId, { nombre: "A", phone: "18090000001", tokenCifrado: "x", webhookSecret: "s", whapiChannelId: null, estado: "conectado" });
+  const canalB = DB.crearCanal(b.orgId, { nombre: "B", phone: "18090000002", tokenCifrado: "x", webhookSecret: "s", whapiChannelId: null, estado: "conectado" });
+
+  const { conversacion: hiloA } = DB.getOrCreateConversation(a.orgId, canalA, "18095550001", { cuando: DB.ahora() });
+  const { conversacion: otroA } = DB.getOrCreateConversation(a.orgId, canalA, "18095550002", { cuando: DB.ahora() });
+  const { conversacion: hiloB } = DB.getOrCreateConversation(b.orgId, canalB, "18095550001", { cuando: DB.ahora() });
+  for (const [org, conv] of [[a.orgId, hiloA], [a.orgId, otroA], [b.orgId, hiloB]] as const) {
+    DB.insertMessage(org, { conversationId: conv.id, whapiMessageId: `m-${conv.id}`, emisor: "cliente", tipo: "texto", content: "hola", createdAt: DB.ahora() });
+  }
+
+  assertBorrar.equal(DB.eliminarConversacion(a.orgId, hiloA.id), true);
+  assertBorrar.ok(!DB.getConversation(a.orgId, hiloA.id), "el hilo ya no está");
+  assertBorrar.equal(DB.listarMensajes(a.orgId, hiloA.id).length, 0, "ni sus mensajes");
+  assertBorrar.equal(DB.listarMensajes(a.orgId, otroA.id).length, 1, "el otro hilo de la cuenta sigue");
+  assertBorrar.equal(DB.listarMensajes(b.orgId, hiloB.id).length, 1, "y el de la otra cuenta también");
+
+  // Desde otra cuenta no se borra, y se dice.
+  assertBorrar.equal(DB.eliminarConversacion(a.orgId, hiloB.id), false);
+  assertBorrar.ok(DB.getConversation(b.orgId, hiloB.id), "el hilo ajeno sigue intacto");
+});
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as D from "../src/lib/db";

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import AgenteEnHilo from "@/components/panel/AgenteEnHilo";
 import AnalizarBoton from "@/components/panel/AnalizarBoton";
+import BorrarConversacionBoton from "@/components/panel/BorrarConversacionBoton";
 import { Burbuja } from "@/components/panel/Burbuja";
 import { Pastilla, dinero, fechaHora } from "@/components/panel/Piezas";
 import { llegoPorAnuncio } from "@/lib/anuncio";
@@ -57,7 +58,10 @@ export default async function PaginaConversacion({ params, searchParams }: Props
           </p>
         </div>
 
-        <AnalizarBoton conversationId={conv.id} yaAnalizada={conv.analizada_at !== null} />
+        <div style={{ display: "grid", gap: 8, justifyItems: "end" }}>
+          <AnalizarBoton conversationId={conv.id} yaAnalizada={conv.analizada_at !== null} />
+          <BorrarConversacionBoton conversationId={conv.id} />
+        </div>
       </div>
 
       <div className="sd-fila-3">
