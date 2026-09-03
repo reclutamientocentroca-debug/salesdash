@@ -27,7 +27,14 @@ const ESTADOS: Record<string, { texto: string; color: string }> = {
   error: { texto: "Con problema", color: "var(--red)" },
 };
 
-export default function ListaNumeros({ canales }: { canales: CanalVista[] }) {
+export default function ListaNumeros({
+  canales,
+  facebook,
+}: {
+  canales: CanalVista[];
+  /** Si se puede abrir la ventana de Facebook, y cuántas páginas hay ya conectadas. */
+  facebook: { disponible: boolean; paginas: number };
+}) {
   const router = useRouter();
   const [conectando, setConectando] = useState(canales.length === 0);
   const [ocupado, setOcupado] = useState<number | null>(null);
@@ -170,10 +177,38 @@ export default function ListaNumeros({ canales }: { canales: CanalVista[] }) {
             {canales.length} de 20 conectados
           </p>
         </div>
-        <button type="button" className="btn btn-primario" onClick={() => setConectando(true)}>
-          Conectar número
-        </button>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          {facebook.disponible && (
+            /*
+             * CONECTAR WHATSAPP CON FACEBOOK: un enlace de verdad a la ventana de
+             * Meta, en esta misma pestaña. Se elige ahí la página del negocio y
+             * Facebook devuelve al panel. Con la página conectada, la IA lee el
+             * texto y la foto del anuncio que trajo a cada cliente de WhatsApp.
+             */
+            <a
+              href="/api/meta/oauth/entrar"
+              className="btn"
+              style={{ background: "#1877F2", color: "#fff", border: "none", textDecoration: "none" }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" fill="#fff">
+                <path d="M24 12.07C24 5.4 18.63 0 12 0S0 5.4 0 12.07C0 18.1 4.39 23.1 10.13 24v-8.44H7.08v-3.49h3.05V9.41c0-3.02 1.79-4.69 4.53-4.69 1.31 0 2.68.24 2.68.24v2.96h-1.51c-1.49 0-1.955.93-1.955 1.89v2.26h3.33l-.53 3.49h-2.8V24C19.61 23.1 24 18.1 24 12.07Z" />
+              </svg>
+              {facebook.paginas > 0 ? "Conectar otra página de Facebook" : "Conectar WhatsApp con Facebook"}
+            </a>
+          )}
+          <button type="button" className="btn btn-primario" onClick={() => setConectando(true)}>
+            Conectar número
+          </button>
+        </div>
       </div>
+
+      {facebook.disponible && (
+        <p className="tenue" style={{ marginTop: -6, marginBottom: 14, fontSize: 12.5 }}>
+          {facebook.paginas > 0
+            ? `Facebook conectado: ${facebook.paginas === 1 ? "1 página" : `${facebook.paginas} páginas`}. La IA lee el texto y la foto del anuncio que trae a cada cliente.`
+            : "Conecta la página de Facebook del negocio para que la IA lea el texto y la foto del anuncio que trae a cada cliente por WhatsApp."}
+        </p>
+      )}
 
       {error && (
         <div className="aviso aviso-error" role="alert" style={{ marginBottom: 14 }}>

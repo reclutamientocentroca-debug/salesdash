@@ -1,5 +1,5 @@
 import ListaNumeros from "@/components/panel/ListaNumeros";
-import { listarCanales } from "@/lib/db";
+import { listarCanales, listarPaginasMeta } from "@/lib/db";
 import { requerirSesion } from "@/lib/tenant";
 
 export const metadata = { title: "Números · SalesDash" };
@@ -34,5 +34,18 @@ export default async function PaginaNumeros() {
     ultimo_evento_at: c.ultimo_evento_at,
   }));
 
-  return <ListaNumeros canales={canales} />;
+  /*
+   * CONECTAR WHATSAPP CON FACEBOOK. Los anuncios que traen clientes a estos
+   * números son anuncios de Facebook, y el texto y la foto de cada anuncio
+   * —de donde la IA saca el producto, el precio y los colores— se leen con la
+   * página de Facebook conectada. Sin ella, la IA solo ve el título del
+   * anuncio. El botón lleva a la misma ventana de Meta que usa Messenger; el
+   * valor de la app no se enseña, solo si está puesta.
+   */
+  const facebook = {
+    disponible: (process.env.META_APP_ID ?? "").trim() !== "",
+    paginas: listarPaginasMeta(ctx.orgId).length,
+  };
+
+  return <ListaNumeros canales={canales} facebook={facebook} />;
 }
