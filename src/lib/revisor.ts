@@ -169,7 +169,7 @@ LO QUE VENDE (precios y condiciones válidos):
 ${ctx.catalogo}
 ${ctx.anuncio ? `\n${ctx.anuncio}\n` : ""}
 RECHAZA el borrador si ocurre CUALQUIERA de estas cosas:
-- Dice un precio que no está en el catálogo, en el anuncio ni en el bloque del país, o cambia uno que sí está.
+- Dice un precio que no está en el catálogo, en el anuncio ni en el bloque del país, o cambia uno que sí está. Para el artículo del anuncio, el precio válido es el de la descripción del anuncio.
 - Cotiza un costo de envío que no es el de la zona del cliente según el bloque del país, o dice que «el representante confirma el envío» teniendo la tarifa delante.
 - Promete una forma de pago, un plazo de entrega, un descuento, envío gratis, apartar mercancía o mandar dos para probar.
 - Pregunta una talla o un color a un artículo que no los lleva, o vuelve a preguntar algo que el cliente ya contestó en la conversación.

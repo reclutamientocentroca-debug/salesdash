@@ -95,4 +95,29 @@ test("el prompt del agente lleva la tarifa del cliente cuando la escribió, y el
   assert.ok(prompt.includes("Conectando con representante..."));
   assert.ok(prompt.includes("[HANDOFF]"));
   assert.ok(prompt.includes("APENAS el cliente te diga su zona o su provincia"));
+
+  // El orden que pidió la dueña: saludo, talla y color, a dónde, nombre, resumen.
+  const ritmo = prompt.slice(prompt.indexOf("EL RITMO DEL CIERRE"), prompt.indexOf("CÓMO SE CIERRA UNA VENTA"));
+  const pos = (s: string) => {
+    const i = ritmo.indexOf(s);
+    assert.ok(i >= 0, `falta en el ritmo: ${s}`);
+    return i;
+  };
+  assert.ok(pos("0. EL SALUDO") < pos("1. LA TALLA Y EL COLOR"));
+  assert.ok(pos("1. LA TALLA Y EL COLOR") < pos("2. A DÓNDE SE LO ENVIAMOS"));
+  assert.ok(pos("2. A DÓNDE SE LO ENVIAMOS") < pos("3. EL NOMBRE CON EL QUE RECIBE"));
+  assert.ok(pos("3. EL NOMBRE CON EL QUE RECIBE") < pos("6. SOLO cuando el cliente confirme, el resumen"));
+  assert.ok(ritmo.includes("EN CADA MENSAJE, PRIMERO LO SUYO Y DESPUÉS LO TUYO"), "contesta lo que el cliente pregunta y luego sigue");
+  assert.ok(ritmo.includes("NO REPITAS UNA PREGUNTA"));
+  assert.ok(ritmo.includes("si quiere más de una, se las vendes"));
+
+  // El precio del artículo del anuncio es el de la descripción del anuncio.
+  const conAnuncio = armarSistema("Tienda", agente, [], {
+    origen: "anuncio",
+    producto_anuncio: "Mocasines de cuero",
+    descripcion_anuncio: "Mocasines de cuero genuino a RD$2,500",
+  }, "Resumen:", null, null, false, null);
+  assert.ok(conAnuncio.includes("EL PRECIO DEL ARTÍCULO DEL ANUNCIO ES EL DE LA DESCRIPCIÓN DEL ANUNCIO"));
+  assert.ok(conAnuncio.includes("NO LO INVENTES: dile que un representante le pasa el precio"));
+  assert.ok(conAnuncio.includes("SI QUIERE MÁS DE UNA UNIDAD, SE LAS VENDES"));
 });
