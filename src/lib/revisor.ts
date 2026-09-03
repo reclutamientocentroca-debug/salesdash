@@ -59,6 +59,10 @@ export interface ContextoRevision {
   bloqueDelPais: string;
   /** Lo que el cliente ya dijo del pedido. Ver `memoria.ts`. */
   ficha?: FichaDelPedido;
+  /** El nombre de la cuenta de WhatsApp, que no se usa. */
+  nombreDeCuenta?: string | null;
+  /** Si ese nombre el cliente lo escribió él mismo en el chat: entonces sí vale. */
+  clienteEscribioSuNombre?: boolean;
 }
 
 /** Sin tildes ni mayúsculas. */
@@ -157,6 +161,16 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
 
   // 6. Una pregunta que el cliente ya contestó. La memoria es una puerta.
   if (ctx.ficha) fallas.push(...preguntasRepetidas(texto, ctx.ficha));
+
+  // 7. El nombre de la cuenta de WhatsApp, si el cliente no lo escribió él.
+  const cuenta = ctx.nombreDeCuenta?.trim();
+  if (cuenta && cuenta.length >= 3 && !ctx.clienteEscribioSuNombre) {
+    const primero = cuenta.split(/\s+/)[0]!;
+    const re = new RegExp(`(^|[^\\p{L}])${primero.replace(/[.*+?^${}()|[\]\\]/g, (c) => `\\${c}`)}([^\\p{L}]|$)`, "iu");
+    if (re.test(texto)) {
+      fallas.push(`llama al cliente «${primero}», que es el nombre de su cuenta de WhatsApp y él no lo ha escrito en el chat`);
+    }
+  }
 
   return [...new Set(fallas)];
 }

@@ -672,12 +672,12 @@ test("el saludo sale en su propio mensaje, y solo al abrir la conversación", ()
 
 /**
  * El resumen del pedido lleva el nombre, la dirección y el total separados por
- * líneas en blanco. Partirlo por la primera mandaría «Gracias, Yazmin.» por un
+ * líneas en blanco. Partirlo por la primera mandaría «Gracias, estimado cliente.» por un
  * lado y el pedido por otro, y el cliente leería su compra a trozos.
  */
 test("un resumen de pedido nunca se parte, aunque sea el primer mensaje", () => {
   const resumen =
-    "Gracias, Yazmin.\n\nResumen de su pedido:\n\nProducto: Mocasines\n\nTOTAL A PAGAR: USD 35";
+    "Gracias, estimado cliente.\n\nResumen de su pedido:\n\nProducto: Mocasines\n\nTOTAL A PAGAR: USD 35";
 
   assert.deepEqual(partirEnMensajes(resumen, { saludoAparte: true }), [resumen]);
 
@@ -1445,45 +1445,26 @@ test("el cierre exige los datos que pide cada país", () => {
  * nombre de una persona que no existe, con la dirección igual de inventada
  * debajo. El nombre de quien recibe se pregunta, como el teléfono.
  */
-test("el nombre de la cuenta sirve para saludar, no para levantar el pedido", () => {
+test("el nombre de la cuenta de WhatsApp no se usa para nada: ni saludo ni pedido", () => {
   const prompt = armarSistema("Tienda", D.obtenerAgente(orgId), [], null, "Resumen:", {
     telefono: "18091234567",
-    nombre: "Yazmin",
+    nombre: "Nombre De Cuenta",
   });
 
-  assert.ok(prompt.includes('aparece como "Yazmin"'), "lo tiene para saludarle");
-  assert.ok(prompt.includes("NO PARA LEVANTAR EL PEDIDO"));
-  assert.ok(
-    prompt.includes("¿A nombre de quién se lo dejamos?"),
-    "y sabe con qué pregunta se consigue el de verdad",
-  );
-  assert.ok(prompt.includes("nunca le añadas un apellido"), "ni se lo completa por su cuenta");
+  assert.equal(prompt.includes("Nombre De Cuenta"), false, "el nombre de la cuenta no entra en el prompt");
+  assert.ok(prompt.includes("NO SABES CÓMO SE LLAMA"), "se le dice que no lo sabe");
+  assert.ok(prompt.includes("NO cuenta"), "y que el de la cuenta no cuenta");
+  assert.ok(prompt.includes("UN NOMBRE QUE NO TE DIO ÉL NO EXISTE"));
+  assert.ok(prompt.includes("¿A nombre de quién se lo dejamos?"), "y sabe con qué pregunta se consigue el de verdad");
 
-  /*
-   * Y SIN NOMBRE, LA REGLA ES OTRA Y TIENE QUE ESTAR.
-   *
-   * Por Messenger no llega ninguno: el webhook de Meta no lo manda y nadie se
-   * lo pide al perfil, así que el agente atiende a un número a secas. Donde
-   * antes no había nada escrito, el modelo se inventaba uno —y como el hueco
-   * es el mismo en todos los chats, se inventaba SIEMPRE EL MISMO—: media
-   * bandeja saludando a clientes distintos por el nombre de una desconocida.
-   * Un hueco callado en el prompt no lo deja el modelo en blanco: lo rellena.
-   */
+  // Sin nombre en la cuenta, exactamente lo mismo.
   const anonimo = armarSistema("Tienda", D.obtenerAgente(orgId), [], null, "Resumen:", {
     telefono: "18091234567",
     nombre: null,
   });
+  assert.ok(anonimo.includes("NO SABES CÓMO SE LLAMA"));
+  assert.ok(anonimo.includes("¿A nombre de quién se lo dejamos?"));
 
-  assert.equal(anonimo.includes("NO PARA LEVANTAR EL PEDIDO"), false, "no hay cuenta que aclarar");
-  assert.ok(anonimo.includes("NO SABES CÓMO SE LLAMA"), "y se le dice, en vez de callarlo");
-  assert.ok(
-    anonimo.includes("UN NOMBRE QUE NO TE DIO ÉL NO EXISTE"),
-    "ni del anuncio, ni de la tienda, ni de otro chat",
-  );
-  assert.ok(
-    anonimo.includes("¿A nombre de quién se lo dejamos?"),
-    "sigue sabiendo con qué pregunta se consigue el de verdad",
-  );
 });
 
 /**
@@ -1999,10 +1980,10 @@ test("cada pais abre con su saludo, y el prompt lo dice una sola vez", () => {
  * NINGÚN NOMBRE PROPIO DE EJEMPLO DENTRO DEL PROMPT.
  *
  * Es la avería que acaba de pasar y no da la cara en ningún sitio. Una regla
- * escrita con un ejemplo —«si te dijo Yazmin, el pedido va a nombre de
- * Yazmin»— es perfecta para una persona y veneno para un modelo: no distingue
+ * escrita con un ejemplo —«si te dijo Fulana, el pedido va a nombre de
+ * Fulana»— es perfecta para una persona y veneno para un modelo: no distingue
  * «esto ilustra la regla» de «esto es el dato del caso», así que levantaba
- * TODOS los pedidos a nombre de Yazmin. El agente seguía contestando, cerrando
+ * TODOS los pedidos a nombre de Fulana. El agente seguía contestando, cerrando
  * y sonando bien; simplemente cada paquete salía a nombre de una desconocida.
  *
  * Es la misma clase de fallo que el precio de ejemplo con «RD$» dentro, que ya

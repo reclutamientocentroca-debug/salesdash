@@ -48,7 +48,7 @@ const GUIONES: Record<string, { anuncio: string; precio: string; describe: strin
       "¿y el envío? soy de Santiago",
       "la 9 americana",
       "calle Mella #12, Villa Olga",
-      "Yazmin Pérez",
+      "Cliente Prueba",
       "sí, confirmo",
     ],
   },
@@ -156,7 +156,7 @@ async function main() {
     descripcion_anuncio: `${guion.describe} ${guion.precio}.`,
   };
 
-  const cliente = { telefono: "18095551234", nombre: "Yazmin" };
+  const cliente = { telefono: "18095551234", nombre: null };
 
   const hilo: Mensaje[] = [];
   let i = 0;

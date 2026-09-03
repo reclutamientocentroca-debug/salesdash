@@ -86,3 +86,16 @@ test("sin clave del modelo, el revisor aprueba lo que las reglas aprueban y no s
   assert.ok(correccion.includes("descuento") && correccion.includes("envío gratis"));
   assert.ok(correccion.includes("no lo inventes"));
 });
+
+test("el nombre de la cuenta de WhatsApp no sale si el cliente no lo escribió", () => {
+  const conCuenta = { ...rd, nombreDeCuenta: "Marisol Tienda", clienteEscribioSuNombre: false };
+  assert.ok(
+    revisarConReglas("Hola Marisol, con gusto. ¿Qué talla necesita?", conCuenta).some((f) => f.includes("Marisol")),
+    "saludar con el nombre de la cuenta se para",
+  );
+  assert.deepEqual(revisarConReglas("Con gusto. ¿Qué talla necesita?", conCuenta), []);
+
+  // Si el cliente lo escribió él, es su nombre y se puede usar.
+  const loDijo = { ...conCuenta, clienteEscribioSuNombre: true };
+  assert.deepEqual(revisarConReglas("Perfecto, Marisol. ¿Qué talla necesita?", loDijo), []);
+});

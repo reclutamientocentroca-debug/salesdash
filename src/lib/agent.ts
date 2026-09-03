@@ -1655,6 +1655,10 @@ export async function atenderConversacion(
       catalogo: textoDeLoQueVende(agente, listarCatalogo(orgId, true)),
       anuncio: anuncioParaModelo(conv),
       ficha: fichaDelHilo(historial, agente.pais),
+      nombreDeCuenta: conv.cliente_nombre,
+      clienteEscribioSuNombre: !!conv.cliente_nombre && historial.some(
+        (m) => m.emisor === "cliente" && m.content.toLowerCase().includes(conv.cliente_nombre!.toLowerCase()),
+      ),
       bloqueDelPais: bloqueDelPais(
         datosPais,
         ubicacion?.direccion?.provincia ??
@@ -2031,7 +2035,9 @@ export async function enviarSeguimiento(
   let texto: string;
 
   if (tipo === "entrega") {
-    texto = textoDeEntrega(conv.cliente_nombre);
+    // Sin el nombre de la cuenta: solo cuenta el que el cliente escribió, y
+    // ese ya va en el resumen. El aviso sale igual de bien sin nombre.
+    texto = textoDeEntrega(null);
   } else {
     /*
      * El de «se quedó en visto» sí lo escribe el modelo: tiene que nombrar el
