@@ -118,6 +118,12 @@ test("el prompt del agente lleva la tarifa del cliente cuando la escribió, y el
   assert.ok(ritmo.includes("LOS COLORES SON LOS QUE MUESTRA LA FOTO DEL ANUNCIO"));
   assert.ok(ritmo.includes("Gran Santo Domingo, la ciudad, RD$250; el resto del país, las provincias, RD$290"));
   assert.ok(ritmo.includes("NO VUELVES A RESPONDER EN ESE CHAT"), "después del resumen, el chat es del asesor");
+  // Lo que la dueña añadió después: mayoreo es otro precio y se transfiere en
+  // el momento; una fecha no se reserva, se pasa al humano; y vende como una persona.
+  assert.ok(ritmo.includes("es OTRO PRECIO que tú no tienes"), "mayoreo: sin cifra y con transferencia");
+  assert.ok(ritmo.includes("una FECHA se pasa al humano"), "una fecha concreta no se promete ni se reserva");
+  assert.ok(ritmo.includes("VENDES COMO UNA PERSONA, SIN COMPLICACIONES Y REAL"));
+  assert.ok(ritmo.includes("CORTO Y PRECISO lo que el cliente pregunta"));
   assert.ok(ritmo.includes("si quiere más de una se las vendes"));
 
   // El precio del artículo del anuncio es el de la descripción del anuncio.
