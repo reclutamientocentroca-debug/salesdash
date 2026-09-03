@@ -61,6 +61,39 @@ export const PA: DatosPais = {
     ],
   },
 
+  // ── El mapa ────────────────────────────────────────────────────────────
+  // Para RECONOCER un lugar cuando el cliente lo escribe. El envío es el
+  // mismo en todo el país.
+  mapa: {
+    regiones: [
+      {
+        nombre: "Panamá (provincia y ciudad)",
+        lugares: [
+          "Bella Vista", "San Francisco", "Juan Díaz", "Tocumen", "Betania", "Río Abajo", "Parque Lefevre",
+          "Pueblo Nuevo", "Calidonia", "El Chorrillo", "Santa Ana", "Ancón", "Las Cumbres", "Alcalde Díaz",
+          "Chilibre", "Pacora", "24 de Diciembre", "Costa del Este", "Villa Lucre", "Condado del Rey",
+          "Brisas del Golf", "Villa Zaita", "San Miguelito (Amelia Denis de Icaza, Belisario Porras, José Domingo Espinar, Rufina Alfaro)",
+          "Chepo",
+        ],
+      },
+      {
+        nombre: "Panamá Oeste",
+        lugares: ["La Chorrera", "Arraiján", "Vista Alegre", "Burunga", "Vacamonte", "Capira", "Chame", "San Carlos", "Coronado"],
+      },
+      { nombre: "Colón", lugares: ["Colón centro", "Sabanitas", "Portobelo", "Cativá", "Puerto Pilón"] },
+      { nombre: "Coclé", lugares: ["Penonomé", "Aguadulce", "Antón", "Natá", "La Pintada", "Olá"] },
+      { nombre: "Herrera", lugares: ["Chitré", "Ocú", "Parita", "Pesé", "Las Minas", "Santa María"] },
+      { nombre: "Los Santos", lugares: ["Las Tablas", "Guararé", "Pedasí", "Macaracas", "Tonosí", "Pocrí"] },
+      { nombre: "Veraguas", lugares: ["Santiago de Veraguas", "Soná", "Atalaya", "Cañazas", "Santa Fe"] },
+      { nombre: "Chiriquí", lugares: ["David", "Boquete", "Bugaba", "Volcán", "Puerto Armuelles", "Dolega", "Boquerón"] },
+      { nombre: "Bocas del Toro", lugares: ["Changuinola", "Almirante", "Bocas del Toro (isla)"] },
+      { nombre: "Darién y comarcas", lugares: ["Metetí", "La Palma", "Yaviza", "Guna Yala", "Ngäbe-Buglé"] },
+    ],
+    aviso:
+      "OJO: «Sabanitas» es un corregimiento de Colón, no un producto. Esta tienda NO vende sábanas ni " +
+      "nada que se llame así: si un cliente escribe ese nombre, te está diciendo dónde vive.",
+  },
+
   // ── Pago ───────────────────────────────────────────────────────────────
   // PENDIENTE DE CONFIRMAR. Null = NO CONFIGURADA: el agente no la inventa y,
   // si el cliente pregunta cómo se paga, transfiere a un representante.

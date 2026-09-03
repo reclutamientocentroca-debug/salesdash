@@ -37,8 +37,9 @@ test("la moneda de otro país no sale", () => {
   const f = revisarConReglas("El envío son US$5.00 en todo el país.", rd);
   assert.ok(f.some((x) => x.includes("dólares")), "dólares en un chat dominicano");
   assert.ok(revisarConReglas("Son ₡25.000 más el envío.", pa).some((x) => x.includes("colones")));
-  // En Panamá el dólar es de casa.
+  // En Panamá el dólar es de casa, y Colón es una provincia, no una moneda.
   assert.deepEqual(revisarConReglas("Son US$2,500.00.", pa), []);
+  assert.deepEqual(revisarConReglas("¿Se lo enviamos a Colón? El envío es US$5.00.", pa), []);
 });
 
 test("un costo de envío que no es ninguno de los del país no sale", () => {

@@ -91,6 +91,27 @@ export interface DatosPais {
     datosParaCerrar: string[];
   };
 
+  // ── El mapa ────────────────────────────────────────────────────────────
+  /**
+   * EL MAPA DEL PAÍS: los lugares que la gente escribe, agrupados por región
+   * o provincia, para que un nombre de lugar se lea como lugar.
+   *
+   * Existe por un caso real: un cliente escribió el nombre de su sector y el
+   * agente lo leyó como un producto —en República Dominicana hay barrios que
+   * se llaman «Sabana Perdida» o «Sabana de la Mar», y en Costa Rica está
+   * «La Sabana»—. Con el mapa delante, el modelo sabe que eso es una
+   * dirección, la sitúa en su provincia y le dice al cliente su envío.
+   *
+   * Es para RECONOCER, no para tarifar: la tarifa la deciden `envio.zonas`
+   * y `envio.restoDelPais.lugares`, que son del dueño.
+   */
+  mapa: {
+    /** Cada región con los lugares que la gente escribe, tal cual los escribe. */
+    regiones: { nombre: string; lugares: string[] }[];
+    /** Nombres que se confunden con otra cosa, y qué son de verdad. Null si no hay. */
+    aviso: string | null;
+  };
+
   // ── Pago ───────────────────────────────────────────────────────────────
   /**
    * La forma de pago general del país, en una o dos frases. Null = NO

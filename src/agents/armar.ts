@@ -157,6 +157,32 @@ function bloqueDeEnvio(d: DatosPais, donde: string | null): string {
   return lineas.join("\n");
 }
 
+/**
+ * EL MAPA DEL PAÍS, escrito para el modelo.
+ *
+ * Un nombre de lugar que el modelo no reconoce se convierte en cualquier
+ * cosa: un producto, una marca, una pregunta. Con la lista delante, «Sabana
+ * Perdida» es Santo Domingo Norte y «Sabanilla» es Montes de Oca, y el
+ * agente sigue la venta con el envío de esa zona en vez de descarrilar.
+ */
+function bloqueDelMapa(d: DatosPais): string {
+  const m = d.mapa;
+  if (!m.regiones.length) return "";
+
+  const lineas = [`EL MAPA DE ${d.nombre.toUpperCase()} — LOS LUGARES QUE VAS A OÍR NOMBRAR, por región:`];
+  for (const r of m.regiones) lineas.push(`- ${r.nombre}: ${r.lugares.join(", ")}.`);
+  lineas.push(
+    "CUALQUIERA DE ESTOS NOMBRES, escrito por el cliente, ES SU UBICACIÓN: te está diciendo dónde " +
+      "vive, no un producto, ni una marca, ni otra cosa. Lo lees como su sector o su provincia, lo " +
+      "sitúas con esta lista, le dices de una vez el envío que le toca y lo escribes en su dirección. " +
+      "Nunca lo confundas con un artículo, nunca le preguntes qué es, y nunca digas que vendes algo " +
+      "que se llame así. Si escribe un lugar que no está en la lista, también es un lugar: pregúntale " +
+      "en qué provincia queda y sigue.",
+  );
+  if (m.aviso) lineas.push(m.aviso);
+  return lineas.join("\n");
+}
+
 /** Las tallas de esta tienda, con la tabla de la casa si la usa. */
 function bloqueDeTallas(d: DatosPais): string {
   const t = d.tallas;
@@ -226,6 +252,8 @@ export function bloqueDelPais(
       : "FORMA DE PAGO: NO CONFIGURADA. No la inventes ni prometas ninguna —ni contra entrega, ni transferencia, ni nada—. Si el cliente pregunta cómo se paga, dile en corto que un representante le confirma la forma de pago y escribe \"[HANDOFF]\" en ese mismo mensaje. La línea «Forma de pago» NO va en el resumen.",
     "",
     `CÓMO SE DAN LAS DIRECCIONES AQUÍ: ${d.envio.direccion}`,
+    "",
+    bloqueDelMapa(d),
     "",
     `SI PREGUNTAN DÓNDE ESTÁN O SI HAY TIENDA FÍSICA, la respuesta es esta y no otra: «${d.ubicacion.tiendaFisica}»`,
     `SI COMPARTE SU UBICACIÓN POR EL MAPA: ${d.ubicacion.alRecibirMapa}`,

@@ -412,7 +412,9 @@ export interface RevisionAgente {
 const MONEDAS: { codigo: string; nombre: string; marca: RegExp }[] = [
   { codigo: "USD", nombre: "dólares", marca: /\bUS\$|\bUSD\b|\bd[oó]lar/i },
   { codigo: "DOP", nombre: "pesos dominicanos", marca: /\bRD\$|\bDOP\b/i },
-  { codigo: "CRC", nombre: "colones", marca: /₡|\bCRC\b|\bcol[oó]n(es)?\b/i },
+  // «Colón» a secas es una provincia de Panamá y «Ciudad Colón» un distrito de
+  // Costa Rica: la moneda se reconoce en plural o pegada a una cifra.
+  { codigo: "CRC", nombre: "colones", marca: /₡|\bCRC\b|\bcolones\b|\d\s*col[oó]n\b/i },
   { codigo: "PAB", nombre: "balboas", marca: /B\/\.|\bPAB\b|\bbalboa/i },
 ];
 

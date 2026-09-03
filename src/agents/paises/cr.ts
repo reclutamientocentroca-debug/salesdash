@@ -54,6 +54,12 @@ export const CR: DatosPais = {
           "Montes de Oca",
           "Curridabat",
           "Aserrí",
+          // Distritos que la gente escribe sin decir el cantón, y que caen en
+          // los cantones de arriba: Sabanilla y San Pedro son Montes de Oca;
+          // Guadalupe, Goicoechea; Coronado ya está.
+          "Sabanilla",
+          "San Pedro de Montes de Oca",
+          "Guadalupe de Goicoechea",
         ],
         costo: 3500,
         modalidad: "entrega a domicilio",
@@ -62,6 +68,21 @@ export const CR: DatosPais = {
     ],
     restoDelPais: {
       costo: 3500,
+      // Lo que está claramente fuera de la zona de entrega a domicilio: las
+      // otras provincias y sus cantones. Lo del Gran Área Metropolitana que no
+      // esté en la lista de arriba no se decide aquí: el agente pregunta.
+      lugares: [
+        "Guanacaste", "Liberia", "Nicoya", "Santa Cruz", "Bagaces", "Carrillo", "Cañas",
+        "Abangares", "Tilarán", "Nandayure", "La Cruz", "Hojancha", "Tamarindo", "Sámara",
+        "Puntarenas", "Esparza", "Buenos Aires", "Montes de Oro", "Osa", "Quepos", "Golfito",
+        "Coto Brus", "Parrita", "Corredores", "Garabito", "Jacó", "Monteverde", "Puerto Jiménez",
+        "Ciudad Neily", "Limón", "Pococí", "Guápiles", "Siquirres", "Talamanca", "Matina", "Guácimo",
+        "Cahuita", "Puerto Viejo", "Pérez Zeledón", "San Isidro de El General", "Turrialba",
+        "Jiménez", "San Carlos", "Ciudad Quesada", "Upala", "Los Chiles", "Guatuso", "Río Cuarto",
+        "Sarapiquí", "Puriscal", "Tarrazú", "Dota", "León Cortés", "Acosta", "Turrubares",
+        "San Ramón", "Grecia", "Naranjo", "Palmares", "Zarcero", "Sarchí", "Atenas", "Orotina",
+        "San Mateo", "Poás", "Zona Sur", "Zona Norte", "Caribe",
+      ],
       modalidad: "va por correo o encomienda y el cliente retira en la sucursal más cercana",
       pago:
         "se cobra ANTES de enviar: pago previo por SINPE Móvil o transferencia, y sin el " +
@@ -82,6 +103,66 @@ export const CR: DatosPais = {
       "Fuera de la zona de entrega a domicilio, el pago por delante: ahí se cobra ANTES de enviar, " +
         "y sin el comprobante no sale el paquete",
     ],
+  },
+
+  // ── El mapa ────────────────────────────────────────────────────────────
+  // Para RECONOCER un lugar cuando el cliente lo escribe. La tarifa es la
+  // misma en todo el país; lo que decide la zona son las listas de arriba.
+  mapa: {
+    regiones: [
+      {
+        nombre: "San José (provincia)",
+        lugares: [
+          "San José centro (Chepe)", "La Sabana", "Pavas", "Hatillo", "Zapote", "San Sebastián",
+          "Uruca", "Escazú", "Santa Ana", "Desamparados", "Alajuelita", "Aserrí", "Acosta", "Mora (Ciudad Colón)",
+          "Goicoechea (Guadalupe)", "Vázquez de Coronado", "Tibás", "Moravia", "Montes de Oca (San Pedro, Sabanilla)",
+          "Curridabat", "Puriscal", "Tarrazú", "Dota", "León Cortés", "Turrubares",
+          "Pérez Zeledón (San Isidro de El General)",
+        ],
+      },
+      {
+        nombre: "Alajuela (provincia)",
+        lugares: [
+          "Alajuela centro", "San Ramón", "Grecia", "Naranjo", "Palmares", "Poás", "Atenas", "Orotina",
+          "San Mateo", "Zarcero", "Sarchí", "San Carlos (Ciudad Quesada)", "Upala", "Los Chiles",
+          "Guatuso", "Río Cuarto",
+        ],
+      },
+      {
+        nombre: "Cartago (provincia)",
+        lugares: ["Cartago centro", "Paraíso", "La Unión (Tres Ríos)", "Jiménez", "Turrialba", "Alvarado", "Oreamuno", "El Guarco"],
+      },
+      {
+        nombre: "Heredia (provincia)",
+        lugares: [
+          "Heredia centro", "Barva", "Santo Domingo de Heredia", "Santa Bárbara", "San Rafael", "San Isidro",
+          "Belén", "Flores", "San Pablo", "Sarapiquí",
+        ],
+      },
+      {
+        nombre: "Guanacaste",
+        lugares: [
+          "Liberia", "Nicoya", "Santa Cruz", "Tamarindo", "Bagaces", "Carrillo", "Cañas", "Abangares",
+          "Tilarán", "Nandayure", "La Cruz", "Hojancha", "Sámara",
+        ],
+      },
+      {
+        nombre: "Puntarenas",
+        lugares: [
+          "Puntarenas centro", "Esparza", "Buenos Aires", "Montes de Oro", "Osa", "Quepos", "Golfito",
+          "Coto Brus", "Parrita", "Corredores (Ciudad Neily)", "Garabito (Jacó)", "Monteverde", "Puerto Jiménez",
+        ],
+      },
+      {
+        nombre: "Limón",
+        lugares: ["Limón centro", "Pococí (Guápiles)", "Siquirres", "Talamanca (Cahuita, Puerto Viejo)", "Matina", "Guácimo"],
+      },
+    ],
+    aviso:
+      "OJO: «La Sabana», «Sabanilla» y «Sabana Grande» son barrios y distritos —La Sabana está en " +
+      "San José centro y Sabanilla en Montes de Oca—, no productos. Esta tienda NO vende sábanas ni " +
+      "nada que se llame así: si un cliente escribe uno de esos nombres, te está diciendo dónde vive. " +
+      "«Chepe» es San José; «la GAM» es el Gran Área Metropolitana: San José, Alajuela, Cartago y Heredia.",
   },
 
   // ── Pago ───────────────────────────────────────────────────────────────

@@ -1672,6 +1672,46 @@ test("el prompt de un país no lleva nada de los otros dos", async () => {
   D.actualizarAgente(orgId, { pais: "do", instrucciones: "", envio_cerca: null, envio_lejos: null }, canalId);
 });
 
+/**
+ * EL MAPA DEL PAÍS: UN LUGAR SE LEE COMO LUGAR.
+ *
+ * Un cliente dominicano escribió el nombre de su sector y el agente le
+ * contestó que vendía sábanas. En República Dominicana hay barrios que se
+ * llaman «Sabana Perdida» o «Sabana de la Mar», y en Costa Rica está «La
+ * Sabana». Cada país lleva ahora su mapa en el prompt, con la advertencia, y
+ * el que decide zonas reconoce esos nombres como lo que son.
+ */
+test("cada país lleva su mapa, y un «Sabana» es un lugar y no una sábana", async () => {
+  const { zonaDelCliente, AGENTES_DE_PAIS } = await import("../src/agents");
+
+  D.actualizarAgente(orgId, { pais: "do", instrucciones: "" }, canalId);
+  const rd = armarSistema("Tienda", D.obtenerAgente(orgId, canalId), [], null);
+  assert.match(rd, /EL MAPA DE REPÚBLICA DOMINICANA/);
+  assert.match(rd, /Sabana Perdida/);
+  assert.match(rd, /NO vende sábanas/);
+  assert.match(rd, /ES SU UBICACIÓN/);
+
+  D.actualizarAgente(orgId, { pais: "cr", instrucciones: "" }, canalId);
+  const cr = armarSistema("Tienda", D.obtenerAgente(orgId, canalId), [], null);
+  assert.match(cr, /EL MAPA DE COSTA RICA/);
+  assert.match(cr, /Sabanilla/);
+  assert.match(cr, /NO vende sábanas/);
+  assert.doesNotMatch(cr, /Sabana Perdida/, "el mapa dominicano no se cuela en Costa Rica");
+
+  D.actualizarAgente(orgId, { pais: "do", instrucciones: "" }, canalId);
+
+  // Y el que decide zonas los reconoce: la capital, el interior y el cantón.
+  const RD = AGENTES_DE_PAIS.do!;
+  const CR = AGENTES_DE_PAIS.cr!;
+  const zona = zonaDelCliente(RD, "vivo en Sabana Perdida, cerca del parque");
+  assert.ok(zona && zona !== "resto" && zona.nombre === "Gran Santo Domingo");
+  assert.equal(zonaDelCliente(RD, "soy de Sabana Grande de Boyá"), "resto");
+  assert.equal(zonaDelCliente(RD, "Sabana Yegua, Azua"), "resto");
+  const cantón = zonaDelCliente(CR, "estoy en Sabanilla");
+  assert.ok(cantón && cantón !== "resto", "Sabanilla es Montes de Oca: entrega a domicilio");
+  assert.equal(zonaDelCliente(CR, "vivo en Guápiles"), "resto");
+});
+
 /** Y la apertura sale del anuncio: qué vio y qué trae, en una línea. */
 test("el primer mensaje de venta sale de la descripción del anuncio", () => {
   const prompt = armarSistema("Tienda", D.obtenerAgente(orgId, canalId), [], {

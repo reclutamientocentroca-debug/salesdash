@@ -92,7 +92,9 @@ function importes(texto: string, simbolo: string): number[] {
 
 const MONEDAS_AJENAS: { simbolo: RegExp; nombre: string; codigo: string }[] = [
   { codigo: "DOP", nombre: "pesos dominicanos", simbolo: /RD\$|\bDOP\b|pesos? dominicanos?/i },
-  { codigo: "CRC", nombre: "colones", simbolo: /₡|\bCRC\b|\bcolon(es)?\b/i },
+  // «Colón» a secas es una provincia de Panamá: un cliente panameño que da su
+  // dirección no está hablando en colones.
+  { codigo: "CRC", nombre: "colones", simbolo: /₡|\bCRC\b|\bcolones\b|\d\s*col[oó]n\b/i },
   { codigo: "USD", nombre: "dólares", simbolo: /US\$|\bUSD\b|\bd[oó]lar(es)?\b/i },
   { codigo: "PAB", nombre: "balboas", simbolo: /B\/\.|\bPAB\b|\bbalboas?\b/i },
 ];
