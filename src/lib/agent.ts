@@ -45,6 +45,7 @@ import { anuncioParaModelo, type DatosAnuncio } from "./anuncio";
 import { contieneMarcador, MARCADOR_POR_DEFECTO, registrarCierre } from "./cierre";
 import { completar, ErrorIA, hoyISO } from "./ia";
 import { bloqueHumano } from "./humano";
+import { fichaDelHilo, fichaParaModelo } from "./memoria";
 import {
   agenteDePais,
   baseComportamiento,
@@ -1102,6 +1103,15 @@ export async function generarRespuesta(
       "Repetir algo que el cliente ya leyó le dice que no le estás escuchando, y ahí se cae la venta."
     : "";
 
+  /*
+   * Y LA FICHA DEL PEDIDO, lo último de todo. Ver `memoria.ts`: lo que ya se
+   * sabe —talla, color, dirección, nombre, celular— sacado del hilo sin
+   * modelo, y lo que falta marcado como lo único que queda por preguntar. Va
+   * al final porque es lo que más pesa, y es lo que el revisor usa para parar
+   * una pregunta repetida.
+   */
+  const ficha = fichaParaModelo(fichaDelHilo(mensajes, agente.pais));
+
   const r = await completar({
     orgId,
     proposito: "agente",
@@ -1122,7 +1132,7 @@ export async function generarRespuesta(
             false,
             // La zona que el cliente escribió, para decirle SU tarifa de envío.
             lugarEscritoPorElCliente(agenteDePais(agente.pais), mensajes),
-          ) + (reglaPrecio ? `\n\n${reglaPrecio}` : "") + memoria,
+          ) + (reglaPrecio ? `\n\n${reglaPrecio}` : "") + memoria + ficha,
       },
       ...aHistorial(mensajes),
     ],
@@ -1644,6 +1654,7 @@ export async function atenderConversacion(
       nombresDeLaCasa: [agente.nombre, agente.negocio, datosPais.nombreAgente ?? "", datosPais.tienda].filter(Boolean),
       catalogo: textoDeLoQueVende(agente, listarCatalogo(orgId, true)),
       anuncio: anuncioParaModelo(conv),
+      ficha: fichaDelHilo(historial, agente.pais),
       bloqueDelPais: bloqueDelPais(
         datosPais,
         ubicacion?.direccion?.provincia ??

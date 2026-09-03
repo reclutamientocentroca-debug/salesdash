@@ -36,6 +36,7 @@ import { contieneMarcador, MARCADOR_POR_DEFECTO } from "./cierre";
 import { completarJson, ErrorIA } from "./ia";
 import { MODELO_ANALISIS, type Mensaje } from "./db";
 import { conLoVistoYOido } from "./percepcion";
+import { preguntasRepetidas, type FichaDelPedido } from "./memoria";
 
 export interface Veredicto {
   aprobado: boolean;
@@ -56,6 +57,8 @@ export interface ContextoRevision {
   anuncio: string | null;
   /** El bloque del país tal cual lo leyó el agente, para que el revisor use el mismo. */
   bloqueDelPais: string;
+  /** Lo que el cliente ya dijo del pedido. Ver `memoria.ts`. */
+  ficha?: FichaDelPedido;
 }
 
 /** Sin tildes ni mayúsculas. */
@@ -151,6 +154,9 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
       }
     }
   }
+
+  // 6. Una pregunta que el cliente ya contestó. La memoria es una puerta.
+  if (ctx.ficha) fallas.push(...preguntasRepetidas(texto, ctx.ficha));
 
   return [...new Set(fallas)];
 }

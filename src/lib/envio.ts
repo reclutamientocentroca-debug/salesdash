@@ -80,7 +80,14 @@ export function contieneLugar(texto: string | null | undefined, lugares: string[
   if (!t) return false;
   return lugares.some((l) => {
     const nombre = llano(l);
-    return nombre.length > 2 && t.includes(nombre);
+    if (nombre.length <= 2) return false;
+    /*
+     * Palabra entera, no trozo: «Moca» está dentro de «mocasines» y «Naco»
+     * dentro de «nacional», y un cliente que escribe «vi los mocasines» no
+     * vive en Moca. Delante y detrás solo puede haber algo que no sea letra.
+     */
+    const escapado = nombre.replace(/[.*+?^${}()|[\]\\]/g, (c) => `\\${c}`);
+    return new RegExp(`(^|[^\\p{L}])${escapado}([^\\p{L}]|$)`, "u").test(t);
   });
 }
 
