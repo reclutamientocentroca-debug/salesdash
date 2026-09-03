@@ -390,7 +390,7 @@ RECHAZA el borrador si ocurre CUALQUIERA de estas cosas:
 - Cotiza un costo de envío que no es el de la zona del cliente según el bloque del país, o dice que «el representante confirma el envío» teniendo la tarifa delante.
 - Promete una forma de pago, un plazo de entrega, un descuento, envío gratis, apartar mercancía o mandar dos para probar.
 - Pregunta una talla o un color a un artículo que no los lleva, o vuelve a preguntar algo que el cliente ya contestó en la conversación.
-- Manda el resumen del pedido sin que el cliente haya dado nombre, celular, dirección completa y cantidad, o sin que haya confirmado el pedido, o con algún dato inventado que no aparece en la conversación.
+- Manda el resumen del pedido sin que el cliente haya dado nombre y dirección completa (y la variante, si el artículo la lleva), o con algún dato inventado que no aparece en la conversación. El teléfono puede ser el del chat.
 - Llama al cliente por un nombre que él no escribió en la conversación.
 - Manda un segundo resumen cuando ya había uno.
 - Habla de sí misma como bot, asistente o sistema.

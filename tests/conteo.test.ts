@@ -1049,7 +1049,7 @@ test("el agente dominicano cobra en pesos y pide sector y provincia", () => {
   assert.ok(!rd.includes("US$"), "aquí no se cobra en dólares");
   assert.ok(!rd.toLowerCase().includes("corregimiento"), "eso es de Panamá");
   assert.ok(rd.includes("PROVINCIA"), "la dirección lleva provincia");
-  assert.ok(rd.includes("DALA POR BUENA Y SIGUE"), "y no se repregunta");
+  assert.ok(rd.includes("Nunca hagas que el cliente repita información"), "y no se repregunta");
 
   /*
    * Las tallas son las de esta tienda: el calzado en europea con su
@@ -1065,6 +1065,7 @@ test("el agente dominicano cobra en pesos y pide sector y provincia", () => {
 
   // Las reglas que valen la venta, que ahora son de los tres.
   assert.ok(rd.includes("NUNCA TE QUEDAS EN SILENCIO"));
+  assert.ok(rd.includes("Nunca pidas el número de teléfono"), "el teléfono lo tiene el sistema");
   assert.ok(rd.includes("TÚ NO PUEDES ENVIAR FOTOS"), "las fotos se transfieren");
   assert.ok(rd.includes("LA TRANSFERENCIA VA PEGADA AL RESUMEN"), "y nunca se transfiere sin haberlo mandado");
   assert.ok(rd.includes("AQUÍ NO SE RESERVA NADA"));

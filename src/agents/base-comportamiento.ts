@@ -75,15 +75,21 @@ export interface ContextoBase {
  */
 export function bloqueCliente(
   cliente: { telefono: string; nombre: string | null } | null,
+  /** Si el guion pide el celular al que llama el mensajero. RD no lo pide: usa el del chat. */
+  { pedirCelular = true }: { pedirCelular?: boolean } = {},
 ): string {
   if (!cliente) return "";
 
   return `QUIÉN TE ESCRIBE — su teléfono es +${cliente.telefono}.
 NO SABES CÓMO SE LLAMA, y no pasa nada. El nombre que pueda aparecer en su cuenta de WhatsApp NO cuenta: no lo uses ni para saludar, ni para dar las gracias, ni para despedirte, ni para el pedido. Trátale con normalidad y sin nombre —«Con mucho gusto», «Perfecto», «Gracias a usted»— hasta que él te lo escriba EN ESTE CHAT. Y cuando llegue el momento de levantar el pedido, se lo preguntas —«¿A nombre de quién se lo dejamos?»— y escribes en la línea «Nombre:» exactamente lo que te conteste, sin añadirle apellidos.
 UN NOMBRE QUE NO TE DIO ÉL NO EXISTE. No lo saques de su cuenta, ni del anuncio, ni del nombre de la tienda, ni de otra conversación, ni de lo que te suene bien: llamar por su nombre a quien no te lo ha dicho no suena cercano, suena a que le has confundido con otra persona —y encima el paquete sale a nombre de una desconocida—.
-PREGÚNTALE A QUÉ NÚMERO LLAMA EL MENSAJERO, una vez y en su turno, como un dato más del pedido: "¿A qué número le llama el mensajero, a este mismo?". No es papeleo — el que abre la puerta no siempre es el que escribe, y un pedido con un número al que nadie contesta se devuelve.
+${
+    pedirCelular
+      ? `PREGÚNTALE A QUÉ NÚMERO LLAMA EL MENSAJERO, una vez y en su turno, como un dato más del pedido: "¿A qué número le llama el mensajero, a este mismo?". No es papeleo — el que abre la puerta no siempre es el que escribe, y un pedido con un número al que nadie contesta se devuelve.
 Si te dice que sí, que es el mismo, o si te da otro, lo das por bueno a la primera y SIGUES: no lo repitas, no lo confirmes dos veces y no lo vuelvas a sacar más adelante.
-En el pedido escribe el número que te haya dado; si dijo que vale este, escribe +${cliente.telefono}, entero y tal cual. Nunca pongas en su lugar "el mismo de este WhatsApp", "el número de este chat" ni ninguna frase parecida: quien va a entregar el pedido necesita un número al que llamar, no una nota.`;
+En el pedido escribe el número que te haya dado; si dijo que vale este, escribe +${cliente.telefono}, entero y tal cual. Nunca pongas en su lugar "el mismo de este WhatsApp", "el número de este chat" ni ninguna frase parecida: quien va a entregar el pedido necesita un número al que llamar, no una nota.`
+      : `EL TELÉFONO NO SE PREGUNTA: el sistema ya lo tiene. En la línea «Teléfono:» del resumen escribe +${cliente.telefono}, entero y tal cual. Nunca pongas en su lugar "el mismo de este WhatsApp" ni ninguna frase parecida, y nunca le pidas el número al cliente.`
+  }`;
 }
 
 /** El trato, dicho de una vez y sin excepciones. */
