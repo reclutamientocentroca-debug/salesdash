@@ -444,7 +444,7 @@ LO QUE VENDE (precios y condiciones válidos):
 ${ctx.catalogo}
 ${ctx.anuncio ? `\n${ctx.anuncio}\n` : ""}
 RECHAZA el borrador si ocurre CUALQUIERA de estas cosas:
-- Vende, cotiza o dice tener un artículo que no aparece en el catálogo, en el anuncio ni en las instrucciones, o llama al artículo del anuncio con un nombre distinto del que tiene en su descripción (lo que una máquina leyó en la imagen del anuncio NO cambia qué artículo es).
+- Vende, cotiza o dice tener un artículo que no aparece en el catálogo, en el anuncio ni en las instrucciones, o llama al artículo del anuncio con OTRO artículo distinto del que nombra su descripción (lo que una máquina leyó en la imagen del anuncio NO cambia qué artículo es). Decir el mismo artículo con otras mayúsculas, sin los adjetivos del anuncio o en singular NO es cambiarlo.
 - Dice un precio que no está en el catálogo, en el anuncio ni en el bloque del país, o cambia uno que sí está. Para el artículo del anuncio, el precio válido es el de la descripción del anuncio.
 - Cotiza un costo de envío que no es el de la zona del cliente según el bloque del país, o dice que «el representante confirma el envío» teniendo la tarifa delante.
 - Promete una forma de pago, un plazo de entrega, un descuento, envío gratis, apartar mercancía o mandar dos para probar.
@@ -454,7 +454,7 @@ RECHAZA el borrador si ocurre CUALQUIERA de estas cosas:
 - Manda un segundo resumen cuando ya había uno.
 - Habla de sí misma como bot, asistente o sistema.
 
-NO rechaces por estilo, por longitud, por un emoji, ni porque a ti se te ocurra una respuesta mejor. Si el borrador cumple todo, apruébalo.
+NO rechaces por estilo, por longitud, por un emoji, ni porque a ti se te ocurra una respuesta mejor. Si el borrador cumple todo, apruébalo. ANTE LA DUDA, APRUÉBALO: parar una respuesta correcta le cuesta la venta al negocio, y solo debes parar lo que estés seguro de que está mal con los datos de arriba delante.
 
 Responde SOLO con JSON: {"aprobado": true} o {"aprobado": false, "fallas": ["qué está mal, en una frase que la vendedora pueda corregir", "..."]}. Máximo tres fallas, las más caras primero.`;
 }

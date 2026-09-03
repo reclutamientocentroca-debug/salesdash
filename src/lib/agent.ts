@@ -42,6 +42,7 @@ import {
 } from "./db";
 import { descifrar } from "./auth";
 import { anuncioParaModelo, anuncioVigente, type DatosAnuncio } from "./anuncio";
+import { aperturaSegura } from "./apertura";
 import { contieneMarcador, MARCADOR_POR_DEFECTO, registrarCierre } from "./cierre";
 import { completar, ErrorIA, hoyISO } from "./ia";
 import { bloqueHumano } from "./humano";
@@ -1742,24 +1743,54 @@ export async function atenderConversacion(
     }
 
     if (!veredicto.aprobado) {
-      crearAnomalia(orgId, {
-        conversationId,
-        tipo: "respuesta_rechazada",
-        severidad: "alta",
-        detalle:
-          `El revisor paró la respuesta del agente (${veredicto.por === "reglas" ? "por regla" : "el modelo revisor"}): ` +
-          `${veredicto.fallas.join("; ")}. Al cliente se le dijo que un representante le confirma, y el hilo pasó a una persona.`,
-      });
+      const quien = veredicto.por === "reglas" ? "por regla" : "el modelo revisor";
+      const motivo = veredicto.fallas.join("; ");
 
-      // Una sola línea honesta, con el trato del país, y el hilo a una persona.
-      respuesta = {
-        ...respuesta,
-        texto:
-          datosPais.trato === "tu"
-            ? "Un momento, por favor: un representante te confirma ese dato enseguida."
-            : "Un momento, por favor: un representante le confirma ese dato enseguida.",
-        pideAsesor: true,
-      };
+      /*
+       * EL PRIMER MENSAJE NUNCA ES «UN MOMENTO, POR FAVOR».
+       *
+       * Si el revisor paró la apertura dos veces, el cliente que acaba de
+       * escribir por un anuncio no puede recibir una línea de espera: se le
+       * vende de la descripción, sin modelo. Ver `apertura.ts`: saludo,
+       * artículo y precio copiados de la descripción, y la primera pregunta.
+       * Solo si la descripción no trae precio se transfiere, que es lo que el
+       * guion manda cuando no hay precio.
+       */
+      const esApertura = historial.every((m) => m.emisor === "cliente") || esClienteQueVuelve(historial);
+      const apertura = esApertura
+        ? aperturaSegura(datosPais, anuncioVigente(conv), saludoDe(datosPais, agente.nombre, negocio))
+        : null;
+
+      if (apertura) {
+        crearAnomalia(orgId, {
+          conversationId,
+          tipo: "respuesta_rechazada",
+          severidad: "media",
+          detalle:
+            `El revisor paró la apertura del agente (${quien}): ${motivo}. ` +
+            "Se mandó la apertura segura, copiada de la descripción del anuncio, y la venta sigue.",
+        });
+        respuesta = { ...respuesta, texto: apertura, pideAsesor: false };
+      } else {
+        crearAnomalia(orgId, {
+          conversationId,
+          tipo: "respuesta_rechazada",
+          severidad: "alta",
+          detalle:
+            `El revisor paró la respuesta del agente (${quien}): ${motivo}. ` +
+            "Al cliente se le dijo que un representante le confirma, y el hilo pasó a una persona.",
+        });
+
+        // Una sola línea honesta, con el trato del país, y el hilo a una persona.
+        respuesta = {
+          ...respuesta,
+          texto:
+            datosPais.trato === "tu"
+              ? "Un momento, por favor: un representante te confirma ese dato enseguida."
+              : "Un momento, por favor: un representante le confirma ese dato enseguida.",
+          pideAsesor: true,
+        };
+      }
     }
   }
 
