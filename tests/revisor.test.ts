@@ -202,3 +202,14 @@ Total a pagar: RD$2,750`;
   const otraDireccion = { ...ctx, textosDelCliente: ["la M", "Yamil Peña"] };
   assert.ok(revisarConReglas(pedido("Yamil Peña", "8094353930"), otraDireccion).some((f) => f.includes("dirección del resumen")));
 });
+
+/** El caso de Costa Rica: ofrecía sábanas que nadie vende. Ni de un ejemplo ni de «La Sabana». */
+test("un artículo que no está en el anuncio ni en el catálogo no se ofrece", () => {
+  assert.ok(revisarConReglas("Tenemos el set de sábanas en microfibra. ¿Qué medida necesita?", cr).some((f) => f.includes("sábanas") || f.includes("sabanas")));
+  assert.ok(revisarConReglas("¿Le interesa una sábana también?", rd).some((f) => f.includes("sabana")));
+  // Nombrar el barrio no es ofrecer un producto: «La Sabana» va sin tilde y como lugar.
+  assert.deepEqual(revisarConReglas("¿Se lo enviamos a La Sabana? El envío es ₡3.500.", cr), []);
+  // Y si la tienda sí los vende, se pueden ofrecer.
+  const conSabanas = { ...cr, catalogo: "Catálogo:\n- Set de sábanas — 12500" };
+  assert.deepEqual(revisarConReglas("El set de sábanas está en ₡12.500.", conSabanas), []);
+});

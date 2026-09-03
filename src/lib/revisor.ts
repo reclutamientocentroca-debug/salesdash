@@ -38,6 +38,8 @@ import { MODELO_ANALISIS, type Mensaje } from "./db";
 import { conLoVistoYOido } from "./percepcion";
 import { preguntasRepetidas, type FichaDelPedido } from "./memoria";
 import { zonaDelCliente } from "@/agents";
+import { contieneLugar } from "./envio";
+import { obtenerPais } from "./paises";
 
 export interface Veredicto {
   aprobado: boolean;
@@ -267,6 +269,35 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
     }
   }
 
+  // 8b. Un artículo que no está ni en el anuncio ni en el catálogo no se ofrece.
+  //
+  // El caso real: «sábanas». Un modelo copia el producto de un ejemplo, o
+  // convierte «La Sabana» —un barrio— en un artículo. Se paran por nombre
+  // los que ya han salido; lo demás lo juzga el modelo revisor.
+  //
+  // Sin tildes, «La Sabana» (barrio de San José) y «sábana» (el producto)
+  // son la misma palabra. Los nombres del mapa del país que llevan «sabana»
+  // dentro se apartan: nombrar el barrio no es ofrecer un producto.
+  {
+    const fuentes = llano(`${ctx.catalogo}\n${ctx.anuncio ?? ""}`);
+    const lugaresConSabana = [
+      ...d.envio.zonas.flatMap((z) => z.lugares),
+      ...(d.envio.restoDelPais.lugares ?? []),
+      ...(obtenerPais(d.codigo)?.zonas ?? []),
+      ...d.mapa.regiones.flatMap((r) => r.lugares),
+    ].filter((l) => llano(l).includes("sabana"));
+    const nombraUnLugar = contieneLugar(texto, lugaresConSabana);
+
+    for (const articulo of ARTICULOS_FANTASMA) {
+      if (nombraUnLugar && articulo.includes("sabana")) continue;
+      const re = new RegExp(`(^|[^\\p{L}])${articulo}([^\\p{L}]|$)`, "iu");
+      if (re.test(llano(texto)) && !fuentes.includes(articulo)) {
+        fallas.push(`ofrece «${articulo}» y eso no está en la descripción del anuncio ni en el catálogo: esta tienda no lo vende`);
+        break;
+      }
+    }
+  }
+
   // 9. Tutear donde se vende de usted.
   if (d.trato === "usted" && TUTEO.test(texto)) {
     fallas.push("tutea al cliente («quieres», «te lo», «tu pedido»), y aquí se vende de usted");
@@ -336,6 +367,9 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
 
 /** Cómo suena tutear a un cliente. «Dime» y «mándame» no van: son expresiones del país. */
 const TUTEO = /\b(quieres|tienes|puedes|necesitas|prefieres|deseas|sabes|vives|est[aá]s|te preparo|te env[ií]o|te llega|te lo|te la|te mando|te dejo|tu pedido|tu direcci[oó]n|tu nombre|tu n[uú]mero|tu talla|tu celular)\b/i;
+
+/** Artículos que han salido de un ejemplo o de un nombre del mapa, nunca de un anuncio. */
+const ARTICULOS_FANTASMA = ["sabanas", "sabana", "set de sabanas", "juego de sabanas", "edredon", "colcha"];
 
 interface SalidaRevisor {
   aprobado?: boolean;
