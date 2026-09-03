@@ -196,15 +196,30 @@ export async function buscarPrimeraSenal(
  * prompt del agente, y una estructura no aportaría nada que el modelo no lea
  * igual de bien en una frase.
  */
-const PROMPT_ANUNCIO = `Esta es la imagen de un anuncio de una tienda. Descríbela para un vendedor que va a atender al cliente que la pinchó.
+function promptAnuncio(a: { titulo: string | null; texto: string | null }): string {
+  /*
+   * EL ARTÍCULO SE LE DICE, NO SE LE PREGUNTA. Sin esto, la visión miraba una
+   * prenda extendida sobre una cama y escribía que el anuncio era de ropa de
+   * cama; esa frase iba al prompt del agente, y el agente le decía al cliente
+   * que vendía algo que la tienda no vende. El texto del anuncio lo escribió
+   * el negocio y es el que dice qué artículo es; la imagen solo aporta lo que
+   * va escrito encima.
+   */
+  const dicho = [a.texto?.trim(), a.titulo?.trim()].filter(Boolean);
+  const articulo = dicho.length
+    ? `EL ANUNCIO ES DE ESTE ARTÍCULO, según lo escribió la tienda: «${dicho[0]}». Ese es el producto y así se llama: NO lo cambies por otro por lo que creas ver. El fondo, el mueble o la tela sobre la que está puesto no son el producto.\n\n`
+    : "";
 
-En dos o tres frases, y solo con lo que SE VE:
-- Qué producto es.
+  return `Esta es la imagen de un anuncio de una tienda. Descríbela para un vendedor que va a atender al cliente que la pinchó.
+
+${articulo}En dos o tres frases, y solo con lo que SE VE:
+- Qué producto es${dicho.length ? ", repitiendo el nombre que la tienda le dio arriba" : ""}.
 - Qué colores aparecen. Si solo hay uno, dilo: "solo se ve en negro". Si no hay colores a elegir, dilo también.
 - Qué TALLAS o medidas se leen, copiadas tal cual: "S, M, L, XL", "de la 36 a la 42". Si no se lee ninguna, dilo: "no se ve ninguna talla".
 - CUALQUIER precio, cifra u oferta escrita en la imagen, copiada tal cual.
 
 La talla y el color SE DICEN SIEMPRE, aunque sea para decir que no los hay: quien lea esto decide con ello si se los pregunta al cliente, y callarlos es lo que le hace preguntar una talla que ese artículo no tiene. Del resto, lo que no se vea no lo menciones. No inventes nada, no adornes y no saludes.`;
+}
 
 
 
@@ -242,7 +257,7 @@ export async function describirAnunciosPendientes(
           {
             role: "user",
             content: [
-              { type: "text", text: PROMPT_ANUNCIO },
+              { type: "text", text: promptAnuncio(a) },
               { type: "image_url", image_url: { url: imagen } },
             ],
           },

@@ -936,6 +936,36 @@ test("lo que dice la publicación del anuncio llega al prompt", () => {
   assert.ok(prompt.includes("incluye 2 fundas y envío gratis a la capital"));
 });
 
+/**
+ * LA IMAGEN NO CAMBIA QUÉ ARTÍCULO ES.
+ *
+ * La lectura de la imagen la hace una máquina, y una máquina que ve una
+ * prenda sobre una cama escribe que el anuncio es de ropa de cama. Esa frase
+ * iba al prompt con el mismo peso que el texto del anuncio, y el agente
+ * acababa vendiendo algo que la tienda no vende. El texto lo escribió el
+ * negocio: es el que manda, y la imagen solo aporta lo escrito encima.
+ */
+test("el texto del anuncio manda sobre lo que se leyó en su imagen", () => {
+  const { orgId } = cuentaConPagina("texto-manda");
+
+  D.registrarAnuncioVisto(orgId, "ad_imagen_confusa", "Camisa de lino", { postId: "p_5" });
+  D.guardarPublicacionAnuncio(orgId, "ad_imagen_confusa", {
+    texto: "Camisa de lino manga larga para caballeros.",
+    enlace: "https://facebook.com/123/posts/555",
+  });
+  D.guardarDescripcionAnuncio(orgId, "ad_imagen_confusa", "Un juego de ropa de cama blanco, sin talla visible");
+
+  const prompt = anuncioParaPrompt(resolverAnuncio(orgId, "ad_imagen_confusa"));
+
+  assert.ok(prompt.includes("ESTO ES LO QUE MANDA"), "el texto va marcado como la fuente");
+  assert.ok(prompt.includes("Camisa de lino manga larga para caballeros."));
+  assert.ok(prompt.includes("la máquina se equivocó y el artículo sigue siendo el del anuncio"));
+  assert.ok(
+    prompt.indexOf("ESTO ES LO QUE MANDA") < prompt.indexOf("Un juego de ropa de cama"),
+    "y va antes que la lectura de la imagen",
+  );
+});
+
 /** El enlace es para el dueño, no para el modelo: no se le cuela al prompt. */
 test("el enlace de la publicación no viaja al prompt", () => {
   const { orgId } = cuentaConPagina("enlace-fuera");

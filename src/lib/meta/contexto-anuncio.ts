@@ -125,9 +125,23 @@ export function anuncioParaPrompt(c: ContextoAnuncio): string {
    * Facebook el precio y los colores van escritos ENCIMA de la foto la mitad de
    * las veces, y ahí no los veía nadie.
    */
+  /*
+   * EL TEXTO MANDA. La lectura de la imagen la hizo una máquina, y una máquina
+   * que ve una prenda sobre una cama puede escribir que el anuncio es de ropa
+   * de cama. Se le dice al agente para qué sirve cada línea: el artículo es
+   * el que nombra el texto, y la imagen solo aporta lo que va escrito encima.
+   */
   const vio: string[] = [];
-  if (c.texto) vio.push(`Lo que dice el anuncio: ${c.texto}`);
-  if (c.descripcionImagen) vio.push(`Lo que se ve en su imagen: ${c.descripcionImagen}`);
+  if (c.texto) {
+    vio.push(
+      `Lo que dice el anuncio —ESTO ES LO QUE MANDA: el artículo que se vende es el que se nombra aquí, con este nombre—: ${c.texto}`,
+    );
+  }
+  if (c.descripcionImagen) {
+    vio.push(
+      `Lo que una máquina leyó en su imagen —sirve SOLO para el precio, los colores y las tallas escritos encima; si nombra un artículo distinto${c.texto ? " del texto de arriba" : " del que dice el anuncio"}, la máquina se equivocó y el artículo sigue siendo el del anuncio—: ${c.descripcionImagen}`,
+    );
+  }
 
   const contexto = vio.length
     ? ["ESTO ES LO QUE VIO EL CLIENTE EN EL ANUNCIO ANTES DE ESCRIBIRTE:", ...vio, ""].join("\n")
@@ -180,7 +194,7 @@ export function anuncioParaPrompt(c: ContextoAnuncio): string {
   return (
     contexto +
     [
-      "El anuncio que trajo a este cliente corresponde a este producto del catálogo:",
+      "El anuncio que trajo a este cliente corresponde a este producto del catálogo, y ESE es el artículo que vendes en este chat, con ese mismo nombre:",
       partes.join(" "),
       "Ese precio es el bueno. Si el anuncio prometía otro —en su texto o escrito sobre su imagen—, no lo confirmes ni lo niegues: dile que lo revisas con el equipo.",
     ].join("\n")

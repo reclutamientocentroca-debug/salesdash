@@ -1689,6 +1689,39 @@ test("el primer mensaje de venta sale de la descripción del anuncio", () => {
 });
 
 /**
+ * EL ARTÍCULO ES EL DE LA DESCRIPCIÓN, Y NO HAY OTRO.
+ *
+ * El agente de República Dominicana le dijo a un cliente que vendía un
+ * artículo que la tienda no vende. Da igual de dónde lo sacara —una imagen
+ * mal leída, un parecido, lo que venden otras tiendas—: la descripción del
+ * anuncio la escribió el negocio y es la única fuente de QUÉ se vende en ese
+ * chat. Esto comprueba que se le dice, pegado a la descripción y en las
+ * reglas, y que ya no se le manda seguir «lo que el cliente diga» a ciegas.
+ */
+test("el artículo es el de la descripción del anuncio y no se cambia por otro", () => {
+  const prompt = armarSistema("Tienda", D.obtenerAgente(orgId, canalId), [], {
+    origen: "anuncio",
+    producto_anuncio: "Camisa de lino",
+    descripcion_anuncio: "Camisa de lino manga larga para caballeros, en varios colores.",
+  });
+
+  assert.ok(prompt.includes("EL ARTÍCULO DE ESTE CHAT ES EL QUE NOMBRA ESA DESCRIPCIÓN"));
+  assert.ok(prompt.includes("Y EL PRECIO ES EL QUE ESTÁ ESCRITO EN ESA DESCRIPCIÓN"), "y el precio también sale de ahí");
+  assert.ok(prompt.includes("Una cifra que no está escrita arriba no existe"));
+  assert.ok(prompt.includes("EL ARTÍCULO ES EL QUE ESTÁ ESCRITO ARRIBA, CON SU NOMBRE"));
+  assert.ok(prompt.includes("no lo vendes ni le pones precio"), "otro artículo que no está arriba no se vende");
+  assert.equal(prompt.includes("manda lo que él diga"), false, "ya no se sigue a ciegas lo que nombre el cliente");
+
+  // Sin descripción, vale el título; y tampoco se cambia.
+  const soloTitulo = armarSistema("Tienda", D.obtenerAgente(orgId, canalId), [], {
+    origen: "anuncio",
+    producto_anuncio: "Camisa de lino",
+    descripcion_anuncio: null,
+  });
+  assert.ok(soloTitulo.includes("EL ARTÍCULO DE ESTE CHAT ES EL DEL TÍTULO"));
+});
+
+/**
  * UN ARTÍCULO QUE NO CONOCE SE PASA, NO SE IMPROVISA.
  *
  * Es el momento en que un agente hace más daño: el cliente pregunta por algo

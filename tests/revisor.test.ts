@@ -38,7 +38,7 @@ test("la moneda de otro país no sale", () => {
   assert.ok(f.some((x) => x.includes("dólares")), "dólares en un chat dominicano");
   assert.ok(revisarConReglas("Son ₡25.000 más el envío.", pa).some((x) => x.includes("colones")));
   // En Panamá el dólar es de casa.
-  assert.deepEqual(revisarConReglas("Son US$30.00.", pa), []);
+  assert.deepEqual(revisarConReglas("Son US$2,500.00.", pa), []);
 });
 
 test("un costo de envío que no es ninguno de los del país no sale", () => {
@@ -72,6 +72,45 @@ test("un resumen con huecos, a nombre de la vendedora o con un envío ajeno no s
   assert.ok(revisarConReglas(pedido("Ana Pérez", "por confirmar"), rd).some((x) => x.includes("total")));
   assert.ok(revisarConReglas(pedido("Orlanda", "RD$2,750"), rd).some((x) => x.includes("nombre de la casa")));
   assert.ok(revisarConReglas(pedido("Ana Pérez", "RD$2,850", "RD$350"), rd).some((x) => x.includes("RD$350")));
+});
+
+/**
+ * EL PRECIO ES EL DE LA DESCRIPCIÓN, Y NO SE INVENTA.
+ *
+ * La dueña lo dijo con todas las letras: la IA tiene que sacar el producto y
+ * el precio de la descripción y no inventar ninguno. Esto es lo que lo hace
+ * mecánico: cada importe que escriba el agente tiene que explicarse con lo
+ * que tenía delante —descripción, catálogo, envío—, y si no hay ningún precio
+ * escrito en ningún sitio, no cotiza ninguno.
+ */
+test("un precio que no está en la descripción ni en el catálogo no sale", () => {
+  // El del catálogo, con cantidad y con envío, pasa.
+  assert.deepEqual(revisarConReglas("Los mocasines están en RD$2,500.", rd), []);
+  assert.deepEqual(revisarConReglas("Dos pares son RD$5,000. Con el envío, el total queda en RD$5,250.", rd), []);
+  // Y una cifra con decimales al final de la frase se lee bien: cinco, no quinientos.
+  assert.deepEqual(revisarConReglas("El envío es US$5.00.", pa), []);
+
+  // Uno inventado, o redondeado, no.
+  const inventado = revisarConReglas("Los mocasines están en RD$2,300.", rd);
+  assert.ok(inventado.some((x) => x.includes("RD$2300") && x.includes("no se inventa")));
+  assert.ok(revisarConReglas("Le quedan en RD$2,000 cada uno.", rd).some((x) => x.includes("RD$2000")));
+
+  // El de la descripción del anuncio vale, escrito como lo escriba el dueño.
+  const conAnuncio: ContextoRevision = {
+    ...rd,
+    catalogo: "Catálogo:\n(sin catálogo cargado)",
+    anuncio: "Este cliente llegó por un anuncio:\n- Producto anunciado: Camisa de lino\n- Lo que promete el anuncio: Camisa de lino manga larga a 1,850 pesos, en varios colores.",
+  };
+  assert.deepEqual(revisarConReglas("La camisa de lino es de excelente calidad, en RD$1,850.\n\n¿Qué talla necesita?", conAnuncio), []);
+  assert.deepEqual(revisarConReglas("Con el envío a Santiago queda en RD$2,140.", conAnuncio), []);
+  assert.ok(revisarConReglas("La camisa está en RD$1,900.", conAnuncio).some((x) => x.includes("RD$1900")));
+
+  // Sin ningún precio escrito en ningún sitio, no se cotiza ninguno.
+  const sinPrecio: ContextoRevision = { ...conAnuncio, anuncio: "Este cliente llegó por un anuncio:\n- Producto anunciado: Camisa de lino" };
+  const f = revisarConReglas("La camisa está en RD$1,850.", sinPrecio);
+  assert.ok(f.some((x) => x.includes("no hay ningún precio") && x.includes("[HANDOFF]")));
+  // Pero el envío del país sí se puede decir.
+  assert.deepEqual(revisarConReglas("El envío a Santiago es RD$290.", sinPrecio), []);
 });
 
 test("sin clave del modelo, el revisor aprueba lo que las reglas aprueban y no se cae", async () => {

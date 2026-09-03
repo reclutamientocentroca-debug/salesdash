@@ -1592,6 +1592,14 @@ export async function atenderConversacion(
   }
 
   // ── Generar ─────────────────────────────────────────────────────────────
+  /*
+   * LO QUE DIJO EL ANUNCIO —texto, precio, lo leído en su imagen— se calcula
+   * UNA vez y lo leen los tres: el agente al escribir, el revisor al juzgar y
+   * el agente otra vez si tiene que reescribir. Si el revisor no lo viera,
+   * pararía como inventado el precio que el propio anuncio escribió.
+   */
+  const reglaPrecio = await reglaDePrecio(orgId, conv);
+
   let respuesta: RespuestaGenerada;
   try {
     // `conv` lleva el anuncio que abrió el hilo: producto y promesa. Es lo que
@@ -1601,7 +1609,7 @@ export async function atenderConversacion(
       canalId,
       historial,
       conv,
-      await reglaDePrecio(orgId, conv),
+      reglaPrecio,
       { telefono: conv.cliente_phone, nombre: conv.cliente_nombre },
       ubicacion,
     );
@@ -1653,7 +1661,7 @@ export async function atenderConversacion(
       marcador: org?.marcador_cierre ?? MARCADOR_POR_DEFECTO,
       nombresDeLaCasa: [agente.nombre, agente.negocio, datosPais.nombreAgente ?? "", datosPais.tienda].filter(Boolean),
       catalogo: textoDeLoQueVende(agente, listarCatalogo(orgId, true)),
-      anuncio: anuncioParaModelo(conv),
+      anuncio: [anuncioParaModelo(conv), reglaPrecio].filter(Boolean).join("\n\n") || null,
       ficha: fichaDelHilo(historial, agente.pais),
       nombreDeCuenta: conv.cliente_nombre,
       clienteEscribioSuNombre: !!conv.cliente_nombre && historial.some(
@@ -1676,13 +1684,12 @@ export async function atenderConversacion(
           veredicto.fallas.join("; "),
       );
       try {
-        const regla = await reglaDePrecio(orgId, conv);
         const segunda = await generarRespuesta(
           orgId,
           canalId,
           historial,
           conv,
-          [regla, correccionParaElAgente(veredicto)].filter(Boolean).join("\n\n"),
+          [reglaPrecio, correccionParaElAgente(veredicto)].filter(Boolean).join("\n\n"),
           cliente,
           ubicacion,
         );

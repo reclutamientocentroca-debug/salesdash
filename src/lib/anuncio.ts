@@ -69,5 +69,38 @@ export function anuncioParaModelo(c: DatosAnuncio): string | null {
   lineas.push(`- Producto anunciado: ${producto || "(el anuncio no traía título)"}`);
   if (descripcion) lineas.push(`- Lo que promete el anuncio: ${descripcion}`);
 
+  /*
+   * EL ARTÍCULO ES EL DE LA DESCRIPCIÓN, Y NO HAY OTRO.
+   *
+   * Se ha visto al agente decirle a un cliente que vendía un artículo que la
+   * tienda no vende: lo sacó de una imagen mal leída, de un parecido o de lo
+   * que suelen vender otras tiendas. La descripción la escribió el negocio y
+   * es la única fuente de QUÉ se vende en este chat; lo demás solo añade
+   * precio, colores o tallas. Se le dice aquí, pegado a la descripción, para
+   * que el modelo lo lea junto al dato y no cinco pantallas más abajo.
+   */
+  lineas.push(
+    descripcion
+      ? "EL ARTÍCULO DE ESTE CHAT ES EL QUE NOMBRA ESA DESCRIPCIÓN, y se le llama exactamente como ahí se llama. " +
+          "Está PROHIBIDO cambiarlo por otro artículo o ponerle otro nombre: ni por lo que una máquina haya leído en una imagen, " +
+          "ni por lo que suene parecido, ni por lo que vendan otras tiendas. Si la descripción no nombra ningún artículo, vale el título; " +
+          "y si ninguno de los dos lo nombra, pregúntale al cliente qué artículo vio, sin proponerle tú ninguno."
+      : "EL ARTÍCULO DE ESTE CHAT ES EL DEL TÍTULO, con ese mismo nombre. Está PROHIBIDO cambiarlo por otro o ponerle otro nombre. " +
+          "Si el título tampoco nombra ningún artículo, pregúntale al cliente qué artículo vio, sin proponerle tú ninguno.",
+  );
+
+  /*
+   * Y EL PRECIO, IGUAL: el que está escrito en la descripción, tal cual, o
+   * ninguno. Un precio inventado es una venta que el negocio no puede
+   * sostener y que el cliente ya leyó. El revisor lo para de forma mecánica
+   * —ver `revisor.ts`—, pero mejor que el agente ni lo escriba.
+   */
+  lineas.push(
+    "Y EL PRECIO ES EL QUE ESTÁ ESCRITO EN ESA DESCRIPCIÓN, con la misma cifra: no lo redondees, no lo cambies, no le sumes ni le quites nada. " +
+      "Si la descripción no trae ningún precio, mira si el catálogo o lo que escribió el negocio tienen ESE MISMO artículo con precio, y ese es el que vale. " +
+      "Si no hay precio en ningún sitio, NO LO INVENTES ni lo deduzcas de otro artículo parecido: dile al cliente que un representante le pasa el precio y escribe \"[HANDOFF]\". " +
+      "Una cifra que no está escrita arriba no existe.",
+  );
+
   return lineas.join("\n");
 }

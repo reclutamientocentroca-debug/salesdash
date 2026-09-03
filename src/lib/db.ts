@@ -3194,10 +3194,10 @@ export function guardarDescripcionAnuncio(orgId: number, adId: string, descripci
 /** Anuncios con imagen guardada y sin describir todavía. */
 export function anunciosPorDescribir(orgId: number, limite = 5) {
   return s(
-    `SELECT ad_id, imagen FROM anuncios_meta
+    `SELECT ad_id, imagen, titulo, texto FROM anuncios_meta
       WHERE org_id = ? AND imagen IS NOT NULL AND descripcion_imagen IS NULL
       ORDER BY created_at DESC LIMIT ?`,
-  ).all(orgId, limite) as { ad_id: string; imagen: string }[];
+  ).all(orgId, limite) as { ad_id: string; imagen: string; titulo: string | null; texto: string | null }[];
 }
 
 /**

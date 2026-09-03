@@ -76,7 +76,10 @@ function importes(texto: string, simbolo: string): number[] {
   const re = new RegExp(`${s}\\s?(\\d[\\d.,]*)`, "g");
   const salida: number[] = [];
   for (const m of texto.matchAll(re)) {
-    const crudo = m[1]!;
+    // El punto o la coma que cierran la frase no son parte de la cifra:
+    // «US$5.00.» es cinco, no quinientos.
+    const crudo = m[1]!.replace(/[.,]+$/, "");
+    if (!crudo) continue;
     // «2,500» y «2.500» son dos mil quinientos; «5.00» y «5,00» son cinco.
     const limpio = /[.,]\d{2}$/.test(crudo) && !/[.,]\d{3}$/.test(crudo)
       ? crudo.replace(/[.,](\d{2})$/, ".$1").replace(/[.,](?=\d{3})/g, "")
@@ -105,6 +108,63 @@ const PROMESAS_PROHIBIDAS: { re: RegExp; falla: string }[] = [
 const FORMAS_DE_PAGO = /contra entrega|contraentrega|transferencia|\bsinpe\b|\byappy\b|tarjeta|efectivo|\bach\b|dep[oó]sito|pago m[oó]vil|nequi|zelle|paypal/i;
 
 /**
+ * TODAS LAS CIFRAS QUE APARECEN EN LO QUE EL AGENTE TENÍA DELANTE.
+ *
+ * Catálogo, lo que escribió el negocio y el anuncio: de ahí salen los precios
+ * válidos. Se toman TODOS los números —tallas incluidas— a propósito: el
+ * revisor prefiere dejar pasar un precio raro que parar uno bueno, y una
+ * talla que coincida con un importe es un caso que no se paga.
+ *
+ * Se leen con y sin símbolo de moneda porque la descripción del anuncio la
+ * escribe el dueño como le sale: «RD$1,500», «1500 pesos», «Precio: 1.500».
+ */
+function cifrasConocidas(ctx: ContextoRevision): number[] {
+  const fuentes = [ctx.catalogo, ctx.anuncio ?? ""].join("\n");
+  const salida = new Set<number>();
+  for (const m of fuentes.matchAll(/\d[\d.,]*/g)) {
+    const crudo = m[0].replace(/[.,]+$/, "");
+    if (!crudo) continue;
+    // Las dos lecturas: «2,500» como dos mil quinientos y «5.00» como cinco.
+    const candidatos = new Set<string>([crudo.replace(/[.,]/g, "")]);
+    if (/[.,]\d{2}$/.test(crudo) && !/[.,]\d{3}$/.test(crudo)) {
+      candidatos.add(crudo.replace(/[.,](\d{2})$/, ".$1").replace(/[.,](?=\d{3})/g, ""));
+    }
+    for (const c of candidatos) {
+      const n = Number(c);
+      if (Number.isFinite(n) && n > 0) salida.add(n);
+    }
+  }
+  return [...salida];
+}
+
+const igual = (a: number, b: number) => Math.abs(a - b) < 0.005;
+
+/**
+ * ¿ESTE IMPORTE SE PUEDE EXPLICAR CON LO QUE HAY DELANTE?
+ *
+ * Vale si es una cifra conocida, un envío del país, un precio conocido por una
+ * cantidad razonable, la suma de dos precios conocidos, o cualquiera de esas
+ * cosas más un envío. Lo que no cabe ahí es un precio inventado.
+ */
+function importeExplicable(n: number, conocidas: number[], envios: number[]): boolean {
+  if (envios.some((c) => igual(c, n))) return true;
+  return esSumaDePrecios(n, conocidas, [0, ...envios]);
+}
+
+/** Un precio conocido por una cantidad, o dos precios, más una de las sumas. */
+function esSumaDePrecios(n: number, conocidas: number[], sumas: number[]): boolean {
+  for (const p of conocidas) {
+    for (let k = 1; k <= 12; k++) {
+      for (const e of sumas) if (igual(p * k + e, n)) return true;
+    }
+    for (const q of conocidas) {
+      for (const e of sumas) if (igual(p + q + e, n)) return true;
+    }
+  }
+  return false;
+}
+
+/**
  * LAS REGLAS. No cuestan y no fallan: si una salta, la respuesta no sale.
  */
 export function revisarConReglas(borrador: string, ctx: ContextoRevision): string[] {
@@ -120,11 +180,16 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
   }
 
   // 2. Un costo de envío que no es ninguno de los del país.
+  //
+  // «Con el envío queda en RD$2,140» no cotiza el envío: es un total, precio
+  // más tarifa, y se reconoce como tal para no pararlo.
   const costos = new Set([d.envio.restoDelPais.costo, ...d.envio.zonas.map((z) => z.costo)]);
+  const conocidas = cifrasConocidas(ctx);
+  const envios = [...costos];
   for (const frase of texto.split(/(?<=[.!?\n])\s+/)) {
     if (!/env[ií]o/i.test(frase) || /total/i.test(frase)) continue;
     for (const n of importes(frase, d.moneda.simbolo)) {
-      if (!costos.has(n)) {
+      if (!costos.has(n) && !esSumaDePrecios(n, conocidas, envios)) {
         fallas.push(
           `cotiza el envío en ${d.moneda.simbolo}${n}, y las únicas tarifas son ` +
             [...costos].map((c) => `${d.moneda.simbolo}${c}`).join(" y "),
@@ -159,10 +224,29 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
     }
   }
 
-  // 6. Una pregunta que el cliente ya contestó. La memoria es una puerta.
+  // 6. UN PRECIO QUE NO ESTÁ EN LA DESCRIPCIÓN DEL ANUNCIO NI EN EL CATÁLOGO.
+  //
+  // Es la regla más cara de saltarse: un precio inventado es una venta que el
+  // negocio no puede sostener y que el cliente ya leyó. Cada importe con
+  // símbolo de moneda que escriba el agente tiene que explicarse con lo que
+  // tenía delante; si no hay ningún precio escrito en ningún sitio, no puede
+  // cotizar ninguno.
+  {
+    for (const n of importes(texto, d.moneda.simbolo)) {
+      if (importeExplicable(n, conocidas, envios)) continue;
+      fallas.push(
+        conocidas.length
+          ? `dice ${d.moneda.simbolo}${n} y ese precio no está escrito en la descripción del anuncio ni en el catálogo: el precio es el que está escrito ahí, con la misma cifra, y no se inventa ni se redondea`
+          : `cotiza ${d.moneda.simbolo}${n} y no hay ningún precio escrito en la descripción del anuncio ni en el catálogo: no se inventa; se le dice al cliente que un representante le pasa el precio y se escribe "[HANDOFF]"`,
+      );
+      break;
+    }
+  }
+
+  // 7. Una pregunta que el cliente ya contestó. La memoria es una puerta.
   if (ctx.ficha) fallas.push(...preguntasRepetidas(texto, ctx.ficha));
 
-  // 7. El nombre de la cuenta de WhatsApp, si el cliente no lo escribió él.
+  // 8. El nombre de la cuenta de WhatsApp, si el cliente no lo escribió él.
   const cuenta = ctx.nombreDeCuenta?.trim();
   if (cuenta && cuenta.length >= 3 && !ctx.clienteEscribioSuNombre) {
     const primero = cuenta.split(/\s+/)[0]!;
@@ -189,6 +273,7 @@ LO QUE VENDE (precios y condiciones válidos):
 ${ctx.catalogo}
 ${ctx.anuncio ? `\n${ctx.anuncio}\n` : ""}
 RECHAZA el borrador si ocurre CUALQUIERA de estas cosas:
+- Vende, cotiza o dice tener un artículo que no aparece en el catálogo, en el anuncio ni en las instrucciones, o llama al artículo del anuncio con un nombre distinto del que tiene en su descripción (lo que una máquina leyó en la imagen del anuncio NO cambia qué artículo es).
 - Dice un precio que no está en el catálogo, en el anuncio ni en el bloque del país, o cambia uno que sí está. Para el artículo del anuncio, el precio válido es el de la descripción del anuncio.
 - Cotiza un costo de envío que no es el de la zona del cliente según el bloque del país, o dice que «el representante confirma el envío» teniendo la tarifa delante.
 - Promete una forma de pago, un plazo de entrega, un descuento, envío gratis, apartar mercancía o mandar dos para probar.
