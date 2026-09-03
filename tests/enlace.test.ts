@@ -1,7 +1,7 @@
 import "./entorno";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MARCA_ENLACE, llevaEnlace, textoConEnlace, tieneFicha } from "../src/lib/enlace";
+import { MARCA_ENLACE, llevaEnlace, textoConEnlace, tieneFicha, sinFichaDelAnuncio } from "../src/lib/enlace";
 import { descripcionUtil, ANUNCIO_SIN_DESCRIBIR } from "../src/lib/anuncio";
 
 /**
@@ -69,4 +69,26 @@ test("la marca de anuncio sin describir nunca se le cuenta al modelo", () => {
   assert.equal(descripcionUtil(null), null);
   assert.equal(descripcionUtil("Camisa azul con el precio 1850 escrito encima"),
     "Camisa azul con el precio 1850 escrito encima");
+});
+
+/**
+ * EL ANUNCIO SE VE ARRIBA, NO DENTRO DEL MENSAJE. Un clic en un anuncio
+ * dejaba pegada la ficha del anuncio dentro del «Hola» del cliente; el
+ * anuncio ya está en la cabecera del hilo y verlo dos veces confunde.
+ */
+test("la ficha del anuncio de la conversación se quita del mensaje, y un enlace de verdad se queda", () => {
+  const anuncio = {
+    producto_anuncio: "Rincondcm",
+    descripcion_anuncio: "👞 ZAPATOS DCM ESTILO Elegancia que deja huella. Un diseño clásico y sofisticado. RD$1,990",
+  };
+  const pegado =
+    "Hola\n[enlace] Rincondcm · 👞 ZAPATOS DCM ESTILO Elegancia que deja huella. Un diseño clásico y sofisticado. RD$1,990";
+  assert.equal(sinFichaDelAnuncio(pegado, anuncio), "Hola");
+  // Solo la ficha, sin texto del cliente: queda vacío y el hilo lo dice.
+  assert.equal(sinFichaDelAnuncio("[enlace] Rincondcm · 👞 ZAPATOS DCM ESTILO Elegancia que deja huella.", anuncio), "");
+  // Un enlace que el cliente sí compartió, de otra cosa, se queda.
+  const otro = "mira este\n[enlace] Mocasines de cuero · RD$2,500";
+  assert.equal(sinFichaDelAnuncio(otro, anuncio), otro);
+  // Sin anuncio en la conversación no se toca nada.
+  assert.equal(sinFichaDelAnuncio(pegado, null), pegado);
 });

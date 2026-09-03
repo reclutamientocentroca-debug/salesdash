@@ -70,7 +70,7 @@ export default async function PaginaConversacion({ params, searchParams }: Props
 
           <div className="sd-hilo">
             {mensajes.map((m) => (
-              <Burbuja key={m.id} m={m} />
+              <Burbuja key={m.id} m={m} anuncio={conv} />
             ))}
           </div>
         </section>

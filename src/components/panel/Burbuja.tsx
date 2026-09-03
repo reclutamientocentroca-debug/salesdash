@@ -1,6 +1,7 @@
 import type { Mensaje } from "@/lib/db";
 import { urlServida } from "@/lib/media";
 import { esUbicacion, textoSinMarca } from "@/lib/ubicacion";
+import { sinFichaDelAnuncio } from "@/lib/enlace";
 
 /**
  * Una burbuja del hilo.
@@ -22,7 +23,19 @@ const CATEGORIAS: Record<string, string> = {
   otro: "otro",
 };
 
-export function Burbuja({ m }: { m: Mensaje }) {
+export function Burbuja({
+  m,
+  anuncio = null,
+}: {
+  m: Mensaje;
+  /**
+   * El anuncio por el que llegó el hilo. Si el mensaje del cliente lleva
+   * pegada la ficha de ESE anuncio —pasaba con los clics en anuncios—, se
+   * quita: el anuncio ya se ve arriba, en la cabecera, y verlo dos veces
+   * confunde. Ver `sinFichaDelAnuncio`.
+   */
+  anuncio?: { producto_anuncio?: string | null; descripcion_anuncio?: string | null } | null;
+}) {
   const clase =
     m.emisor === "cliente" ? "sd-burbuja-cliente" : m.emisor === "ia" ? "sd-burbuja-ia" : "sd-burbuja-humano";
 
@@ -130,5 +143,16 @@ export function Burbuja({ m }: { m: Mensaje }) {
     );
   }
 
-  return <div className={`sd-burbuja ${clase}`}>{m.content}</div>;
+  const texto = m.emisor === "cliente" ? sinFichaDelAnuncio(m.content, anuncio) : m.content;
+
+  // Un clic en el anuncio sin escribir nada: se dice, en vez de dejar un globo vacío.
+  if (!texto.trim()) {
+    return (
+      <div className={`sd-burbuja ${clase}`} style={{ fontStyle: "italic", opacity: 0.8 }}>
+        Escribió desde el anuncio
+      </div>
+    );
+  }
+
+  return <div className={`sd-burbuja ${clase}`}>{texto}</div>;
 }

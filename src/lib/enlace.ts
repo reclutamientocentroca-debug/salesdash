@@ -94,3 +94,41 @@ export function textoConEnlace(texto: string, f: FichaEnlace | null | undefined)
 export function llevaEnlace(contenido: string | null | undefined): boolean {
   return !!contenido?.includes(MARCA_ENLACE);
 }
+
+/**
+ * EL MENSAJE SIN LA FICHA DEL ANUNCIO, para enseñarlo.
+ *
+ * Los mensajes guardados antes de que el clic en un anuncio dejara de pegar
+ * la ficha llevan dentro el anuncio entero: «Hola» y debajo «[enlace]
+ * Rincondcm · ZAPATOS DCM…». El anuncio ya se ve arriba, en la cabecera del
+ * hilo, y verlo dos veces confunde. Si la ficha es la del anuncio de esta
+ * conversación, se quita y queda lo que el cliente escribió. Una ficha de
+ * otra cosa —un enlace que sí compartió— se deja.
+ */
+export function sinFichaDelAnuncio(
+  contenido: string,
+  anuncio: { producto_anuncio?: string | null; descripcion_anuncio?: string | null } | null | undefined,
+): string {
+  if (!contenido.includes(MARCA_ENLACE) || !anuncio) return contenido;
+
+  const llano = (s: string) =>
+    s
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .trim();
+  const pistas = [anuncio.producto_anuncio, anuncio.descripcion_anuncio]
+    .map((s) => llano(s ?? ""))
+    .filter((s) => s.length >= 4)
+    .map((s) => s.slice(0, 40));
+  if (!pistas.length) return contenido;
+
+  const lineas = contenido.split(/\r?\n/).filter((l) => {
+    if (!l.trimStart().startsWith(MARCA_ENLACE)) return true;
+    const ficha = llano(l.trimStart().slice(MARCA_ENLACE.length));
+    return !pistas.some((p) => ficha.includes(p));
+  });
+
+  return lineas.join("\n").trim();
+}

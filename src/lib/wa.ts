@@ -197,13 +197,25 @@ function traducir(m: WAMessage): MensajeEntrante | null {
      */
     const e = real.extendedTextMessage;
     tipo = "texto";
+    /*
+     * UN CLIC EN UN ANUNCIO NO ES UN ENLACE COMPARTIDO. El mensaje que abre
+     * un chat desde un anuncio trae `externalAdReply` y, pegada, la ficha del
+     * anuncio como si fuera la de una página. Esa ficha ya se guarda en la
+     * conversación —es lo que el panel enseña arriba, en «Llegó por un
+     * anuncio»— y el agente la recibe por ahí. Pegarla también dentro del
+     * mensaje la enseñaba dos veces y hacía que un «Hola» pareciera un
+     * párrafo. Aquí el mensaje se queda con lo que el cliente escribió.
+     */
+    const esClicEnAnuncio = !!e.contextInfo?.externalAdReply;
     // `matchedText` es la dirección de verdad; `text` es lo que escribió el
     // cliente, que puede llevar el enlace en medio de una frase.
-    texto = textoConEnlace(e.text ?? "", {
-      titulo: e.title,
-      descripcion: e.description,
-      url: e.matchedText,
-    });
+    texto = esClicEnAnuncio
+      ? (e.text ?? "")
+      : textoConEnlace(e.text ?? "", {
+          titulo: e.title,
+          descripcion: e.description,
+          url: e.matchedText,
+        });
   } else if (real.imageMessage) {
     tipo = "imagen";
     texto = conCaption("[imagen]", real.imageMessage.caption);
