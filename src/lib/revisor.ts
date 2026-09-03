@@ -298,6 +298,15 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
     }
   }
 
+  // 8c. UNA TALLA, UN NÚMERO O UN COLOR A UN ARTÍCULO QUE NO LOS LLEVA.
+  //
+  // El caso real: «¿Qué talla necesita?» a un combo de cepillo secador y
+  // plancha. Un modelo copia la pregunta del ejemplo o de la costumbre. Si
+  // ni la descripción del anuncio ni el catálogo dicen que el artículo tenga
+  // tallas o colores, y encima el artículo es de los que no los llevan, la
+  // pregunta no sale.
+  fallas.push(...preguntaDeVarianteSinVariante(texto, ctx));
+
   // 9. Tutear donde se vende de usted.
   if (d.trato === "usted" && TUTEO.test(texto)) {
     fallas.push("tutea al cliente («quieres», «te lo», «tu pedido»), y aquí se vende de usted");
@@ -363,6 +372,56 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
   }
 
   return [...new Set(fallas)];
+}
+
+/** Artículos que se venden sin talla, número ni color, salvo que el anuncio diga lo contrario. */
+const SIN_VARIANTES =
+  /\b(cepillo|secador|plancha|abejon|abejones|perfume|colonia|reloj|cartera|bolso|mochila|gorra|kit|combo|set|crema|serum|maquillaje|licuadora|freidora|audifono|audifonos|bocina|cargador|lampara|termo|botella|juguete|sartén|sarten|olla|ventilador|extension|masajeador|rasuradora|afeitadora|barbera|maquina|máquina)\b/i;
+
+/** Ropa y calzado llevan talla aunque el anuncio no la escriba. */
+const CON_TALLA_SIEMPRE =
+  /\b(camisa|camisas|pantalon|pantalones|jean|jeans|short|shorts|vestido|blusa|polo|t-?shirt|franela|chacabana|chaqueta|abrigo|sueter|sudadera|conjunto|falda|zapato|zapatos|tenis|bota|botas|mocasin|mocasines|sandalia|sandalias|calzado|correa|correas|cinturon|cinturones|bermuda|ropa)\b/i;
+
+/** Lo que en un anuncio o catálogo dice que hay tallas o números. */
+const HAY_TALLAS = /\btallas?\b|\bsize\b|numeraci[oó]n|\b(3[4-9]|4[0-6])\b|\bx?xl\b|\bs\s*[,\/-]\s*m\b|\bde la s a la\b|\bmedidas?\b/i;
+
+/** Lo que en un anuncio o catálogo dice que hay colores. */
+const HAY_COLORES = /\bcolor(es)?\b|\b(negro|negra|blanco|blanca|azul|rojo|roja|marr[oó]n|beige|gris|verde|rosado|rosa|dorado|plateado|caf[eé]|vino|crema|amarillo|naranja|morado|celeste|turquesa|chocolate|camel|nude|fucsia)\b/i;
+
+const PREGUNTA_TALLA = /[¿?][^?¿]*\b(que|cual|de que)\b[^?¿]*\b(talla|numero|numeracion|medida)\b[^?¿]*\?/i;
+const PREGUNTA_COLOR = /[¿?][^?¿]*\bcolor(es)?\b[^?¿]*\?/i;
+
+/**
+ * Pregunta talla, número o color y las fuentes no dicen que el artículo los
+ * tenga. Una pregunta de más es una oportunidad de que el cliente se canse, y
+ * preguntar una variante que el producto no tiene delata que no se sabe qué se
+ * está vendiendo.
+ */
+export function preguntaDeVarianteSinVariante(borrador: string, ctx: ContextoRevision): string[] {
+  const b = llano(borrador);
+  const fuentes = llano(`${ctx.catalogo}\n${ctx.anuncio ?? ""}`);
+  const fallas: string[] = [];
+
+  const sinVariantesDelPais = ctx.datos.tallas.sinTallaNiColor.map((s) => llano(s));
+  const esDeLosQueNoLlevan =
+    SIN_VARIANTES.test(fuentes) || sinVariantesDelPais.some((s) => s && fuentes.includes(s.replace(/s$/, "")));
+  const esRopaOCalzado = CON_TALLA_SIEMPRE.test(fuentes);
+
+  // Una pregunta de talla que no sea la del teléfono («¿a qué número le llama…?»).
+  const preguntaTalla = PREGUNTA_TALLA.test(b) && !/(llama|contact|mensajero|telefono|celular)/.test(b.match(PREGUNTA_TALLA)?.[0] ?? "");
+  if (preguntaTalla && !HAY_TALLAS.test(fuentes) && (esDeLosQueNoLlevan || !esRopaOCalzado)) {
+    fallas.push(
+      "pregunta talla o número, y ni la descripción del anuncio ni el catálogo dicen que este artículo lleve tallas: no se pregunta, se pasa a la provincia",
+    );
+  }
+
+  if (PREGUNTA_COLOR.test(b) && !HAY_COLORES.test(fuentes)) {
+    fallas.push(
+      "pregunta el color, y ni la descripción del anuncio ni el catálogo dicen que este artículo venga en varios colores: no se pregunta",
+    );
+  }
+
+  return fallas;
 }
 
 /** Cómo suena tutear a un cliente. «Dime» y «mándame» no van: son expresiones del país. */

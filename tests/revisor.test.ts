@@ -213,3 +213,40 @@ test("un artículo que no está en el anuncio ni en el catálogo no se ofrece", 
   const conSabanas = { ...cr, catalogo: "Catálogo:\n- Set de sábanas — 12500" };
   assert.deepEqual(revisarConReglas("El set de sábanas está en ₡12.500.", conSabanas), []);
 });
+
+/**
+ * EL CASO DEL COMBO: «¿Qué talla necesita?» a un cepillo secador con plancha.
+ * Si las fuentes no dicen que el artículo lleve tallas o colores, la pregunta
+ * no sale. Ropa y calzado sí llevan talla aunque el anuncio no la escriba.
+ */
+test("una talla, un número o un color a un artículo que no los lleva no se pregunta", () => {
+  const combo: ContextoRevision = {
+    ...rd,
+    catalogo: "Catálogo:\n(sin catálogo cargado)",
+    anuncio: "Este cliente llegó por un anuncio:\n- Producto anunciado: Rincondcm\n- Lo que promete el anuncio: COMBO 2 EN 1 — SOLO RD$1,690. Cepillo secador + plancha alisadora. Seca rápido y ahorra tiempo. Control de temperatura.",
+  };
+  assert.ok(revisarConReglas("El combo 2 en 1 está en RD$1,690.\n\n¿Qué talla necesita?", combo).some((f) => f.includes("talla")));
+  assert.ok(revisarConReglas("¿En qué color lo quiere?", combo).some((f) => f.includes("color")));
+  assert.deepEqual(revisarConReglas("El combo 2 en 1 está en RD$1,690.\n\nLe hacemos envío y paga al recibir. ¿En qué provincia se encuentra?", combo), []);
+
+  // Ropa: lleva talla aunque el anuncio no la escriba; el color solo si el anuncio lo dice.
+  const camisa: ContextoRevision = {
+    ...rd,
+    catalogo: "Catálogo:\n(sin catálogo cargado)",
+    anuncio: "Este cliente llegó por un anuncio:\n- Producto anunciado: Camisa de lino\n- Lo que promete el anuncio: Camisas de lino para caballeros a RD$1,500.",
+  };
+  assert.deepEqual(revisarConReglas("La camisa de lino está en RD$1,500.\n\n¿Qué talla necesita?", camisa), []);
+  assert.ok(revisarConReglas("¿En qué color la quiere?", camisa).some((f) => f.includes("color")));
+
+  // Calzado con numeración escrita: el número sí se pregunta.
+  const zapatos: ContextoRevision = {
+    ...rd,
+    catalogo: "Catálogo:\n(sin catálogo cargado)",
+    anuncio: "Este cliente llegó por un anuncio:\n- Producto anunciado: Zapatos DCM Estilo\n- Lo que promete el anuncio: Zapatos DCM Estilo RD$2,500. Disponibles en negro y marrón, del 39 al 45.",
+  };
+  assert.deepEqual(revisarConReglas("¿Qué número calza?", zapatos), []);
+  assert.deepEqual(revisarConReglas("Los tenemos en negro y marrón. ¿Cuál le despachamos?", zapatos), []);
+
+  // Y la pregunta del teléfono no es una pregunta de talla.
+  assert.deepEqual(revisarConReglas("¿A qué número le llama el mensajero, a este mismo?", combo), []);
+});
