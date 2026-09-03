@@ -1234,8 +1234,10 @@ test("el prompt pide mensajes limpios y no inventa variantes", () => {
   );
   assert.ok(prompt.includes("La ropa y el calzado"), "con su excepción, que siempre lleva talla");
 
-  // Y el ejemplo del saludo no da por hecho que existan las tallas.
-  assert.ok(!prompt.includes("¿Qué talla necesita?"));
+  // El ejemplo del saludo pregunta la talla porque es lo primero del orden,
+  // y dice al lado que solo si el artículo la lleva: la dirección nunca abre.
+  assert.ok(prompt.includes("la talla si el artículo la lleva"));
+  assert.ok(prompt.includes("LA DIRECCIÓN NUNCA ES LA PRIMERA PREGUNTA"));
 });
 
 /**

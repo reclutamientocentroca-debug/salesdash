@@ -109,7 +109,10 @@ test("el prompt del agente lleva la tarifa del cliente cuando la escribió, y el
   assert.ok(pos("3. EL NOMBRE CON EL QUE RECIBE") < pos("6. SOLO cuando el cliente confirme, el resumen"));
   assert.ok(ritmo.includes("EN CADA MENSAJE, PRIMERO LO SUYO Y DESPUÉS LO TUYO"), "contesta lo que el cliente pregunta y luego sigue");
   assert.ok(ritmo.includes("NO REPITAS UNA PREGUNTA"));
-  assert.ok(ritmo.includes("si quiere más de una, se las vendes"));
+  assert.ok(ritmo.includes("LA DIRECCIÓN NUNCA ES LA PRIMERA PREGUNTA"));
+  assert.ok(ritmo.includes("NUNCA ANTES DE LA TALLA Y EL COLOR"));
+  assert.ok(ritmo.includes("para levantar su factura, y va DESPUÉS de la dirección"));
+  assert.ok(ritmo.includes("si quiere más de una se las vendes"));
 
   // El precio del artículo del anuncio es el de la descripción del anuncio.
   const conAnuncio = armarSistema("Tienda", agente, [], {
