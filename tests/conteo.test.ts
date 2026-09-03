@@ -1087,7 +1087,13 @@ test("el agente dominicano cobra en pesos y pide sector y provincia", () => {
  * romperse: que las reglas sigan siendo las mismas en los tres, palabra por
  * palabra, y que ninguno lleve el dinero de otro.
  */
-test("los tres agentes venden con el mismo comportamiento", () => {
+test("Costa Rica y Panamá venden con el mismo comportamiento, y República Dominicana con su guion", () => {
+  // RD lleva su propio guion, por orden de la dueña: en su orden y sin la base.
+  const rd = promptDe("do");
+  assert.ok(rd.includes("ASÍ VENDES — EL GUION DE ESTE NÚMERO"), "do: lleva su guion propio");
+  assert.ok(!rd.includes("Reglas que no puedes romper:"), "do: y no la base de los otros dos");
+  assert.equal(monedaAjena(rd, "DOP"), null, "do: no puede llevar dentro la moneda de otro país");
+
   const reglas = (prompt: string) =>
     prompt
       .slice(prompt.indexOf("Reglas que no puedes romper:"), prompt.indexOf("CÓMO EMPIEZA UNA CONVERSACIÓN"))
@@ -1096,7 +1102,7 @@ test("los tres agentes venden con el mismo comportamiento", () => {
       .filter((l) => !l.startsWith("- Trato de"))
       .join("\n");
 
-  const moldes = ["do", "cr", "pa"].map((p) => {
+  const moldes = ["cr", "pa"].map((p) => {
     const prompt = promptDe(p);
     assert.ok(prompt.includes("EL SALUDO VA SOLO"), `${p}: el saludo va aparte`);
     assert.ok(prompt.includes("UNA SOLA IDEA POR MENSAJE"), `${p}: un dato por mensaje`);

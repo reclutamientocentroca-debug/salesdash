@@ -8,6 +8,8 @@
  */
 export { agenteDePais, AGENTES_DE_PAIS } from "./paises";
 export { baseComportamiento, bloqueCliente, TALLAS_BASE, tablaDeTallas } from "./base-comportamiento";
+export { guionRD } from "./paises/rd-guion";
+export type { ContextoGuionRD } from "./paises/rd-guion";
 export {
   bloqueDelPais,
   importe,

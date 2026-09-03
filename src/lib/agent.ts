@@ -52,6 +52,7 @@ import {
   bloqueCliente,
   bloqueDelPais,
   esGuionRetirado,
+  guionRD,
   lineasDelResumen,
   lugarEscritoPorElCliente,
   saludoDe,
@@ -821,16 +822,31 @@ export function armarSistema(
       deAnuncio ?? "",
       notas,
       bloqueCliente(cliente),
-      baseComportamiento({
-        saludo: saludoDe(datos, agente.nombre, negocio),
-        marcador,
-        trato: datos.trato,
-        conAnuncio: deAnuncio !== null,
-        conFoto,
-        lineasResumen: lineasDelResumen(datos),
-        pieDelResumen: datos.pieDelResumen,
-        datosParaCerrar: datos.envio.datosParaCerrar,
-      }),
+      /*
+       * REPÚBLICA DOMINICANA LLEVA SU PROPIO GUION, escrito desde cero por
+       * orden de la dueña (`src/agents/paises/rd-guion.ts`): corto y en su
+       * orden. Costa Rica y Panamá siguen con la base compartida.
+       */
+      datos.codigo === "do"
+        ? guionRD({
+            saludo: saludoDe(datos, agente.nombre, negocio),
+            marcador,
+            conAnuncio: deAnuncio !== null,
+            conFoto,
+            lineasResumen: lineasDelResumen(datos),
+            pieDelResumen: datos.pieDelResumen,
+            datosParaCerrar: datos.envio.datosParaCerrar,
+          })
+        : baseComportamiento({
+            saludo: saludoDe(datos, agente.nombre, negocio),
+            marcador,
+            trato: datos.trato,
+            conAnuncio: deAnuncio !== null,
+            conFoto,
+            lineasResumen: lineasDelResumen(datos),
+            pieDelResumen: datos.pieDelResumen,
+            datosParaCerrar: datos.envio.datosParaCerrar,
+          }),
       pinDelMapa,
     ]
       .filter(Boolean)

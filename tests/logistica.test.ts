@@ -96,22 +96,28 @@ test("el prompt del agente lleva la tarifa del cliente cuando la escribió, y el
   assert.ok(prompt.includes("[HANDOFF]"));
   assert.ok(prompt.includes("APENAS el cliente te diga su zona o su provincia"));
 
-  // El orden que pidió la dueña: saludo, talla y color, a dónde, nombre, resumen.
-  const ritmo = prompt.slice(prompt.indexOf("EL RITMO DEL CIERRE"), prompt.indexOf("CÓMO SE CIERRA UNA VENTA"));
+  // El orden que pidió la dueña, por pasos: saludo, talla y color, a dónde
+  // (con el envío confirmado), teléfono, nombre, confirmación, resumen y pase
+  // al asesor humano. Es el guion propio de RD (src/agents/paises/rd-guion.ts).
+  const ritmo = prompt.slice(prompt.indexOf("ASÍ VENDES — EL GUION DE ESTE NÚMERO"));
   const pos = (s: string) => {
     const i = ritmo.indexOf(s);
-    assert.ok(i >= 0, `falta en el ritmo: ${s}`);
+    assert.ok(i >= 0, `falta en el guion: ${s}`);
     return i;
   };
-  assert.ok(pos("0. EL SALUDO") < pos("1. LA TALLA Y EL COLOR"));
-  assert.ok(pos("1. LA TALLA Y EL COLOR") < pos("2. A DÓNDE SE LO ENVIAMOS"));
-  assert.ok(pos("2. A DÓNDE SE LO ENVIAMOS") < pos("3. EL NOMBRE CON EL QUE RECIBE"));
-  assert.ok(pos("3. EL NOMBRE CON EL QUE RECIBE") < pos("6. SOLO cuando el cliente confirme, el resumen"));
-  assert.ok(ritmo.includes("EN CADA MENSAJE, PRIMERO LO SUYO Y DESPUÉS LO TUYO"), "contesta lo que el cliente pregunta y luego sigue");
-  assert.ok(ritmo.includes("NO REPITAS UNA PREGUNTA"));
+  assert.ok(pos("PASO 1 — EL SALUDO") < pos("PASO 2 — LA TALLA Y EL COLOR"));
+  assert.ok(pos("PASO 2 — LA TALLA Y EL COLOR") < pos("PASO 3 — A DÓNDE SE LO ENVIAMOS"));
+  assert.ok(pos("PASO 3 — A DÓNDE SE LO ENVIAMOS") < pos("PASO 4 — EL NÚMERO DE TELÉFONO"));
+  assert.ok(pos("PASO 4 — EL NÚMERO DE TELÉFONO") < pos("PASO 5 — EL NOMBRE"));
+  assert.ok(pos("PASO 5 — EL NOMBRE") < pos("PASO 6 — LA CONFIRMACIÓN"));
+  assert.ok(pos("PASO 6 — LA CONFIRMACIÓN") < pos("PASO 7 — EL RESUMEN DEL PEDIDO Y EL PASE AL ASESOR HUMANO"));
+  assert.ok(ritmo.includes("Primero lo suyo y después lo tuyo"), "contesta lo que el cliente pregunta y luego sigue");
+  assert.ok(ritmo.includes("No se lo vuelvas a preguntar"));
   assert.ok(ritmo.includes("LA DIRECCIÓN NUNCA ES LA PRIMERA PREGUNTA"));
-  assert.ok(ritmo.includes("NUNCA ANTES DE LA TALLA Y EL COLOR"));
-  assert.ok(ritmo.includes("para levantar su factura, y va DESPUÉS de la dirección"));
+  assert.ok(ritmo.includes("NUNCA antes de la talla y el color"));
+  assert.ok(ritmo.includes("LOS COLORES SON LOS QUE MUESTRA LA FOTO DEL ANUNCIO"));
+  assert.ok(ritmo.includes("Gran Santo Domingo, la ciudad, RD$250; el resto del país, las provincias, RD$290"));
+  assert.ok(ritmo.includes("NO VUELVES A RESPONDER EN ESE CHAT"), "después del resumen, el chat es del asesor");
   assert.ok(ritmo.includes("si quiere más de una se las vendes"));
 
   // El precio del artículo del anuncio es el de la descripción del anuncio.
