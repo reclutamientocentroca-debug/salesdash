@@ -77,8 +77,14 @@ export interface DatosPais {
     cobertura: string;
     /** Las zonas con condiciones propias. Puede estar vacío. */
     zonas: ZonaDeEnvio[];
-    /** Lo que vale para todo lo que no caiga en ninguna zona de arriba. */
-    restoDelPais: { costo: number; modalidad: string; pago?: string };
+    /**
+     * Lo que vale para todo lo que no caiga en ninguna zona de arriba.
+     *
+     * `lugares` son las provincias y ciudades que se reconocen como «resto»
+     * cuando el cliente las escribe: con ellas el agente le dice la tarifa
+     * del interior de una vez, sin preguntarle la provincia otra vez.
+     */
+    restoDelPais: { costo: number; modalidad: string; pago?: string; lugares?: string[] };
     /** Cómo se da una dirección en este país, y qué dato la sitúa. */
     direccion: string;
     /** Sin estos datos no se levanta la orden. Los del país, no los del pedido. */

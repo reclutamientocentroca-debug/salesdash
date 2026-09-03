@@ -52,6 +52,7 @@ import {
   bloqueDelPais,
   esGuionRetirado,
   lineasDelResumen,
+  lugarEscritoPorElCliente,
   saludoDe,
 } from "../agents";
 import { bloqueDePais, obtenerPais, saludoDelPais, type Pais } from "./paises";
@@ -727,19 +728,13 @@ export function armarSistema(
    * y el agente queda contestando a una promesa que no puede cumplir.
    */
   conFoto: boolean = false,
-): string {
-  /*
-   * QUÉ PUEDE VENDER — de dos sitios, y los dos los escribió el negocio.
-   *
-   * El catálogo es una tabla con precios. «Lo que vendes» es texto escrito a
-   * mano en el canal, y existe porque la mayoría de estas tiendas vende diez
-   * artículos y no va a cargarlos uno a uno: escribirlos en cuatro líneas es lo
-   * que de verdad hacen. Los dos valen igual —los dos los escribió el dueño— y
-   * por eso el agente puede cotizar con cualquiera de los dos delante.
-   *
-   * Lo que NO cambia es la regla: lo que no esté en ninguno de los dos no se
-   * promete. Vender sin catálogo es vender con otra fuente, no vender a ciegas.
+  /**
+   * El mensaje en el que el cliente escribió su zona, si escribió alguna. Ver
+   * `lugarEscritoPorElCliente`. Manda el pin del mapa si lo hay: es más exacto.
    */
+  lugarEscrito: string | null = null,
+): string {
+  // Qué puede vender: ver `textoDeLoQueVende`, que también lee el revisor.
   const queVende = textoDeLoQueVende(agente, catalogo);
 
   /*
@@ -765,7 +760,7 @@ export function armarSistema(
    */
   const pais = obtenerPais(agente.pais);
   const datos = agenteDePais(agente.pais);
-  const donde = ubicacion?.direccion?.provincia ?? ubicacion?.zona?.nombre ?? null;
+  const donde = ubicacion?.direccion?.provincia ?? ubicacion?.zona?.nombre ?? lugarEscrito;
 
   /*
    * LAS NOTAS DEL NEGOCIO, detrás de los datos del país.
@@ -1124,6 +1119,9 @@ export async function generarRespuesta(
             org?.marcador_cierre ?? MARCADOR_POR_DEFECTO,
             cliente,
             ubicacion,
+            false,
+            // La zona que el cliente escribió, para decirle SU tarifa de envío.
+            lugarEscritoPorElCliente(agenteDePais(agente.pais), mensajes),
           ) + (reglaPrecio ? `\n\n${reglaPrecio}` : "") + memoria,
       },
       ...aHistorial(mensajes),
@@ -1648,7 +1646,9 @@ export async function atenderConversacion(
       anuncio: anuncioParaModelo(conv),
       bloqueDelPais: bloqueDelPais(
         datosPais,
-        ubicacion?.direccion?.provincia ?? ubicacion?.zona?.nombre ?? null,
+        ubicacion?.direccion?.provincia ??
+          ubicacion?.zona?.nombre ??
+          lugarEscritoPorElCliente(datosPais, historial),
         negocio,
       ),
     };

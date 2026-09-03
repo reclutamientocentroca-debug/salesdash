@@ -8,7 +8,14 @@
  */
 export { agenteDePais, AGENTES_DE_PAIS } from "./paises";
 export { baseComportamiento, bloqueCliente, TALLAS_BASE, tablaDeTallas } from "./base-comportamiento";
-export { bloqueDelPais, importe, lineasDelResumen, saludoDe, zonaDelCliente } from "./armar";
+export {
+  bloqueDelPais,
+  importe,
+  lineasDelResumen,
+  lugarEscritoPorElCliente,
+  saludoDe,
+  zonaDelCliente,
+} from "./armar";
 export type { DatosPais, ZonaDeEnvio } from "./tipos";
 
 /**

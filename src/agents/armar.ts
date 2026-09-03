@@ -54,9 +54,37 @@ export function zonaDelCliente(
   if (zona) return zona;
 
   // Un sitio conocido del país que no es zona especial: va como el resto.
+  if (contieneLugar(donde, d.envio.restoDelPais.lugares ?? [])) return "resto";
   const pais = obtenerPais(d.codigo);
   if (pais && contieneLugar(donde, pais.zonas)) return "resto";
 
+  return null;
+}
+
+/**
+ * DÓNDE VIVE EL CLIENTE, SEGÚN LO QUE ESCRIBIÓ.
+ *
+ * El pin del mapa no es la única forma de dar una dirección: la mayoría la
+ * escribe —«Los Alcarrizos», «soy de Santiago»— y hasta ahora el costo exacto
+ * solo se le calculaba al agente con el pin. Aquí se mira lo último que
+ * escribió el cliente y se devuelve el mensaje en el que nombró un sitio que
+ * el país reconoce, del más reciente al más viejo. Con eso el bloque de envío
+ * le dice al agente «a este cliente le toca X» y el cliente oye su tarifa en
+ * cuanto escribe su zona.
+ *
+ * Devuelve el texto del mensaje, no la zona: quien lo recibe vuelve a pasar
+ * por `zonaDelCliente`, que es la única función que decide zonas.
+ */
+export function lugarEscritoPorElCliente(
+  d: DatosPais | null,
+  mensajes: { emisor: string; content: string }[],
+  ultimos = 12,
+): string | null {
+  if (!d) return null;
+  const delCliente = mensajes.filter((m) => m.emisor === "cliente").slice(-ultimos).reverse();
+  for (const m of delCliente) {
+    if (zonaDelCliente(d, m.content) !== null) return m.content;
+  }
   return null;
 }
 
