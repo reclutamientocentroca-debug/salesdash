@@ -9,7 +9,7 @@
  * Messenger no puede costar dos llamadas a Meta cada vez.
  */
 import { NextResponse } from "next/server";
-import { revisarApp } from "@/lib/meta/app";
+import { revisarApp, revisarSuscripcionApp, urlDelWebhook } from "@/lib/meta/app";
 import { urlDeVuelta } from "@/app/api/meta/oauth/entrar/route";
 import { superadminApi } from "@/lib/tenant";
 
@@ -21,6 +21,17 @@ export async function POST() {
   if (!s.ok) return s.respuesta;
 
   const app = await revisarApp();
+
+  /*
+   * A QUÉ AVISOS ESTÁ SUSCRITA LA APP, que es lo que contesta «los mensajes
+   * entran y los comentarios no». Ver `revisarSuscripcionApp`: la suscripción
+   * de la página —lo que comprueba el botón «Comprobar» de cada página— es solo
+   * la mitad, y la otra mitad no se veía desde ninguna pantalla.
+   *
+   * Repara, como repara la de la página: la app de Facebook es de la
+   * plataforma, así que nadie más puede arreglarlo.
+   */
+  const webhook = await revisarSuscripcionApp();
 
   /*
    * LO QUE LE FALTA PARA QUE CONECTE UN CLIENTE, EN ORDEN.
@@ -53,8 +64,34 @@ export async function POST() {
     }
   }
 
+  /*
+   * EL WEBHOOK VA ANTES QUE LO DEMÁS CUANDO ESTÁ ROTO.
+   *
+   * Sin él no llega ni un evento, o llegan a medias. Una lista que empiece por
+   * «publica una política de privacidad» mientras los comentarios se pierden
+   * manda a arreglar lo que no está roto.
+   */
+  if (webhook.leida && !webhook.callbackNuestra && webhook.callbackUrl) {
+    pendientes.unshift(
+      `Apuntar el webhook de la app a este servidor: entrega en ${webhook.callbackUrl} ` +
+        `y tendría que ser ${webhook.callbackEsperada}. Va en tu app → Webhooks → Página.`,
+    );
+  } else if (webhook.faltan.length > 0) {
+    pendientes.unshift(
+      `Suscribir la app a ${webhook.faltan.join(", ")} en tu app → Webhooks → Página. ` +
+        (webhook.error ? `Meta dijo: ${webhook.error}` : "") +
+        (webhook.faltan.includes("feed")
+          ? " Sin «feed» no llega ni un comentario, aunque los mensajes entren bien."
+          : ""),
+    );
+  } else if (!webhook.leida && webhook.error) {
+    pendientes.unshift(`Comprobar el webhook de la app: ${webhook.error}`);
+  }
+
   return NextResponse.json({
     ...app,
+    webhook,
+    urlDelWebhook: urlDelWebhook(),
     /*
      * La dirección de vuelta, que hay que dar de alta LETRA POR LETRA en la app
      * de Meta. Si no coincide, Facebook corta con «URL bloqueada» y el cliente

@@ -78,6 +78,32 @@ export async function register(): Promise<void> {
   );
   reloj.unref?.();
 
+  /*
+   * El reloj del supervisor. Ver `supervisor.ts`.
+   *
+   * Cada cinco minutos: sella lo que quedó sin sellar, manda a revisión los
+   * cierres que no se cree, analiza unas pocas conversaciones pendientes y
+   * barre las anomalías de canal. Es lo que mantiene el dashboard al día sin
+   * que nadie pulse «Analizar». La primera vuelta va a los veinte segundos,
+   * para que un despliegue no deje el panel viejo hasta la siguiente marca.
+   *
+   * El supervisor se salta la vuelta si la anterior sigue en curso, así que un
+   * análisis lento nunca apila dos vueltas.
+   */
+  const pasada = () => {
+    void (async () => {
+      try {
+        const { supervisar } = await import("@/lib/supervisor");
+        await supervisar();
+      } catch (e) {
+        console.error("[arranque] falló la vuelta del supervisor", e);
+      }
+    })();
+  };
+  const supervisor = setInterval(pasada, 5 * 60 * 1000);
+  supervisor.unref?.();
+  setTimeout(pasada, 20_000).unref?.();
+
   try {
     const { rehidratar } = await import("@/lib/wa");
     await rehidratar();

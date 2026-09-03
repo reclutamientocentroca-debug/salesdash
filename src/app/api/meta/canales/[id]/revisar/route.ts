@@ -108,6 +108,38 @@ export async function POST(_req: NextRequest, { params }: Ctx) {
   }
 
   /*
+   * SUSCRITA, PERO CON UN ACCESO QUE NO LLEGA A TODO.
+   *
+   * Va después de la suscripción y antes del «todo correcto» porque no impide
+   * recibir: los mensajes entran igual. Lo que no se puede es contestar el
+   * comentario, y eso se descubre cuando un cliente ya preguntó en público y la
+   * respuesta se rechazó. Una página conectada antes de que el canal supiera
+   * contestar comentarios tiene el token de entonces y se ve idéntica a las que
+   * funcionan; el permiso se concede en la ventana de Facebook, así que esto no
+   * se repara desde aquí: hay que volver a conectarla.
+   */
+  if (r.permisosFaltan.length > 0) {
+    const soloComentarios =
+      r.permisosFaltan.length === 1 && r.permisosFaltan[0] === "pages_manage_engagement";
+
+    return NextResponse.json({
+      ok: false,
+      reparada: r.reparada,
+      titulo: soloComentarios
+        ? "Los mensajes entran, pero no se pueden contestar los comentarios."
+        : "El acceso de esta página no llega a todo lo que hace el panel.",
+      detalle:
+        (soloComentarios
+          ? "Esta página se conectó antes de que el panel supiera responder comentarios, así " +
+            "que su acceso no incluye el permiso para publicarlos. "
+          : "Al acceso guardado le faltan permisos que Meta pide para atender el canal. ") +
+        "Quítala y vuelve a conectarla con «Continuar con Facebook»: se piden todos." +
+        (s.ctx.superadmin ? ` (Faltan: ${r.permisosFaltan.join(", ")}.)` : ""),
+      ultimoEventoAt: canal.ultimo_evento_at,
+    });
+  }
+
+  /*
    * Suscrita y sin un solo evento en la vida. Es el caso que queda cuando todo
    * lo de arriba está bien, y casi siempre es lo mismo: la app sigue en modo
    * Desarrollo, donde el webhook SOLO dispara para quien tiene un rol en ella.

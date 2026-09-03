@@ -1287,17 +1287,23 @@ test("el envío sale de la provincia del mapa, y sin tarifas no se inventa", asy
   assert.doesNotMatch(sinTarifas, /RD\\$\\d/, "no puede salir ni una cifra");
 });
 
-/** Y el bloque llega al prompt con la cifra de este cliente. */
-test("las tarifas cargadas entran en el prompt del agente", () => {
-  D.actualizarAgente(orgId, { pais: "do", envio_cerca: 200, envio_lejos: 350 }, canalId);
+/**
+ * Y EN UN AGENTE DE PAÍS, LAS TARIFAS SALEN DEL ARCHIVO DEL PAÍS, NO DEL PANEL.
+ *
+ * El archivo es el único sitio que se edita —es lo que hace que tocar un país
+ * no toque a los otros dos— y una cifra cargada en el panel no puede pisarlo
+ * sin que nadie lo vea. Ver `src/agents/paises/rd.ts`.
+ */
+test("las tarifas de un agente de país salen de su archivo, no del panel", () => {
+  D.actualizarAgente(orgId, { pais: "do", instrucciones: "", envio_cerca: 200, envio_lejos: 350 }, canalId);
   const prompt = armarSistema("Tienda", D.obtenerAgente(orgId, canalId), [], null);
 
-  assert.ok(prompt.includes("COSTO DE ENVÍO"));
-  assert.ok(prompt.includes("RD$200") && prompt.includes("RD$350"));
+  assert.ok(prompt.includes("ENVÍO"));
+  assert.ok(prompt.includes("RD$250") && prompt.includes("RD$290"), "las del archivo");
+  assert.ok(!prompt.includes("RD$200") && !prompt.includes("RD$350"), "y no las del panel");
+  assert.ok(prompt.includes("Gran Santo Domingo"), "con su zona nombrada");
 
   D.actualizarAgente(orgId, { envio_cerca: null, envio_lejos: null }, canalId);
-  const sin = armarSistema("Tienda", D.obtenerAgente(orgId, canalId), [], null);
-  assert.ok(sin.includes("NO TE LO INVENTES"));
 });
 
 /**
@@ -1377,7 +1383,7 @@ test("marcado el país, el guion de otro país deja de mandar en lo suyo", () =>
   // El país del número manda, y se dice después del guion.
   assert.ok(prompt.includes("ESTE NÚMERO VENDE EN REPÚBLICA DOMINICANA"));
   assert.ok(
-    prompt.indexOf("ESTE NÚMERO VENDE EN") > prompt.indexOf("Instrucciones del negocio"),
+    prompt.indexOf("ESTE NÚMERO VENDE EN") > prompt.indexOf("NOTAS ADICIONALES DEL NEGOCIO"),
     "va detrás de las instrucciones: lo último que se lee es lo que más pesa",
   );
   assert.ok(prompt.includes("peso dominicano"), "y con la moneda de aquí");
@@ -1481,121 +1487,100 @@ test("el nombre de la cuenta sirve para saludar, no para levantar el pedido", ()
 });
 
 /**
- * NINGUNA PLANTILLA AUTORIZA UN RESUMEN A MEDIAS.
+ * NINGÚN AGENTE AUTORIZA UN RESUMEN A MEDIAS.
  *
- * La dominicana decía «si te falta algún dato menor, MANDAS EL RESUMEN IGUAL
+ * El guion viejo decía «si te falta algún dato menor, MANDAS EL RESUMEN IGUAL
  * con lo que tengas», y el modelo hizo exactamente eso: rellenó el nombre, el
  * teléfono y la dirección con lo primero que sonaba a dominicano y dio el
  * pedido por confirmado. Un hueco que el prompt permite dejar en blanco es un
- * hueco que el modelo rellena inventando.
+ * hueco que el modelo rellena inventando. Ahora el comportamiento es uno para
+ * los tres países, así que se comprueba en el prompt de cada uno.
  */
-test("ninguna plantilla deja mandar el resumen con un dato que falta", async () => {
-  const { PLANTILLAS } = await import("../src/lib/plantillas");
+test("ningún agente de país deja mandar el resumen con un dato que falta", () => {
+  for (const pais of ["do", "cr", "pa"]) {
+    D.actualizarAgente(orgId, { pais, instrucciones: "" }, canalId);
+    const prompt = armarSistema("Tienda", D.obtenerAgente(orgId, canalId), [], null);
 
-  for (const p of PLANTILLAS) {
     assert.doesNotMatch(
-      p.instrucciones,
+      prompt,
       /MANDAS EL RESUMEN IGUAL|con lo que tengas/i,
-      `${p.pais}: autoriza cerrar sin los datos`,
+      `${pais}: autoriza cerrar sin los datos`,
     );
-    assert.match(
-      p.instrucciones,
-      /NO SE CIERRA SIN LOS DATOS/,
-      `${p.pais}: no le prohíbe cerrar sin los datos`,
+    assert.ok(
+      prompt.includes("SIN ESTOS DATOS NO SE LEVANTA LA ORDEN"),
+      `${pais}: no le prohíbe cerrar sin los datos`,
     );
-    assert.match(
-      p.instrucciones,
-      /dichos por el cliente|dado el cliente|dichos por él|DADO EL CLIENTE/i,
-      `${p.pais}: no exige que los datos vengan del cliente`,
+    assert.ok(
+      prompt.includes("que te los haya dado EL CLIENTE"),
+      `${pais}: no exige que los datos vengan del cliente`,
     );
+    assert.ok(prompt.includes("TODAVÍA NO TOCA EL RESUMEN"), `${pais}: un hueco no se rellena, se pregunta`);
   }
+
+  D.actualizarAgente(orgId, { pais: "do" }, canalId);
 });
 
 /**
- * CON QUE CIERRA EL PEDIDO DOMINICANO, Y QUE VA UNA SOLA VEZ.
+ * CON QUÉ CIERRA EL PEDIDO DOMINICANO, Y QUE VA UNA SOLA VEZ.
  *
- * Las tres lineas de debajo del resumen no son adorno: son lo que le quita el
- * miedo al cliente en el momento exacto en que acaba de dar su direccion a un
- * desconocido -es tienda virtual, llega a todo el pais, y no paga hasta tener
- * el paquete delante-. Puestas en el primer mensaje son ruido; puestas al
- * cerrar, son la venta.
+ * Las tres líneas de debajo del resumen no son adorno: son lo que le quita el
+ * miedo al cliente en el momento exacto en que acaba de dar su dirección a un
+ * desconocido —es tienda virtual, llega a todo el país, y no paga hasta tener
+ * el paquete delante—. Puestas en el primer mensaje son ruido; puestas al
+ * cerrar, son la venta. Salen de `pieDelResumen` en el archivo del país.
  *
  * Y el resumen va UNA vez. `quitarResumenRepetido` ya recorta el que llega
  * tarde, pero eso es la red de seguridad: si el guion no lo pide, el modelo lo
  * repite y la red tiene que trabajar en cada hilo.
  */
-test("el guion dominicano cierra con las tres lineas, y el pedido va una sola vez", async () => {
-  const { PLANTILLAS } = await import("../src/lib/plantillas");
-  const dominicana = PLANTILLAS.find((p) => p.pais === "do");
-
-  assert.ok(dominicana, "la plantilla dominicana tiene que existir");
+test("el agente dominicano cierra con las tres líneas, y el pedido va una sola vez", () => {
+  D.actualizarAgente(orgId, { pais: "do", instrucciones: "" }, canalId);
+  const dominicano = armarSistema("Tienda", D.obtenerAgente(orgId, canalId), [], null);
 
   for (const linea of [
-    "Somos tienda virtual y enviamos a todo el pais.",
+    "Somos tienda virtual y enviamos a todo el país.",
     "Paga al momento de recibir su pedido.",
     "Se despacha dentro de 24 a 48 horas.",
   ]) {
-    assert.ok(dominicana.instrucciones.includes(linea), "falta la linea de cierre: " + linea);
+    assert.ok(dominicano.includes(linea), "falta la línea de cierre: " + linea);
   }
+  assert.ok(dominicano.includes("Van AHÍ y no antes"), "y van debajo del resumen, no en el primer mensaje");
 
-  assert.match(
-    dominicana.instrucciones,
-    /UNA SOLA VEZ EN TODA LA CONVERSACION Y ES CON LO QUE CIERRAS/,
-    "el resumen tiene que pedirse una sola vez y como cierre",
-  );
-
-  // Y la regla tambien esta en el prompt base, que es lo que lee el agente sin
-  // instrucciones propias: la plantilla se puede borrar desde el panel.
+  // La regla también está en el prompt sin país, que es lo que lee un número
+  // sin archivo propio: el comportamiento es el mismo.
   const prompt = armarSistema("Tienda", D.obtenerAgente(orgId), [], null, "Resumen:");
   assert.ok(prompt.includes("UNA SOLA VEZ EN TODA LA CONVERSACIÓN"));
 });
 
 /**
- * EL TOTAL TICO SE CALCULA, NO SE COPIA.
+ * EL TOTAL SE CALCULA, NO SE COPIA.
  *
- * El guion decia "producto mas envio" y nada mas, asi que con dos unidades el
- * modelo escribia el precio de UNA y le sumaba el envio: la tienda cobraba una
- * unidad y mandaba dos. El pedido salia perfecto -con su cantidad, su envio y su
- * total- y ninguna pantalla podia verlo, porque el numero que registra la venta
- * es justo el que estaba mal.
+ * El guion decía «producto más envío» y nada más, así que con dos unidades el
+ * modelo escribía el precio de UNA y le sumaba el envío: la tienda cobraba una
+ * unidad y mandaba dos. El pedido salía perfecto —con su cantidad, su envío y
+ * su total— y ninguna pantalla podía verlo, porque el número que registra la
+ * venta es justo el que estaba mal.
  *
- * Por eso la cuenta va escrita con sus dos pasos: el precio POR la cantidad, y a
- * eso el envio.
+ * Por eso la cuenta va escrita con sus dos pasos: el precio POR la cantidad, y
+ * a eso el envío. Y va en la base, así que vale igual en los tres países y en
+ * un número sin país.
  */
-test("el guion tico multiplica por la cantidad antes de sumar el envio", async () => {
-  const { PLANTILLAS } = await import("../src/lib/plantillas");
-  const tica = PLANTILLAS.find((p) => p.pais === "cr");
+test("el total multiplica por la cantidad antes de sumar el envío, en todos los países", () => {
+  for (const pais of ["", "do", "cr", "pa"]) {
+    D.actualizarAgente(orgId, { pais, instrucciones: "" }, canalId);
+    const prompt = armarSistema("Tienda", D.obtenerAgente(orgId, canalId), [], null);
 
-  assert.ok(tica, "la plantilla tica tiene que existir");
+    assert.match(prompt, /POR la cantidad/, `${pais}: el precio se multiplica por lo que lleva`);
+    assert.match(prompt, /se le suma el envío/, `${pais}: y el envío se suma después`);
+    assert.match(prompt, /EL PRECIO SE MULTIPLICA/, `${pais}: dicho donde se decide`);
+    assert.ok(
+      prompt.includes("2 artículos de 1.000 son 2.000, + 100 de envío = 2.100"),
+      `${pais}: con la cuenta de dos unidades resuelta delante`,
+    );
+    assert.match(prompt, /«Cantidad:» del resumen lleva el número real/, `${pais}: nunca 1 por defecto`);
+  }
 
-  assert.match(
-    tica.instrucciones,
-    /POR la cantidad/,
-    "el precio se multiplica por lo que lleva, no se copia",
-  );
-  assert.match(
-    tica.instrucciones,
-    /se le suma el envio/,
-    "y el envio se suma despues, sobre el resultado",
-  );
-  assert.match(
-    tica.instrucciones,
-    /EL PRECIO SE MULTIPLICA/,
-    "dicho tambien donde se decide la cantidad, que es donde se equivoca",
-  );
-
-  // La cuenta va con un ejemplo hecho: dos unidades y su envio, ya sumados.
-  assert.ok(
-    tica.instrucciones.includes("2 articulos de 12.500 son 25.000, + 2.500 de envio = 27.500"),
-    "con la cuenta de dos unidades resuelta delante",
-  );
-
-  // Y la cantidad de la orden es la real, que es lo que lee el analista.
-  assert.match(
-    tica.instrucciones,
-    /"Cantidad:" de la orden lleva el numero real/,
-    "nunca 1 por defecto",
-  );
+  D.actualizarAgente(orgId, { pais: "do" }, canalId);
 });
 
 /**
@@ -1613,9 +1598,7 @@ test("el guion tico multiplica por la cantidad antes de sumar el envio", async (
  * modelo hay que decirle la frase que NO puede escribir: la regla en abstracto
  * la cumple y la frase se le escapa igual.
  */
-test("pedir informacion se contesta con el producto y su precio, no con otra pregunta", async () => {
-  const { PLANTILLAS } = await import("../src/lib/plantillas");
-
+test("pedir informacion se contesta con el producto y su precio, no con otra pregunta", () => {
   const prompt = armarSistema("Tienda", D.obtenerAgente(orgId), [], {
     origen: "anuncio",
     producto_anuncio: "Chacabanas para caballeros",
@@ -1631,14 +1614,17 @@ test("pedir informacion se contesta con el producto y su precio, no con otra pre
     "y nombra la frase prohibida: en abstracto la regla se cumple y la frase se escapa",
   );
 
-  // Y en las tres plantillas, que es lo que de verdad lleva puesto cada agente.
-  for (const p of PLANTILLAS) {
-    assert.match(
-      p.instrucciones,
-      /ESTA PROHIBIDO CONTESTAR PREGUNTANDO/,
-      p.pais + ": puede devolverle la pregunta al cliente",
-    );
+  // Y en los tres agentes de país, que es lo que de verdad lleva puesto cada número.
+  for (const pais of ["do", "cr", "pa"]) {
+    D.actualizarAgente(orgId, { pais, instrucciones: "" }, canalId);
+    const suyo = armarSistema("Tienda", D.obtenerAgente(orgId, canalId), [], {
+      origen: "anuncio",
+      producto_anuncio: "Chacabanas para caballeros",
+      descripcion_anuncio: "Chacabanas para caballeros. Size S M L XL y XXL",
+    });
+    assert.match(suyo, /PROHIBIDO contestar preguntando/, pais + ": puede devolverle la pregunta al cliente");
   }
+  D.actualizarAgente(orgId, { pais: "do" }, canalId);
 });
 
 /**
@@ -1654,31 +1640,33 @@ test("pedir informacion se contesta con el producto y su precio, no con otra pre
  * el país, el guion, el envío y las reglas de cierre juntos.
  */
 test("el prompt de un país no lleva nada de los otros dos", async () => {
-  const { PLANTILLAS } = await import("../src/lib/plantillas");
+  const { AGENTES_DE_PAIS } = await import("../src/agents");
 
   /** Lo que delata a otro país: su dinero y su geografía. */
   const ajeno: Record<string, RegExp[]> = {
-    do: [/₡/, /colones/i, /SINPE/i, /corregimiento/i, /US\$/, /Yappy/i],
-    cr: [/RD\$/, /pesos dominicanos/i, /corregimiento/i, /Caribe Express/i, /US\$/, /Yappy/i],
-    pa: [/₡/, /colones/i, /SINPE/i, /RD\$/, /Caribe Express/i, /Vimenca/i],
+    do: [/₡/, /colones/i, /SINPE/i, /corregimiento/i, /US\$/, /Yappy/i, /cantón/i, /TELLERIA/],
+    cr: [/RD\$/, /pesos? dominicanos?/i, /corregimiento/i, /Caribe Express/i, /US\$/, /Yappy/i, /RINCON/],
+    pa: [/₡/, /colones/i, /SINPE/i, /RD\$/, /Caribe Express/i, /Vimenca/i, /cantón/i, /RINCON/, /TELLERIA/],
   };
 
   /** Y lo que tiene que estar, porque es lo suyo. */
   const propio: Record<string, RegExp[]> = {
-    do: [/RD\$/, /sector/i, /Caribe Express/i],
-    cr: [/₡|colon/i, /cant[óo]n/i, /SINPE/i],
-    pa: [/corregimiento/i],
+    do: [/RD\$250/, /RD\$290/, /sector/i, /RINCON DCM/],
+    cr: [/₡3\.500/, /cant[óo]n/i, /SINPE/i, /TELLERIA/],
+    pa: [/corregimiento/i, /US\$5\.00/],
   };
 
-  for (const p of PLANTILLAS) {
+  /** Las tarifas cargadas en el panel, que un agente de país NO lee. */
+  const delPanel: Record<string, RegExp> = {
+    do: /RD\$100\b|RD\$200\b/,
+    cr: /₡100\b|₡200\b/,
+    pa: /US\$100\.00|US\$200\.00/,
+  };
+
+  for (const p of Object.values(AGENTES_DE_PAIS)) {
     D.actualizarAgente(
       orgId,
-      {
-        pais: p.pais,
-        instrucciones: p.instrucciones,
-        envio_cerca: 100,
-        envio_lejos: 200,
-      },
+      { pais: p.codigo, instrucciones: "", envio_cerca: 100, envio_lejos: 200 },
       canalId,
     );
 
@@ -1689,12 +1677,13 @@ test("el prompt de un país no lleva nada de los otros dos", async () => {
       { origen: "anuncio", producto_anuncio: "Set de sábanas", descripcion_anuncio: "Un set" },
     );
 
-    for (const marca of ajeno[p.pais]!) {
-      assert.doesNotMatch(prompt, marca, `${p.pais}: se le coló ${marca} de otro país`);
+    for (const marca of ajeno[p.codigo]!) {
+      assert.doesNotMatch(prompt, marca, `${p.codigo}: se le coló ${marca} de otro país`);
     }
-    for (const marca of propio[p.pais]!) {
-      assert.match(prompt, marca, `${p.pais}: le falta lo suyo (${marca})`);
+    for (const marca of propio[p.codigo]!) {
+      assert.match(prompt, marca, `${p.codigo}: le falta lo suyo (${marca})`);
     }
+    assert.doesNotMatch(prompt, delPanel[p.codigo]!, `${p.codigo}: cotiza una tarifa del panel y no la de su archivo`);
   }
 
   D.actualizarAgente(orgId, { pais: "do", instrucciones: "", envio_cerca: null, envio_lejos: null }, canalId);
@@ -1833,8 +1822,12 @@ test("el panel avisa cuando el agente se presenta con nombre de máquina", () =>
     webhookSecret: "s", whapiChannelId: null, estado: "conectado",
   });
 
+  /*
+   * En un país cuyo archivo no fija el nombre (Panamá), el del panel es el
+   * que sale en el saludo: ahí es donde se avisa.
+   */
   for (const malo of ["Asistente", "Bot", "Agente virtual", "ChatGPT"]) {
-    D.actualizarAgente(org, { nombre: malo }, canal);
+    D.actualizarAgente(org, { nombre: malo, pais: "pa" }, canal);
     const r = revisarAgente(org, canal);
     assert.ok(
       r.avisos.some((a) => a.includes("nombre de PERSONA")),
@@ -1848,6 +1841,18 @@ test("el panel avisa cuando el agente se presenta con nombre de máquina", () =>
   assert.equal(
     bien.avisos.some((a) => a.includes("nombre de PERSONA")),
     false,
+  );
+
+  /*
+   * Y EN REPÚBLICA DOMINICANA NO SE AVISA DE NADA: su archivo fija «Orlanda»,
+   * así que el nombre del panel no lo lee ningún cliente. Avisar de algo que
+   * el cliente no ve enseña a ignorar los avisos que sí importan.
+   */
+  D.actualizarAgente(org, { nombre: "Asistente", pais: "do" }, canal);
+  assert.equal(
+    revisarAgente(org, canal).avisos.some((a) => a.includes("nombre de PERSONA")),
+    false,
+    "en RD el saludo sale del archivo del país: el nombre del panel no se oye",
   );
 });
 
@@ -1954,72 +1959,40 @@ test("sin anuncio, las reglas del anuncio no entran en el prompt", () => {
  * cambiarle el saludo al panameno no puede cambiarselo a ninguno de los dos.
  */
 test("cada pais abre con su saludo, y el prompt lo dice una sola vez", () => {
-  D.actualizarAgente(orgId, { nombre: "Mildred", pais: "do", negocio: "Rincon" }, canalId);
+  D.actualizarAgente(orgId, { nombre: "Mildred", pais: "do", negocio: "Rincon", instrucciones: "" }, canalId);
   const dominicano = armarSistema("Rincon", D.obtenerAgente(orgId, canalId), [], null);
 
-  assert.ok(
-    dominicano.includes("Saludos cordiales 👋\nLe asiste Mildred."),
-    "el dominicano saluda asi, con su nombre y en dos lineas",
-  );
-  assert.equal(
-    dominicano.includes("Hola, le asiste"),
-    false,
-    "y ya no arrastra el saludo viejo por ningun lado",
-  );
-
-  /*
-   * Las dos lineas van pegadas, sin una en blanco entre medias: `partirEnMensajes`
-   * corta por el primer hueco, y un saludo con hueco dentro le llegaria al cliente
-   * partido en dos mensajes -«Saludos cordiales» y, aparte, «Le asiste Mildred»-.
-   */
-  assert.deepEqual(
-    partirEnMensajes("Saludos cordiales 👋\nLe asiste Mildred.\n\nA que direccion?", {
-      saludoAparte: true,
-    }),
-    ["Saludos cordiales 👋\nLe asiste Mildred.", "A que direccion?"],
-  );
+  // El saludo dominicano lo fija su archivo: nombre y tienda incluidos, diga
+  // lo que diga el panel.
+  assert.ok(dominicano.includes("Hola, le asiste Orlanda de RINCON DCM"), "el dominicano saluda así");
+  assert.equal(dominicano.includes("Saludos cordiales"), false, "y ya no arrastra el saludo viejo");
+  assert.equal(dominicano.includes("Mildred"), false, "ni el nombre del panel, que el archivo sustituye");
 
   // La regla y el ejemplo dicen LA MISMA frase, no dos parecidas.
   assert.equal(
-    dominicano.split("Saludos cordiales").length - 1,
+    dominicano.split("Hola, le asiste Orlanda de RINCON DCM").length - 1,
     2,
-    "una vez en la regla y otra en el ejemplo: ni una copia suelta mas",
+    "una vez en la regla y otra en el ejemplo: ni una copia suelta más",
   );
 
   /*
-   * EL TICO ABRE IGUAL, Y AL PANAMENO NO SE LE HA MOVIDO NADA.
-   *
-   * Costa Rica se pidio despues y con la misma frase que Republica Dominicana,
-   * asi que abre sin el nombre de la tienda detras. Panama sigue con el suyo, y
-   * un cambio que se cuela en los tres paises no da la cara en ninguna prueba:
-   * se descubre por un cliente al que su tienda de siempre empieza a escribirle
-   * de otra manera.
+   * EL TICO SE PRESENTA COMO LA TIENDA, sin nombre de persona y de tú. Y al
+   * panameño, que todavía no tiene tienda escrita en su archivo, le vale lo
+   * que diga el panel. Cambiarle el saludo a uno no se lo cambia a los otros.
    */
   D.actualizarAgente(orgId, { pais: "cr" }, canalId);
   const tico = armarSistema("Rincon", D.obtenerAgente(orgId, canalId), [], null);
-
-  assert.ok(
-    tico.includes("Saludos cordiales 👋\nLe asiste Mildred."),
-    "el tico abre igual que el dominicano, con su nombre y en dos lineas",
-  );
-  assert.equal(
-    tico.includes("Hola, le asiste"),
-    false,
-    "cr: tampoco arrastra el saludo viejo",
-  );
+  assert.ok(tico.includes("Hola, te asiste TELLERIA"), "el tico abre con la tienda y de tú");
+  assert.equal(tico.includes("Orlanda"), false, "cr: nada del dominicano");
+  assert.ok(tico.includes("Trato de TÚ"), "cr: de tú en todo el hilo");
 
   D.actualizarAgente(orgId, { pais: "pa" }, canalId);
   const panameno = armarSistema("Rincon", D.obtenerAgente(orgId, canalId), [], null);
+  assert.ok(panameno.includes("Hola, le asiste Mildred de Rincon"), "pa: el nombre del panel y el negocio del número");
+  assert.equal(panameno.includes("Saludos cordiales"), false, "pa: se le coló el de los otros dos");
+  assert.equal(panameno.includes("TELLERIA"), false, "pa: nada del tico");
 
-  assert.ok(
-    panameno.includes("Hola, le asiste Mildred de Rincon"),
-    "pa: saluda como siempre",
-  );
-  assert.equal(
-    panameno.includes("Saludos cordiales"),
-    false,
-    "pa: se le colo el de los otros dos",
-  );
+  D.actualizarAgente(orgId, { pais: "do" }, canalId);
 });
 
 /**

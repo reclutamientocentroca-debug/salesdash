@@ -83,6 +83,49 @@ export async function postConToken(
   return datos;
 }
 
+/**
+ * POST con archivo adjunto, para subir una imagen a Meta.
+ *
+ * La Graph API no acepta un archivo dentro de un JSON: los adjuntos van en
+ * `multipart/form-data`, así que esto existe aparte de `postGraph` y no en vez
+ * de él. El token viaja como un campo más del formulario, igual que en el JSON.
+ *
+ * NO se le pone `Content-Type` a mano: lo escribe `fetch` a partir del
+ * `FormData` con el `boundary` que él mismo genera, y ponerlo por nuestra
+ * cuenta lo dejaría sin boundary y Meta rechazaría el cuerpo entero.
+ */
+export async function postGraphMultipart(
+  canal: Canal,
+  ruta: string,
+  campos: Record<string, string>,
+  archivo: { nombre: string; mime: string; datos: Buffer },
+): Promise<Record<string, unknown>> {
+  const token = descifrar(canal.token_cifrado);
+
+  const form = new FormData();
+  for (const [clave, valor] of Object.entries(campos)) form.append(clave, valor);
+  form.append("access_token", token);
+  form.append(
+    "filedata",
+    new Blob([new Uint8Array(archivo.datos)], { type: archivo.mime }),
+    archivo.nombre,
+  );
+
+  const r = await fetch(`https://graph.facebook.com/${versionGraph()}/${ruta}`, {
+    method: "POST",
+    body: form,
+  });
+
+  const datos = (await r.json().catch(() => ({}))) as Record<string, unknown>;
+
+  if (!r.ok) {
+    const e = (datos.error ?? {}) as { message?: string; code?: number };
+    throw new ErrorMeta(sinToken(e.message ?? `Meta respondió ${r.status}`, token), e.code);
+  }
+
+  return datos;
+}
+
 export async function getGraph(
   ruta: string,
   campos: string,

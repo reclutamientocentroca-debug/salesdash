@@ -198,6 +198,12 @@ test("ninguna función de lectura de db.ts omite el orgId", async () => {
     // Y el barrido de seguimientos, por lo mismo: corre en un reloj, sin
     // sesión, y solo pregunta en qué cuentas hay un agente contestando.
     "orgsConAgente",
+
+    // El supervisor tampoco viene de una sesion: empieza por saber que cuentas
+
+    // tienen algun numero, y desde ahi todo vuelve a ir con orgId.
+
+    "orgsConCanales",
     // Ruta del disco, no una consulta.
     "rutaDatos",
     // El webhook de Meta no trae sesion: la cuenta se DEDUCE de la pagina o de

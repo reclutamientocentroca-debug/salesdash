@@ -5,7 +5,6 @@ import * as D from "../src/lib/db";
 import { armarSistema, revisarAgente } from "../src/lib/agent";
 import { conLoVistoYOido, percibir } from "../src/lib/percepcion";
 import { PAISES, bloqueDePais, obtenerPais, paisDeTelefono } from "../src/lib/paises";
-import { PLANTILLAS } from "../src/lib/plantillas";
 import {
   enlaceDeMapa,
   esUbicacion,
@@ -222,8 +221,11 @@ test("cada canal lleva al modelo la moneda y las direcciones de SU país", () =>
     "es la diferencia que más se nota al pedir una dirección",
   );
 
-  assert.ok(promptPa.includes("B/."), "el panameño cobra en balboas");
-  assert.ok(promptPa.includes("Yappy"), "que es como se paga en Panamá");
+  assert.ok(promptPa.includes("US$"), "el panameño cobra en dólares");
+  assert.ok(
+    promptPa.includes("FORMA DE PAGO: NO CONFIGURADA"),
+    "y sin forma de pago escrita en su archivo, no se inventa ninguna",
+  );
   assert.equal(promptPa.includes("₡"), false, "y no mezcla la moneda del vecino");
 });
 
@@ -613,17 +615,16 @@ test("el guion se copia a todos los números, y solo el guion", () => {
 /**
  * La política de cambios se contesta, pero NO se saca por cuenta propia: a
  * quien no lo ha preguntado, hablarle de devoluciones le siembra una duda que
- * no tenía. Es una regla de venta, no un tecnicismo.
+ * no tenía. Es una regla de venta, no un tecnicismo. Y donde no hay política
+ * escrita, no se inventa: se transfiere.
  */
-test("el guion de Moda Panamá contesta cambios y devoluciones sin sacarlo él", () => {
-  const g = PLANTILLAS[0]!.instrucciones;
+test("los cambios se contestan solo si preguntan, y sin política se transfiere", () => {
+  const dominicano = armarSistema("Tienda", D.obtenerAgente(orgId, rd), [], null);
+  assert.ok(dominicano.includes("SOLO SI EL CLIENTE PREGUNTA"), "no lo saca por su cuenta");
+  assert.ok(dominicano.includes("24 horas"), "y cuando pregunta, tiene la respuesta");
+  assert.ok(dominicano.includes("antes de pagarle al mensajero"), "puede revisar antes de pagar");
 
-  assert.ok(g.includes("SOLO SI EL CLIENTE PREGUNTA"), "no lo saca por su cuenta");
-  assert.ok(g.includes("24 HORAS"), "y cuando pregunta, tiene la respuesta");
-  assert.ok(g.includes("ANTES DE PAGARLE"), "puede revisar antes de pagar al mensajero");
-  assert.equal(
-    g.includes("o pide\ncambio o devolución: dilo con claridad y pasa el caso"),
-    false,
-    "ya no suelta el chat en cuanto oye la palabra devolución",
-  );
+  const panameno = armarSistema("Tienda", D.obtenerAgente(orgId, pa), [], null);
+  assert.ok(panameno.includes("CAMBIOS Y DEVOLUCIONES: NO CONFIGURADO"), "sin política, no se promete nada");
+  assert.ok(panameno.includes("SOLO SI EL CLIENTE PREGUNTA"), "y tampoco lo saca él");
 });

@@ -8,6 +8,8 @@ import { informeDeCanal, informeDeCuenta } from "../src/lib/informe";
 import { calcularMetricas, rellenarDias } from "../src/lib/metrics";
 import { ingerir, type MensajeEntrante } from "../src/lib/ingesta";
 import { esChatDePersona } from "../src/lib/telefono";
+import { armarSistema, monedaAjena } from "../src/lib/agent";
+import { obtenerPais } from "../src/lib/paises";
 
 /**
  * La invariante del procedimiento diario:
@@ -1023,150 +1025,129 @@ test("la dirección se pide una vez, con provincia, y se da por buena", async ()
   assert.ok(bloque.includes("RD$"), "y los importes van en pesos dominicanos");
 });
 
+/** El prompt de un país, armado como lo lee el modelo. Deja el canal como estaba. */
+function promptDe(pais: string): string {
+  const antes = D.obtenerAgente(orgId, canalId).pais;
+  D.actualizarAgente(orgId, { pais, instrucciones: "" }, canalId);
+  const prompt = armarSistema("Tienda", D.obtenerAgente(orgId, canalId), [], null);
+  D.actualizarAgente(orgId, { pais: antes }, canalId);
+  return prompt;
+}
+
 /**
  * Un guion panameño en un número dominicano se delata en el primer mensaje:
- * habla de usted, cobra en dólares y pregunta por un corregimiento que aquí no
- * existe. Y cotiza US$5.00 de envío, que no es el envío de este país.
+ * cobra en dólares y pregunta por un corregimiento que aquí no existe. Y cotiza
+ * US$5.00 de envío, que no es el envío de este país. Ahora el dominicano solo
+ * puede leer su archivo (src/agents/paises/rd.ts), y esto comprueba lo que
+ * trae dentro.
  */
-test("la plantilla dominicana cobra en pesos y pide sector y provincia", async () => {
-  const { PLANTILLAS } = await import("../src/lib/plantillas");
-  const rd = PLANTILLAS.find((p) => p.clave === "moda-dominicana");
+test("el agente dominicano cobra en pesos y pide sector y provincia", () => {
+  const rd = promptDe("do");
 
-  assert.ok(rd, "tiene que haber una plantilla de República Dominicana");
-  assert.ok(rd.instrucciones.includes("RD$250"), "el envío de Santo Domingo");
-  assert.ok(rd.instrucciones.includes("RD$290"), "y el del interior");
-  assert.ok(!rd.instrucciones.includes("US$"), "aquí no se cobra en dólares");
-  assert.ok(!rd.instrucciones.toLowerCase().includes("corregimiento"), "eso es de Panamá");
-  assert.ok(rd.instrucciones.includes("provincia"), "la dirección lleva provincia");
-  assert.ok(rd.instrucciones.includes("DALA POR BUENA Y SIGUE"), "y no se repregunta");
+  assert.ok(rd.includes("RD$250"), "el envío del Gran Santo Domingo");
+  assert.ok(rd.includes("RD$290"), "y el del interior");
+  assert.ok(!rd.includes("US$"), "aquí no se cobra en dólares");
+  assert.ok(!rd.toLowerCase().includes("corregimiento"), "eso es de Panamá");
+  assert.ok(rd.includes("PROVINCIA"), "la dirección lleva provincia");
+  assert.ok(rd.includes("DALA POR BUENA Y SIGUE"), "y no se repregunta");
 
   /*
-   * Las tallas son las de esta tienda, no las de la de Panamá: el calzado en
-   * europea con su equivalencia americana —que el cliente usa y no hay que
-   * corregirle— y los artículos que no llevan talla, dichos por su nombre.
+   * Las tallas son las de esta tienda: el calzado en europea con su
+   * equivalencia americana —que el cliente usa y no hay que corregirle— y los
+   * artículos que no llevan talla, dichos por su nombre.
    */
-  assert.ok(rd.instrucciones.includes("de la 39 a la 45 europea"));
-  assert.ok(rd.instrucciones.includes("del 7 al 11 americana"), "y se acepta como la dice el cliente");
+  assert.ok(rd.includes("de la 39 a la 45"));
+  assert.ok(rd.includes("del 7 al 11 americana"), "y se acepta como la dice el cliente");
   assert.ok(
-    rd.instrucciones.includes("Cepillos y abejones: NO llevan talla ni color"),
+    rd.includes("NO llevan talla ni color, y no se preguntan: Cepillos, Abejones"),
     "lo que no lleva talla, dicho por su nombre",
   );
 
-  // Las tres reglas que valen la venta en esta tienda.
-  assert.ok(rd.instrucciones.includes("NUNCA TE QUEDAS CALLADA"));
-  assert.ok(rd.instrucciones.includes("TU NO PUEDES ENVIAR FOTOS"), "las fotos se transfieren");
-  assert.ok(
-    rd.instrucciones.includes("EL RESUMEN, QUE NO SE SALTA NUNCA"),
-    "y nunca se transfiere sin haberlo mandado",
-  );
+  // Las reglas que valen la venta, que ahora son de los tres.
+  assert.ok(rd.includes("NUNCA TE QUEDAS EN SILENCIO"));
+  assert.ok(rd.includes("TÚ NO PUEDES ENVIAR FOTOS"), "las fotos se transfieren");
+  assert.ok(rd.includes("LA TRANSFERENCIA VA PEGADA AL RESUMEN"), "y nunca se transfiere sin haberlo mandado");
+  assert.ok(rd.includes("AQUÍ NO SE RESERVA NADA"));
+  assert.ok(rd.includes("NO SE MANDAN DOS PARA PROBAR"));
 
-  // Y aquí no se aparta mercancía ni se manda un muestrario.
-  assert.ok(rd.instrucciones.includes("AQUI NO SE RESERVA NADA"));
-  assert.ok(rd.instrucciones.includes("NO SE MANDAN DOS PARA PROBAR"));
-  assert.ok(
-    rd.instrucciones.includes("Mandame dos para medirme"),
-    "y tiene contestación preparada para cuando lo pidan",
-  );
+  // El mayoreo existe, pero no lo cotiza el agente.
+  assert.ok(rd.includes("TÚ NO COTIZAS MAYOREO"));
 
-  // El dueño tiene que ver, antes de aplicarla, de dónde salen esos montos.
-  assert.ok(rd.descripcion.includes("RD$250"));
-
-  // Y la panameña sigue siendo la panameña.
-  const pa = PLANTILLAS.find((p) => p.clave === "moda-panama");
-  assert.ok(pa?.instrucciones.includes("US$5.00"));
+  // Y el panameño sigue siendo el panameño.
+  assert.ok(promptDe("pa").includes("US$5.00"));
 });
 
 /**
  * MISMA VOZ, DISTINTO PAÍS.
  *
- * Un guion trae dos cosas mezcladas y solo una es local: cuánto cuesta el
- * envío, cómo se da una dirección y con qué se paga cambian de un país a otro;
- * CÓMO SE ESCRIBE un mensaje, no. Cuando el molde estaba copiado en cada
- * plantilla, mejorarlo en una dejaba a la otra hablando como el mes pasado —dos
- * números de la misma empresa escribiendo distinto sin que nadie lo decidiera—.
- *
- * Ahora se escribe una vez y se interpola, así que aquí se comprueba lo único
- * que puede romperse: que siga siendo EL MISMO en los tres, palabra por palabra.
+ * Lo que cambia de un país a otro es la información; CÓMO SE VENDE, no. Antes
+ * el molde estaba copiado en cada plantilla y mejorarlo en una dejaba a la
+ * otra hablando como el mes pasado. Ahora hay UN archivo de comportamiento
+ * (src/agents/base-comportamiento.ts) y se comprueba lo único que puede
+ * romperse: que las reglas sigan siendo las mismas en los tres, palabra por
+ * palabra, y que ninguno lleve el dinero de otro.
  */
-test("los tres guiones responden con el mismo molde", async () => {
-  const { PLANTILLAS } = await import("../src/lib/plantillas");
-  const { obtenerPais } = await import("../src/lib/paises");
-  const { monedaAjena } = await import("../src/lib/agent");
+test("los tres agentes venden con el mismo comportamiento", () => {
+  const reglas = (prompt: string) =>
+    prompt
+      .slice(prompt.indexOf("Reglas que no puedes romper:"), prompt.indexOf("CÓMO EMPIEZA UNA CONVERSACIÓN"))
+      // El trato es del país: se aparta antes de comparar.
+      .split("\n")
+      .filter((l) => !l.startsWith("- Trato de"))
+      .join("\n");
 
-  const FIN = "- Avanza el cierre.";
-  const molde = (texto: string) =>
-    texto.slice(texto.indexOf("=== COMO ESCRIBES ==="), texto.indexOf(FIN) + FIN.length);
+  const moldes = ["do", "cr", "pa"].map((p) => {
+    const prompt = promptDe(p);
+    assert.ok(prompt.includes("EL SALUDO VA SOLO"), `${p}: el saludo va aparte`);
+    assert.ok(prompt.includes("UNA SOLA IDEA POR MENSAJE"), `${p}: un dato por mensaje`);
+    assert.ok(prompt.includes("LO QUE EL CLIENTE YA TE DIJO ES TUYO"), `${p}: con memoria`);
+    assert.ok(prompt.includes("EL RITMO DEL CIERRE"), `${p}: y el mismo orden de cierre`);
 
-  for (const p of PLANTILLAS) {
-    const m = molde(p.instrucciones);
-
-    assert.ok(m.includes("EL SALUDO VA SOLO"), `${p.clave}: el saludo va aparte`);
-    assert.ok(m.includes("UNA SOLA IDEA POR MENSAJE"), `${p.clave}: un dato por mensaje`);
-    assert.ok(m.includes("LO QUE YA TIENES NO SE PREGUNTA"), `${p.clave}: con memoria`);
-    assert.ok(m.includes("NO REPITAS UNA PREGUNTA QUE YA HICISTE"), `${p.clave}: y sin repetirse`);
-    assert.ok(m.includes("Trato de usted"), `${p.clave}: de usted en los tres`);
-
-    /*
-     * Y NINGÚN GUION HABLA DEL DINERO DE OTRO PAÍS. Es la comprobación que
-     * habría cazado el envío en US$5.00 dentro de un número dominicano antes de
-     * que lo cazara un cliente.
-     */
-    const pais = obtenerPais(p.pais);
-    assert.ok(pais, `${p.clave}: declara un país que existe`);
+    const pais = obtenerPais(p);
+    assert.ok(pais, `${p}: declara un país que existe`);
     assert.equal(
-      monedaAjena(p.instrucciones, pais.moneda.codigo),
+      monedaAjena(prompt, pais.moneda.codigo),
       null,
-      `${p.clave}: no puede llevar dentro la moneda de otro país`,
+      `${p}: no puede llevar dentro la moneda de otro país`,
     );
-  }
 
-  // El molde es el mismo, palabra por palabra, en los tres.
-  const moldes = PLANTILLAS.map((p) => ({ clave: p.clave, texto: molde(p.instrucciones) }));
+    return { p, texto: reglas(prompt) };
+  });
+
+  assert.ok(moldes[0]!.texto.length > 1000, "las reglas se encontraron enteras");
   for (const m of moldes) {
-    assert.equal(m.texto, moldes[0]!.texto, `${m.clave}: el molde tiene que ser el mismo`);
+    assert.equal(m.texto, moldes[0]!.texto, `${m.p}: las reglas tienen que ser las mismas`);
   }
-
-  // Y no se repite ningún país: dos guiones para el mismo número no se eligen.
-  const paises = PLANTILLAS.map((p) => p.pais);
-  assert.equal(new Set(paises).size, paises.length, "un país, un guion");
 });
 
 /**
  * COSTA RICA ES LA QUE MÁS SE ALEJA, y no por el idioma: ahí no hay calle y
- * número —la dirección se da por señas desde un punto conocido— y el pago va
- * POR DELANTE, por SINPE Móvil, antes de enviar nada. Un guion dominicano
- * aplicado ahí ofrecería pago contra entrega, que no es como se compra en ese
- * país, y pediría una calle que no existe.
+ * número —la dirección se da por señas desde un punto conocido—, el envío
+ * cuesta lo mismo en todo el país y lo que cambia por zona es cómo llega y
+ * cuándo se paga: fuera de la zona de domicilio, POR DELANTE, por SINPE Móvil.
  */
-test("el guion de Costa Rica cobra antes de enviar y pide señas, no calles", async () => {
-  const { PLANTILLAS } = await import("../src/lib/plantillas");
-  const cr = PLANTILLAS.find((p) => p.clave === "costa-rica");
+test("el agente de Costa Rica cobra por SINPE, pide señas y no pide talla a una plancha", () => {
+  const cr = promptDe("cr");
 
-  assert.ok(cr, "tiene que haber un guion de Costa Rica");
-  assert.equal(cr.pais, "cr");
+  assert.ok(cr.includes("EN COSTA RICA NO HAY CALLE Y NÚMERO"));
+  assert.ok(cr.includes("200 metros norte"), "con un ejemplo de señas de verdad");
+  assert.ok(cr.includes("SINPE Móvil"), "y el pago por SINPE");
+  assert.ok(cr.includes("NO SE LOS INVENTES"), "un número de SINPE inventado es dinero yéndose a otra cuenta");
+  assert.ok(cr.includes("se cobra ANTES de enviar"), "fuera de la zona de domicilio, por delante");
+  assert.ok(cr.includes("paga al recibir"), "y en la zona de domicilio, al recibir");
+  assert.ok(cr.includes("₡3.500"), "se cobra en colones, con el punto en los miles");
+  assert.ok(!cr.includes("RD$"), "y no en pesos dominicanos");
 
-  assert.ok(cr.instrucciones.includes("EN COSTA RICA NO HAY CALLE Y NUMERO"));
-  assert.ok(cr.instrucciones.includes("200 metros norte"), "con un ejemplo de señas de verdad");
-  assert.ok(cr.instrucciones.includes("SINPE MOVIL"), "y el pago por adelantado");
-  assert.ok(
-    cr.instrucciones.includes("NO SE LOS INVENTE"),
-    "un número de SINPE inventado es dinero yéndose a otra cuenta",
-  );
-  assert.ok(cr.instrucciones.includes("colones"), "se cobra en colones");
-  assert.ok(!cr.instrucciones.includes("RD$"), "y no en pesos dominicanos");
+  // Las zonas de domicilio, nombradas.
+  for (const z of ["Escazú", "Curridabat", "Aserrí", "Montes de Oca", "Vázquez de Coronado"]) {
+    assert.ok(cr.includes(z), `falta la zona de domicilio ${z}`);
+  }
 
-  /*
-   * EL ORDEN, que aquí se sigue paso a paso y cambia según el artículo: con
-   * talla se pregunta la talla y el color ANTES de la dirección; sin talla se
-   * va derecho a dónde se lo enviamos. Y la talla se pide como la pida el
-   * anuncio: por letra o por número, nunca al revés.
-   */
-  assert.ok(cr.instrucciones.includes("SI EL ARTICULO LLEVA TALLA O COLOR"));
-  assert.ok(cr.instrucciones.includes("SI EL ARTICULO NO LLEVA TALLA NI COLOR"));
-  assert.ok(cr.instrucciones.includes("LA DESCRIPCION DEL ANUNCIO TE DICE COMO SE PIDE"));
-  assert.ok(cr.instrucciones.includes("CON LA DIRECCION NO SEA EXIGENTE"));
+  // Una plancha no lleva talla.
+  assert.ok(cr.includes("Solo la ropa y el calzado llevan talla"));
+  assert.ok(cr.includes("Planchas"));
 
-  // Lo que comparte con las demás.
-  assert.ok(cr.instrucciones.includes("AQUI NO SE RESERVA NADA"));
-  assert.ok(cr.instrucciones.includes("SE DESPACHA DENTRO DE 24 A 48"));
+  // Lo que comparte con los demás.
+  assert.ok(cr.includes("AQUÍ NO SE RESERVA NADA"));
+  assert.ok(cr.includes("SE DESPACHA dentro de 24 a 48 horas"));
 });

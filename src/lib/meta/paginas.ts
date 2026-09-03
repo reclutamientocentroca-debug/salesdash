@@ -11,7 +11,7 @@ import {
   guardarPublicacionAnuncio,
   type Canal,
 } from "@/lib/db";
-import { getGraph, postGraph } from "./graph";
+import { getGraph, postGraph, versionGraph } from "./graph";
 
 /**
  * Los eventos a los que se suscribe la página. Son los cuatro que usa el canal
@@ -40,6 +40,60 @@ export const CAMPOS_SUSCRIPCION = [
  * mensaje. Es la causa número uno de «lo configuré todo y no pasa nada», así
  * que se hace al conectar en vez de dejarlo como un paso manual que se olvida.
  */
+/**
+ * LOS PERMISOS QUE LLEVA DENTRO EL ACCESO GUARDADO.
+ *
+ * Un token de página no vale o no vale «del todo»: vale para lo que se pidió el
+ * día que se conectó, y nada más. El día que se añade una capacidad al canal
+ * —contestar el comentario, por ejemplo— las páginas que ya estaban conectadas
+ * siguen con el token viejo, sin ese permiso, y no hay nada que lo delate: Meta
+ * las acepta, los mensajes entran, la suscripción está perfecta. Lo único que
+ * pasa es que la respuesta al comentario se rechaza, una por una, cuando ya es
+ * tarde para el cliente que preguntó.
+ *
+ * Se le pregunta a Meta con `debug_token`, que es quien lo sabe. El arreglo es
+ * volver a conectar la página, y eso hay que poder decirlo ANTES.
+ */
+export const PERMISOS_NECESARIOS = [
+  /** Leer y suscribir la página a los eventos. Sin esto no llega nada. */
+  "pages_manage_metadata",
+  /** Los mensajes directos: leerlos y contestarlos. */
+  "pages_messaging",
+  /** Leer lo que escriben debajo de una publicación. */
+  "pages_read_engagement",
+  /** PUBLICAR la respuesta colgada del comentario. Leerlo no basta. */
+  "pages_manage_engagement",
+] as const;
+
+/**
+ * Los permisos que Meta dice que tiene este acceso, o `null` si no lo dijo.
+ *
+ * `null` NO es «no tiene ninguno»: es «no se pudo leer», y son dos cosas muy
+ * distintas para quien lo lea. Sin credenciales de app no se pregunta siquiera.
+ */
+export async function permisosDelAcceso(token: string): Promise<string[] | null> {
+  const appId = (process.env.META_APP_ID ?? "").trim();
+  const secreto = (process.env.META_APP_SECRET ?? "").trim();
+  if (!appId || !secreto) return null;
+
+  try {
+    const url =
+      `https://graph.facebook.com/${versionGraph()}/debug_token` +
+      `?input_token=${encodeURIComponent(token)}` +
+      `&access_token=${encodeURIComponent(`${appId}|${secreto}`)}`;
+
+    const r = await fetch(url);
+    if (!r.ok) return null;
+
+    const datos = (await r.json().catch(() => ({}))) as { data?: { scopes?: unknown } };
+    const scopes = datos.data?.scopes;
+
+    return Array.isArray(scopes) ? scopes.filter((s): s is string => typeof s === "string") : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function suscribirPagina(canal: Canal): Promise<void> {
   await postGraph(canal, `${canal.phone}/subscribed_apps`, {
     subscribed_fields: CAMPOS_SUSCRIPCION.join(","),
@@ -64,6 +118,17 @@ export interface RevisionPagina {
   faltan: string[];
   /** Se intentó suscribir durante esta revisión y Meta aceptó. */
   reparada: boolean;
+  /**
+   * Los permisos del acceso guardado, o `null` si Meta no los dijo. Ver
+   * `permisosDelAcceso`: `null` es «no se pudo leer», no «no tiene ninguno».
+   */
+  permisos: string[] | null;
+  /**
+   * De los que hace falta, los que no están. Esto NO se puede reparar desde
+   * aquí: un permiso se concede en la ventana de Facebook, así que el único
+   * arreglo es volver a conectar la página.
+   */
+  permisosFaltan: string[];
   /** Lo que dijo Meta cuando algo falló, con SU texto. */
   error: string | null;
 }
@@ -87,7 +152,8 @@ export interface RevisionPagina {
 export async function revisarPagina(canal: Canal): Promise<RevisionPagina> {
   const vacio: RevisionPagina = {
     tokenLegible: true, tokenVale: false, suscrita: false, campos: [],
-    faltan: [...CAMPOS_SUSCRIPCION], reparada: false, error: null,
+    faltan: [...CAMPOS_SUSCRIPCION], reparada: false,
+    permisos: null, permisosFaltan: [], error: null,
   };
 
   let token: string;
@@ -105,7 +171,24 @@ export async function revisarPagina(canal: Canal): Promise<RevisionPagina> {
     return { ...vacio, error: e instanceof Error ? e.message : "Meta no aceptó el acceso guardado." };
   }
 
-  // 2. ¿Estamos suscritos, y a qué? `subscribed_apps` devuelve las apps
+  /*
+   * 2. ¿QUÉ PERMISOS LLEVA ESTE ACCESO?
+   *
+   * Se pregunta aquí y no al enviar porque el que falta —`pages_manage_engagement`,
+   * el de publicar la respuesta al comentario— no se nota hasta que un cliente
+   * ya preguntó en público y la respuesta se rechazó. Una página conectada
+   * antes de que el canal supiera contestar comentarios tiene el token viejo y
+   * se ve idéntica a las que funcionan.
+   *
+   * No corta la revisión: un permiso que no se puede leer no rompe nada de lo
+   * de abajo, y lo de abajo es lo que decide si llegan los mensajes.
+   */
+  const permisos = await permisosDelAcceso(token);
+  const permisosFaltan = permisos
+    ? PERMISOS_NECESARIOS.filter((p) => !permisos.includes(p))
+    : [];
+
+  // 3. ¿Estamos suscritos, y a qué? `subscribed_apps` devuelve las apps
   //    suscritas a ESTA página. Con el token de la página, la única que puede
   //    salir es la nuestra.
   const leerSuscripcion = async (): Promise<string[]> => {
@@ -130,6 +213,8 @@ export async function revisarPagina(canal: Canal): Promise<RevisionPagina> {
       ...vacio,
       tokenLegible: true,
       tokenVale: true,
+      permisos,
+      permisosFaltan,
       error: e instanceof Error ? e.message : "Meta no dijo si la página está suscrita.",
     };
   }
@@ -138,11 +223,11 @@ export async function revisarPagina(canal: Canal): Promise<RevisionPagina> {
   if (faltan.length === 0) {
     return {
       tokenLegible: true, tokenVale: true, suscrita: true,
-      campos, faltan: [], reparada: false, error: null,
+      campos, faltan: [], reparada: false, permisos, permisosFaltan, error: null,
     };
   }
 
-  // 3. Falta algo: se suscribe y se vuelve a preguntar. Lo que se devuelve es lo
+  // 4. Falta algo: se suscribe y se vuelve a preguntar. Lo que se devuelve es lo
   //    que Meta dice DESPUÉS de reparar, no lo que se intentó.
   try {
     await suscribirPagina(canal);
@@ -154,6 +239,8 @@ export async function revisarPagina(canal: Canal): Promise<RevisionPagina> {
       campos,
       faltan,
       reparada: false,
+      permisos,
+      permisosFaltan,
       error: e instanceof Error ? e.message : "Meta no aceptó suscribir la página.",
     };
   }
@@ -173,6 +260,8 @@ export async function revisarPagina(canal: Canal): Promise<RevisionPagina> {
     campos: despues,
     faltan: CAMPOS_SUSCRIPCION.filter((c) => !despues.includes(c)),
     reparada: true,
+    permisos,
+    permisosFaltan,
     error: null,
   };
 }

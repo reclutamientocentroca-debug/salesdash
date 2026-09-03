@@ -35,7 +35,6 @@ import {
   type Mensaje,
 } from "../src/lib/db";
 import { generarRespuesta, partirEnMensajes } from "../src/lib/agent";
-import { PLANTILLAS } from "../src/lib/plantillas";
 
 /** Qué le escribe el cliente, en orden, en cada país. */
 const GUIONES: Record<string, { anuncio: string; precio: string; describe: string; dice: string[] }> = {
@@ -86,12 +85,6 @@ const GUIONES: Record<string, { anuncio: string; precio: string; describe: strin
   },
 };
 
-const CLAVES: Record<string, string> = {
-  do: "moda-dominicana",
-  cr: "costa-rica",
-  pa: "moda-panama",
-};
-
 const raya = (t: string) => console.log(`\n${"─".repeat(70)}\n${t}\n`);
 
 function mensaje(emisor: "cliente" | "ia", content: string, i: number): Mensaje {
@@ -106,9 +99,8 @@ async function main() {
   const pais = (process.argv[2] ?? "do").toLowerCase();
   const modeloPedido = process.argv[3]?.trim() || null;
   const guion = GUIONES[pais];
-  const clave = CLAVES[pais];
 
-  if (!guion || !clave) {
+  if (!guion) {
     console.error(`No hay guion de prueba para «${pais}». Usa do, cr o pa.`);
     process.exit(1);
   }
@@ -133,8 +125,9 @@ async function main() {
   // Las tarifas, en la moneda de cada país.
   const tarifas = pais === "cr" ? { cerca: 2500, lejos: 3500 } : pais === "pa" ? { cerca: 5, lejos: 5 } : { cerca: 250, lejos: 290 };
 
-  // Quien atiende y de parte de quién: es lo que sale en el saludo.
-  const quien = pais === "do" ? { nombre: "Orlanda", negocio: "RINCON DCM" } : { nombre: "Ana", negocio: "Tienda Rincón" };
+  // Quien atiende y de parte de quién, para el país cuyo archivo no lo fija
+  // (Panamá): los otros dos lo traen escrito en src/agents/paises.
+  const quien = { nombre: "Ana", negocio: "Tienda Rincón" };
 
   actualizarAgente(
     orgId,
@@ -142,7 +135,8 @@ async function main() {
       pais,
       nombre: quien.nombre,
       negocio: quien.negocio,
-      instrucciones: PLANTILLAS.find((p) => p.clave === clave)!.instrucciones,
+      // El guion vive en src/agents: aquí no se pega ninguno.
+      instrucciones: "",
       envio_cerca: tarifas.cerca,
       envio_lejos: tarifas.lejos,
       ...(modeloPedido ? { modelo: modeloPedido } : {}),

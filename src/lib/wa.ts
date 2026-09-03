@@ -809,6 +809,38 @@ export async function enviarTexto(canalId: number, destino: string, texto: strin
 }
 
 /**
+ * Una imagen, para cuando el cliente pide ver el producto.
+ *
+ * Gemela de `enviarTexto` y con la misma regla: solo `agent.ts` la importa, y
+ * hay una prueba que barre `src/` y falla si otro archivo la nombra.
+ *
+ * Aquí van BYTES y no un enlace, al revés que en Meta. Por el socket de
+ * WhatsApp no viajan URLs: el archivo se sube cifrado en el momento, así que
+ * quien llama tiene que traer la imagen leída. Es la misma que se le guardó al
+ * anuncio cuando entró el lead.
+ */
+export async function enviarImagen(
+  canalId: number,
+  destino: string,
+  datos: Buffer,
+  pie?: string,
+): Promise<string> {
+  const s = sesiones.get(canalId);
+  if (!s?.sock || s.estado !== "conectado") {
+    throw new Error("El número no está conectado a WhatsApp");
+  }
+
+  const enviado = await s.sock.sendMessage(jidDeDestino(destino), {
+    image: datos,
+    ...(pie ? { caption: pie } : {}),
+  });
+
+  const id = enviado?.key?.id;
+  if (!id) throw new Error("WhatsApp no devolvió el identificador de la imagen enviada");
+  return id;
+}
+
+/**
  * Reabre las sesiones de todos los canales activos. Se llama una vez al
  * arrancar el servidor: sin esto, tras cada despliegue nadie recibiría mensajes
  * hasta que alguien abriera la pantalla del número.

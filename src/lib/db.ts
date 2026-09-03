@@ -398,6 +398,14 @@ CREATE TABLE IF NOT EXISTS anuncios_meta (
      panel y ver de que le estan hablando sus clientes. */
   post_id TEXT,
   enlace TEXT,
+  /* EL IDENTIFICADOR DE LA FOTO YA SUBIDA A META.
+     Cuando el cliente pide "una foto", se le manda la del anuncio por el que
+     escribio. Subirla en cada peticion seria subir la MISMA imagen una vez por
+     cliente -un anuncio que funciona trae cientos-, asi que la primera vez se
+     sube con is_reusable y Meta devuelve este identificador; a partir de ahi el
+     envio es solo esta cadena. Nulo mientras nadie haya pedido una foto de este
+     anuncio, que es el caso normal. */
+  attachment_id TEXT,
   created_at INTEGER NOT NULL DEFAULT (unixepoch()),
   UNIQUE(org_id, ad_id)
 );
@@ -701,7 +709,9 @@ function migrar(conexion: DB): void {
    * guarda que pregunte solo por `imagen` vuelve a intentar añadir `texto` y
    * revienta el arranque con «duplicate column name». Pasó de verdad.
    */
-  for (const columna of ["texto", "imagen", "descripcion_imagen", "post_id", "enlace"]) {
+  for (const columna of [
+    "texto", "imagen", "descripcion_imagen", "post_id", "enlace", "attachment_id",
+  ]) {
     agregarColumna("anuncios_meta", columna);
   }
 
@@ -3066,6 +3076,8 @@ export interface AnuncioMeta {
   texto: string | null; imagen: string | null; descripcion_imagen: string | null;
   /** La publicación detrás del anuncio y su enlace público. Ver el esquema. */
   post_id: string | null; enlace: string | null;
+  /** La foto del anuncio ya subida a Meta, lista para reenviar. */
+  attachment_id: string | null;
 }
 
 export function listarAnunciosMeta(orgId: number) {
@@ -3186,6 +3198,32 @@ export function anunciosPorDescribir(orgId: number, limite = 5) {
       WHERE org_id = ? AND imagen IS NOT NULL AND descripcion_imagen IS NULL
       ORDER BY created_at DESC LIMIT ?`,
   ).all(orgId, limite) as { ad_id: string; imagen: string }[];
+}
+
+/**
+ * LA FOTO DEL ANUNCIO POR EL QUE ESCRIBIÓ ESTE CLIENTE.
+ *
+ * Es la que se le manda cuando pide «una foto», y tiene que ser ESA y no otra:
+ * el cliente pinchó un anuncio concreto y lo que quiere ver es lo que vio ahí.
+ * Mandarle la foto de otro artículo del catálogo es contestarle a una pregunta
+ * que no hizo.
+ *
+ * Devuelve las dos formas que tiene de existir —el archivo guardado y, si ya se
+ * subió alguna vez, el identificador de Meta— porque cada canal usa una.
+ */
+export function fotoDelAnuncio(
+  orgId: number,
+  adId: string,
+): { imagen: string | null; attachment_id: string | null } | undefined {
+  return s(
+    `SELECT imagen, attachment_id FROM anuncios_meta WHERE org_id = ? AND ad_id = ?`,
+  ).get(orgId, adId) as { imagen: string | null; attachment_id: string | null } | undefined;
+}
+
+/** Meta ya tiene esta foto: se apunta su identificador y no se vuelve a subir. */
+export function guardarAdjuntoAnuncio(orgId: number, adId: string, attachmentId: string): void {
+  s(`UPDATE anuncios_meta SET attachment_id = ? WHERE org_id = ? AND ad_id = ?`)
+    .run(attachmentId, orgId, adId);
 }
 
 export function vincularAnuncioAProducto(orgId: number, adId: string, productoId: number | null): void {
@@ -3358,4 +3396,106 @@ export function bandejaMeta(
       ORDER BY COALESCE(c.last_message_at, c.fecha_inicio) DESC
       LIMIT ?`,
   ).all(...val) as FilaBandejaMeta[];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// El supervisor — ver `supervisor.ts`
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Las cuentas con algún número encendido. Es por donde empieza el supervisor.
+ *
+ * EXCEPCIÓN a la regla de aislamiento, la misma que `orgsConAgente`: una
+ * vuelta programada no viene de una sesión. Devuelve identificadores y nada
+ * más, y a partir de ahí todo vuelve a ir con `org_id`.
+ */
+export function orgsConCanales(): number[] {
+  const filas = s(`SELECT DISTINCT org_id FROM canales WHERE activo = 1`).all() as { org_id: number }[];
+  return filas.map((f) => f.org_id);
+}
+
+/**
+ * Las ventas cerradas por un resumen desde `desde`, INCLUIDAS las que el
+ * supervisor ya mandó a revisión: son las que sirven para contar cuántos chats
+ * distintos llevan el mismo nombre. Las corregidas a mano no salen: llevan
+ * otra señal y esa la firmó una persona.
+ */
+export function cierresRecientesPorResumen(orgId: number, desde: number, limite = 500): Conversacion[] {
+  return s(
+    `SELECT * FROM conversations
+      WHERE org_id = ? AND fecha_cierre >= ?
+        AND senal_de_cierre = 'resumen_ia'
+        AND cerrado_por IN ('ia', 'revision')
+      ORDER BY fecha_cierre DESC
+      LIMIT ?`,
+  ).all(orgId, desde, limite) as Conversacion[];
+}
+
+/**
+ * El primer mensaje nuestro de un hilo que sea un resumen de pedido, según
+ * `esResumen`. Es el que selló la venta —entre dos resúmenes manda el
+ * primero— y por eso es el que se juzga.
+ */
+export function primerResumenDe(
+  orgId: number,
+  conversationId: number,
+  esResumen: (content: string) => boolean,
+): string | null {
+  const filas = s(
+    `SELECT content FROM messages
+      WHERE org_id = ? AND conversation_id = ? AND emisor <> 'cliente'
+      ORDER BY created_at ASC, id ASC`,
+  ).all(orgId, conversationId) as { content: string }[];
+
+  for (const f of filas) if (esResumen(f.content)) return f.content;
+  return null;
+}
+
+/**
+ * PONE EN DUDA UNA VENTA: pasa a revisión sin dejar de ser un cierre.
+ *
+ * Es la segunda forma legítima de mover un cierre sellado, y va en un solo
+ * sentido: de «venta de la IA» a «que lo mire alguien». La fecha de cierre se
+ * conserva —si una persona la confirma desde la bandeja, la venta vuelve con
+ * su hora de verdad— y las corregidas a mano no se tocan: el `WHERE` solo
+ * admite las que siguen selladas por un resumen y a nombre de la IA.
+ */
+export function dudarDelCierre(orgId: number, id: number, justificacion: string): boolean {
+  const r = s(
+    `UPDATE conversations
+        SET cerrado_por = 'revision', justificacion = ?
+      WHERE org_id = ? AND id = ?
+        AND cerrado_por = 'ia' AND senal_de_cierre = 'resumen_ia'`,
+  ).run(justificacion, orgId, id);
+  return r.changes > 0;
+}
+
+/** Ventas selladas que todavía facturan cero: el pedido está sin extraer. */
+export function selladasSinAnalizar(orgId: number, limite: number): Conversacion[] {
+  return s(
+    `SELECT * FROM conversations
+      WHERE org_id = ? AND fecha_cierre IS NOT NULL AND analizada_at IS NULL
+      ORDER BY fecha_cierre DESC
+      LIMIT ?`,
+  ).all(orgId, limite) as Conversacion[];
+}
+
+/**
+ * Conversaciones abiertas que se quedaron quietas —su último mensaje cae
+ * entre `desde` y `hasta`— y no se han analizado desde entonces.
+ */
+export function asentadasSinAnalizar(
+  orgId: number,
+  desde: number,
+  hasta: number,
+  limite: number,
+): Conversacion[] {
+  return s(
+    `SELECT * FROM conversations
+      WHERE org_id = ? AND fecha_cierre IS NULL AND cerrado_por = 'abierta'
+        AND last_message_at BETWEEN ? AND ?
+        AND (analizada_at IS NULL OR analizada_at < last_message_at)
+      ORDER BY last_message_at ASC
+      LIMIT ?`,
+  ).all(orgId, desde, hasta, limite) as Conversacion[];
 }

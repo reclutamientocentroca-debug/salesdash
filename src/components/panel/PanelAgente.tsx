@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import FichaPais from "./FichaPais";
 import { saludoDelPais, type PaisResumen } from "@/lib/paises";
-import { PLANTILLAS } from "@/lib/plantillas";
 import { useRouter } from "next/navigation";
 
 /**
@@ -335,9 +334,6 @@ export default function PanelAgente({
    */
   const [confirmando, setConfirmando] = useState<number | null>(null);
 
-  /** La plantilla de guion que pide confirmación por sustituir lo escrito. */
-  const [guion, setGuion] = useState<string | null>(null);
-
   /*
    * COPIAR EL GUION A LOS DEMÁS NÚMEROS.
    *
@@ -375,37 +371,6 @@ export default function PanelAgente({
       `Guion copiado a ${datos.alcanzados} agente${datos.alcanzados === 1 ? "" : "s"} más.`,
     );
     router.refresh();
-  }
-
-  /*
-   * LOS GUIONES DE ESTE NÚMERO PRIMERO.
-   *
-   * Cada guion trae dentro la moneda, los precios y el envío de SU país. El de
-   * este número va arriba porque es el único que no hay que corregir antes de
-   * vender; los demás siguen ahí, pero detrás y avisados.
-   */
-  const guiones = [...PLANTILLAS].sort((a, b) => {
-    const suyo = (p: { pais: string }) => (agente.pais && p.pais === agente.pais ? 0 : 1);
-    return suyo(a) - suyo(b);
-  });
-
-  /** Este guion es de otro país que el que vende este número. */
-  const cruzaPais = (p: { pais: string }) => !!agente.pais && p.pais !== agente.pais;
-
-  function aplicarGuion(clave: string, confirmada: boolean) {
-    const p = PLANTILLAS.find((x) => x.clave === clave);
-    if (!p) return;
-
-    // Con el cuadro vacío no hay nada que perder... salvo que el guion sea de
-    // otro país, que es el fallo que no se ve hasta que se está cobrando mal.
-    if (!confirmada && (agente.instrucciones.trim() || cruzaPais(p))) {
-      setGuion(clave);
-      return;
-    }
-
-    setGuion(null);
-    cambiar("instrucciones", p.instrucciones);
-    setNota("Guion puesto. Revísalo y pulsa «Guardar cambios».");
   }
 
   async function alternarCanal(id: number, activo: boolean) {
@@ -502,7 +467,6 @@ export default function PanelAgente({
                   setSeleccion(c.id);
                   setRespuesta(null);
                   setNota(null);
-                  setGuion(null);
                 }}
               >
                 <span className="sd-canal-nombre">
@@ -538,7 +502,6 @@ export default function PanelAgente({
               setSeleccion(PLANTILLA);
               setRespuesta(null);
               setNota(null);
-              setGuion(null);
             }}
           >
             <span className="sd-canal-nombre">
@@ -1070,7 +1033,7 @@ export default function PanelAgente({
             ))}
           </div>
 
-          <label className="etiqueta-campo" htmlFor="instrucciones">Instrucciones de tu negocio</label>
+          <label className="etiqueta-campo" htmlFor="instrucciones">Notas adicionales para el agente</label>
           <textarea
             id="instrucciones" className="campo" rows={10}
             style={{ resize: "vertical", fontFamily: "inherit" }}
@@ -1079,8 +1042,10 @@ export default function PanelAgente({
             onChange={(e) => cambiar("instrucciones", e.target.value)}
           />
           <p className="tenue" style={{ marginTop: 6 }}>
-            Lo que escribas aquí es lo que el agente da por cierto. No hace falta repetir la moneda
-            ni cómo se dan las direcciones: eso ya lo sabe por el país.
+            El guion de venta y los datos del país —tienda, moneda, envío, pago, tallas— viven en el
+            código, en <code>src/agents</code>: un archivo por país y uno de comportamiento para los
+            tres. Lo que escribas aquí son notas que el agente da por ciertas —un precio, una
+            condición, lo que no puede prometer—. No pegues aquí un guion entero.
           </p>
 
           {/*
@@ -1128,72 +1093,6 @@ export default function PanelAgente({
             </div>
           )}
 
-          {/*
-            Un guion de venta entero no se escribe delante de un cuadro vacío.
-            La plantilla lo deja puesto de una vez y sigue siendo editable: es
-            un punto de partida, no un candado. Pisa lo que haya escrito, así
-            que se avisa antes cuando hay algo que perder.
-          */}
-          {PLANTILLAS.length > 0 && (
-            <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--line)" }}>
-              <div className="rotulo" style={{ marginBottom: 8 }}>Empezar desde un guion hecho</div>
-              {guiones.map((p) => (
-                <div key={p.clave} style={{ display: "grid", gap: 6 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600 }}>{p.nombre}</div>
-                  <p className="tenue" style={{ margin: 0 }}>{p.descripcion}</p>
-
-                  {guion === p.clave ? (
-                    <div className="aviso aviso-ambar" style={{ display: "grid", gap: 10 }}>
-                      {cruzaPais(p) && (
-                        <div>
-                          <strong>Este guion es de otro país.</strong> Trae dentro su moneda, sus
-                          precios y su costo de envío, y este número no vende ahí. Si lo aplicas sin
-                          corregirlo, el agente va a cotizar el envío de otra tienda en cada pedido
-                          —y desde fuera parece que todo va bien—.
-                        </div>
-                      )}
-                      {agente.instrucciones.trim() && (
-                        <div>
-                          Ya tienes instrucciones escritas en {etiquetaCanal}. Si aplicas el guion, se
-                          sustituyen por las suyas y lo que tenías se pierde.
-                        </div>
-                      )}
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        <button
-                          type="button"
-                          className="btn btn-acento"
-                          onClick={() => aplicarGuion(p.clave, true)}
-                        >
-                          Sustituir por el guion
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-secundario"
-                          onClick={() => setGuion(null)}
-                        >
-                          Cancelar
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div>
-                      <button
-                        type="button"
-                        className="btn btn-secundario"
-                        onClick={() => aplicarGuion(p.clave, false)}
-                      >
-                        Usar este guion
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ))}
-              <p className="tenue" style={{ marginTop: 8 }}>
-                Se escribe en el cuadro de arriba. Revísalo, cámbiale lo que quieras y pulsa
-                «Guardar cambios».
-              </p>
-            </div>
-          )}
         </section>
 
         {/* ── La IA que contesta ─────────────────────────────────────────── */}

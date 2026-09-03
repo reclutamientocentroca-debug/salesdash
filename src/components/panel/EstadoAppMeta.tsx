@@ -20,6 +20,26 @@ interface Rol {
   rol: string;
 }
 
+/**
+ * A QUÉ AVISOS ESTÁ SUSCRITA LA APP.
+ *
+ * Es la mitad de la suscripción que no se veía en ninguna pantalla. La otra —la
+ * de cada página— la comprueba el botón de la propia página, y decía «todo
+ * correcto» con los comentarios perdiéndose, porque de verdad estaba bien: el
+ * campo `feed` faltaba aquí.
+ */
+interface Webhook {
+  leida: boolean;
+  callbackUrl: string | null;
+  callbackEsperada: string;
+  callbackNuestra: boolean;
+  activa: boolean;
+  campos: string[];
+  faltan: string[];
+  reparada: boolean;
+  error: string | null;
+}
+
 interface Estado {
   configuradas: boolean;
   credenciales: boolean;
@@ -30,6 +50,8 @@ interface Estado {
   roles: Rol[] | null;
   error: string | null;
   urlDeVuelta: string;
+  urlDelWebhook: string;
+  webhook: Webhook;
   pendientes: string[];
 }
 
@@ -135,6 +157,64 @@ export default function EstadoAppMeta() {
           )}
 
           {/*
+            LOS AVISOS A LOS QUE ESTÁ SUSCRITA LA APP.
+
+            Va fuera del «si Meta contestó a la ficha» por lo mismo que lo de
+            abajo: cuando algo no se puede leer es justo cuando hace falta.
+          */}
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 12.5, marginBottom: 5 }}>
+              Avisos que la app tiene suscritos
+            </div>
+
+            {!estado.webhook.leida ? (
+              <div className="aviso aviso-ambar" role="status">
+                {estado.webhook.error ?? "Meta no dijo a qué está suscrita la app."}
+              </div>
+            ) : estado.webhook.callbackUrl && !estado.webhook.callbackNuestra ? (
+              /*
+                Entrega en otro sitio: no llega NADA aquí, ni mensajes ni
+                comentarios. No se toca solo, porque cambiarlo dejaría sin
+                recibir a lo que haya en esa dirección.
+              */
+              <div className="aviso aviso-error" role="alert">
+                La app entrega los avisos en <span className="num">{estado.webhook.callbackUrl}</span>,
+                que no es este servidor. Tendría que ser{" "}
+                <span className="num">{estado.webhook.callbackEsperada}</span>.
+              </div>
+            ) : (
+              <>
+                {estado.webhook.faltan.length > 0 ? (
+                  <div className="aviso aviso-error" role="alert">
+                    Faltan por suscribir: <span className="num">{estado.webhook.faltan.join(", ")}</span>.
+                    {estado.webhook.faltan.includes("feed") && (
+                      <> Sin «feed» no llega ni un comentario, aunque los mensajes entren bien.</>
+                    )}
+                    {estado.webhook.error && <> {estado.webhook.error}</>}
+                  </div>
+                ) : (
+                  <div className="aviso" role="status">
+                    {estado.webhook.reparada
+                      ? "Arreglado: la app no estaba suscrita a todos los avisos y ya lo está."
+                      : "La app está suscrita a todos los avisos que usa el canal."}
+                  </div>
+                )}
+
+                {estado.webhook.campos.length > 0 && (
+                  <p className="tenue num" style={{ fontSize: 12.5, marginTop: 5 }}>
+                    {estado.webhook.campos.join(" · ")}
+                  </p>
+                )}
+              </>
+            )}
+
+            <p className="tenue" style={{ fontSize: 12.5, marginTop: 5 }}>
+              Va en tu app → Webhooks → Página. Un aviso llega solo si está marcado aquí Y la
+              página está suscrita a él: comprobar la página no basta.
+            </p>
+          </div>
+
+          {/*
             LO QUE FALTA Y LA URL DE VUELTA VAN FUERA DEL «SI META CONTESTÓ».
             Cuando Meta NO contesta es justo cuando hacen más falta: dejarlas
             dentro las escondía en la única pantalla que iba a mirar quien tiene
@@ -175,6 +255,21 @@ export default function EstadoAppMeta() {
               Va en tu app → Inicio de sesión con Facebook → Configuración. Si no está exacta,
               Facebook corta con «URL bloqueada».
             </p>
+          </div>
+
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 12.5, marginBottom: 5 }}>
+              URL de devolución de llamada del webhook
+            </div>
+            <div
+              className="num"
+              style={{
+                padding: "9px 11px", borderRadius: 8, background: "var(--soft)",
+                fontSize: 12.5, wordBreak: "break-all",
+              }}
+            >
+              {estado.urlDelWebhook || "(falta APP_URL)"}
+            </div>
           </div>
         </div>
       )}

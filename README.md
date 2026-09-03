@@ -14,6 +14,40 @@ Cada persona crea su cuenta, conecta sus números y obtiene su propio panel. Las
 
 La separación no es una convención que se pueda romper sin darse cuenta: hay una prueba que barre todo `src/` y falla si cualquier otro archivo importa la función de envío.
 
+### Tres agentes de país, un solo comportamiento
+
+Cómo vende el agente —el orden de las preguntas, cuándo manda el resumen, cuándo transfiere— está escrito **una vez**, en `src/agents/base-comportamiento.ts`, y es el mismo para los tres países. Lo que cambia de un país a otro es solo información, y vive en un archivo por país:
+
+| Archivo | País | Qué trae |
+|---|---|---|
+| `src/agents/paises/rd.ts` | República Dominicana (RINCON DCM) | tienda y saludo, RD$, envío por zona, pago contra entrega, tallas, mayoreo, cómo habla la gente |
+| `src/agents/paises/cr.ts` | Costa Rica (TELLERIA) | ₡, envío único con modalidad y pago por zona, SINPE, tallas |
+| `src/agents/paises/pa.ts` | Panamá | US$, envío único; forma de pago, mayoreo y cambios **pendientes** (null: el agente transfiere si le preguntan) |
+
+El prompt de cada canal se arma en tiempo de ejecución en `armarSistema` (`src/lib/agent.ts`): base + **un solo** archivo de país, el del país del canal (`agentes.pais`, deducido del prefijo del número). Un agente nunca ve los datos de otro país. Para cambiar un precio, un envío o el saludo de un país se edita su archivo y nada más; las tarifas del panel no se leen en un canal con archivo de país.
+
+El cuadro «Notas adicionales» del panel sigue valiendo para datos sueltos (un precio, una condición). Si en él queda pegado el guion antiguo, el agente no lo lee y el panel avisa para que se borre.
+
+### El supervisor
+
+Un proceso de fondo (`src/lib/supervisor.ts`, cada cinco minutos desde `src/instrumentation.ts`) mantiene el dashboard al día sin que nadie pulse «Analizar». En cada vuelta, para cada cuenta:
+
+1. **Sella** las ventas con resumen de pedido que quedaron sin contar.
+2. **Revisa los cierres recientes** sin llamar a ningún modelo: lee el resumen que cerró cada venta y, si no es un pedido de verdad —un dato en blanco, «por confirmar» en el total, el nombre de la propia vendedora, o el mismo nombre o celular que otros dos chats de clientes distintos—, la pasa a **revisión** con una anomalía `resumen_dudoso` que explica el motivo. Deja de contar como venta hasta que alguien la confirme desde la bandeja. La fecha de cierre se conserva.
+3. **Analiza** unas pocas conversaciones pendientes por vuelta (primero las ventas que facturan cero, luego las que se quedaron quietas), y se para si el modelo no responde.
+4. **Barre** las anomalías de canal (sin responder, canal mudo, canal bajo).
+
+`GET /api/supervisor` devuelve la última vuelta; `POST /api/supervisor` corre una para la cuenta de la sesión.
+
+### El revisor: la segunda IA de cada país
+
+Antes de mandar cualquier respuesta, el agente la pasa por el revisor (`src/lib/revisor.ts`), que la juzga contra el **mismo archivo de país** y el mismo catálogo que leyó el agente:
+
+1. **Reglas mecánicas**, sin modelo y sin costo: moneda de otro país, un costo de envío que no es ninguno de los del archivo, una forma de pago donde no hay ninguna configurada, descuentos o envío gratis, un día de entrega prometido, apartar mercancía, y un resumen de pedido con un dato en blanco, a nombre de la vendedora o con un envío que no existe.
+2. **El modelo revisor** (el modelo de análisis de la cuenta), con la conversación delante: precios distintos al anuncio, tallas pedidas a artículos que no las llevan, preguntas repetidas, resúmenes mandados sin confirmación o con datos que el cliente no dio.
+
+Si el borrador no pasa, el agente lo reescribe una vez con la corrección delante. Si tampoco pasa, al cliente le llega una sola línea («un representante le confirma ese dato enseguida»), el hilo pasa a una persona y queda una anomalía `respuesta_rechazada` con el motivo. Si el modelo revisor no responde, mandan solo las reglas: un revisor caído no deja mudo al negocio.
+
 ### Un número, un modo: o vigilar, o contestar
 
 **Todo número que se conecta nace vigilando.** Quien trae su WhatsApp aquí ya tiene a alguien contestando —su propio bot— y lo que necesita es que se le cuenten las ventas, no que le hablen a sus clientes.
@@ -324,7 +358,7 @@ Dos de ellas son de canal y no de conversación, así que `anomalies.conversatio
 ## Mejoras pendientes
 
 - **Entrar con Google.** El diseño lo contempla, pero necesita credenciales de OAuth y rutas de callback que no están en el alcance actual. Un botón que no hace nada es peor que ningún botón, así que no está.
-- **Barrido automático diario.** Hoy el análisis se dispara desde el panel (`POST /api/analyze`); no hay tareas programadas en el stack.
+- **Barrido a fondo.** El supervisor analiza pocas conversaciones por vuelta; un barrido completo del histórico sigue siendo `POST /api/analyze` desde el panel.
 - **Transcripción de notas de voz.** Se registran para que el conteo de mensajes y la detección de intervención humana sean correctos, pero su contenido no se analiza.
 - **Invitar miembros al equipo.** La tabla `users` ya soporta el rol `miembro`; falta el flujo de invitación por correo.
 - **Cupo real de los modelos gratuitos.** El indicador de consumo usa una estimación: OpenRouter no publica el cupo restante por clave.

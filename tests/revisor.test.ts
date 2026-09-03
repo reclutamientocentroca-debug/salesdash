@@ -1,0 +1,88 @@
+import "./entorno";
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { agenteDePais, bloqueDelPais } from "../src/agents";
+import { correccionParaElAgente, revisarBorrador, revisarConReglas, type ContextoRevision } from "../src/lib/revisor";
+
+/**
+ * EL REVISOR PARA LO QUE CUESTA DINERO, y no lo demás.
+ *
+ * Sin red: aquí se prueban las reglas mecánicas, que son las que paran lo más
+ * caro, y que sin clave del modelo el revisor no deja mudo al negocio.
+ */
+delete process.env.OPENROUTER_API_KEY;
+
+function contexto(pais: string): ContextoRevision {
+  const datos = agenteDePais(pais)!;
+  return {
+    datos,
+    nombresDeLaCasa: [datos.nombreAgente ?? "", datos.tienda].filter(Boolean),
+    catalogo: "Catálogo:\n- Mocasines de cuero — 2500",
+    anuncio: null,
+    bloqueDelPais: bloqueDelPais(datos, null, "Tienda"),
+  };
+}
+
+const rd = contexto("do");
+const cr = contexto("cr");
+const pa = contexto("pa");
+
+test("una respuesta normal, con el envío del país, pasa sin objeción", () => {
+  assert.deepEqual(revisarConReglas("Los mocasines están en RD$2,500. El envío a Santiago es RD$290.\n\n¿Qué talla necesita?", rd), []);
+  assert.deepEqual(revisarConReglas("Diay, el envío son ₡3.500 a todo el país.\n\n¿A qué cantón te lo mando?", cr), []);
+  assert.deepEqual(revisarConReglas("El envío es US$5.00 a todo el país.\n\n¿A qué corregimiento se lo enviamos?", pa), []);
+});
+
+test("la moneda de otro país no sale", () => {
+  const f = revisarConReglas("El envío son US$5.00 en todo el país.", rd);
+  assert.ok(f.some((x) => x.includes("dólares")), "dólares en un chat dominicano");
+  assert.ok(revisarConReglas("Son ₡25.000 más el envío.", pa).some((x) => x.includes("colones")));
+  // En Panamá el dólar es de casa.
+  assert.deepEqual(revisarConReglas("Son US$30.00.", pa), []);
+});
+
+test("un costo de envío que no es ninguno de los del país no sale", () => {
+  const f = revisarConReglas("El envío a Santiago le sale en RD$350.", rd);
+  assert.ok(f.some((x) => x.includes("RD$350") && x.includes("RD$250") && x.includes("RD$290")));
+
+  // El total con el envío dentro no es una tarifa: no se confunde.
+  assert.deepEqual(revisarConReglas("El total con envío queda en RD$2,750.", rd), []);
+});
+
+test("sin forma de pago configurada, no se promete ninguna", () => {
+  assert.ok(revisarConReglas("Paga contra entrega al recibir.", pa).some((x) => x.includes("forma de pago")));
+  // Donde sí está configurada, se puede decir.
+  assert.deepEqual(revisarConReglas("Paga contra entrega al recibir.", rd), []);
+});
+
+test("descuentos, envío gratis, días de entrega y reservas no salen", () => {
+  assert.ok(revisarConReglas("Le hago un descuento si lleva dos.", rd).some((x) => x.includes("descuento")));
+  assert.ok(revisarConReglas("Por hoy el envío gratis.", rd).some((x) => x.includes("envío gratis")));
+  assert.ok(revisarConReglas("Le llega mañana sin falta.", rd).some((x) => x.includes("día de entrega")));
+  assert.ok(revisarConReglas("Se lo aparto hasta el viernes.", rd).some((x) => x.includes("reserva")));
+  // Decir que se despacha en 24 a 48 horas no es prometer un día.
+  assert.deepEqual(revisarConReglas("Se despacha dentro de 24 a 48 horas.", rd), []);
+});
+
+test("un resumen con huecos, a nombre de la vendedora o con un envío ajeno no sale", () => {
+  const pedido = (nombre: string, total: string, envio = "RD$250") =>
+    `Resumen:\n\nNombre: ${nombre}\nCel: 8095551234\nProducto: Mocasines\nCantidad: 1\nDirección: Calle 1 #2, Los Prados, Santo Domingo\nCosto de envío: ${envio}\nTotal a pagar: ${total}`;
+
+  assert.deepEqual(revisarConReglas(pedido("Ana Pérez", "RD$2,750"), rd), []);
+  assert.ok(revisarConReglas(pedido("Ana Pérez", "por confirmar"), rd).some((x) => x.includes("total")));
+  assert.ok(revisarConReglas(pedido("Orlanda", "RD$2,750"), rd).some((x) => x.includes("nombre de la casa")));
+  assert.ok(revisarConReglas(pedido("Ana Pérez", "RD$2,850", "RD$350"), rd).some((x) => x.includes("RD$350")));
+});
+
+test("sin clave del modelo, el revisor aprueba lo que las reglas aprueban y no se cae", async () => {
+  const bien = await revisarBorrador(1, null, [], "Los mocasines están en RD$2,500.\n\n¿Qué talla necesita?", rd);
+  assert.equal(bien.aprobado, true);
+
+  const mal = await revisarBorrador(1, null, [], "Le hago un descuento y el envío gratis.", rd);
+  assert.equal(mal.aprobado, false);
+  assert.equal(mal.por, "reglas");
+
+  const correccion = correccionParaElAgente(mal);
+  assert.ok(correccion.includes("descuento") && correccion.includes("envío gratis"));
+  assert.ok(correccion.includes("no lo inventes"));
+});

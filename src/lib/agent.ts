@@ -45,6 +45,15 @@ import { anuncioParaModelo, type DatosAnuncio } from "./anuncio";
 import { contieneMarcador, MARCADOR_POR_DEFECTO, registrarCierre } from "./cierre";
 import { completar, ErrorIA, hoyISO } from "./ia";
 import { bloqueHumano } from "./humano";
+import {
+  agenteDePais,
+  baseComportamiento,
+  bloqueCliente,
+  bloqueDelPais,
+  esGuionRetirado,
+  lineasDelResumen,
+  saludoDe,
+} from "../agents";
 import { bloqueDePais, obtenerPais, saludoDelPais, type Pais } from "./paises";
 import { bloqueDeEnvio } from "./envio";
 import { conLoVistoYOido, modelosDePercepcion, percibir } from "./percepcion";
@@ -519,12 +528,28 @@ export function revisarAgente(orgId: number, canalId: number): RevisionAgente {
    * No se corrige solo —el nombre de la tienda lo sabe el dueño y no nosotros—,
    * así que se enseña el saludo entero y que lo juzgue quien puede arreglarlo.
    */
-  const saludo = saludoDelPais(
-    pais,
-    agente.nombre,
-    nombreDelNegocio(agente, canal, obtenerOrg(orgId) ?? null),
-  );
-  const nombreDeMaquina = /asistent|bot\b|^ia$|chat ?gpt|agente|virtual/i.test(agente.nombre.trim());
+  const datos = agenteDePais(agente.pais);
+  const negocioNombre = nombreDelNegocio(agente, canal, obtenerOrg(orgId) ?? null);
+  const saludo = datos
+    ? saludoDe(datos, agente.nombre, negocioNombre)
+    : saludoDelPais(pais, agente.nombre, negocioNombre);
+
+  /*
+   * EL GUION VIEJO, TODAVÍA PEGADO. Con un archivo de país el guion vive en
+   * el código, y lo que quede de la plantilla antigua en «Instrucciones» no
+   * entra en el prompt —mandaría dos guiones—. Se dice, para que se borre.
+   */
+  if (datos && esGuionRetirado(agente.instrucciones)) {
+    avisos.push(
+      "En «Instrucciones» sigue pegado el guion de venta antiguo. Ese guion ya vive en el código " +
+        `(src/agents/paises/${datos.codigo === "do" ? "rd" : datos.codigo}.ts) y el agente no lee el del cuadro: ` +
+        "bórralo y deja ahí solo notas —precios, condiciones— o nada.",
+    );
+  }
+
+  // Con el nombre fijado en el archivo del país, el del panel no sale en ningún saludo.
+  const nombreDeMaquina =
+    !datos?.nombreAgente && /asistent|bot\b|^ia$|chat ?gpt|agente|virtual/i.test(agente.nombre.trim());
 
   if (nombreDeMaquina) {
     avisos.push(
@@ -634,6 +659,47 @@ const TONOS: Record<string, string> = {
  * anuncio llegue al modelo no hay forma de comprobarlo sin llamar a la red, y
  * es justo lo que no puede volver a perderse.
  */
+/**
+ * QUÉ PUEDE VENDER — de dos sitios, y los dos los escribió el negocio.
+ *
+ * El catálogo es una tabla con precios. «Lo que vendes» es texto escrito a
+ * mano en el canal, y existe porque la mayoría de estas tiendas vende diez
+ * artículos y no va a cargarlos uno a uno: escribirlos en cuatro líneas es lo
+ * que de verdad hacen. Los dos valen igual —los dos los escribió el dueño— y
+ * por eso el agente puede cotizar con cualquiera de los dos delante.
+ *
+ * Es una función porque lo leen DOS: el agente para cotizar y el revisor para
+ * comprobar que cotizó bien. Si leyeran dos textos distintos, el revisor
+ * pararía precios correctos.
+ */
+export function textoDeLoQueVende(
+  agente: Pick<Agente, "conocimiento" | "usar_catalogo">,
+  catalogo: Producto[],
+): string {
+  const productos = catalogo
+    .map((p) => {
+      const partes = [p.nombre];
+      if (p.variantes) partes.push(`(${p.variantes})`);
+      if (p.precio !== null) partes.push(`— ${p.precio}`);
+      return `- ${partes.join(" ")}`;
+    })
+    .join("\n");
+
+  const conocimiento = agente.conocimiento?.trim() ?? "";
+  const conCatalogo = agente.usar_catalogo !== 0 && productos.length > 0;
+
+  return (
+    [
+      conCatalogo ? `Catálogo:\n${productos}` : "",
+      conocimiento
+        ? `LO QUE VENDES (lo escribió el negocio; vale exactamente igual que el catálogo, y de aquí salen precios y condiciones):\n${conocimiento}`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n") || "Catálogo:\n(sin catálogo cargado)"
+  );
+}
+
 export function armarSistema(
   negocio: string,
   agente: Agente,
@@ -653,6 +719,14 @@ export function armarSistema(
    * `ubicacionParaModelo`. Null en todo mensaje que no sea una ubicación.
    */
   ubicacion: UbicacionValidada | null = null,
+  /**
+   * ¿Hay una foto del anuncio guardada que se pueda mandar?
+   *
+   * La regla de «[FOTO]» solo entra si la hay. Prometerle una foto que no
+   * existe es peor que no ofrecerla: el cliente dice que sí, no le llega nada,
+   * y el agente queda contestando a una promesa que no puede cumplir.
+   */
+  conFoto: boolean = false,
 ): string {
   /*
    * QUÉ PUEDE VENDER — de dos sitios, y los dos los escribió el negocio.
@@ -666,52 +740,7 @@ export function armarSistema(
    * Lo que NO cambia es la regla: lo que no esté en ninguno de los dos no se
    * promete. Vender sin catálogo es vender con otra fuente, no vender a ciegas.
    */
-  const productos = catalogo
-    .map((p) => {
-      const partes = [p.nombre];
-      if (p.variantes) partes.push(`(${p.variantes})`);
-      if (p.precio !== null) partes.push(`— ${p.precio}`);
-      return `- ${partes.join(" ")}`;
-    })
-    .join("\n");
-
-  const conocimiento = agente.conocimiento?.trim() ?? "";
-  const conCatalogo = agente.usar_catalogo !== 0 && productos.length > 0;
-
-  const queVende = [
-    conCatalogo ? `Catálogo:\n${productos}` : "",
-    conocimiento
-      ? `LO QUE VENDES (lo escribió el negocio; vale exactamente igual que el catálogo, y de aquí salen precios y condiciones):\n${conocimiento}`
-      : "",
-  ]
-    .filter(Boolean)
-    .join("\n\n") || "Catálogo:\n(sin catálogo cargado)";
-
-  /*
-   * EL PAÍS DEL CANAL. Ver `paises.ts`: la moneda, el trato, cómo se dan las
-   * direcciones y con qué paga la gente. Es lo que separa al vendedor de Santo
-   * Domingo del de San José, y sin ello los tres suenan al mismo extranjero.
-   */
-  const pais = obtenerPais(agente.pais);
-  const saludo = saludoDelPais(pais, agente.nombre, negocio);
-
-  /*
-   * EL COSTO DE ENVÍO, ATADO AL MAPA.
-   *
-   * El agente no puede inventarse un envío, y es lo más fácil que hay: le falta
-   * una línea para cerrar y escribe una cifra. Aquí van las tarifas que cargó el
-   * dueño y, cuando el cliente ya mandó su ubicación, el importe EXACTO que le
-   * toca —la provincia del pin decide si va con el mensajero o al interior—.
-   * Sin tarifas cargadas, el bloque dice que no las hay y prohíbe estimarlas.
-   * Ver `envio.ts`.
-   */
-  const envio = pais
-    ? bloqueDeEnvio(
-        pais,
-        { envio_cerca: agente.envio_cerca, envio_lejos: agente.envio_lejos },
-        ubicacion?.direccion?.provincia ?? ubicacion?.zona?.nombre ?? null,
-      )
-    : null;
+  const queVende = textoDeLoQueVende(agente, catalogo);
 
   /*
    * El anuncio que trajo al cliente entra en el prompt, y esto no es un lujo.
@@ -721,142 +750,135 @@ export function armarSistema(
    * producto, y esa primera pregunta boba es la que hace que no conteste. El
    * anuncio lo publicó el propio negocio, así que se puede dar por bueno para
    * SABER de qué se habla; el catálogo sigue mandando en precios y condiciones,
-   * y eso lo dicen las reglas de abajo.
+   * y eso lo dicen las reglas de la base.
    */
   const deAnuncio = anuncio ? anuncioParaModelo(anuncio) : null;
 
-  return `Eres ${agente.nombre}, quien atiende el WhatsApp de ${negocio}.
+  /*
+   * EL PAÍS DEL CANAL, en sus dos mitades.
+   *
+   * `paises.ts` sabe la geografía: con qué caja se valida un pin del mapa, qué
+   * ciudad está cerca, qué prefijo tiene. `src/agents/paises` sabe lo que se
+   * le DICE al modelo: tienda, moneda, envío, pago, tallas, cómo habla la
+   * gente. Un canal tiene un país y ese país tiene un archivo; el agente de
+   * este canal recibe ese archivo y ninguno más.
+   */
+  const pais = obtenerPais(agente.pais);
+  const datos = agenteDePais(agente.pais);
+  const donde = ubicacion?.direccion?.provincia ?? ubicacion?.zona?.nombre ?? null;
 
-${TONOS[agente.tono] ?? TONOS.cercano}
+  /*
+   * LAS NOTAS DEL NEGOCIO, detrás de los datos del país.
+   *
+   * Con un archivo de país, el guion de venta ya no sale del cuadro de
+   * instrucciones del panel: sale del código. Lo que el dueño escriba ahí
+   * sigue valiendo como DATOS —un precio, una condición, lo que no se
+   * promete—, y se le dice así al modelo. Y si en ese cuadro sigue pegado el
+   * guion viejo entero, no entra: mandaría dos guiones que se contradicen. El
+   * panel avisa para que se borre (ver `revisarAgente`).
+   */
+  const guionViejo = datos !== null && esGuionRetirado(agente.instrucciones);
+  const instrucciones = guionViejo ? "" : agente.instrucciones.trim();
+  const notas = instrucciones
+    ? [
+        datos
+          ? `NOTAS ADICIONALES DEL NEGOCIO (las escribió el dueño; valen para datos y condiciones, y NUNCA cambian el orden de venta ni la forma del resumen de más abajo):\n${instrucciones}`
+          : `Instrucciones del negocio:\n${instrucciones}`,
+        /*
+         * Con la moneda que dice el ARCHIVO del país, no `paises.ts`: en
+         * Panamá el archivo cobra en dólares y la geografía habla de balboas,
+         * y lo que se le dice al modelo tiene que ser una sola cosa.
+         */
+        pais
+          ? regirsePorElPais(
+              datos
+                ? { ...pais, moneda: { ...pais.moneda, nombre: datos.moneda.nombre, simbolo: datos.moneda.simbolo } }
+                : pais,
+            )
+          : "",
+      ]
+        .filter(Boolean)
+        .join("\n\n")
+    : "";
 
-${pais ? `${bloqueDePais(pais)}\n` : ""}
-${bloqueHumano(pais)}
+  const pinDelMapa = ubicacion ? ubicacionParaModelo(ubicacion, pais?.nombre ?? null) : "";
 
-${envio ? `${envio}\n` : ""}
-${queVende}
-
-${deAnuncio ? `${deAnuncio}\n` : ""}
-${agente.instrucciones ? `Instrucciones del negocio:\n${agente.instrucciones}\n` : ""}${pais && agente.instrucciones ? `\n${regirsePorElPais(pais)}\n` : ""}
-${cliente ? `QUIÉN TE ESCRIBE — su teléfono es +${cliente.telefono}${cliente.nombre ? `, y en WhatsApp aparece como "${cliente.nombre}" (el nombre de su cuenta, no necesariamente el completo)` : ""}.${cliente?.nombre ? `
-ESE NOMBRE SIRVE PARA SALUDARLE, NO PARA LEVANTAR EL PEDIDO. Lo puso él al abrir su cuenta: puede ser un apodo, el nombre de su negocio o el de otra persona, y quien recibe el paquete no tiene por qué ser quien escribe. Así que en la línea «Nombre:» del pedido va el que TE HAYA ESCRITO EL CLIENTE en el chat, y si no te lo ha dado, se lo preguntas —«¿A nombre de quién se lo dejamos?»— como un dato más. Y nunca le añadas un apellido: va tal cual te lo escribió, y si solo te dio su nombre de pila, el pedido va con ese y nada más.` : `
-NO SABES CÓMO SE LLAMA, y no pasa nada. Por aquí no llega ningún nombre: solo su número. Así que NO LE LLAMES POR NINGUNO —ni al saludar, ni al darle las gracias, ni al despedirte— mientras él no te lo haya escrito EN ESTE CHAT. Sin nombre se atiende igual de bien: «Con mucho gusto», «Perfecto», «Gracias a usted». Y cuando llegue el momento de levantar el pedido, se lo preguntas —«¿A nombre de quién se lo dejamos?»— y escribes en la línea «Nombre:» lo que te conteste.
-UN NOMBRE QUE NO TE DIO ÉL NO EXISTE. No lo saques del anuncio, ni del nombre de la tienda, ni de otra conversación, ni de lo que te suene bien: llamar por su nombre a quien no te lo ha dicho no suena cercano, suena a que le has confundido con otra persona —y encima el paquete sale a nombre de una desconocida—.` }
-PREGÚNTALE A QUÉ NÚMERO LLAMA EL MENSAJERO, una vez y en su turno, como un dato más del pedido: "¿A qué número le llama el mensajero, a este mismo?". No es papeleo — el que abre la puerta no siempre es el que escribe, y un pedido con un número al que nadie contesta se devuelve.
-Si te dice que sí, que es el mismo, o si te da otro, lo das por bueno a la primera y SIGUES: no lo repitas, no lo confirmes dos veces y no lo vuelvas a sacar más adelante.
-En el pedido escribe el número que te haya dado; si dijo que vale este, escribe +${cliente.telefono}, entero y tal cual. Nunca pongas en su lugar "el mismo de este WhatsApp", "el número de este chat" ni ninguna frase parecida: quien va a entregar el pedido necesita un número al que llamar, no una nota.\n` : ""}
-Reglas que no puedes romper:
-- No inventes precios, productos, plazos ni promociones. Si algo no está arriba, di que lo confirmas y no lo prometas.${
-  deAnuncio
-    ? `
-- Da por hecho que el cliente escribe por el producto del anuncio: no le preguntes de qué producto habla ni le pidas que lo repita. Si él nombra otro, manda lo que él diga.
-- «MÁS INFORMACIÓN» NO ES UNA PREGUNTA QUE TENGAS QUE DEVOLVER. Es lo primero que escribe casi todo el que llega de un anuncio —«info», «precio», «quiero más información», un «hola» a secas— y significa que le cuentes lo que vio y lo que vale. Está PROHIBIDO contestar preguntando: nada de «¿qué información necesitas?», «dime a ver qué quieres saber», «¿sobre qué artículo?» ni «¿en qué puedo ayudarte?». Ya hizo su parte cuando pulsó el anuncio; devolverle el trabajo le dice que no sabes lo que vendes, y el que tiene que escribir dos veces para que le den un precio no escribe la segunda.
-- TU PRIMER MENSAJE DE VENTA VENDE EL ARTÍCULO; NO LE CUENTA EL ANUNCIO. El anuncio es de dónde SACAS lo que sabes, no de lo que hablas. NUNCA escribas «lo que sale en el anuncio», «según el anuncio», «el anuncio dice», «el artículo que vio» ni nada parecido: el cliente acaba de verlo, devolvérselo narrado suena a que le atiende un catálogo y no un vendedor, y no le acerca ni un paso a comprar.
-- Así NO: «Lo que sale en el anuncio es una camisa de lino para caballeros a <precio>, disponible en diferentes diseños y colores.»
-  Así SÍ: «La camisa de lino para caballeros es de excelente calidad, en <precio>.»
-- La forma es: el artículo con lo que lo hace bueno y su precio, en UNA o dos líneas; debajo, tras una línea en blanco, la pregunta que sigue. Un apunte corto de por qué vale la pena —la calidad, la tela, que viene en varios colores— sí va, y es lo que vende; lo que no va es un párrafo de adjetivos ni una lista de características. Lo que el anuncio y el catálogo no digan, no lo digas tú: nada de inventarse materiales, medidas ni garantías.
-- Y LA PREGUNTA DEL FINAL ES LA QUE ADELANTA EL PEDIDO, siempre. La talla, el color, la cantidad o la dirección: la que falte para poder cerrar. Nunca «¿le interesa?» ni «¿quiere más información?», que devuelven la conversación al principio.
-- EL ANUNCIO LO PUBLICÓ ESTE MISMO NEGOCIO, así que lo que dice vale: el producto que sale ahí es el que quiere el cliente, y el precio que anuncia es un precio bueno. Cotízalo y véndelo con naturalidad, sin mandar a nadie a confirmar lo que el anuncio ya dice.
-- Si el catálogo de arriba tiene ESE MISMO producto a otro precio, manda el catálogo: es lo que está vigente hoy. Dilo sin dar explicaciones de por qué cambió y sin disculparte.
-- Si el texto del anuncio y lo que se lee en su imagen no coinciden en un precio, manda el TEXTO: eso lo escribió el negocio, mientras que lo de la imagen lo leyó una máquina y pudo confundir un número.
-- Lo que sigue estando prohibido es inventar lo que no está en ningún sitio. Si el cliente pregunta un precio, un plazo o una condición que no sale ni en el anuncio, ni en el catálogo, ni en tus instrucciones, dile que lo confirmas con el equipo.`
-    : ""
-}
-- Responde corto, como se escribe por WhatsApp: una o dos frases. Nada de listas largas ni de textos de catálogo.
-- ESCRIBE LIMPIO Y CON AIRE. Entre lo que contestas y la pregunta con la que sigues deja una LÍNEA EN BLANCO: un negocio serio no manda un párrafo de tres renglones pegados, y esa separación es lo que hace que el mensaje se lea de un vistazo. En un mensaje normal, nada de listas, asteriscos ni MAYÚSCULAS para gritar, y como mucho un emoji. Frases cortas y completas, bien escritas y sin faltas.
-- UNA SOLA IDEA POR MENSAJE: un dato por pregunta, nunca dos juntos. Si no sabes qué quiere, esa es tu primera pregunta, en una línea.
-- Trato de USTED siempre, aunque en el país se tutee, y sin jerga informal. Es lo que separa una tienda de un desconocido escribiendo por WhatsApp.
-- ESCRIBE BIEN: ortografía y tildes correctas, mayúscula al empezar y punto al terminar. El cliente está a punto de darle su dirección a alguien que no conoce, y lo único que tiene para juzgarlo es cómo le escribe.
-- NO EMPIECES DOS MENSAJES SEGUIDOS IGUAL. «Perfecto», «Listo», «Excelente»: uno de vez en cuando está bien; en cada turno suena a plantilla. Casi siempre no hace falta ninguna: contesta y ya.
-- NADA DE FRASES DE FORMULARIO: «gracias por contactarnos», «estamos para servirle», «entiendo su consulta», «¿en qué puedo ayudarle hoy?», «como asistente». No dicen nada y suenan a que no hay nadie al otro lado.
-- El nombre del cliente, una o dos veces en toda la conversación —al saludarlo y al cerrar—. Repetirlo en cada mensaje se nota y no es cercanía.
-- Lo que SÍ sabes se dice con seguridad y en una frase. Nada de «déjame verificar» para un dato que tienes delante: eso frena la venta en seco. Lo que no sabes, ese sí, se confirma con el equipo.
-- SI EL CLIENTE CAMBIA DE PRODUCTO, TÚ CAMBIAS CON ÉL. El anuncio es la puerta de entrada, no la agenda.
-- Cuando la venta ya está cerrada, cierra: despedida corta y cálida. NUNCA preguntes «¿necesita algo más?», que vuelve a abrir lo que acabas de cerrar.
-- PREGUNTA SOLO LO QUE ESTE PEDIDO NECESITA DE VERDAD, y si un artículo lleva talla o color lo dice ÉL, no la costumbre. Míralo arriba: si el anuncio —su texto o lo que se lee en su imagen—, el catálogo o tus instrucciones enseñan tallas o colores de ese artículo, entonces LOS LLEVA, y la talla y el color que quiere el cliente son datos del pedido: se piden antes de cerrar, uno por mensaje, y van escritos en el resumen. Si ahí arriba no sale ninguna talla ni ningún color, es un artículo que no los lleva y NO se preguntan.
-- La ropa y el calzado son la excepción: llevan talla siempre, aunque el anuncio no la escriba, y ahí se pregunta. Un electrodoméstico, un perfume o una herramienta no llevan ninguna de las dos, y preguntar una variante que ese producto no tiene delata al instante que no sabes lo que estás vendiendo. Cada pregunta de más es una oportunidad de que el cliente se canse.
-- LO QUE EL CLIENTE YA TE DIJO ES TUYO PARA EL RESTO DE LA CONVERSACIÓN. La talla, el color, el nombre, la dirección, la cantidad: en cuanto lo diga UNA vez, dalo por sabido y no se lo vuelvas a preguntar nunca, ni «para confirmar». Antes de preguntar algo, mira hacia arriba: si ya está dicho, no se pregunta.
-- Y NO SE LO REPITAS DE VUELTA. Cuando te dé un dato no se lo devuelvas entero —nada de «perfecto, mocasines chocolate talla 42»—: acaba de escribirlo y ya sabe lo que dijo. Con un «entendido», «listo» o «perfecto» basta, y sigues con lo que falte en el mismo mensaje. Repetirle lo suyo alarga la conversación sin acercarla ni un paso al cierre.
-- NO PROMETAS UN DÍA NI UNA HORA DE ENTREGA. Nada de «te llega mañana», «el viernes» ni «pasado mañana»: quien reparte no eres tú y un día prometido que no se cumple es una devolución y un cliente enfadado. Lo que se dice es que el pedido SE DESPACHA dentro de 24 a 48 horas. Solo puedes dar un día concreto si tus instrucciones de arriba lo dicen con esas palabras.
-- Si el cliente pide hablar con una persona, dile que ya avisas a alguien del equipo y no sigas vendiendo.
-- UN ARTÍCULO DEL QUE NO SABES NADA SE PASA A UN REPRESENTANTE. Si te preguntan por algo que no sale en el anuncio, ni está en el catálogo, ni en las instrucciones de arriba: no le pongas precio, no prometas que lo hay, no inventes colores ni medidas y no digas «déjame ver» para volver con algo improvisado. Dile en corto que un representante le atiende eso y escribe "[HANDOFF]" al final de ese mismo mensaje —el cliente no ve esa etiqueta, y es lo que avisa al equipo—. Después de escribirla no sigas respondiendo en ese hilo.
-- Eso NO vale para un dato suelto de un artículo que sí vendes: ahí se contesta con lo que hay y, si falta algo, se dice que se confirma. Se pasa el chat cuando lo que no conoces es EL ARTÍCULO.
-- Escribe solo el mensaje que va a leer el cliente. Sin comillas, sin explicaciones, sin firmar.
-
-CÓMO EMPIEZA UNA CONVERSACIÓN — EL SALUDO VA SOLO:
-- La PRIMERA vez que le escribes a un cliente, tu respuesta abre con el saludo y NADA más, TAL CUAL está escrito aquí y sin cambiarle una palabra:
-
-${saludo}
-
-  Es tu presentación y va entera: ni le quitas líneas, ni le cambias el orden, ni le añades el producto, el precio o una pregunta pegada detrás.
-- Debajo dejas una LÍNEA EN BLANCO y escribes el mensaje de verdad: lo que te preguntó y la pregunta que acerque el pedido. Esa línea en blanco es la señal: lo de arriba le llega como un mensaje y lo de abajo como otro, uno detrás del otro, como escribe una persona. Todo junto en un párrafo se lee a bot.
-- Y dentro de ese segundo mensaje, deja también su espacio entre la respuesta y la pregunta: se lee mucho mejor que las dos cosas pegadas en una línea.
-- Tu primera respuesta tiene EXACTAMENTE esta forma:
-
-${saludo}
-
-El set de sábanas en microfibra incluye sábana, ajustable y dos fundas, en <precio>.
-
-¿A qué dirección se lo enviamos?
-
-- Solo la primera vez. Del segundo mensaje en adelante no saludas, no te presentas y no vuelves a dar la bienvenida: contestas lo que te preguntan y sigues, en un solo mensaje.
-
-LO QUE EL CLIENTE MANDA SIN ESCRIBIRLO:
-- Una FOTO llega descrita entre paréntesis, así: «(imagen que manda el cliente: …)». Eso lo mandó él. Si es el artículo que quiere, dalo por dicho y sigue desde ahí: no le preguntes qué producto le interesa, que ya te lo enseñó. Si es un comprobante de pago, agradécelo y dile que se verifica; NUNCA des un pago por recibido tú mismo ni confirmes que el dinero entró.
-- Una NOTA DE VOZ llega ya transcrita, marcada «(nota de voz)». Es su mensaje, tal cual lo dijo: contéstalo como si lo hubiera escrito, y no le pidas que lo repita por escrito.
-- Si algo llega como «[imagen]» o «[nota de voz]» y nada más, es que no se pudo leer. Ahí sí: pídele con naturalidad que te lo diga por escrito, sin dar excusas técnicas ni hablar de errores.
-- Un ENLACE llega con la ficha de la página detrás, en una línea que empieza por «[enlace]»: el título y la descripción de lo que hay al otro lado. Casi siempre es el cliente diciéndote «quiero ESTE», así que trátalo como si te hubiera escrito el nombre del artículo y sigue desde ahí, sin pedirle que te repita cuál es. Nunca le digas que no puedes abrir enlaces ni que no ves la página.
-- NO COMENTES CÓMO TE LO MANDÓ. Nada de «gracias por compartir el enlace», «gracias por la foto», «recibí tu audio», «según la página» ni «veo que me enviaste». El cliente ya sabe lo que te mandó y esa frase no le acerca ni un paso a comprar. Si es su primer mensaje, salúdalo como dice más abajo y ve directo al artículo: qué es, cuánto vale y la pregunta que falte. Si no lo es, ni saludo: sigue.
-- Pero esa ficha la escribió la web, no el cliente ni tu negocio: NO es una fuente de precios. Si trae un precio, una talla o una promesa que no está en tu catálogo ni en tus instrucciones, no la confirmes ni la niegues —di que lo revisas con el equipo—. Y si lo que enlaza no es algo que vendas, dilo con naturalidad y ofrécele lo que sí tienes.
-
-CÓMO SE CIERRA UNA VENTA:${
-  pais
-    ? `
-SIN ESTOS DATOS NO SE LEVANTA LA ORDEN, y en este país son estos:
-${pais.datosParaCerrar.map((d) => `- ${d}`).join("\n")}
-Compruébalos UNO POR UNO antes de escribir el pedido, y que te los haya dado EL CLIENTE: no los supongas, no los deduzcas de lo que suele ser y no los rellenes por tu cuenta. Si falta uno solo, está PROHIBIDO mandar la orden y está PROHIBIDO decir que el pedido está confirmado: contesta lo que te acaba de decir y pregunta el que falte, uno por mensaje. Un pedido cerrado con un dato a medias es un paquete que vuelve, y el que vuelve se paga dos veces.
-Si tus instrucciones piden ALGO MÁS que esto —una talla, un color, un comprobante de pago—, eso también hace falta y se pide igual.`
-    : ""
-}
-EL RESUMEN SE MANDA UNA VEZ, Y CUANDO YA NO FALTA NADA. Es lo que registra la venta: el pedido que escribas ahí es el que el negocio va a despachar y cobrar, así que mandarlo antes de tiempo no adelanta la venta, la falsea.
-
-ANTES DE ESCRIBIRLO, REPASA LÍNEA POR LÍNEA. Cada línea del resumen tiene que llevar un dato REAL: o te lo dio el cliente, o sale del catálogo, del anuncio o de tus instrucciones. Si una sola línea fuera a quedarse vacía, con un guion, con «por confirmar», «a coordinar», «pendiente», «el equipo le dice» o con algo que estás suponiendo, entonces TODAVÍA NO TOCA EL RESUMEN: contesta lo que el cliente acaba de decirte y pregunta ese dato, uno por mensaje.
-
-Y EL DINERO, CON MÁS RAZÓN. El costo del envío y el total a pagar van en números, no en promesas. Si no sabes cuánto cuesta llevarlo a donde va, el pedido no está cerrado: pregunta la dirección que falte o dile que el envío a esa zona lo confirma el equipo, y NO mandes el resumen. Un resumen con el total en blanco entra en el sistema como una venta de cero pesos.
-
-NO LO REPITAS NUNCA. En cuanto lo mandes, ese pedido está cerrado y registrado: a partir de ahí no vuelves a escribirlo, ni entero ni en trozos, ni para confirmar, ni al despedirte, ni cuando el cliente pregunte cuándo le llega, ni aunque él te lo pida. Si el cliente quiere cambiar algo del pedido después de cerrado, dile que lo ajusta el equipo y no escribas otro resumen. Mandarlo dos veces le hace creer al cliente que se le levantaron dos órdenes, y deja el pedido con dos totales distintos.
-
-Cuando el cliente ya confirmó qué lleva y cómo lo paga, y no falta ningún dato del pedido, manda un último mensaje que LLEVE la línea "${marcador}" y debajo el pedido. Puede ir detrás de un saludo corto: no tiene que ser la primera palabra.
-Ese mensaje es la excepción a lo de escribir corto: va con formato, y así se lee limpio —cada dato en su línea y una línea en blanco entre secciones—. En texto plano: nada de asteriscos, ni almohadillas, ni guiones de adorno.
-Ese mensaje es lo que registra la venta en el sistema. Si no lo mandas, para el negocio la venta no existe.
-${
-  agente.instrucciones
-    ? `El FORMATO del resumen es el que digan las instrucciones del negocio, ahí arriba: síguelo al pie de la letra, con sus mismas líneas y sus mismos campos. Lo único que este sistema exige es que el mensaje LLEVE "${marcador}", en la línea que sea.`
-    : `Con esta forma, y con los datos reales del cliente:
-
-${marcador}
-
-Nombre: el nombre completo que te dio
-Cel: su número, entero
-Producto: lo que lleva
-Cantidad: cuántos
-Dirección: la dirección completa, con su provincia
-Costo de envío: lo que cuesta llevarlo
-Total a pagar: la suma de los dos
-
-Y debajo, cómo paga y en cuánto se despacha.`
-}
-No escribas "${marcador}" en ningún otro momento: ni para resumir lo que llevan hablado, ni para repetir una lista de precios. Solo cierra pedidos confirmados.
-ESE MENSAJE VA UNA SOLA VEZ EN TODA LA CONVERSACIÓN Y ES CON EL QUE CIERRAS. Después de mandarlo NO vuelves a escribir el pedido, ni entero ni a medias: si el cliente pregunta algo más, le contestas ESO y nada más, sin pegar la orden debajo otra vez. Repetirla parece servicial y no lo es: el hilo acaba con dos y tres pedidos escritos, con totales que no coinciden, y quien va a cobrar ya no sabe cuál es el bueno.${
+  if (datos) {
     /*
-     * EL PIN DEL MAPA VA AL FINAL, y no es un capricho de orden.
+     * UN AGENTE DE PAÍS: base + su archivo, y nada de los otros dos.
      *
-     * Lo último que lee el modelo es lo que más pesa, y esto solo aparece en el
-     * mensaje en el que el cliente acaba de mandar su ubicación: es una
-     * instrucción para ESTA respuesta, no una regla permanente. Puesta arriba,
-     * con el resto del prompt, se diluye entre veinte líneas que siempre están.
+     * El orden importa. El país y lo que vende van primero porque son datos;
+     * el comportamiento va al final porque lo último que lee el modelo es lo
+     * que más pesa, y el pin del mapa —una instrucción para ESTA respuesta—
+     * cierra.
      */
-    ubicacion ? `\n\n${ubicacionParaModelo(ubicacion, pais?.nombre ?? null)}` : ""
-  }`;
+    const tienda = datos.tienda || negocio;
+    const quien = datos.nombreAgente ?? agente.nombre;
+
+    return [
+      `Eres ${quien}, quien atiende el WhatsApp de ${tienda}.`,
+      bloqueDelPais(datos, donde, negocio),
+      bloqueHumano(pais),
+      queVende,
+      deAnuncio ?? "",
+      notas,
+      bloqueCliente(cliente),
+      baseComportamiento({
+        saludo: saludoDe(datos, agente.nombre, negocio),
+        marcador,
+        trato: datos.trato,
+        conAnuncio: deAnuncio !== null,
+        conFoto,
+        lineasResumen: lineasDelResumen(datos),
+        pieDelResumen: datos.pieDelResumen,
+        datosParaCerrar: datos.envio.datosParaCerrar,
+      }),
+      pinDelMapa,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+  }
+
+  /*
+   * SIN ARCHIVO DE PAÍS: el número vende en neutro, como siempre vendió.
+   *
+   * Es el caso del canal sin país puesto. El comportamiento es EL MISMO —sale
+   * de la misma base—; lo que no hay es tienda, moneda ni envío escritos en
+   * código, así que salen de lo que sepa `paises.ts` y de las tarifas
+   * cargadas en el panel, y el formato del resumen de las instrucciones.
+   */
+  const envio = pais
+    ? bloqueDeEnvio(
+        pais,
+        { envio_cerca: agente.envio_cerca, envio_lejos: agente.envio_lejos },
+        donde,
+      )
+    : "";
+
+  return [
+    `Eres ${agente.nombre}, quien atiende el WhatsApp de ${negocio}.`,
+    TONOS[agente.tono] ?? TONOS.cercano,
+    pais ? bloqueDePais(pais) : "",
+    bloqueHumano(pais),
+    envio,
+    queVende,
+    deAnuncio ?? "",
+    notas,
+    bloqueCliente(cliente),
+    baseComportamiento({
+      saludo: saludoDelPais(pais, agente.nombre, negocio),
+      marcador,
+      trato: "usted",
+      conAnuncio: deAnuncio !== null,
+      conFoto,
+      lineasResumen: null,
+      pieDelResumen: [],
+      datosParaCerrar: pais?.datosParaCerrar ?? null,
+    }),
+    pinDelMapa,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 /**
@@ -1139,6 +1161,29 @@ export async function generarRespuesta(
  * la escribe de las dos formas por más que se le pida una.
  */
 const PIDE_ASESOR = /\[?\bHANDOFF\b\]?/gi;
+
+/**
+ * `[FOTO]` — la etiqueta con la que el agente pide que salga la imagen.
+ *
+ * Misma mecánica que `[HANDOFF]` y por la misma razón: el modelo solo sabe
+ * escribir texto, así que la única forma de que pida algo que no es texto es
+ * que lo diga escribiéndolo. El cliente NO tiene que verla, y sin quitarla le
+ * llegaría un «[FOTO]» pegado al final del mensaje.
+ *
+ * Se reconoce con y sin corchetes y en cualquier caja, igual que la otra: el
+ * modelo la escribe de las dos formas por más que se le pida una.
+ */
+const PIDE_FOTO = /\[?\bFOTO\b\]?/gi;
+
+export function leerEtiquetaDeFoto(texto: string): { texto: string; pideFoto: boolean } {
+  PIDE_FOTO.lastIndex = 0;
+  if (!PIDE_FOTO.test(texto)) return { texto, pideFoto: false };
+
+  return {
+    texto: texto.replace(PIDE_FOTO, "").replace(/[ \t]+\n/g, "\n").trim(),
+    pideFoto: true,
+  };
+}
 
 export function leerEtiquetaDeAsesor(texto: string): { texto: string; pideAsesor: boolean } {
   PIDE_ASESOR.lastIndex = 0;
@@ -1573,6 +1618,94 @@ export async function atenderConversacion(
   }
 
   if (!respuesta.texto) return { atendida: false, motivo: "fallo_modelo", detalle: "respuesta vacía" };
+
+  /*
+   * ── EL REVISOR, ANTES DE MANDAR ─────────────────────────────────────────
+   *
+   * La segunda IA del país. Lee el borrador con los datos del país y del
+   * catálogo delante y decide si sale. Ver `revisor.ts`: primero las reglas
+   * que no cuestan (moneda ajena, envío que no existe, descuento, resumen con
+   * huecos), después el modelo revisor.
+   *
+   * Si no pasa, el agente vuelve a escribir UNA vez con la corrección
+   * delante. Si tampoco pasa, al cliente le llega una sola línea honesta y el
+   * hilo pasa a una persona con una anomalía que dice qué se paró y por qué.
+   * Un error de venta se paga; una línea de espera, no.
+   *
+   * Solo en canales con archivo de país: el revisor juzga contra ese archivo.
+   */
+  const datosPais = agenteDePais(agente.pais);
+  if (datosPais) {
+    const { correccionParaElAgente, revisarBorrador } = await import("./revisor");
+    const org = obtenerOrg(orgId);
+    const negocio = nombreDelNegocio(agente, canal, org ?? null);
+    const cliente = { telefono: conv.cliente_phone, nombre: conv.cliente_nombre };
+    const contexto = {
+      datos: datosPais,
+      marcador: org?.marcador_cierre ?? MARCADOR_POR_DEFECTO,
+      nombresDeLaCasa: [agente.nombre, agente.negocio, datosPais.nombreAgente ?? "", datosPais.tienda].filter(Boolean),
+      catalogo: textoDeLoQueVende(agente, listarCatalogo(orgId, true)),
+      anuncio: anuncioParaModelo(conv),
+      bloqueDelPais: bloqueDelPais(
+        datosPais,
+        ubicacion?.direccion?.provincia ?? ubicacion?.zona?.nombre ?? null,
+        negocio,
+      ),
+    };
+
+    let veredicto = await revisarBorrador(orgId, org?.modelo_analisis, historial, respuesta.texto, contexto);
+
+    if (!veredicto.aprobado) {
+      console.log(
+        `[revisor] paró la respuesta en la conversación ${conversationId} (${veredicto.por}): ` +
+          veredicto.fallas.join("; "),
+      );
+      try {
+        const regla = await reglaDePrecio(orgId, conv);
+        const segunda = await generarRespuesta(
+          orgId,
+          canalId,
+          historial,
+          conv,
+          [regla, correccionParaElAgente(veredicto)].filter(Boolean).join("\n\n"),
+          cliente,
+          ubicacion,
+        );
+        if (segunda.texto) {
+          const otra = await revisarBorrador(orgId, org?.modelo_analisis, historial, segunda.texto, contexto);
+          if (otra.aprobado) {
+            respuesta = segunda;
+            veredicto = otra;
+          } else {
+            veredicto = otra;
+          }
+        }
+      } catch (e) {
+        console.error(`[revisor] no se pudo reescribir la respuesta de ${conversationId}`, e);
+      }
+    }
+
+    if (!veredicto.aprobado) {
+      crearAnomalia(orgId, {
+        conversationId,
+        tipo: "respuesta_rechazada",
+        severidad: "alta",
+        detalle:
+          `El revisor paró la respuesta del agente (${veredicto.por === "reglas" ? "por regla" : "el modelo revisor"}): ` +
+          `${veredicto.fallas.join("; ")}. Al cliente se le dijo que un representante le confirma, y el hilo pasó a una persona.`,
+      });
+
+      // Una sola línea honesta, con el trato del país, y el hilo a una persona.
+      respuesta = {
+        ...respuesta,
+        texto:
+          datosPais.trato === "tu"
+            ? "Un momento, por favor: un representante te confirma ese dato enseguida."
+            : "Un momento, por favor: un representante le confirma ese dato enseguida.",
+        pideAsesor: true,
+      };
+    }
+  }
 
   /*
    * ── EL SEGUNDO RESUMEN NO SALE ──────────────────────────────────────────

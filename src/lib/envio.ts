@@ -61,21 +61,27 @@ function llano(texto: string): string {
  * pregunta la provincia, que es más barato que equivocarse de tarifa.
  */
 export function zonaDeEnvio(pais: Pais, donde: string | null | undefined): ZonaEnvio | null {
-  const texto = llano(donde ?? "");
-  if (!texto) return null;
+  if (!llano(donde ?? "")) return null;
+  if (contieneLugar(donde, pais.zonasCercanas)) return "cerca";
+  return contieneLugar(donde, pais.zonas) ? "lejos" : null;
+}
 
-  const cerca = pais.zonasCercanas.some((z) => {
-    const nombre = llano(z);
-    return nombre.length > 2 && texto.includes(nombre);
+/**
+ * ¿Alguno de estos lugares aparece en el texto?
+ *
+ * Se busca el nombre de la zona DENTRO del texto y no al revés, porque lo que
+ * llega del mapa es «Santo Domingo Este» y lo que hay cargado puede ser «Santo
+ * Domingo». Los nombres de dos letras no cuentan: casarían con cualquier cosa.
+ * Lo usan las dos formas de tarifar: la de dos zonas de aquí y la de los
+ * agentes de país (`src/agents`).
+ */
+export function contieneLugar(texto: string | null | undefined, lugares: string[]): boolean {
+  const t = llano(texto ?? "");
+  if (!t) return false;
+  return lugares.some((l) => {
+    const nombre = llano(l);
+    return nombre.length > 2 && t.includes(nombre);
   });
-  if (cerca) return "cerca";
-
-  const conocida = pais.zonas.some((z) => {
-    const nombre = llano(z);
-    return nombre.length > 2 && texto.includes(nombre);
-  });
-
-  return conocida ? "lejos" : null;
 }
 
 /** El importe de una zona, o null si el dueño no lo cargó. */

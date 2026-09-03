@@ -650,17 +650,39 @@ test("las páginas recordadas se devuelven a su cuenta y se olvidan al usarse", 
 // `revisarPagina` es lo que lo detecta Y lo repara.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Contesta a la Graph API con un guion, y apunta a qué rutas se llamó. */
-function fingirGraph(guion: (url: string, metodo: string) => { ok: boolean; datos: unknown }) {
+/**
+ * Contesta a la Graph API con un guion, y apunta a qué rutas se llamó.
+ *
+ * El cuerpo del POST llega ya leído: lo que se declara en una suscripción —la
+ * dirección de entrega y la lista de campos— es justo lo que hay que mirar, y
+ * volver a parsearlo en cada prueba lo escondía.
+ */
+function fingirGraph(
+  guion: (
+    url: string,
+    metodo: string,
+    cuerpo: Record<string, unknown> | null,
+  ) => { ok: boolean; datos: unknown },
+) {
   const llamadas: string[] = [];
   const original = globalThis.fetch;
 
-  globalThis.fetch = (async (entrada: unknown, opciones?: { method?: string }) => {
+  globalThis.fetch = (async (
+    entrada: unknown,
+    opciones?: { method?: string; body?: string },
+  ) => {
     const url = String(entrada);
     const metodo = opciones?.method ?? "GET";
     llamadas.push(`${metodo} ${url.split("?")[0]!.replace(/^.*\/v[\d.]+\//, "")}`);
 
-    const r = guion(url, metodo);
+    let cuerpo: Record<string, unknown> | null = null;
+    try {
+      cuerpo = opciones?.body ? JSON.parse(opciones.body) : null;
+    } catch {
+      cuerpo = null;
+    }
+
+    const r = guion(url, metodo, cuerpo);
     return { ok: r.ok, status: r.ok ? 200 : 400, json: async () => r.datos } as Response;
   }) as typeof fetch;
 
@@ -926,4 +948,307 @@ test("el enlace de la publicación no viaja al prompt", () => {
 
   const prompt = anuncioParaPrompt(resolverAnuncio(orgId, "ad_enlace"));
   assert.equal(prompt.includes("facebook.com"), false);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// «LOS MENSAJES ENTRAN Y LOS COMENTARIOS NO»
+//
+// La suscripción son DOS listas y `revisarPagina` solo mira una. La otra —la de
+// la app— se declara al dar de alta el webhook en el panel de Meta, donde se
+// marca `messages` (sin eso no llega nada y se nota en el acto) y `feed` se
+// queda sin marcar, porque en ese momento no hay ningún comentario que echar de
+// menos. Desde entonces los directos entran perfectos, los comentarios no
+// existen, y todas las pantallas dicen «todo correcto» porque, en lo que ellas
+// miran, lo está.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Deja el entorno de una app de Meta puesta, y lo devuelve como estaba. */
+function conApp(valores: Record<string, string | undefined>) {
+  const antes: Record<string, string | undefined> = {};
+  const puestos = {
+    META_APP_ID: "1234567890",
+    META_APP_SECRET: SECRETO,
+    APP_URL: "https://panel.ejemplo.com",
+    META_VERIFY_TOKEN: "token-de-verificacion",
+    ...valores,
+  };
+
+  for (const [k, v] of Object.entries(puestos)) {
+    antes[k] = process.env[k];
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+
+  return () => {
+    for (const [k, v] of Object.entries(antes)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  };
+}
+
+const SUSCRITA_A_TODO = [
+  "messages", "messaging_postbacks", "message_echoes", "messaging_referrals", "feed",
+];
+
+test("una app suscrita a todo pasa la revisión sin declarar nada", async () => {
+  const { revisarSuscripcionApp } = await import("../src/lib/meta/app");
+  const restaurar = conApp({});
+
+  const graph = fingirGraph(() => ({
+    ok: true,
+    datos: {
+      data: [
+        {
+          object: "page",
+          callback_url: "https://panel.ejemplo.com/api/meta/webhook",
+          active: true,
+          fields: SUSCRITA_A_TODO.map((name) => ({ name, version: "v23.0" })),
+        },
+      ],
+    },
+  }));
+
+  try {
+    const r = await revisarSuscripcionApp();
+
+    assert.equal(r.leida, true);
+    assert.equal(r.callbackNuestra, true);
+    assert.deepEqual(r.faltan, []);
+    assert.equal(r.reparada, false);
+
+    // Volver a declarar una suscripción que ya está bien reescribe la dirección
+    // de entrega en cada comprobación. No se toca.
+    assert.equal(graph.llamadas.some((l) => l.startsWith("POST")), false);
+  } finally {
+    graph.restaurar();
+    restaurar();
+  }
+});
+
+/** EL CASO POR EL QUE EXISTE TODO ESTO. */
+test("una app sin «feed» se detecta y se completa sin perder lo que ya tenía", async () => {
+  const { revisarSuscripcionApp } = await import("../src/lib/meta/app");
+  const restaurar = conApp({});
+
+  // Lo que hay antes: los directos, y un campo ajeno que alguien marcó a mano.
+  let campos = ["messages", "message_echoes", "mensajes_de_otro_modulo"];
+  let declarado: Record<string, unknown> | null = null;
+
+  const graph = fingirGraph((url, metodo, cuerpo) => {
+    if (metodo === "POST") {
+      declarado = cuerpo;
+      campos = String(cuerpo?.fields ?? "").split(",");
+      return { ok: true, datos: { success: true } };
+    }
+    return {
+      ok: true,
+      datos: {
+        data: [
+          {
+            object: "page",
+            callback_url: "https://panel.ejemplo.com/api/meta/webhook",
+            active: true,
+            fields: campos.map((name) => ({ name })),
+          },
+        ],
+      },
+    };
+  });
+
+  try {
+    const r = await revisarSuscripcionApp();
+
+    assert.equal(r.reparada, true);
+    assert.deepEqual(r.faltan, [], "y se comprueba DESPUÉS de declarar, no se da por hecho");
+    assert.ok(r.campos.includes("feed"), "sin esto no llega ni un comentario");
+
+    /*
+     * LA UNIÓN, NO SOLO LO NUESTRO. Esta llamada reemplaza la lista entera: si
+     * se mandara solo `CAMPOS_SUSCRIPCION`, arreglar los comentarios apagaría
+     * cualquier otro aviso que la app tuviera declarado.
+     */
+    assert.ok(r.campos.includes("mensajes_de_otro_modulo"));
+    assert.equal((declarado as unknown as { object?: string })?.object, "page");
+    assert.equal(
+      (declarado as unknown as { callback_url?: string })?.callback_url,
+      "https://panel.ejemplo.com/api/meta/webhook",
+    );
+  } finally {
+    graph.restaurar();
+    restaurar();
+  }
+});
+
+/**
+ * NO SE LE ROBA EL WEBHOOK A OTRO DESPLIEGUE.
+ *
+ * Declarar la suscripción reescribe la dirección de entrega entera. Si apunta a
+ * otro sitio, es que la app la comparte —una copia de pruebas, o producción
+ * mirada desde local— y repararla desde aquí deja a ese otro sin recibir nada.
+ */
+test("si la app entrega en otra dirección se dice y no se toca", async () => {
+  const { revisarSuscripcionApp } = await import("../src/lib/meta/app");
+  const restaurar = conApp({});
+
+  const graph = fingirGraph(() => ({
+    ok: true,
+    datos: {
+      data: [
+        {
+          object: "page",
+          callback_url: "https://otro-servidor.com/api/meta/webhook",
+          active: true,
+          fields: [{ name: "messages" }],
+        },
+      ],
+    },
+  }));
+
+  try {
+    const r = await revisarSuscripcionApp();
+
+    assert.equal(r.callbackNuestra, false);
+    assert.equal(r.reparada, false);
+    assert.equal(graph.llamadas.some((l) => l.startsWith("POST")), false);
+    assert.ok(r.error?.includes("otro-servidor.com"));
+    assert.ok(r.faltan.includes("feed"), "y se sigue diciendo lo que falta");
+  } finally {
+    graph.restaurar();
+    restaurar();
+  }
+});
+
+/** Sin `META_VERIFY_TOKEN` Meta no puede comprobar la dirección: no se intenta. */
+test("sin token de verificación no se declara nada a ciegas", async () => {
+  const { revisarSuscripcionApp } = await import("../src/lib/meta/app");
+  const restaurar = conApp({ META_VERIFY_TOKEN: undefined });
+
+  const graph = fingirGraph(() => ({
+    ok: true,
+    datos: {
+      data: [
+        {
+          object: "page",
+          callback_url: "https://panel.ejemplo.com/api/meta/webhook",
+          active: true,
+          fields: [{ name: "messages" }],
+        },
+      ],
+    },
+  }));
+
+  try {
+    const r = await revisarSuscripcionApp();
+
+    assert.equal(r.reparada, false);
+    assert.equal(graph.llamadas.some((l) => l.startsWith("POST")), false);
+    assert.ok(r.error?.includes("META_VERIFY_TOKEN"));
+  } finally {
+    graph.restaurar();
+    restaurar();
+  }
+});
+
+/** El token de app lleva el secreto dentro: jamás puede salir en un mensaje. */
+test("el error de Meta no publica las credenciales de la app", async () => {
+  const { revisarSuscripcionApp } = await import("../src/lib/meta/app");
+  const restaurar = conApp({});
+
+  const graph = fingirGraph(() => ({
+    ok: false,
+    datos: { error: { message: `Invalid OAuth access token 1234567890|${SECRETO}`, code: 190 } },
+  }));
+
+  try {
+    const r = await revisarSuscripcionApp();
+
+    assert.equal(r.leida, false);
+    assert.equal(r.error?.includes(SECRETO), false, "el secreto de la app no se escribe nunca");
+  } finally {
+    graph.restaurar();
+    restaurar();
+  }
+});
+
+/**
+ * EL TOKEN VIEJO DE UNA PÁGINA QUE YA ESTABA CONECTADA.
+ *
+ * El permiso para publicar la respuesta a un comentario se empezó a pedir
+ * después. Las páginas de antes siguen con el acceso de entonces, que Meta
+ * acepta, que recibe los mensajes y que tiene la suscripción perfecta: en el
+ * panel se ven idénticas a las que funcionan. Lo único que no puede hacer es
+ * contestar en público, y eso se descubría con el cliente ya preguntando.
+ */
+test("una página con el acceso viejo no puede contestar comentarios, y se dice", async () => {
+  const { revisarPagina } = await import("../src/lib/meta/paginas");
+  const { orgId, canalId } = cuentaConPagina("SinPermisoComentar");
+  const canal = D.obtenerCanal(orgId, canalId)!;
+  const restaurar = conApp({});
+
+  const graph = fingirGraph((url) => {
+    if (url.includes("/debug_token")) {
+      return {
+        ok: true,
+        datos: {
+          data: {
+            scopes: ["pages_show_list", "pages_messaging", "pages_manage_metadata",
+                     "pages_read_engagement"],
+          },
+        },
+      };
+    }
+    if (url.includes("/subscribed_apps")) {
+      return { ok: true, datos: { data: [{ subscribed_fields: SUSCRITA_A_TODO }] } };
+    }
+    return { ok: true, datos: { name: "Página de prueba" } };
+  });
+
+  try {
+    const r = await revisarPagina(canal);
+
+    // Recibir, recibe: esto NO es un canal roto, y decirlo así mandaría a
+    // reconectar páginas que están entregando mensajes sin problema.
+    assert.deepEqual(r.faltan, []);
+    assert.equal(r.suscrita, true);
+
+    assert.deepEqual(r.permisosFaltan, ["pages_manage_engagement"]);
+  } finally {
+    graph.restaurar();
+    restaurar();
+  }
+});
+
+/**
+ * Sin credenciales de app no se le pregunta a Meta por los permisos, y lo que
+ * no se sabe no se afirma: `null` es «no se pudo leer» y no «no tiene ninguno».
+ * Decir lo segundo mandaría a reconectar todas las páginas del panel.
+ */
+test("los permisos que no se pueden leer no se inventan", async () => {
+  const { revisarPagina } = await import("../src/lib/meta/paginas");
+  const { orgId, canalId } = cuentaConPagina("SinCredencialesApp");
+  const canal = D.obtenerCanal(orgId, canalId)!;
+  const restaurar = conApp({ META_APP_ID: undefined, META_APP_SECRET: undefined });
+
+  const graph = fingirGraph((url) => {
+    if (url.includes("/subscribed_apps")) {
+      return { ok: true, datos: { data: [{ subscribed_fields: SUSCRITA_A_TODO }] } };
+    }
+    return { ok: true, datos: { name: "Página de prueba" } };
+  });
+
+  try {
+    const r = await revisarPagina(canal);
+
+    assert.equal(r.permisos, null);
+    assert.deepEqual(r.permisosFaltan, []);
+    assert.equal(
+      graph.llamadas.some((l) => l.includes("debug_token")),
+      false,
+      "no se llama a Meta sin credenciales con las que preguntar",
+    );
+  } finally {
+    graph.restaurar();
+    restaurar();
+  }
 });

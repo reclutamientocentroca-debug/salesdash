@@ -59,6 +59,17 @@ const PERMISOS = [
   "pages_messaging",
   "pages_manage_metadata",
   "pages_read_engagement",
+  /*
+   * PARA CONTESTAR EL COMENTARIO, no para leerlo.
+   *
+   * `pages_read_engagement` deja LEER lo que escriben debajo de una
+   * publicación; publicar la respuesta colgada del comentario necesita este
+   * otro. Sin él, el comentario entra en la bandeja, el agente escribe la
+   * respuesta y Meta la rechaza con un error de permisos: la pregunta se queda
+   * pública y sin contestar, que es justo lo que hace que el siguiente que la
+   * lea se vaya.
+   */
+  "pages_manage_engagement",
   "instagram_basic",
   "instagram_manage_messages",
 ].join(",");

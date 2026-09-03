@@ -14,7 +14,7 @@
  * que permite que el panel conecte páginas sin agujerear esta regla.
  */
 import type { Canal } from "@/lib/db";
-import { ErrorMeta, postGraph } from "./graph";
+import { ErrorMeta, postGraph, postGraphMultipart } from "./graph";
 
 /**
  * Un mensaje directo, por Messenger o por Instagram.
@@ -38,6 +38,70 @@ export async function enviarMensajeMeta(
   const id = typeof datos.message_id === "string" ? datos.message_id : "";
   if (!id) throw new ErrorMeta("Meta aceptó el mensaje pero no devolvió su identificador");
   return id;
+}
+
+/**
+ * LA FOTO DEL ANUNCIO, DE VUELTA AL CLIENTE QUE LA PIDE.
+ *
+ * «¿Me manda una foto?» es de las preguntas más frecuentes que hay y hasta
+ * ahora no se podía contestar: el agente escribía, y solo escribía. Decirle a
+ * alguien que acaba de pinchar la foto de un producto que no puedes enseñársela
+ * es raro y cuesta la venta.
+ *
+ * DOS CAMINOS, Y EL PRIMERO ES EL QUE SE USA CASI SIEMPRE. Si Meta ya tiene la
+ * imagen —porque se la subimos la primera vez que alguien la pidió— basta con
+ * su `attachment_id`: no viajan bytes y la respuesta es inmediata. Solo la
+ * primera vez se sube el archivo, con `is_reusable`, y Meta devuelve ese
+ * identificador para que no haya una segunda. Un anuncio que funciona trae
+ * cientos de clientes y la foto es la misma para todos.
+ *
+ * Devuelve también el identificador cuando acaba de subirla, para que quien
+ * llama lo guarde. Ver `guardarAdjuntoAnuncio`.
+ */
+export async function enviarImagenMeta(
+  canal: Canal,
+  destinatarioId: string,
+  imagen:
+    | { attachmentId: string }
+    | { datos: Buffer; mime: string },
+): Promise<{ messageId: string; attachmentId: string | null }> {
+  const recipient = JSON.stringify({ id: destinatarioId });
+
+  if ("attachmentId" in imagen) {
+    const datos = await postGraph(canal, `${canal.phone}/messages`, {
+      recipient: { id: destinatarioId },
+      messaging_type: "RESPONSE",
+      message: {
+        attachment: { type: "image", payload: { attachment_id: imagen.attachmentId } },
+      },
+    });
+
+    const id = typeof datos.message_id === "string" ? datos.message_id : "";
+    if (!id) throw new ErrorMeta("Meta aceptó la imagen pero no devolvió su identificador");
+    return { messageId: id, attachmentId: null };
+  }
+
+  const datos = await postGraphMultipart(
+    canal,
+    `${canal.phone}/messages`,
+    {
+      recipient,
+      messaging_type: "RESPONSE",
+      /* `is_reusable` es lo que hace que esta subida sea la única. */
+      message: JSON.stringify({
+        attachment: { type: "image", payload: { is_reusable: true } },
+      }),
+    },
+    { nombre: "anuncio.jpg", mime: imagen.mime, datos: imagen.datos },
+  );
+
+  const id = typeof datos.message_id === "string" ? datos.message_id : "";
+  if (!id) throw new ErrorMeta("Meta aceptó la imagen pero no devolvió su identificador");
+
+  return {
+    messageId: id,
+    attachmentId: typeof datos.attachment_id === "string" ? datos.attachment_id : null,
+  };
 }
 
 /**
