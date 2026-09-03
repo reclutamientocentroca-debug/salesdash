@@ -359,9 +359,11 @@ export const RD: DatosPais = {
 
   // ── Cambios y devoluciones ─────────────────────────────────────────────
   politicaDeCambios:
-    "Hay cambio dentro de las 24 horas siguientes a recibir el pedido, y en la entrega el " +
-    "cliente puede revisar el producto antes de pagarle al mensajero. Lo que eso no cubra, lo " +
-    "pasa un representante.",
+    "SÍ se hace cambio y devolución dentro de las 24 horas después de haber recibido el pedido. " +
+    "Y como la empresa se lo envía a domicilio, el cliente puede verificar su producto antes de " +
+    "pagarle al mensajero y hasta medírselo. Se contesta en corto y con seguridad, en una o dos " +
+    "frases: primero lo de las 24 horas, después lo de revisarlo y medírselo antes de pagar. " +
+    "Lo que eso no cubra —cómo se hace el cambio, quién lo recoge—, lo pasa un representante.",
 
   // ── Cómo habla la gente ────────────────────────────────────────────────
   habla: {

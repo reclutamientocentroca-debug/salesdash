@@ -623,6 +623,8 @@ test("los cambios se contestan solo si preguntan, y sin política se transfiere"
   assert.ok(dominicano.includes("SOLO SI EL CLIENTE PREGUNTA"), "no lo saca por su cuenta");
   assert.ok(dominicano.includes("24 horas"), "y cuando pregunta, tiene la respuesta");
   assert.ok(dominicano.includes("antes de pagarle al mensajero"), "puede revisar antes de pagar");
+  assert.ok(dominicano.includes("cambio y devolución"), "y la devolución también entra");
+  assert.ok(dominicano.includes("hasta medírselo"), "y se lo puede medir en la entrega");
 
   const panameno = armarSistema("Tienda", D.obtenerAgente(orgId, pa), [], null);
   assert.ok(panameno.includes("CAMBIOS Y DEVOLUCIONES: NO CONFIGURADO"), "sin política, no se promete nada");
