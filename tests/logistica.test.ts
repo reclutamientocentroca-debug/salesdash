@@ -90,7 +90,7 @@ test("el prompt del agente lleva la tarifa del cliente cuando la escribió, y el
   // inventar precio, resumen al final y transferir.
   assert.ok(prompt.includes("CÓMO SUENA UNA PERSONA"));
   assert.ok(prompt.includes("No inventes precios"));
-  assert.ok(prompt.includes("UN ARTÍCULO DEL QUE NO SABES NADA SE PASA A UN REPRESENTANTE"));
+  assert.ok(prompt.includes("UN ARTÍCULO DEL QUE NO SABES NADA NO SE VENDE NI SE COTIZA, Y TAMPOCO SE TRANSFIERE"));
   assert.ok(prompt.includes("EL RESUMEN SE MANDA UNA VEZ, Y CUANDO YA NO FALTA NADA"));
   assert.ok(prompt.includes("En un momento será transferido a un representante que le continuará atendiendo."));
   assert.ok(prompt.includes("[HANDOFF]"));

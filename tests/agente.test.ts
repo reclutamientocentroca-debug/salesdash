@@ -1769,19 +1769,19 @@ test("el artículo es el de la descripción del anuncio y no se cambia por otro"
  * precio inventado promete algo que el negocio no puede sostener —y el cliente
  * ya lo leyó—. Pasar el chat es peor experiencia y mejor negocio.
  */
-test("lo que no conoce se pasa a un representante, con su etiqueta", () => {
+test("lo que no conoce no se vende ni se transfiere: se confirma con el equipo y se sigue", () => {
   const prompt = armarSistema("Tienda", D.obtenerAgente(orgId, canalId), [], null);
 
-  assert.ok(prompt.includes("UN ARTÍCULO DEL QUE NO SABES NADA SE PASA A UN REPRESENTANTE"));
-  assert.ok(prompt.includes("[HANDOFF]"), "y con la etiqueta que avisa al equipo");
+  assert.ok(prompt.includes("UN ARTÍCULO DEL QUE NO SABES NADA NO SE VENDE NI SE COTIZA, Y TAMPOCO SE TRANSFIERE"));
   assert.ok(
     prompt.includes("no inventes colores ni medidas"),
     "ni precio, ni colores, ni medidas de algo que no tiene delante",
   );
+  assert.ok(prompt.includes("lo confirmo con el equipo"), "se dice que se confirma, y se sigue vendiendo");
 
-  // Y no se confunde con un dato que falta de algo que sí vende: eso se
-  // confirma, no se transfiere.
-  assert.ok(prompt.includes("cuando lo que no conoces es EL ARTÍCULO"));
+  // Solo se transfiere por tres cosas, y la etiqueta sigue existiendo para ellas.
+  assert.ok(prompt.includes("SOLO SE TRANSFIERE EN TRES CASOS"));
+  assert.ok(prompt.includes("[HANDOFF]"), "la etiqueta sigue para la foto, el mayoreo y el artículo sin precio");
 });
 
 /** La etiqueta llega hasta el final: se quita del mensaje y marca el hilo. */

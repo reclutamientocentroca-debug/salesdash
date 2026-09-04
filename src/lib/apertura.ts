@@ -19,6 +19,7 @@
  * frase de transferencia, que es lo que el guion manda cuando no hay precio.
  */
 import type { DatosPais } from "@/agents";
+import type { FichaDelPedido } from "./memoria";
 
 const EMOJIS = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}\u{200D}]/gu;
 
@@ -103,4 +104,35 @@ export function aperturaSegura(
     : `${articulo} está disponible, en ${precio}.`;
 
   return `${saludo}\n\n${cuerpo}\n\n${primeraPregunta(descripcion, d)}`;
+}
+
+/**
+ * LA RESPUESTA MÍNIMA, a mitad de venta, cuando el revisor paró dos veces lo
+ * que escribió el agente. Nunca es «un momento, un representante»: es la
+ * siguiente pregunta del orden de venta según lo que ya se sabe del pedido,
+ * y nada más. Corta, correcta y sin transferir. En el siguiente turno el
+ * agente vuelve a intentarlo con más contexto.
+ */
+export function respuestaMinima(
+  d: DatosPais,
+  ficha: FichaDelPedido,
+  anuncio: { descripcion_anuncio?: string | null } | null,
+): string {
+  const descripcion = anuncio?.descripcion_anuncio ?? "";
+  const tu = d.trato === "tu";
+  const llevaTalla = ROPA.test(descripcion) || CALZADO.test(descripcion);
+
+  if (llevaTalla && !ficha.talla) return primeraPregunta(descripcion, d);
+  if (!ficha.direccion) {
+    switch (d.codigo) {
+      case "do":
+        return "Le hacemos envío y paga al recibir. ¿En qué provincia se encuentra?";
+      case "cr":
+        return "Te lo enviamos a todo el país. ¿En qué cantón estás?";
+      default:
+        return tu ? "¿A qué corregimiento te lo enviamos?" : "¿A qué corregimiento se lo enviamos?";
+    }
+  }
+  if (!ficha.nombre) return tu ? "¿A nombre de quién sale el pedido?" : "¿A nombre de quién sale el pedido?";
+  return tu ? "Perfecto, ya tengo tus datos. Ahora mismo te preparo el resumen del pedido." : "Perfecto, ya tengo sus datos. Ahora mismo le preparo el resumen de su pedido.";
 }

@@ -2,7 +2,7 @@ import "./entorno";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { agenteDePais } from "../src/agents";
-import { aperturaSegura, articuloDeLaDescripcion, precioDeLaDescripcion, primeraPregunta } from "../src/lib/apertura";
+import { aperturaSegura, articuloDeLaDescripcion, precioDeLaDescripcion, primeraPregunta, respuestaMinima } from "../src/lib/apertura";
 
 /**
  * EL PRIMER MENSAJE VENDE DE LA DESCRIPCIÓN, SIN MODELO.
@@ -54,4 +54,23 @@ test("la apertura segura lleva saludo, artículo, precio y pregunta, y nada inve
   // Sin descripción con precio, no hay apertura segura: toca transferir.
   assert.equal(aperturaSegura(rd, { producto_anuncio: "Rincondcm", descripcion_anuncio: "Escríbenos" }, saludo), null);
   assert.equal(aperturaSegura(rd, null, saludo), null);
+});
+
+/**
+ * A MITAD DE VENTA, SI EL REVISOR PARA DOS VECES, NO SE TRANSFIERE: se manda
+ * la siguiente pregunta del orden de venta según lo que ya se sabe.
+ */
+test("la respuesta mínima es la siguiente pregunta del pedido, nunca una transferencia", () => {
+  const vacia = { talla: null, color: null, direccion: null, nombre: null, celular: null, cantidad: null };
+  const camisa = { descripcion_anuncio: "camisas de lino para caballeros a RD$1,500" };
+  const combo = { descripcion_anuncio: "COMBO 2 EN 1 cepillo secador + plancha RD$1,690" };
+
+  assert.equal(respuestaMinima(rd, vacia, camisa), "¿Qué talla necesita?");
+  assert.equal(respuestaMinima(rd, { ...vacia, talla: "la M" }, camisa), "Le hacemos envío y paga al recibir. ¿En qué provincia se encuentra?");
+  assert.equal(respuestaMinima(rd, vacia, combo), "Le hacemos envío y paga al recibir. ¿En qué provincia se encuentra?");
+  assert.equal(respuestaMinima(rd, { ...vacia, direccion: "Los Alcarrizos, calle 3" }, combo), "¿A nombre de quién sale el pedido?");
+  assert.match(respuestaMinima(rd, { ...vacia, direccion: "Los Alcarrizos, calle 3", nombre: "Ana Pérez" }, combo), /resumen de su pedido/);
+  for (const f of [vacia, { ...vacia, direccion: "x", nombre: "y" }]) {
+    assert.equal(respuestaMinima(rd, f, combo).includes("representante"), false);
+  }
 });

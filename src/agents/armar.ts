@@ -249,7 +249,7 @@ export function bloqueDelPais(
     "",
     d.pago
       ? `FORMA DE PAGO: ${d.pago}`
-      : "FORMA DE PAGO: NO CONFIGURADA. No la inventes ni prometas ninguna —ni contra entrega, ni transferencia, ni nada—. Si el cliente pregunta cómo se paga, dile en corto que un representante le confirma la forma de pago y escribe \"[HANDOFF]\" en ese mismo mensaje. La línea «Forma de pago» NO va en el resumen.",
+      : "FORMA DE PAGO: NO CONFIGURADA. No la inventes ni prometas ninguna —ni contra entrega, ni transferencia, ni nada—. Si el cliente pregunta cómo se paga, dile en corto que la forma de pago se la confirma el equipo al despachar, y sigue la venta sin transferir. La línea «Forma de pago» NO va en el resumen.",
     "",
     `CÓMO SE DAN LAS DIRECCIONES AQUÍ: ${d.envio.direccion}`,
     "",
@@ -264,7 +264,7 @@ export function bloqueDelPais(
     "",
     d.politicaDeCambios
       ? `CAMBIOS Y DEVOLUCIONES (solo si el cliente pregunta): ${d.politicaDeCambios}`
-      : "CAMBIOS Y DEVOLUCIONES: NO CONFIGURADO. Si el cliente pregunta, no prometas ni niegues nada: un representante le atiende eso. Escribe \"[HANDOFF]\".",
+      : "CAMBIOS Y DEVOLUCIONES: NO CONFIGURADO. Si el cliente pregunta, no prometas ni niegues nada: dile que eso se lo confirma el equipo y sigue la venta, sin transferir.",
     "",
     `ASÍ HABLA LA GENTE AQUÍ — ${d.habla.descripcion}`,
     d.habla.expresiones.map((e) => `- ${e}`).join("\n"),

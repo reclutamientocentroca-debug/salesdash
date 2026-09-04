@@ -616,9 +616,10 @@ test("el guion se copia a todos los números, y solo el guion", () => {
  * La política de cambios se contesta, pero NO se saca por cuenta propia: a
  * quien no lo ha preguntado, hablarle de devoluciones le siembra una duda que
  * no tenía. Es una regla de venta, no un tecnicismo. Y donde no hay política
- * escrita, no se inventa: se transfiere.
+ * escrita, no se inventa: se dice que lo confirma el equipo y se sigue, sin
+ * transferir —solo se transfiere por una foto, por mayoreo o sin precio—.
  */
-test("los cambios se contestan solo si preguntan, y sin política se transfiere", () => {
+test("los cambios se contestan solo si preguntan, y sin política se confirma con el equipo", () => {
   const dominicano = armarSistema("Tienda", D.obtenerAgente(orgId, rd), [], null);
   assert.ok(dominicano.includes("SOLO SI EL CLIENTE PREGUNTA"), "no lo saca por su cuenta");
   assert.ok(dominicano.includes("24 horas"), "y cuando pregunta, tiene la respuesta");
@@ -628,5 +629,6 @@ test("los cambios se contestan solo si preguntan, y sin política se transfiere"
 
   const panameno = armarSistema("Tienda", D.obtenerAgente(orgId, pa), [], null);
   assert.ok(panameno.includes("CAMBIOS Y DEVOLUCIONES: NO CONFIGURADO"), "sin política, no se promete nada");
+  assert.ok(panameno.includes("eso se lo confirma el equipo y sigue la venta, sin transferir"), "y no se transfiere por eso");
   assert.ok(panameno.includes("SOLO SI EL CLIENTE PREGUNTA"), "y tampoco lo saca él");
 });
