@@ -193,3 +193,25 @@ test("en Costa Rica San José, Heredia, Alajuela y Alajuelita van a domicilio y 
   assert.ok(bloque.includes("entrega a domicilio"));
   assert.ok(bloque.includes("efectivo"), "el efectivo es una de las tres formas");
 });
+
+/**
+ * PANAMÁ, según la dueña (2026-09-04): sin impuesto —el total es el producto
+ * más el envío—, a domicilio en todo el país, y se paga por transferencia,
+ * Yappy, efectivo o link de pago, como el cliente prefiera.
+ */
+test("en Panamá no hay impuesto, el envío es a domicilio en todo el país y se paga como el cliente quiera", () => {
+  const pa = agenteDePais("pa")!;
+  assert.equal(pa.envio.restoDelPais.costo, 5);
+  assert.match(pa.envio.restoDelPais.modalidad, /domicilio/);
+  assert.match(pa.envio.cobertura, /SIN IMPUESTO/);
+  for (const forma of ["transferencia", "Yappy", "efectivo", "link de pago"]) {
+    assert.ok(pa.pago!.includes(forma), `el pago admite ${forma}`);
+    assert.ok(pa.pagoAlCliente!.includes(forma), `y al cliente se le dice ${forma}`);
+  }
+  assert.match(pa.pago!, /NO SE LOS INVENTES/, "los datos de la cuenta los da el representante");
+
+  const bloque = bloqueDelPais(pa, "Villa Lucre", "Tienda");
+  assert.ok(bloque.includes("FORMA DE PAGO: COMO EL CLIENTE PREFIERA"));
+  assert.ok(!bloque.includes("NO CONFIGURADA"), "ya no está pendiente");
+  assert.ok(bloque.includes("US$5.00"));
+});

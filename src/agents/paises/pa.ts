@@ -11,8 +11,12 @@
  *
  *   - `tienda` y `nombreAgente`: mientras estén vacíos se usa el nombre del
  *     perfil de WhatsApp del número y el nombre que diga el panel.
- *   - `pago`: la forma de pago.
  *   - `mayoreo` y `politicaDeCambios`.
+ *
+ * Confirmado por la dueña el 2026-09-04: no se cobra impuesto —el total es el
+ * producto más el envío y nada más—, el envío es a domicilio en todo el país,
+ * y se paga por transferencia, Yappy, efectivo o link de pago, como el cliente
+ * prefiera.
  */
 import type { DatosPais } from "../tipos";
 
@@ -41,11 +45,15 @@ export const PA: DatosPais = {
 
   // ── Envío ──────────────────────────────────────────────────────────────
   envio: {
-    cobertura: "US$5.00 a todo el país, el mismo costo en todas partes.",
+    cobertura:
+      "US$5.00 a todo el país, el mismo costo en todas partes, y siempre A DOMICILIO: el " +
+      "mensajero lo lleva a la puerta del cliente, esté donde esté. SIN IMPUESTO: el total es " +
+      "el producto más el envío y nada más; nunca sumes ni menciones ITBMS ni ningún impuesto.",
     zonas: [],
     restoDelPais: {
       costo: 5,
-      modalidad: "envío a todo el país",
+      modalidad: "entrega a domicilio en todo el país",
+      pago: "paga como prefiera: transferencia, Yappy, efectivo al recibir o link de pago",
     },
     direccion:
       "Se da por corregimiento, barriada y casa o edificio: «Villa Lucre, calle 3, casa 12» o " +
@@ -58,6 +66,7 @@ export const PA: DatosPais = {
       "PROVINCIA, DISTRITO y CORREGIMIENTO, más la calle o el edificio y un punto de referencia: " +
         "el corregimiento es el dato que sitúa todo lo demás",
       "En un edificio, además el número de apartamento, o el pedido se queda en el lobby",
+      "Cómo quiere pagar, si lo dijo: transferencia, Yappy, efectivo o link de pago —es su elección, no la tuya—",
     ],
   },
 
@@ -95,10 +104,15 @@ export const PA: DatosPais = {
   },
 
   // ── Pago ───────────────────────────────────────────────────────────────
-  // PENDIENTE DE CONFIRMAR. Null = NO CONFIGURADA: el agente no la inventa y,
-  // si el cliente pregunta cómo se paga, transfiere a un representante.
-  pago: null,
-  pagoAlCliente: null,
+  pago:
+    "COMO EL CLIENTE PREFIERA: transferencia bancaria, Yappy, efectivo al recibir o link de " +
+    "pago. Nunca le impongas una forma: si dice cómo quiere pagar, esa es. El total que paga es " +
+    "el producto más el envío, SIN IMPUESTO —no existe ITBMS ni recargo en esta venta—. Los " +
+    "datos de la cuenta, el Yappy o el link se los manda el representante después del resumen: " +
+    "tú no los tienes y NO SE LOS INVENTES.",
+  pagoAlCliente:
+    "Paga como prefiera: transferencia, Yappy, efectivo al recibir o link de pago. El total es " +
+    "el producto más el envío, sin impuesto.",
 
   // ── Ubicación ──────────────────────────────────────────────────────────
   ubicacion: {

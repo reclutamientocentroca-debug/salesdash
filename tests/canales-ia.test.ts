@@ -222,10 +222,8 @@ test("cada canal lleva al modelo la moneda y las direcciones de SU país", () =>
   );
 
   assert.ok(promptPa.includes("US$"), "el panameño cobra en dólares");
-  assert.ok(
-    promptPa.includes("FORMA DE PAGO: NO CONFIGURADA"),
-    "y sin forma de pago escrita en su archivo, no se inventa ninguna",
-  );
+  assert.ok(promptPa.includes("Yappy"), "y se paga como en Panamá: Yappy, transferencia, efectivo o link de pago");
+  assert.ok(promptPa.includes("SIN IMPUESTO"), "y sin impuesto: el total es el producto más el envío");
   assert.equal(promptPa.includes("₡"), false, "y no mezcla la moneda del vecino");
 });
 

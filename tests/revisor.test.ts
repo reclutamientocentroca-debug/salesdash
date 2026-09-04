@@ -51,9 +51,12 @@ test("un costo de envío que no es ninguno de los del país no sale", () => {
 });
 
 test("sin forma de pago configurada, no se promete ninguna", () => {
-  assert.ok(revisarConReglas("Paga contra entrega al recibir.", pa).some((x) => x.includes("forma de pago")));
+  // Un país al que todavía no le pusieron forma de pago (Panamá la tiene desde el 2026-09-04).
+  const sinPago = { ...pa, datos: { ...pa.datos, pago: null }, bloqueDelPais: bloqueDelPais({ ...pa.datos, pago: null }, null, "Tienda") };
+  assert.ok(revisarConReglas("Paga contra entrega al recibir.", sinPago).some((x) => x.includes("forma de pago")));
   // Donde sí está configurada, se puede decir.
   assert.deepEqual(revisarConReglas("Paga contra entrega al recibir.", rd), []);
+  assert.deepEqual(revisarConReglas("Puede pagar por Yappy, transferencia o en efectivo al recibir.", pa), [], "en Panamá ya se sabe cómo se paga");
 });
 
 test("descuentos, envío gratis, días de entrega y reservas no salen", () => {
