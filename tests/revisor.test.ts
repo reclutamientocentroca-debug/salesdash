@@ -250,3 +250,24 @@ test("una talla, un número o un color a un artículo que no los lleva no se pre
   // Y la pregunta del teléfono no es una pregunta de talla.
   assert.deepEqual(revisarConReglas("¿A qué número le llama el mensajero, a este mismo?", combo), []);
 });
+
+/** El caso de Costa Rica: una mochila no lleva talla, ni aunque diga «45 litros». */
+test("una mochila o un accesorio no lleva talla, ni aunque el anuncio traiga números", () => {
+  const mochila: ContextoRevision = {
+    ...cr,
+    catalogo: "Catálogo:\n(sin catálogo cargado)",
+    anuncio: "Este cliente llegó por un anuncio:\n- Producto anunciado: Mochila\n- Lo que promete el anuncio: Mochila ejecutiva de 45 litros, 40 cm de alto, impermeable, a ₡18.500.",
+  };
+  assert.ok(revisarConReglas("La mochila ejecutiva está en ₡18.500.\n\n¿Qué talla necesitas?", mochila).some((f) => f.includes("talla")));
+  assert.ok(revisarConReglas("¿De qué color la quieres?", mochila).some((f) => f.includes("color")), "sin colores en el anuncio, no se pregunta");
+  assert.deepEqual(revisarConReglas("La mochila ejecutiva está en ₡18.500.\n\nTe lo enviamos a todo el país. ¿En qué cantón estás?", mochila), []);
+
+  // Con los colores escritos en el anuncio, el color sí se pregunta; la talla sigue sin ir.
+  const conColores = { ...mochila, anuncio: mochila.anuncio + " Disponible en negro y gris." };
+  assert.deepEqual(revisarConReglas("La tenemos en negro y gris. ¿Cuál te despachamos?", conColores), []);
+  assert.ok(revisarConReglas("¿Qué talla necesitas?", conColores).some((f) => f.includes("talla")));
+
+  // Y un reloj o una cartera, igual.
+  const reloj = { ...mochila, anuncio: "Este cliente llegó por un anuncio:\n- Producto anunciado: Reloj\n- Lo que promete el anuncio: Reloj deportivo 44 mm a ₡22.000." };
+  assert.ok(revisarConReglas("¿Qué talla necesitas?", reloj).some((f) => f.includes("talla")));
+});

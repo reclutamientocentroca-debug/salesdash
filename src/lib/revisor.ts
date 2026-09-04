@@ -376,14 +376,20 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
 
 /** Artículos que se venden sin talla, número ni color, salvo que el anuncio diga lo contrario. */
 const SIN_VARIANTES =
-  /\b(cepillo|secador|plancha|abejon|abejones|perfume|colonia|reloj|cartera|bolso|mochila|gorra|kit|combo|set|crema|serum|maquillaje|licuadora|freidora|audifono|audifonos|bocina|cargador|lampara|termo|botella|juguete|sartén|sarten|olla|ventilador|extension|masajeador|rasuradora|afeitadora|barbera|maquina|máquina)\b/i;
+  /\b(cepillo|secador|plancha|abejon|abejones|perfume|colonia|reloj|relojes|cartera|carteras|bolso|bolsos|mochila|mochilas|morral|bulto|bultos|riñonera|rinonera|billetera|maleta|maletas|lonchera|estuche|bolsa|gorra|gorras|lentes|gafas|collar|pulsera|aretes|anillo|paraguas|sombrilla|toalla|kit|combo|set|crema|serum|maquillaje|licuadora|freidora|audifono|audifonos|bocina|cargador|lampara|termo|botella|juguete|sartén|sarten|olla|ventilador|extension|masajeador|rasuradora|afeitadora|barbera|maquina|máquina)\b/i;
 
 /** Ropa y calzado llevan talla aunque el anuncio no la escriba. */
 const CON_TALLA_SIEMPRE =
   /\b(camisa|camisas|pantalon|pantalones|jean|jeans|short|shorts|vestido|blusa|polo|t-?shirt|franela|chacabana|chaqueta|abrigo|sueter|sudadera|conjunto|falda|zapato|zapatos|tenis|bota|botas|mocasin|mocasines|sandalia|sandalias|calzado|correa|correas|cinturon|cinturones|bermuda|ropa)\b/i;
 
-/** Lo que en un anuncio o catálogo dice que hay tallas o números. */
-const HAY_TALLAS = /\btallas?\b|\bsize\b|numeraci[oó]n|\b(3[4-9]|4[0-6])\b|\bx?xl\b|\bs\s*[,\/-]\s*m\b|\bde la s a la\b|\bmedidas?\b/i;
+/** Lo que en un anuncio o catálogo dice CON PALABRAS que hay tallas o números. */
+const HAY_TALLAS_EXPLICITAS = /\btallas?\b|\bsize\b|numeraci[oó]n|\bx?xl\b|\bs\s*[,\/-]\s*m\b|\bde la s a la\b/i;
+
+/**
+ * Números que parecen tallas de calzado. Un «45 litros» o un «40 cm» de una
+ * mochila NO lo son: los números seguidos de una unidad no cuentan.
+ */
+const NUMEROS_DE_TALLA = /\b(3[4-9]|4[0-6])\b(?!\s*(?:l\b|lt|litros?|cm|mm|kg|g\b|gr|pulg|"|x\s*\d|%))/i;
 
 /** Lo que en un anuncio o catálogo dice que hay colores. */
 const HAY_COLORES = /\bcolor(es)?\b|\b(negro|negra|blanco|blanca|azul|rojo|roja|marr[oó]n|beige|gris|verde|rosado|rosa|dorado|plateado|caf[eé]|vino|crema|amarillo|naranja|morado|celeste|turquesa|chocolate|camel|nude|fucsia)\b/i;
@@ -407,9 +413,16 @@ export function preguntaDeVarianteSinVariante(borrador: string, ctx: ContextoRev
     SIN_VARIANTES.test(fuentes) || sinVariantesDelPais.some((s) => s && fuentes.includes(s.replace(/s$/, "")));
   const esRopaOCalzado = CON_TALLA_SIEMPRE.test(fuentes);
 
+  /*
+   * ¿Las fuentes dicen que hay tallas? Con la palabra, siempre. Con solo
+   * números, únicamente si el artículo no es de los que no llevan: una
+   * mochila de «45 litros» no tiene talla 45.
+   */
+  const hayTallas = HAY_TALLAS_EXPLICITAS.test(fuentes) || (!esDeLosQueNoLlevan && NUMEROS_DE_TALLA.test(fuentes));
+
   // Una pregunta de talla que no sea la del teléfono («¿a qué número le llama…?»).
   const preguntaTalla = PREGUNTA_TALLA.test(b) && !/(llama|contact|mensajero|telefono|celular)/.test(b.match(PREGUNTA_TALLA)?.[0] ?? "");
-  if (preguntaTalla && !HAY_TALLAS.test(fuentes) && (esDeLosQueNoLlevan || !esRopaOCalzado)) {
+  if (preguntaTalla && !hayTallas && (esDeLosQueNoLlevan || !esRopaOCalzado)) {
     fallas.push(
       "pregunta talla o número, y ni la descripción del anuncio ni el catálogo dicen que este artículo lleve tallas: no se pregunta, se pasa a la provincia",
     );

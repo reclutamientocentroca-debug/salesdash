@@ -188,7 +188,7 @@ export const CR: DatosPais = {
     usaTablaBase: true,
     zapatoEn: "numeración europea (de la 39 a la 45)",
     conTallaYColor: [],
-    sinTallaNiColor: ["Planchas"],
+    sinTallaNiColor: ["Planchas", "Mochilas", "Bolsos", "Carteras", "Gorras", "Relojes", "Accesorios"],
     // Una plancha, un electrodoméstico o cualquier cosa que no sea ropa ni
     // calzado: no se pide talla ni color, solo se ofrece y se vende.
     soloRopaYCalzado: true,

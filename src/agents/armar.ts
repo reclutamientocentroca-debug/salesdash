@@ -198,8 +198,9 @@ function bloqueDeTallas(d: DatosPais): string {
   }
   if (t.soloRopaYCalzado) {
     lineas.push(
-      "- Solo la ropa y el calzado llevan talla. Cualquier otro artículo —un electrodoméstico, " +
-        "una herramienta, lo que sea— no lleva talla ni color: solo se ofrece y se vende.",
+      "- Solo la ropa y el calzado llevan talla. Cualquier otro artículo —una mochila, un bolso, una " +
+        "cartera, una gorra, un reloj, un electrodoméstico, una herramienta, lo que sea— no lleva talla, " +
+        "y solo lleva color si el anuncio dice sus colores: si no, se ofrece y se vende sin preguntar nada.",
     );
   }
   for (const n of t.notas) lineas.push(`- ${n}`);
