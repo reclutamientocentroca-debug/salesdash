@@ -19,7 +19,13 @@
  * frase de transferencia, que es lo que el guion manda cuando no hay precio.
  */
 import type { DatosPais } from "@/agents";
+import { importe, zonaDelCliente } from "@/agents/armar";
 import type { FichaDelPedido } from "./memoria";
+
+/** Sin tildes ni mayúsculas, para comparar. */
+function llano(t: string): string {
+  return t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+}
 
 const EMOJIS = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}\u{200D}]/gu;
 
@@ -117,22 +123,139 @@ export function respuestaMinima(
   d: DatosPais,
   ficha: FichaDelPedido,
   anuncio: { descripcion_anuncio?: string | null } | null,
+  opciones: {
+    /** Lo último que escribió el cliente: si es una pregunta, se le contesta antes. */
+    ultimoDelCliente?: string | null;
+    /** Lo último que mandó el agente: la misma pregunta no sale dos veces seguidas. */
+    ultimoDelAgente?: string | null;
+    /** Dónde está el cliente, si se sabe: decide qué envío se le dice. */
+    lugar?: string | null;
+  } = {},
 ): string {
   const descripcion = anuncio?.descripcion_anuncio ?? "";
-  const tu = d.trato === "tu";
   const llevaTalla = ROPA.test(descripcion) || CALZADO.test(descripcion);
 
-  if (llevaTalla && !ficha.talla) return primeraPregunta(descripcion, d);
-  if (!ficha.direccion) {
-    switch (d.codigo) {
-      case "do":
-        return "Le hacemos envío y paga al recibir. ¿En qué provincia se encuentra?";
-      case "cr":
-        return tu ? "Te lo enviamos a todo el país. ¿En qué cantón estás?" : "Le enviamos a todo el país. ¿En qué cantón se encuentra?";
-      default:
-        return tu ? "¿A qué corregimiento te lo enviamos?" : "¿A qué corregimiento se lo enviamos?";
+  const paso: PasoDelPedido =
+    llevaTalla && !ficha.talla ? "talla" : !ficha.direccion ? "direccion" : !ficha.nombre ? "nombre" : "resumen";
+
+  let pregunta = preguntaDelPaso(d, paso, descripcion);
+
+  /*
+   * LA MISMA PREGUNTA NO SALE DOS VECES SEGUIDAS. El caso real: «¿Qué número
+   * calza?» tres veces, una detrás de otra. Si lo último que mandó el agente
+   * es exactamente esto, se pregunta de otra forma.
+   */
+  const anterior = opciones.ultimoDelAgente ? llano(opciones.ultimoDelAgente).replace(/\s+/g, " ").trim() : "";
+  if (anterior && anterior === llano(pregunta).replace(/\s+/g, " ").trim()) {
+    pregunta = otraFormaDePreguntar(d, paso, descripcion);
+  }
+
+  // Y si el cliente preguntó algo, se le contesta antes de seguir.
+  const directa = respuestaDirecta(d, opciones.ultimoDelCliente, anuncio, opciones.lugar);
+  return directa ? `${directa}\n\n${pregunta}` : pregunta;
+}
+
+type PasoDelPedido = "talla" | "direccion" | "nombre" | "resumen";
+
+/** La pregunta de cada paso del pedido, en el orden de venta. */
+function preguntaDelPaso(d: DatosPais, paso: PasoDelPedido, descripcion: string): string {
+  const tu = d.trato === "tu";
+  switch (paso) {
+    case "talla":
+      return primeraPregunta(descripcion, d);
+    case "direccion":
+      switch (d.codigo) {
+        case "do":
+          return "Le hacemos envío y paga al recibir. ¿En qué provincia se encuentra?";
+        case "cr":
+          return tu ? "Te lo enviamos a todo el país. ¿En qué cantón estás?" : "Le enviamos a todo el país. ¿En qué cantón se encuentra?";
+        default:
+          return tu ? "¿A qué corregimiento te lo enviamos?" : "¿A qué corregimiento se lo enviamos?";
+      }
+    case "nombre":
+      return "¿A nombre de quién sale el pedido?";
+    case "resumen":
+      return tu
+        ? "Perfecto, ya tengo tus datos. Ahora mismo te preparo el resumen del pedido."
+        : "Perfecto, ya tengo sus datos. Ahora mismo le preparo el resumen de su pedido.";
+  }
+}
+
+/** La misma pregunta con otras palabras, para cuando la anterior quedó sin contestar. */
+function otraFormaDePreguntar(d: DatosPais, paso: PasoDelPedido, descripcion: string): string {
+  const tu = d.trato === "tu";
+  switch (paso) {
+    case "talla":
+      if (CALZADO.test(descripcion)) {
+        return tu ? "Para apartarlo necesito tu número de calzado. ¿Cuál es?" : "Para apartárselo necesito el número que calza. ¿Cuál es?";
+      }
+      return tu ? "Para apartarlo necesito tu talla. ¿Cuál te interesa?" : "Para apartárselo necesito su talla. ¿Cuál le interesa?";
+    case "direccion":
+      switch (d.codigo) {
+        case "do":
+          return "¿A qué provincia se lo enviamos?";
+        case "cr":
+          return tu ? "¿A qué cantón te lo enviamos?" : "¿A qué cantón se lo enviamos?";
+        default:
+          return tu ? "¿En qué corregimiento estás?" : "¿En qué corregimiento se encuentra?";
+      }
+    case "nombre":
+      return tu ? "¿Con qué nombre lo dejamos?" : "¿Con qué nombre lo dejamos?";
+    case "resumen":
+      return preguntaDelPaso(d, paso, descripcion);
+  }
+}
+
+/** De qué va la pregunta del cliente, si es una de las que se contestan solas. */
+export type PreguntaDelCliente = "ubicacion" | "envio" | "pago" | "precio";
+
+/**
+ * QUÉ PREGUNTÓ EL CLIENTE. Solo lo que tiene una respuesta fija en los datos
+ * del país o en la descripción del anuncio: dónde están, el envío, cómo se
+ * paga y el precio. Lo demás lo contesta el agente con su criterio.
+ */
+export function preguntaDelCliente(texto: string | null | undefined): PreguntaDelCliente | null {
+  const t = llano(texto ?? "").trim();
+  if (!t) return null;
+  if (/\b(donde (estan|esta|queda|quedan|tuta|ta|se ubican|se encuentran|es la tienda|estan ubicados|los encuentro|puedo ir)|ubicad[oa]s?|tienda fisica|local fisico|direccion de la tienda)\b/.test(t)) return "ubicacion";
+  if (/\b(envio|envios|envian|delivery|entregan|mandan)\b/.test(t) && /\?|cuanto|como|hacen|tienen|hay/.test(t)) return "envio";
+  if (/\b(pago|pagar|pagos|se paga|forma de pago|contra entrega|transferencia|tarjeta|es seguro|es confiable|confiable)\b/.test(t)) return "pago";
+  if (/\b(precio|cuanto (cuesta|vale|es|sale)|valor)\b/.test(t) && !/envio|delivery/.test(t)) return "precio";
+  return null;
+}
+
+/**
+ * LA CONTESTACIÓN FIJA a esa pregunta, sin modelo: sale de los datos del país
+ * y de la descripción del anuncio. Null si no hay nada seguro que decir.
+ */
+export function respuestaDirecta(
+  d: DatosPais,
+  ultimoDelCliente: string | null | undefined,
+  anuncio: { descripcion_anuncio?: string | null } | null,
+  lugar?: string | null,
+): string | null {
+  const tipo = preguntaDelCliente(ultimoDelCliente);
+  if (!tipo) return null;
+
+  switch (tipo) {
+    case "ubicacion":
+      return d.ubicacion.tiendaFisica;
+    case "pago":
+      return d.pagoAlCliente;
+    case "precio": {
+      const descripcion = anuncio?.descripcion_anuncio ?? "";
+      const precio = precioDeLaDescripcion(descripcion, d.moneda.simbolo);
+      if (!precio) return null;
+      const articulo = articuloDeLaDescripcion(descripcion, d.moneda.simbolo);
+      return articulo ? `${articulo} está en ${precio}.` : `Está en ${precio}.`;
+    }
+    case "envio": {
+      const zona = zonaDelCliente(d, lugar);
+      if (zona === "resto") return `El envío a su zona le sale en ${importe(d, d.envio.restoDelPais.costo)}.`;
+      if (zona) return `El envío a ${zona.nombre} le sale en ${importe(d, zona.costo)}.`;
+      const partes = d.envio.zonas.map((z) => `${importe(d, z.costo)} en ${z.nombre}`);
+      partes.push(`${importe(d, d.envio.restoDelPais.costo)} al resto del país`);
+      return `El envío es ${partes.join(" y ")}.`;
     }
   }
-  if (!ficha.nombre) return tu ? "¿A nombre de quién sale el pedido?" : "¿A nombre de quién sale el pedido?";
-  return tu ? "Perfecto, ya tengo tus datos. Ahora mismo te preparo el resumen del pedido." : "Perfecto, ya tengo sus datos. Ahora mismo le preparo el resumen de su pedido.";
 }

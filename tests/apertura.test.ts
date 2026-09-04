@@ -2,7 +2,7 @@ import "./entorno";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { agenteDePais } from "../src/agents";
-import { aperturaSegura, articuloDeLaDescripcion, precioDeLaDescripcion, primeraPregunta, respuestaMinima } from "../src/lib/apertura";
+import { aperturaSegura, articuloDeLaDescripcion, precioDeLaDescripcion, preguntaDelCliente, primeraPregunta, respuestaDirecta, respuestaMinima } from "../src/lib/apertura";
 
 /**
  * EL PRIMER MENSAJE VENDE DE LA DESCRIPCIÓN, SIN MODELO.
@@ -73,4 +73,42 @@ test("la respuesta mínima es la siguiente pregunta del pedido, nunca una transf
   for (const f of [vacia, { ...vacia, direccion: "x", nombre: "y" }]) {
     assert.equal(respuestaMinima(rd, f, combo).includes("representante"), false);
   }
+});
+
+/**
+ * EL CASO REAL: «Donde tuta» → «¿Qué número calza?»; «39» → «¿Qué número
+ * calza?»; y otra vez. La respuesta mínima contesta lo que preguntó el
+ * cliente y nunca manda dos veces seguidas la misma pregunta.
+ */
+test("la respuesta mínima contesta la pregunta del cliente y no se repite", () => {
+  const zapatos = { descripcion_anuncio: "👞 ZAPATOS DCM ESTILO Elegancia que deja huella. 💰 RD$1,990 ✔️ Diseño elegante" };
+  const vacia = { talla: null, color: null, direccion: null, nombre: null, celular: null, cantidad: null };
+
+  assert.equal(preguntaDelCliente("Donde tuta"), "ubicacion");
+  assert.equal(preguntaDelCliente("¿Dónde están ubicados?"), "ubicacion");
+  assert.equal(preguntaDelCliente("¿Cuánto es el envío?"), "envio");
+  assert.equal(preguntaDelCliente("¿Cómo se paga?"), "pago");
+  assert.equal(preguntaDelCliente("¿Cuánto cuesta?"), "precio");
+  assert.equal(preguntaDelCliente("39"), null);
+  assert.equal(preguntaDelCliente("Yo vivo en pekín"), null);
+
+  // Preguntó dónde están: se le dice, y se sigue con la talla.
+  const contesta = respuestaMinima(rd, vacia, zapatos, { ultimoDelCliente: "Donde tuta", ultimoDelAgente: "Claro que sí. ¿En qué provincia se encuentra?" });
+  assert.ok(contesta.startsWith("Somos tienda virtual"), contesta);
+  assert.ok(contesta.endsWith("¿Qué número calza?"));
+
+  // Lo último que mandó el agente fue esa misma pregunta: se pregunta de otra forma.
+  const otra = respuestaMinima(rd, vacia, zapatos, { ultimoDelCliente: "Yo vivo en pekín", ultimoDelAgente: "¿Qué número calza?" });
+  assert.notEqual(otra, "¿Qué número calza?");
+  assert.ok(otra.includes("número que calza"), otra);
+
+  // Con la talla ya en la ficha, el siguiente paso es la provincia.
+  assert.equal(respuestaMinima(rd, { ...vacia, talla: "39" }, zapatos, { ultimoDelAgente: "¿Qué número calza?" }), "Le hacemos envío y paga al recibir. ¿En qué provincia se encuentra?");
+
+  // El envío se contesta con la tarifa del cliente si se sabe dónde está, y con las dos si no.
+  assert.equal(respuestaDirecta(rd, "¿cuánto es el envío?", zapatos, "Santiago"), "El envío a su zona le sale en RD$290.");
+  assert.match(respuestaDirecta(rd, "¿hacen envíos?", zapatos, null)!, /RD\$250 en .+ y RD\$290 al resto del país/);
+  assert.match(respuestaDirecta(rd, "¿cómo se paga?", zapatos, null)!, /contra entrega/);
+  assert.equal(respuestaDirecta(rd, "¿cuánto cuesta?", zapatos, null), "ZAPATOS DCM ESTILO Elegancia que deja huella está en RD$1,990.");
+  assert.equal(respuestaDirecta(cr, "¿dónde están?", zapatos, null), cr.ubicacion.tiendaFisica);
 });

@@ -118,6 +118,13 @@ export interface DatosPais {
    * CONFIGURADA: el agente no la inventa y, si el cliente pregunta, transfiere.
    */
   pago: string | null;
+  /**
+   * CÓMO SE PAGA, DICHO AL CLIENTE tal cual. `pago` está escrito para el
+   * agente; esto está escrito para el cliente, y lo manda el sistema sin
+   * modelo cuando el revisor paró la respuesta y el cliente había preguntado
+   * eso. Null = no se contesta solo.
+   */
+  pagoAlCliente: string | null;
 
   // ── Ubicación ──────────────────────────────────────────────────────────
   ubicacion: {

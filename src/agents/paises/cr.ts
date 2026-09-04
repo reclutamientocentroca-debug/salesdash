@@ -171,6 +171,9 @@ export const CR: DatosPais = {
     "de entrega a domicilio se paga al recibir; fuera de ella, antes de enviar. El número de " +
     "SINPE Móvil o la cuenta se los da el representante después del resumen: tú no los tienes " +
     "y NO SE LOS INVENTES.",
+  pagoAlCliente:
+    "Se paga por SINPE Móvil o transferencia. En la zona de entrega a domicilio se paga al " +
+    "recibir; fuera de ella, antes del envío.",
 
   // ── Ubicación ──────────────────────────────────────────────────────────
   ubicacion: {

@@ -318,3 +318,22 @@ test("presentarse otra vez a mitad de conversación no sale", () => {
   // En la apertura, el saludo va.
   assert.deepEqual(revisarConReglas("Hola, le asiste Mildred de TELLERIA\n\n¿Qué talla le interesa?", { ...cr, esApertura: true }), []);
 });
+
+/**
+ * EL CASO REAL: «¿Qué número calza?» tres veces seguidas, y un «¿dónde
+ * están?» del cliente sin contestar. El revisor para las dos cosas.
+ */
+test("el mismo mensaje dos veces seguidas no sale, y una pregunta del cliente se contesta", () => {
+  const repite = { ...rd, ultimoDelAgente: "¿Qué número calza?", ultimoDelCliente: "Yo vivo en pekín" };
+  assert.ok(revisarConReglas("¿Qué número calza?", repite).some((f) => f.includes("exactamente lo mismo")));
+  assert.ok(revisarConReglas("¿qué número calza?", repite).some((f) => f.includes("exactamente lo mismo")), "sin importar mayúsculas");
+  assert.deepEqual(revisarConReglas("Solo enviamos dentro del país. ¿En qué provincia se encuentra?", repite), []);
+
+  const pregunta = { ...rd, ultimoDelCliente: "Donde tuta", ultimoDelAgente: "Claro que sí. ¿En qué provincia se encuentra?" };
+  assert.ok(revisarConReglas("¿Qué número calza?", pregunta).some((f) => f.includes("dónde están")));
+  assert.deepEqual(revisarConReglas("Somos tienda virtual y enviamos a todo el país. ¿Qué número calza?", pregunta), []);
+
+  const envio = { ...rd, ultimoDelCliente: "¿Cuánto es el envío?", ultimoDelAgente: "¿Qué número calza?" };
+  assert.ok(revisarConReglas("¿A nombre de quién sale el pedido?", envio).some((f) => f.includes("envío")));
+  assert.deepEqual(revisarConReglas("El envío es RD$250 en el Gran Santo Domingo y RD$290 al interior. ¿Qué número calza?", envio), []);
+});

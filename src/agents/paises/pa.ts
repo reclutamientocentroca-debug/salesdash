@@ -98,6 +98,7 @@ export const PA: DatosPais = {
   // PENDIENTE DE CONFIRMAR. Null = NO CONFIGURADA: el agente no la inventa y,
   // si el cliente pregunta cómo se paga, transfiere a un representante.
   pago: null,
+  pagoAlCliente: null,
 
   // ── Ubicación ──────────────────────────────────────────────────────────
   ubicacion: {

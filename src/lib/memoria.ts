@@ -103,9 +103,11 @@ export function esClienteQueVuelve(mensajes: MensajeDeMemoria[], horas = SESION_
 export function campoDeLaPregunta(pregunta: string): CampoDelPedido | null {
   const p = llano(pregunta);
   if (/\bcolor/.test(p)) return "color";
-  if (/\btalla|numero de (zapato|calzado)|\bmedida\b/.test(p)) return "talla";
-  if (/a nombre de|su nombre|como se llama|nombre completo/.test(p)) return "nombre";
+  // El celular va antes que la talla: «¿a qué número le llama el mensajero?» también dice «número».
   if (/(numero|celular|telefono|whatsapp).*(llama|contact|mensajero)|a este mismo|mismo numero/.test(p)) return "celular";
+  // «¿Qué número calza?» pregunta la talla: el caso real fue un «39» que nadie tomó.
+  if (/\btalla|numero de (zapato|calzado)|numero (que )?(calza|usa)|que numero (calza|usa|es|necesita|quiere|lleva)|\bsize\b|\bmedida\b/.test(p)) return "talla";
+  if (/a nombre de|su nombre|como se llama|nombre completo/.test(p)) return "nombre";
   if (/direccion|donde se lo|a donde|sector|provincia|canton|corregimiento|ubicacion/.test(p)) return "direccion";
   if (/cuant[oa]s|cantidad|unidades/.test(p)) return "cantidad";
   return null;
@@ -253,7 +255,7 @@ export function avisoDeClienteQueVuelve(mensajes: MensajeDeMemoria[]): string {
 
 /** Cómo suena una pregunta por cada dato, en el borrador del agente. */
 const PREGUNTA_POR: Record<CampoDelPedido, RegExp> = {
-  talla: /[¿?][^?¿]*\b(que|cual|de que)\b[^?¿]*\btalla\b[^?¿]*\?/i,
+  talla: /[¿?][^?¿]*(\b(que|cual|de que)\b[^?¿]*\btalla\b|numero (que )?(calza|usa)|numero de (zapato|calzado)|\bsize\b)[^?¿]*\?/i,
   color: /[¿?][^?¿]*\bcolor\b[^?¿]*\?/i,
   direccion: /[¿?][^?¿]*(direccion|donde se lo|a donde|donde (esta|vive|se encuentra)|en que (sector|provincia|canton|corregimiento|zona)|ubicacion)[^?¿]*\?/i,
   nombre: /[¿?][^?¿]*(a nombre de quien|su nombre|como se llama)[^?¿]*\?/i,
@@ -293,3 +295,17 @@ export function textosDelClienteEnSesion(mensajes: MensajeDeMemoria[]): string[]
 export function fichaDelHilo(mensajes: MensajeDeMemoria[], pais: string | null | undefined): FichaDelPedido {
   return fichaDelPedido(mensajes, agenteDePais(pais));
 }
+
+/**
+ * PIENSA COMO VENDEDORA. Va al final del prompt, después de la ficha: es lo
+ * que convierte una lista de preguntas en una conversación. El caso real: el
+ * cliente preguntó «¿dónde están?», contestó «39» a «¿qué número calza?», y
+ * el agente mandó «¿Qué número calza?» tres veces seguidas.
+ */
+export const PIENSA_COMO_VENDEDOR =
+  "\n\nANTES DE ESCRIBIR, LEE LO ÚLTIMO QUE DIJO EL CLIENTE Y DECIDE QUÉ ES:\n" +
+  "- Si CONTESTA lo que le preguntaste —aunque sea con una palabra o un número: «39» después de «¿qué número calza?» ES el número que calza, «negro» después de «¿en qué color?» ES el color—, lo tomas como bueno y pasas al siguiente dato. No lo vuelvas a preguntar ni lo pongas en duda.\n" +
+  "- Si te PREGUNTA algo —dónde están, cuánto es el envío, cómo se paga, cuánto tarda, si hay otro color—, se lo contestas PRIMERO, en una línea y con lo que sabes, y después sigues con el dato que falta. Nunca ignores una pregunta del cliente para repetir la tuya.\n" +
+  "- Si dice algo que no es ni respuesta ni pregunta —un comentario, una broma, un lugar que no existe—, lo atiendes con naturalidad en una frase corta y retomas la venta donde iba.\n" +
+  "- NUNCA mandes dos veces seguidas el mismo mensaje ni la misma pregunta con las mismas palabras. Si no te contestó, pregúntalo de otra forma o sigue con otro dato y vuelve después.\n" +
+  "Eres una vendedora que quiere que el cliente se sienta bien atendido hasta el cierre, no un formulario: cada mensaje tuyo responde al suyo.";

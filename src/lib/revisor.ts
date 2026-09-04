@@ -37,6 +37,7 @@ import { completarJson, ErrorIA } from "./ia";
 import { MODELO_ANALISIS, type Mensaje } from "./db";
 import { conLoVistoYOido } from "./percepcion";
 import { preguntasRepetidas, type FichaDelPedido } from "./memoria";
+import { preguntaDelCliente } from "./apertura";
 import { zonaDelCliente } from "@/agents";
 import { contieneLugar } from "./envio";
 import { obtenerPais } from "./paises";
@@ -76,6 +77,8 @@ export interface ContextoRevision {
   lugarDelCliente?: string | null;
   /** Lo último que escribió el cliente: decide si una transferencia tiene motivo. */
   ultimoDelCliente?: string | null;
+  /** Lo último que mandó el agente: el mismo mensaje no sale dos veces seguidas. */
+  ultimoDelAgente?: string | null;
   /** Si esta respuesta abre la conversación (o el cliente vuelve tras días). Solo ahí se saluda. */
   esApertura?: boolean;
 }
@@ -322,6 +325,34 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
     } else {
       fallas.push("le pide que comparta su ubicación por el mapa: no se pide; se le pregunta en qué provincia o sector está");
     }
+  }
+
+  // 7b. EL MISMO MENSAJE DOS VECES SEGUIDAS NO SALE.
+  //
+  // El caso real: «¿Qué número calza?» tres veces, una detrás de otra, con un
+  // «39» del cliente en medio. Repetir lo que el cliente ya leyó le dice que
+  // no le están escuchando.
+  const anterior = ctx.ultimoDelAgente ? llano(ctx.ultimoDelAgente).replace(/\s+/g, " ").trim() : "";
+  if (anterior && anterior === llano(texto).replace(/\s+/g, " ").trim()) {
+    fallas.push(
+      "manda exactamente lo mismo que ya mandó en el mensaje anterior: contesta lo que el cliente acaba de decir y sigue con el siguiente dato, con otras palabras",
+    );
+  }
+
+  // 7c. UNA PREGUNTA DEL CLIENTE SE CONTESTA ANTES DE SEGUIR.
+  //
+  // «¿Dónde están?» seguido de «¿Qué número calza?» es un robot. Si el cliente
+  // preguntó dónde están, por el envío o por el pago, la respuesta tiene que
+  // hablar de eso.
+  const pregunta = preguntaDelCliente(ctx.ultimoDelCliente);
+  if (pregunta === "ubicacion" && !/tienda|virtual|local|estamos|enviamos|ubicad|direcci[oó]n/i.test(texto)) {
+    fallas.push("el cliente preguntó dónde están y no se lo contesta: dile primero dónde están (tienda virtual, envíos a todo el país) y después sigue con el dato que falta");
+  }
+  if (pregunta === "envio" && !/env[ií]o|entrega|delivery|\d/i.test(texto)) {
+    fallas.push("el cliente preguntó por el envío y no se lo contesta: dile primero cuánto le sale y cómo le llega, y después sigue");
+  }
+  if (pregunta === "pago" && !/pag|contra entrega|sinpe|transferencia|efectivo|recibir/i.test(texto)) {
+    fallas.push("el cliente preguntó cómo se paga y no se lo contesta: dile primero cómo se paga y después sigue");
   }
 
   // 8e. UNA TRANSFERENCIA SIN MOTIVO NO SALE.

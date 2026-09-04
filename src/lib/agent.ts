@@ -53,6 +53,7 @@ import {
   esClienteQueVuelve,
   fichaDelHilo,
   fichaParaModelo,
+  PIENSA_COMO_VENDEDOR,
   mensajesDeLaSesion,
   textosDelClienteEnSesion,
 } from "./memoria";
@@ -1141,7 +1142,8 @@ export async function generarRespuesta(
    * al final porque es lo que más pesa, y es lo que el revisor usa para parar
    * una pregunta repetida.
    */
-  const ficha = fichaParaModelo(fichaDelHilo(mensajes, agente.pais)) + avisoDeClienteQueVuelve(mensajes);
+  const ficha =
+    fichaParaModelo(fichaDelHilo(mensajes, agente.pais)) + avisoDeClienteQueVuelve(mensajes) + PIENSA_COMO_VENDEDOR;
 
   const r = await completar({
     orgId,
@@ -1709,6 +1711,7 @@ export async function atenderConversacion(
         lugarEscritoPorElCliente(datosPais, mensajesDeLaSesion(historial)),
       nombreDeCuenta: conv.cliente_nombre,
       ultimoDelCliente: ultimo.content,
+      ultimoDelAgente: [...historial].reverse().find((m) => m.emisor !== "cliente")?.content ?? null,
       clienteEscribioSuNombre: !!conv.cliente_nombre && historial.some(
         (m) => m.emisor === "cliente" && m.content.toLowerCase().includes(conv.cliente_nombre!.toLowerCase()),
       ),
@@ -1800,7 +1803,11 @@ export async function atenderConversacion(
         });
         respuesta = { ...respuesta, texto: candidata, pideAsesor: false };
       } else {
-        const minima = respuestaMinima(datosPais, contexto.ficha, anuncioVigente(conv));
+        const minima = respuestaMinima(datosPais, contexto.ficha, anuncioVigente(conv), {
+          ultimoDelCliente: ultimo.content,
+          ultimoDelAgente: contexto.ultimoDelAgente,
+          lugar: contexto.lugarDelCliente,
+        });
         crearAnomalia(orgId, {
           conversationId,
           tipo: "respuesta_rechazada",

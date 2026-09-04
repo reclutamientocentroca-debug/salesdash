@@ -336,6 +336,9 @@ export const RD: DatosPais = {
     "Contra entrega: el cliente paga al recibir el pedido, en su mano, y puede revisar el " +
     "producto antes de pagarle al mensajero. Igual en todo el país. No paga nada por adelantado. " +
     "Si pregunta «¿es seguro?», esa es la respuesta.",
+  pagoAlCliente:
+    "Se paga contra entrega: al recibir el pedido lo revisa en su mano y le paga al mensajero. " +
+    "No paga nada por adelantado.",
 
   // ── Ubicación ──────────────────────────────────────────────────────────
   ubicacion: {

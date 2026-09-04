@@ -48,6 +48,26 @@ test("cada pregunta del agente se clasifica por el dato que pide", () => {
   assert.equal(campoDeLaPregunta("¿A qué número le llama el mensajero, a este mismo?"), "celular");
   assert.equal(campoDeLaPregunta("¿Cuántos lleva?"), "cantidad");
   assert.equal(campoDeLaPregunta("¿Le interesa?"), null);
+  // El caso real: «¿Qué número calza?» pregunta la talla, y el «39» es la talla.
+  assert.equal(campoDeLaPregunta("¿Qué número calza?"), "talla");
+  assert.equal(campoDeLaPregunta("¿Qué número calzas?"), "talla");
+  assert.equal(campoDeLaPregunta("¿Qué size necesita?"), "talla");
+});
+
+test("un «39» después de «¿qué número calza?» es el número que calza, y no se vuelve a preguntar", () => {
+  const f = fichaDelPedido(
+    [
+      { emisor: "cliente", content: "Necesitas uno" },
+      { emisor: "ia", content: "Claro que sí, le vendo los zapatos DCM ESTILO por RD$1,990.\n\n¿Qué número calza?" },
+      { emisor: "cliente", content: "Donde tuta" },
+      { emisor: "ia", content: "¿Qué número calza?" },
+      { emisor: "cliente", content: "39" },
+    ],
+    rd,
+  );
+  assert.equal(f.talla, "39");
+  assert.ok(preguntasRepetidas("Perfecto. ¿Qué número calza?", f).length > 0, "repetirlo es una falla");
+  assert.deepEqual(preguntasRepetidas("¿En qué provincia se encuentra?", f), []);
 });
 
 test("la ficha se arma sola con lo que el cliente contestó", () => {
