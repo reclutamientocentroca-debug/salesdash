@@ -58,6 +58,22 @@ export function zonaDelCliente(
   const pais = obtenerPais(d.codigo);
   if (pais && contieneLugar(donde, pais.zonas)) return "resto";
 
+  /*
+   * EL MAPA DEL PAÍS TAMBIÉN SITÚA. El caso real: el cliente escribió
+   * «Independencia» —una provincia del sur— y las listas de tarifa no la
+   * tenían con ese nombre solo; el agente se quedó sin saber el envío en el
+   * paso en que se cierra la venta. El mapa sí la tiene, dentro de su región:
+   * se busca el lugar ahí y la región dice la zona. Si el nombre de la región
+   * es de una zona especial («Santo Domingo Este» está en el Gran Santo
+   * Domingo), esa; si no, es interior y va como el resto.
+   */
+  for (const region of d.mapa.regiones) {
+    // Solo los lugares de la región, nunca su nombre: «Este (interior)» casaría con «sí, a este».
+    if (!contieneLugar(donde, region.lugares)) continue;
+    const zona = d.envio.zonas.find((z) => contieneLugar(region.nombre, z.lugares));
+    return zona ?? "resto";
+  }
+
   return null;
 }
 

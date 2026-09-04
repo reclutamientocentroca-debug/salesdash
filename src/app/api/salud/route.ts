@@ -143,6 +143,11 @@ export function GET(req: NextRequest) {
   return NextResponse.json(
     {
       ok: avisos.length === 0,
+      // Qué versión corre: para saber si el despliegue tomó lo último.
+      version: {
+        commit: process.env.SALESDASH_COMMIT ?? "desconocido",
+        construido: process.env.SALESDASH_CONSTRUIDO ?? null,
+      },
       entorno,
       app_url: appUrl || null,
       host_de_la_peticion: hostPeticion,

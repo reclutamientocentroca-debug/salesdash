@@ -139,3 +139,30 @@ test("el prompt del agente lleva la tarifa del cliente cuando la escribió, y el
   assert.ok(conAnuncio.includes("Si el precio no aparece en ninguno de esos lugares, no inventes"));
   assert.ok(conAnuncio.includes("SI QUIERE MÁS DE UNA UNIDAD, SE LAS VENDES"));
 });
+
+/**
+ * EL CASO REAL: el cliente escribió «Independencia» —una provincia del sur— y
+ * el agente no supo el envío, así que en vez de cerrar la venta se atascó. Una
+ * provincia o un municipio escritos a secas se reconocen, aunque en la lista
+ * vayan como «Independencia (Jimaní, Duvergé)».
+ */
+test("una provincia escrita a secas se sitúa por el mapa y se tarifa como interior", () => {
+  assert.equal(zonaDelCliente(rd, "Independencia"), "resto", "Independencia es interior: RD$290");
+  assert.equal(zonaDelCliente(rd, "Jimaní"), "resto");
+  assert.equal(zonaDelCliente(rd, "soy de Duvergé"), "resto");
+  assert.equal(zonaDelCliente(rd, "Calle independencia #3, Boca de cachón"), "resto");
+  // Un sector del mapa de la capital va con la tarifa de la ciudad.
+  const ciudad = zonaDelCliente(rd, "vivo en Villa Duarte");
+  assert.ok(ciudad !== null && ciudad !== "resto", "Villa Duarte es Santo Domingo Este: RD$250");
+  assert.equal(zonaDelCliente(rd, "la 42 en negro"), null, "lo que no es un lugar sigue sin ser un lugar");
+
+  // Y en Costa Rica, un cantón que va entre paréntesis en la lista.
+  const cr = agenteDePais("cr")!;
+  assert.equal(zonaDelCliente(cr, "Liberia"), "resto");
+  assert.equal(zonaDelCliente(cr, "Nicoya"), "resto");
+
+  // Con eso, el bloque del país le dice al agente la tarifa de este cliente.
+  const bloque = bloqueDelPais(rd, "Independencia", "RINCON DCM");
+  assert.ok(bloque.includes("A ESTE CLIENTE"), "el agente recibe la tarifa que le toca");
+  assert.ok(bloque.includes("290"), "y es la del interior");
+});

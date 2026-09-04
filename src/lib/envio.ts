@@ -78,7 +78,7 @@ export function zonaDeEnvio(pais: Pais, donde: string | null | undefined): ZonaE
 export function contieneLugar(texto: string | null | undefined, lugares: string[]): boolean {
   const t = llano(texto ?? "");
   if (!t) return false;
-  return lugares.some((l) => {
+  return lugares.flatMap(nombresDeLugar).some((l) => {
     const nombre = llano(l);
     if (nombre.length <= 2) return false;
     /*
@@ -89,6 +89,23 @@ export function contieneLugar(texto: string | null | undefined, lugares: string[
     const escapado = nombre.replace(/[.*+?^${}()|[\]\\]/g, (c) => `\\${c}`);
     return new RegExp(`(^|[^\\p{L}])${escapado}([^\\p{L}]|$)`, "u").test(t);
   });
+}
+
+/**
+ * LOS NOMBRES QUE HAY EN UNA ENTRADA DE LUGAR.
+ *
+ * Las listas se escriben como las lee una persona: «Independencia (Jimaní,
+ * Duvergé)», «Guanacaste (Liberia, Nicoya, Santa Cruz)». Pero el cliente
+ * escribe «Independencia» o «Liberia» a secas, y buscando la entrada entera
+ * ninguno de los dos se reconocía: la provincia quedaba sin tarifa y el
+ * agente, sin saber el envío, se atascaba justo donde la venta se cierra.
+ * Aquí cada entrada se abre en sus nombres: la provincia y cada municipio.
+ */
+export function nombresDeLugar(entrada: string): string[] {
+  const m = entrada.match(/^([^(]+?)\s*\(([^)]*)\)\s*$/);
+  if (!m) return [entrada.trim()];
+  const dentro = m[2].split(/\s*,\s*|\s+y\s+/).map((s) => s.trim()).filter(Boolean);
+  return [m[1].trim(), ...dentro];
 }
 
 /** El importe de una zona, o null si el dueño no lo cargó. */
