@@ -255,7 +255,7 @@ export function avisoDeClienteQueVuelve(mensajes: MensajeDeMemoria[]): string {
 const PREGUNTA_POR: Record<CampoDelPedido, RegExp> = {
   talla: /[¿?][^?¿]*\b(que|cual|de que)\b[^?¿]*\btalla\b[^?¿]*\?/i,
   color: /[¿?][^?¿]*\bcolor\b[^?¿]*\?/i,
-  direccion: /[¿?][^?¿]*(direccion|donde se lo|a donde|en que (sector|provincia|canton|corregimiento))[^?¿]*\?/i,
+  direccion: /[¿?][^?¿]*(direccion|donde se lo|a donde|donde (esta|vive|se encuentra)|en que (sector|provincia|canton|corregimiento|zona)|ubicacion)[^?¿]*\?/i,
   nombre: /[¿?][^?¿]*(a nombre de quien|su nombre|como se llama)[^?¿]*\?/i,
   celular: /[¿?][^?¿]*((numero|celular|telefono)[^?¿]*(llama|contact|mensajero)|a este mismo|mismo numero)[^?¿]*\?/i,
   cantidad: /[¿?][^?¿]*\b(cuant[oa]s|cantidad)\b[^?¿]*\?/i,

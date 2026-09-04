@@ -307,6 +307,19 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
   // pregunta no sale.
   fallas.push(...preguntaDeVarianteSinVariante(texto, ctx));
 
+  // 8d. LA UBICACIÓN NO SE PIDE POR EL MAPA, Y NO SE INSISTE.
+  //
+  // El cliente puede decir dónde está y con eso basta. Pedirle que comparta
+  // su ubicación, que la confirme o que la repita —cuando ya dijo dónde está
+  // o ya la mandó— es lo que hace que se canse y se vaya.
+  if (PIDE_UBICACION.test(llano(texto))) {
+    if (ctx.ficha?.direccion || ctx.clienteCompartioUbicacion) {
+      fallas.push("le pide la ubicación y el cliente ya dijo dónde está: no se insiste, se sigue con lo que dio");
+    } else {
+      fallas.push("le pide que comparta su ubicación por el mapa: no se pide; se le pregunta en qué provincia o sector está");
+    }
+  }
+
   // 9. Tutear donde se vende de usted.
   if (d.trato === "usted" && TUTEO.test(texto)) {
     fallas.push("tutea al cliente («quieres», «te lo», «tu pedido»), y aquí se vende de usted");
@@ -436,6 +449,10 @@ export function preguntaDeVarianteSinVariante(borrador: string, ctx: ContextoRev
 
   return fallas;
 }
+
+/** Cómo suena pedirle al cliente la ubicación por el mapa, o que la repita. */
+const PIDE_UBICACION =
+  /(compart(a|e|ir|irme|anos|ame)|env[ií](e|eme|ame|ar)|mand(e|eme|ame|ar)|pas(e|eme|ame|ar))[^.?!\n]{0,25}\b(su|tu|la) ubicaci[oó]n|ubicaci[oó]n (por el mapa|en tiempo real|actual)|confirm(a|e|ar)[^.?!\n]{0,15}\b(su|tu|la) (ubicaci[oó]n|direcci[oó]n)|repit(a|e|ir)[^.?!\n]{0,15}\b(su|tu|la) (ubicaci[oó]n|direcci[oó]n)/i;
 
 /** Cómo suena tutear a un cliente. «Dime» y «mándame» no van: son expresiones del país. */
 const TUTEO = /\b(quieres|tienes|puedes|necesitas|prefieres|deseas|sabes|vives|est[aá]s|te preparo|te env[ií]o|te llega|te lo|te la|te mando|te dejo|tu pedido|tu direcci[oó]n|tu nombre|tu n[uú]mero|tu talla|tu celular)\b/i;

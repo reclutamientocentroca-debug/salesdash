@@ -242,9 +242,10 @@ export const RD: DatosPais = {
       "PROVINCIA —de ella depende el costo del envío— y el SECTOR, porque sin él dos calles con el " +
       "mismo nombre están a media hora una de otra. En los edificios hace falta el nombre y el " +
       "apartamento. Con calle, sector y provincia ya se despacha: lo demás —punto de referencia, " +
-      "color de la casa— ayuda, pero no se exige. Se pide UNA VEZ Y ENTERA, con el sector y la " +
-      "provincia, y se añade, una sola vez: «Si le queda más cómodo, puede compartirme su " +
-      "ubicación por aquí».",
+      "color de la casa— ayuda, pero no se exige. Se pide UNA VEZ, y se toma lo que el cliente " +
+      "diga: si escribe su provincia, su sector o su ciudad, con eso ya sabes dónde está y cuánto " +
+      "le sale el envío. NUNCA le pidas que comparta su ubicación por el mapa ni insistas con la " +
+      "dirección: si él la manda por su cuenta, se usa; si no, se sigue con lo que escribió.",
     datosParaCerrar: [
       "El nombre con el que recibe el pedido, tal cual lo escribió el cliente",
       "El celular al que llama el mensajero",

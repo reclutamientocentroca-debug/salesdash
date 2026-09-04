@@ -176,6 +176,8 @@ test("el revisor para la respuesta que vuelve a preguntar lo que ya está en la 
   const ficha = fichaDelPedido(hilo, rd);
   assert.ok(preguntasRepetidas("Perfecto. ¿Qué talla necesita?", ficha).some((f) => f.includes("talla")));
   assert.ok(preguntasRepetidas("¿A qué dirección se lo enviamos?", ficha).some((f) => f.includes("dirección")));
+  assert.ok(preguntasRepetidas("¿Me comparte su ubicación?", ficha).some((f) => f.includes("dirección")), "pedir la ubicación es volver a pedir la dirección");
+  assert.ok(preguntasRepetidas("¿En qué zona se encuentra?", ficha).some((f) => f.includes("dirección")));
   assert.ok(preguntasRepetidas("¿A nombre de quién se lo dejamos?", ficha).some((f) => f.includes("nombre")));
   // Mencionar el dato sin preguntarlo no es repetir.
   assert.deepEqual(preguntasRepetidas("Listo: mocasines talla 42 en negro para Yamil. ¿Me confirma para levantar el pedido?", ficha), []);

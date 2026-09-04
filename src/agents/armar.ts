@@ -149,8 +149,9 @@ function bloqueDeEnvio(d: DatosPais, donde: string | null): string {
     );
   } else if (donde?.trim()) {
     lineas.push(
-      "De la dirección de este cliente no se puede deducir la zona. Pregúntale en qué provincia " +
-        "o zona está antes de decirle cómo le llega.",
+      "De la dirección de este cliente no se puede deducir la zona. Pregúntale UNA SOLA VEZ en qué " +
+        "provincia está, y lo que conteste vale. Si ya te lo dijo con otras palabras, dalo por bueno: " +
+        "no insistas ni le pidas que comparta su ubicación por el mapa.",
     );
   }
 

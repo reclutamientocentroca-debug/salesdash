@@ -272,3 +272,16 @@ test("una mochila o un accesorio no lleva talla, ni aunque el anuncio traiga nú
   const reloj = { ...mochila, anuncio: "Este cliente llegó por un anuncio:\n- Producto anunciado: Reloj\n- Lo que promete el anuncio: Reloj deportivo 44 mm a ₡22.000." };
   assert.ok(revisarConReglas("¿Qué talla necesitas?", reloj).some((f) => f.includes("talla")));
 });
+
+/** La ubicación no se pide por el mapa ni se insiste: el cliente puede decir dónde está. */
+test("pedir la ubicación por el mapa, o insistir con ella, no sale", () => {
+  assert.ok(revisarConReglas("¿Me comparte su ubicación por aquí?", rd).some((f) => f.includes("ubicación")));
+  assert.ok(revisarConReglas("Por favor envíeme su ubicación actual.", rd).some((f) => f.includes("ubicación")));
+
+  const yaDijo = { ...rd, ficha: { talla: null, color: null, direccion: "Los Alcarrizos, calle 3", nombre: null, celular: null, cantidad: null } };
+  assert.ok(revisarConReglas("¿Me confirma su dirección?", yaDijo).some((f) => f.includes("ya dijo dónde está")));
+  // Preguntar en qué provincia está, la primera vez, sí se puede.
+  assert.deepEqual(revisarConReglas("Le hacemos envío y paga al recibir. ¿En qué provincia se encuentra?", rd), []);
+  // Y decirle que ya le llegó su ubicación cuando sí la mandó, también.
+  assert.deepEqual(revisarConReglas("Perfecto, ya me llegó su ubicación. El envío es RD$250.", { ...rd, clienteCompartioUbicacion: true }), []);
+});
