@@ -1,10 +1,10 @@
 import Link from "next/link";
 import AnalizarPerdidas from "@/components/panel/AnalizarPerdidas";
-import { Kpi, Pastilla, Vacio, dinero, fechaCorta } from "@/components/panel/Piezas";
+import { FilasPorMoneda, Importes, Kpi, Pastilla, Vacio, dinero, fechaCorta } from "@/components/panel/Piezas";
 import { IconoMoneda, IconoPersona, IconoRayo, IconoVentas } from "@/components/panel/Iconos";
 import { conteoMotivosPerdida, listarCanales, listarConversaciones } from "@/lib/db";
 import { calcularMetricas } from "@/lib/metrics";
-import { rangoDesdeQuery, requerirSesion } from "@/lib/tenant";
+import { rangoDeLaCuenta, requerirSesion } from "@/lib/tenant";
 
 export const metadata = { title: "Ventas · SalesDash" };
 export const dynamic = "force-dynamic";
@@ -35,10 +35,12 @@ export default async function PaginaVentas({ searchParams }: Props) {
   if (desde) parametros.set("desde", desde);
   if (hasta) parametros.set("hasta", hasta);
 
-  const rango = rangoDesdeQuery(parametros);
+  const rango = rangoDeLaCuenta(ctx.orgId, parametros);
 
   const m = calcularMetricas(ctx.orgId, rango);
   const nombres = new Map(listarCanales(ctx.orgId).map((c) => [c.id, c.nombre]));
+  // Cada venta se escribe en la moneda del número por el que entró.
+  const monedas = new Map(m.por_canal.map((c) => [c.canal_id, c.moneda]));
   const motivos = conteoMotivosPerdida(ctx.orgId, rango);
 
   const ventas = [
@@ -84,7 +86,8 @@ export default async function PaginaVentas({ searchParams }: Props) {
               cuenta lo que pasó, y la tabla enseña lo que cabe. */}
           <p className="tenue" style={{ marginTop: 2 }}>
             {cerradasDelPeriodo} venta{cerradasDelPeriodo === 1 ? "" : "s"} cerrada
-            {cerradasDelPeriodo === 1 ? "" : "s"} en el rango · {dinero(m.facturado)} facturados
+            {cerradasDelPeriodo === 1 ? "" : "s"} en el rango ·{" "}
+            <Importes lista={m.facturado_por_moneda} campo="facturado" /> facturados
           </p>
         </div>
       </div>
@@ -93,27 +96,44 @@ export default async function PaginaVentas({ searchParams }: Props) {
         {/* Las mismas palabras que el dashboard: «facturado» es el pedido sin
             el envío, aquí y allí. Dos pantallas con el mismo número no pueden
             llamarlo distinto. */}
+        {/* Con varias monedas no hay una cifra: el dinero va moneda por moneda. */}
         <Kpi
           etiqueta="Facturado"
-          valor={dinero(m.facturado)}
+          valor={m.una_moneda ? dinero(m.facturado, m.una_moneda) : `${cerradasDelPeriodo} venta${cerradasDelPeriodo === 1 ? "" : "s"}`}
           icono={<IconoMoneda tam={17} />}
           tono="ambar"
-          pie={`${dinero(m.envios_cobrados)} de envíos aparte`}
+          pie={
+            <>
+              {!m.una_moneda && (
+                <>
+                  <Importes lista={m.facturado_por_moneda} campo="facturado" color="var(--amber)" />
+                  <br />
+                </>
+              )}
+              <Importes lista={m.facturado_por_moneda} campo="envios" /> de envíos aparte
+            </>
+          }
         />
-        <Kpi etiqueta="Promedio por pedido" valor={dinero(m.valor_promedio_venta)} icono={<IconoVentas tam={17} />} tono="neutro" />
+        <Kpi
+          etiqueta="Promedio por pedido"
+          valor={m.una_moneda ? dinero(m.valor_promedio_venta, m.una_moneda) : "por moneda"}
+          icono={<IconoVentas tam={17} />}
+          tono="neutro"
+          pie={m.una_moneda ? undefined : <Importes lista={m.facturado_por_moneda} campo="promedio" />}
+        />
         <Kpi
           etiqueta="Automatizada"
           valor={m.cierres_ia}
           icono={<IconoRayo tam={17} />}
           tono="acento"
-          pie={`${dinero(m.facturado_ia)} facturados`}
+          pie={<><Importes lista={m.facturado_por_moneda} campo="facturado_ia" color="var(--acc)" /> facturados</>}
         />
         <Kpi
           etiqueta="Asistida"
           valor={m.cierres_humano}
           icono={<IconoPersona tam={17} />}
           tono="azul"
-          pie={`${dinero(m.facturado_humano)} facturados`}
+          pie={<><Importes lista={m.facturado_por_moneda} campo="facturado_humano" color="var(--blue)" /> facturados</>}
         />
       </div>
 
@@ -153,12 +173,12 @@ export default async function PaginaVentas({ searchParams }: Props) {
                       <td>{v.producto_vendido ?? <span className="tenue">sin identificar</span>}</td>
                       <td style={{ color: "var(--ink-2)" }}>{nombres.get(v.canal_id) ?? "—"}</td>
                       <td><Pastilla estado={v.cerrado_por} /></td>
-                      <td style={{ textAlign: "right" }}>{dinero(v.total)}</td>
-                      <td className="tenue" style={{ textAlign: "right" }}>{dinero(v.envio)}</td>
+                      <td className="num" style={{ textAlign: "right", whiteSpace: "nowrap" }}>{dinero(v.total, monedas.get(v.canal_id))}</td>
+                      <td className="num tenue" style={{ textAlign: "right", whiteSpace: "nowrap" }}>{dinero(v.envio, monedas.get(v.canal_id))}</td>
                       {/* La resta a la vista: es de donde sale el KPI de arriba,
                           y con las tres columnas nadie tiene que fiarse. */}
-                      <td style={{ textAlign: "right", fontWeight: 600 }}>
-                        {dinero(Math.max((v.total ?? 0) - (v.envio ?? 0), 0))}
+                      <td className="num" style={{ textAlign: "right", fontWeight: 600, whiteSpace: "nowrap" }}>
+                        {dinero(Math.max((v.total ?? 0) - (v.envio ?? 0), 0), monedas.get(v.canal_id))}
                       </td>
                       <td className="tenue" style={{ textAlign: "right", paddingRight: 17 }}>
                         {fechaCorta(v.fecha_cierre)}
@@ -177,10 +197,12 @@ export default async function PaginaVentas({ searchParams }: Props) {
                         Total de {ventas.length} venta{ventas.length === 1 ? "" : "s"}
                       </span>
                     </td>
-                    <td className="num" style={{ textAlign: "right" }}>{dinero(suma.total)}</td>
-                    <td className="num" style={{ textAlign: "right" }}>{dinero(suma.envio)}</td>
-                    <td className="num" style={{ textAlign: "right", color: "var(--amber)" }}>
-                      {dinero(suma.facturado)}
+                    {/* Con una sola moneda, la suma de la columna; con varias, la
+                        suma no existe y el pie enseña lo facturado por moneda. */}
+                    <td className="num" style={{ textAlign: "right" }}>{m.una_moneda ? dinero(suma.total, m.una_moneda) : "—"}</td>
+                    <td className="num" style={{ textAlign: "right" }}>{m.una_moneda ? dinero(suma.envio, m.una_moneda) : "—"}</td>
+                    <td className="num" style={{ textAlign: "right", color: "var(--amber)", whiteSpace: "nowrap" }}>
+                      {m.una_moneda ? dinero(suma.facturado, m.una_moneda) : <FilasPorMoneda lista={m.facturado_por_moneda} campo="facturado" color="var(--amber)" />}
                     </td>
                     <td style={{ paddingRight: 17 }} />
                   </tr>
@@ -192,7 +214,7 @@ export default async function PaginaVentas({ searchParams }: Props) {
           {listaIncompleta && (
             <p className="tenue" style={{ padding: "10px 17px 14px" }}>
               Se listan las {ventas.length} ventas más recientes de {cerradasDelPeriodo}. El facturado
-              del periodo completo es {dinero(m.facturado)}; usa un rango más corto para ver todas.
+              del periodo completo es <Importes lista={m.facturado_por_moneda} campo="facturado" />; usa un rango más corto para ver todas.
             </p>
           )}
         </section>

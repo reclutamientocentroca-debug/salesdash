@@ -121,7 +121,8 @@ test("el gráfico rellena los días sin actividad", () => {
   const desde = Math.floor(Date.parse("2026-08-15T00:00:00Z") / 1000);
   const hasta = Math.floor(Date.parse("2026-08-18T23:59:59Z") / 1000);
 
-  const llena = rellenarDias(serie, { desde, hasta });
+  // Las fechas de arriba están en UTC: los días se cortan en ese mismo huso.
+  const llena = rellenarDias(serie, { desde, hasta, huso: "UTC" });
 
   assert.equal(llena.length, 4, "del 15 al 18 son cuatro días");
   assert.deepEqual(

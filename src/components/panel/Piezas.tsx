@@ -3,6 +3,8 @@
  * gráficos. Todo en SVG dibujado a mano — sin librería de gráficos.
  */
 import type { EstadoCierre } from "@/lib/db";
+import { formatearImporte, type Moneda } from "@/lib/moneda";
+import type { FacturadoPorMoneda } from "@/lib/metrics";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Pastilla de estado
@@ -365,9 +367,68 @@ export function Donut({ porciones, centro, pie }: { porciones: PorcionDonut[]; c
 // Utilidades de presentación
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function dinero(n: number | null | undefined): string {
+/**
+ * Un importe para leer. Con moneda, como lo escribe la gente de ese país
+ * —«RD$2,750», «₡23.500», «US$45.00»—; sin ella, el número a secas, que es lo
+ * que hay cuando el canal no tiene país.
+ */
+export function dinero(n: number | null | undefined, moneda?: Moneda | null): string {
   if (n === null || n === undefined) return "—";
+  if (moneda && moneda.codigo) return formatearImporte(n, moneda);
   return n.toLocaleString("es-DO", { maximumFractionDigits: 0 });
+}
+
+/**
+ * UN IMPORTE POR MONEDA, en línea: «RD$5,500 · ₡23.500 · US$45.00».
+ *
+ * Es la única forma honesta de enseñar el dinero de una cuenta que vende en
+ * tres países: una cifra por moneda, sin sumarlas. Con una sola moneda es un
+ * importe normal.
+ */
+export function Importes({
+  lista,
+  campo,
+  color,
+}: {
+  lista: FacturadoPorMoneda[];
+  campo: "facturado" | "facturado_ia" | "facturado_humano" | "envios" | "promedio";
+  color?: string;
+}) {
+  if (lista.length === 0) return <strong style={{ color }}>{dinero(0)}</strong>;
+  return (
+    <>
+      {lista.map((f, i) => (
+        <span key={f.moneda.codigo || "sin"}>
+          {i > 0 && <span className="tenue"> · </span>}
+          <strong style={{ color }}>{dinero(f[campo], f.moneda)}</strong>
+        </span>
+      ))}
+    </>
+  );
+}
+
+/** Una fila por moneda, con su etiqueta. Para las tarjetas y los pies de tabla. */
+export function FilasPorMoneda({
+  lista,
+  campo,
+  color,
+  tam = 13,
+}: {
+  lista: FacturadoPorMoneda[];
+  campo: "facturado" | "facturado_ia" | "facturado_humano" | "envios" | "promedio";
+  color?: string;
+  tam?: number;
+}) {
+  if (lista.length === 0) return <span className="num">{dinero(0)}</span>;
+  return (
+    <span style={{ display: "inline-grid", gap: 2, justifyItems: "end" }}>
+      {lista.map((f) => (
+        <span key={f.moneda.codigo || "sin"} className="num" style={{ fontWeight: 600, fontSize: tam, color }}>
+          {dinero(f[campo], f.moneda)}
+        </span>
+      ))}
+    </span>
+  );
 }
 
 export function fechaCorta(epoch: number | null): string {

@@ -12,7 +12,7 @@
  */
 import { NextResponse, type NextRequest } from "next/server";
 import { informeDeCuenta } from "@/lib/informe";
-import { rangoDesdeQuery, sesionApi } from "@/lib/tenant";
+import { rangoDeLaCuenta, sesionApi } from "@/lib/tenant";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
   const s = await sesionApi();
   if (!s.ok) return s.respuesta;
 
-  const rango = rangoDesdeQuery(req.nextUrl.searchParams);
+  const rango = rangoDeLaCuenta(s.ctx.orgId, req.nextUrl.searchParams);
   const soloAnuncio = req.nextUrl.searchParams.get("solo") === "anuncio";
 
   const { nombre, html } = informeDeCuenta(s.ctx.orgId, { rango, soloAnuncio });

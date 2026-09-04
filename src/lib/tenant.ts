@@ -19,7 +19,8 @@ import {
   verificarSesion,
   type Sesion,
 } from "./auth";
-import { obtenerOrg, obtenerUsuario, type Org, type Usuario } from "./db";
+import { husoDeLaCuenta, obtenerOrg, obtenerUsuario, type Org, type Usuario } from "./db";
+import { rangoAEpochs as rangoEnHuso, type Periodo } from "./rango";
 
 export interface Contexto {
   userId: number;
@@ -146,49 +147,20 @@ export const RANGOS = [
 
 export type ClaveRango = (typeof RANGOS)[number]["clave"];
 
-/** Convierte una clave de rango en el par de epochs que esperan las consultas. */
-export function rangoAEpochs(clave: string): { desde: number; hasta: number } {
-  const ahora = new Date();
-  const inicioDeHoy = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate());
-  const seg = (d: Date) => Math.floor(d.getTime() / 1000);
-  const finDelDia = (d: Date) => seg(new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59));
-
-  switch (clave) {
-    case "hoy":
-      return { desde: seg(inicioDeHoy), hasta: finDelDia(inicioDeHoy) };
-    case "ayer": {
-      const ayer = new Date(inicioDeHoy);
-      ayer.setDate(ayer.getDate() - 1);
-      return { desde: seg(ayer), hasta: finDelDia(ayer) };
-    }
-    case "7d":
-    case "30d": {
-      const dias = clave === "7d" ? 6 : 29;
-      const desde = new Date(inicioDeHoy);
-      desde.setDate(desde.getDate() - dias);
-      return { desde: seg(desde), hasta: finDelDia(inicioDeHoy) };
-    }
-    case "mes": {
-      const desde = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
-      return { desde: seg(desde), hasta: finDelDia(inicioDeHoy) };
-    }
-    case "mes_pasado": {
-      const desde = new Date(ahora.getFullYear(), ahora.getMonth() - 1, 1);
-      const hasta = new Date(ahora.getFullYear(), ahora.getMonth(), 0);
-      return { desde: seg(desde), hasta: finDelDia(hasta) };
-    }
-    case "todo":
-      return { desde: 0, hasta: finDelDia(inicioDeHoy) };
-    default:
-      return rangoAEpochs("7d");
-  }
+/**
+ * Convierte una clave de rango en el par de epochs que esperan las consultas,
+ * con los días contados en el huso que se le dé. Ver `rango.ts`: «hoy» es hoy
+ * en Santo Domingo, no en el servidor.
+ */
+export function rangoAEpochs(clave: string, huso?: string): Periodo {
+  return rangoEnHuso(clave, huso);
 }
 
 /**
  * Lee `desde`/`hasta`/`rango` de la query. Si vienen fechas explícitas se
  * respetan; si no, se resuelve por clave de rango.
  */
-export function rangoDesdeQuery(params: URLSearchParams): { desde: number; hasta: number } {
+export function rangoDesdeQuery(params: URLSearchParams, huso?: string): Periodo {
   const desde = params.get("desde");
   const hasta = params.get("hasta");
   if (desde && hasta) {
@@ -196,5 +168,18 @@ export function rangoDesdeQuery(params: URLSearchParams): { desde: number; hasta
     const h = Number(hasta);
     if (Number.isFinite(d) && Number.isFinite(h) && d <= h) return { desde: d, hasta: h };
   }
-  return rangoAEpochs(params.get("rango") ?? "7d");
+  return rangoAEpochs(params.get("rango") ?? "7d", huso);
+}
+
+/**
+ * EL PERIODO DEL PANEL DE UNA CUENTA: leído de la URL y contado en la hora de
+ * sus países. Es lo que tienen que usar las páginas y las APIs del panel; con
+ * `rangoDesdeQuery` a secas, «hoy» sería el hoy del servidor.
+ *
+ * Lleva el huso dentro para que las consultas por número puedan volver a
+ * contar el mismo periodo en la hora de cada país. Ver `metricasPorCanal`.
+ */
+export function rangoDeLaCuenta(orgId: number, params: URLSearchParams): Periodo & { huso: string } {
+  const huso = husoDeLaCuenta(orgId);
+  return { ...rangoDesdeQuery(params, huso), huso };
 }

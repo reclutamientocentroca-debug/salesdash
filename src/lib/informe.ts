@@ -29,6 +29,7 @@ import {
   type Mensaje,
 } from "./db";
 import { calcularMetricas, formatearDuracion, type Metricas } from "./metrics";
+import { formatearImporte, type Moneda } from "./moneda";
 import { esUbicacion } from "./ubicacion";
 
 /** Todo el histórico. La copia de seguridad de medio año no es una copia. */
@@ -82,9 +83,16 @@ function fecha(epoch: number | null): string {
   });
 }
 
-function dinero(n: number | null): string {
+function dinero(n: number | null, moneda?: Moneda | null): string {
   if (n === null || n === undefined) return "—";
+  if (moneda && moneda.codigo) return formatearImporte(n, moneda);
   return n.toLocaleString("es-DO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/** «RD$5,500 · ₡23.500 · US$45.00»: un importe por moneda, sin sumarlos. */
+function porMoneda(m: Metricas, campo: "facturado" | "facturado_ia" | "facturado_humano" | "envios" | "promedio"): string {
+  if (m.facturado_por_moneda.length === 0) return dinero(0);
+  return m.facturado_por_moneda.map((f) => dinero(f[campo], f.moneda)).join(" · ");
 }
 
 /** Nombre de archivo sin tildes, espacios ni nada que un sistema de ficheros discuta. */
@@ -113,11 +121,11 @@ function tablaResumen(m: Metricas, metaCobertura: number, metaEfectividad: numbe
       ${fila("Asistida", String(m.cierres_humano))}
       ${fila("Sin cerrar", String(m.sin_cerrar))}
       ${fila("En revisión", String(m.revision))}
-      ${fila("Facturado sin envío", dinero(m.facturado), true)}
-      ${fila("De eso, automatizada", dinero(m.facturado_ia))}
-      ${fila("De eso, asistida", dinero(m.facturado_humano))}
-      ${fila("Envíos cobrados, fuera de la facturación", dinero(m.envios_cobrados))}
-      ${fila("Promedio por pedido", dinero(m.valor_promedio_venta))}
+      ${fila("Facturado sin envío", porMoneda(m, "facturado"), true)}
+      ${fila("De eso, automatizada", porMoneda(m, "facturado_ia"))}
+      ${fila("De eso, asistida", porMoneda(m, "facturado_humano"))}
+      ${fila("Envíos cobrados, fuera de la facturación", porMoneda(m, "envios"))}
+      ${fila("Promedio por pedido", porMoneda(m, "promedio"))}
       ${fila("Cobertura automatizada", `${m.cobertura_ia.valor}% (meta ${metaCobertura}%)`)}
       ${fila("Efectividad asistida", `${m.efectividad_humana.valor}% (meta ${metaEfectividad}%)`)}
       ${fila("Automatizada tarda en cerrar", formatearDuracion(m.tiempo_promedio_ia))}
@@ -325,7 +333,7 @@ function tablaCanales(m: Metricas): string {
         <td class="num">${c.sin_cerrar}</td>
         <td class="num">${c.revision}</td>
         <td class="num">${c.tasa}%</td>
-        <td class="num">${dinero(c.ventas)}</td>
+        <td class="num">${esc(dinero(c.ventas, c.moneda))}</td>
       </tr>`,
     )
     .join("");
@@ -343,9 +351,8 @@ function tablaCanales(m: Metricas): string {
       cierres_humano: a.cierres_humano + c.cierres_humano,
       sin_cerrar: a.sin_cerrar + c.sin_cerrar,
       revision: a.revision + c.revision,
-      facturado: a.facturado + c.ventas,
     }),
-    { leads: 0, leads_anuncio: 0, cierres_ia: 0, cierres_humano: 0, sin_cerrar: 0, revision: 0, facturado: 0 },
+    { leads: 0, leads_anuncio: 0, cierres_ia: 0, cierres_humano: 0, sin_cerrar: 0, revision: 0 },
   );
   const tasa = t.leads === 0 ? 0 : Math.round(((t.cierres_ia + t.cierres_humano) / t.leads) * 1000) / 10;
 
@@ -365,7 +372,7 @@ function tablaCanales(m: Metricas): string {
       <td class="num">${t.sin_cerrar}</td>
       <td class="num">${t.revision}</td>
       <td class="num">${tasa}%</td>
-      <td class="num">${dinero(t.facturado)}</td>
+      <td class="num">${esc(porMoneda(m, "facturado"))}</td>
     </tr></tfoot>
   </table>`;
 }

@@ -18,6 +18,7 @@
  * el producto, el total y el envío. Eso sí necesita el modelo.
  */
 import {
+  asentarMontosSiFaltan,
   obtenerOrg,
   orgsParaBarrerCierres,
   reatribuirCierrePorResumen,
@@ -25,6 +26,7 @@ import {
   sellarCierre,
   type Emisor,
 } from "./db";
+import { montosDelResumen } from "./moneda";
 
 /** Marcador por defecto cuando la cuenta no tiene uno propio. */
 export const MARCADOR_POR_DEFECTO = "Resumen:";
@@ -154,14 +156,28 @@ export function registrarCierre(
     senal: cierre.senal,
     fechaCierre: mensaje.cuando,
   });
-  if (sellado) return true;
+
+  /*
+   * El resumen ya dice el total y el envío: se apuntan aquí mismo, sin
+   * esperar al analista, para que la venta facture en el panel desde el
+   * minuto en que se cierra. Ver `asentarMontosSiFaltan`.
+   */
+  const asentarDinero = () =>
+    asentarMontosSiFaltan(orgId, conversationId, montosDelResumen(mensaje.content));
+
+  if (sellado) {
+    asentarDinero();
+    return true;
+  }
 
   // Estaba cerrada. Solo se le quita la venta a una factura, y `WHERE` de
   // `reatribuirCierrePorResumen` es quien lo garantiza.
-  return reatribuirCierrePorResumen(orgId, conversationId, {
+  const reatribuido = reatribuirCierrePorResumen(orgId, conversationId, {
     cerradoPor: cierre.quien,
     senal: cierre.senal,
   });
+  if (reatribuido) asentarDinero();
+  return reatribuido;
 }
 
 /**

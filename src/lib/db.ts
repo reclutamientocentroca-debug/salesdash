@@ -19,7 +19,8 @@ import Database from "better-sqlite3";
 import type { Database as DB, Statement } from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { paisDeTelefono } from "./paises";
+import { obtenerPais, paisDeTelefono } from "./paises";
+import { desfaseMs, husoDelServidor, periodoEnHuso } from "./rango";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Modelos por defecto
@@ -1931,6 +1932,27 @@ export function sellarCierre(orgId: number, id: number, cierre: {
 }
 
 /**
+ * EL DINERO DEL RESUMEN, en cuanto se sella la venta.
+ *
+ * Solo rellena lo que está vacío: si el analista ya pasó y dejó su total, o si
+ * una persona lo corrigió, eso manda. Es lo que hace que una venta cerrada
+ * hace un minuto ya facture en el panel, en vez de valer cero hasta que el
+ * modelo pase por el hilo.
+ */
+export function asentarMontosSiFaltan(
+  orgId: number,
+  id: number,
+  montos: { total: number | null; envio: number | null },
+): void {
+  if (montos.total === null && montos.envio === null) return;
+  s(
+    `UPDATE conversations
+        SET total = COALESCE(total, ?), envio = COALESCE(envio, ?)
+      WHERE org_id = ? AND id = ?`,
+  ).run(montos.total, montos.envio, orgId, id);
+}
+
+/**
  * EL RESUMEN DE PEDIDO MANDA SOBRE LA FACTURA.
  *
  * Única excepción a la regla maestra, y solo en un sentido: un resumen de
@@ -2821,14 +2843,80 @@ export interface Rango {
    * comprueba en pantalla, dejaría de cuadrar sin que nada estuviera roto.
    */
   soloAnuncio?: boolean;
+  /**
+   * La clave con la que se calculó el periodo («hoy», «7d»…), si vino de una.
+   * Con ella, cada número vuelve a contar el mismo periodo EN LA HORA DE SU
+   * PAÍS: «hoy» en Santo Domingo no empieza a la misma hora que en San José.
+   */
+  clave?: string;
+  /** El huso de la cuenta, para agrupar por día y para los números sin país. */
+  huso?: string;
 }
 
+/**
+ * QUIÉN LLEGÓ en el periodo: la conversación se cuenta el día que empezó.
+ * De aquí salen los leads, los abiertos y los que están en revisión.
+ */
 function filtroRango(orgId: number, r: Rango) {
   const cond = ["org_id = ?", "fecha_inicio >= ?", "fecha_inicio <= ?"];
   const val: unknown[] = [orgId, r.desde, r.hasta];
   if (r.canalId !== undefined) { cond.push("canal_id = ?"); val.push(r.canalId); }
   if (r.soloAnuncio) cond.push(DE_ANUNCIO);
   return { where: cond.join(" AND "), val };
+}
+
+/**
+ * QUÉ SE VENDIÓ en el periodo: la venta se cuenta el día que se CERRÓ.
+ *
+ * Es la diferencia entre «hoy escribieron dos» y «hoy se cerraron cuatro». Con
+ * las ventas contadas por el día en que el cliente escribió, una venta cerrada
+ * hoy con un cliente que llegó el martes se apuntaba al martes, y el dueño,
+ * que había visto cerrarse cuatro pedidos, encontraba dos en el panel. De aquí
+ * salen los cierres, lo facturado y la serie de cierres por día.
+ */
+function filtroCierres(orgId: number, r: Rango) {
+  const cond = ["org_id = ?", "cerrado_por IN ('ia','humano')", "fecha_cierre >= ?", "fecha_cierre <= ?"];
+  const val: unknown[] = [orgId, r.desde, r.hasta];
+  if (r.canalId !== undefined) { cond.push("canal_id = ?"); val.push(r.canalId); }
+  if (r.soloAnuncio) cond.push(DE_ANUNCIO);
+  return { where: cond.join(" AND "), val };
+}
+
+/**
+ * EN QUÉ HORA VIVE LA CUENTA: el huso del país en el que venden sus números.
+ *
+ * Con números en varios países manda el más repetido, y cada número vuelve a
+ * contar su periodo en su propia hora en `metricasPorCanal`. Sin ningún país
+ * conocido, la hora del servidor, que es lo que había.
+ *
+ * El país sale del agente del canal y, si el agente todavía no existe, del
+ * prefijo del número: es el mismo dato del que sale el país del agente.
+ */
+export function husoDeLaCuenta(orgId: number): string {
+  const filas = s(
+    `SELECT ca.phone, COALESCE(a.pais, '') AS pais
+       FROM canales ca
+       LEFT JOIN agentes a ON a.org_id = ca.org_id AND a.canal_id = ca.id
+      WHERE ca.org_id = ?`,
+  ).all(orgId) as { phone: string; pais: string }[];
+
+  const votos = new Map<string, number>();
+  for (const f of filas) {
+    const huso = husoDelCanal(f);
+    if (huso) votos.set(huso, (votos.get(huso) ?? 0) + 1);
+  }
+  let elegido = "";
+  let mayor = 0;
+  for (const [huso, n] of votos) {
+    if (n > mayor) { elegido = huso; mayor = n; }
+  }
+  return elegido || husoDelServidor();
+}
+
+/** El huso del país de un número, o null si no se sabe dónde vende. */
+function husoDelCanal(canal: { phone: string; pais: string }): string | null {
+  const codigo = canal.pais || paisDeTelefono(canal.phone)?.codigo || "";
+  return obtenerPais(codigo)?.husoHorario ?? null;
 }
 
 /** Conteo por estado. La suma de estos cuatro DEBE ser el total de leads. */
@@ -2868,7 +2956,7 @@ export const facturado = (p = "") =>
 const FACTURADO = facturado();
 
 export function resumenVentas(orgId: number, r: Rango) {
-  const { where, val } = filtroRango(orgId, r);
+  const { where, val } = filtroCierres(orgId, r);
   return s(
     `SELECT COALESCE(SUM(${FACTURADO}), 0) AS facturado,
             COALESCE(SUM(CASE WHEN cerrado_por = 'ia'     THEN ${FACTURADO} END), 0) AS facturado_ia,
@@ -2876,7 +2964,7 @@ export function resumenVentas(orgId: number, r: Rango) {
             COALESCE(SUM(envio), 0) AS envios,
             COUNT(total) AS con_monto
        FROM conversations
-      WHERE ${where} AND cerrado_por IN ('ia','humano')`,
+      WHERE ${where}`,
   ).get(...val) as {
     facturado: number; facturado_ia: number; facturado_humano: number;
     envios: number; con_monto: number;
@@ -3008,13 +3096,13 @@ export function cierresConIntervencionHumana(orgId: number, r: Rango): number {
 
 /** Tiempo medio hasta el cierre, en segundos. Excluye conversaciones abiertas. */
 export function tiemposDeCierre(orgId: number, r: Rango) {
-  const { where, val } = filtroRango(orgId, r);
+  const { where, val } = filtroCierres(orgId, r);
   return s(
     `SELECT
        AVG(CASE WHEN cerrado_por = 'ia'     THEN fecha_cierre - fecha_inicio END) AS ia,
        AVG(CASE WHEN cerrado_por = 'humano' THEN fecha_cierre - fecha_inicio END) AS humano
      FROM conversations
-     WHERE ${where} AND fecha_cierre IS NOT NULL`,
+     WHERE ${where}`,
   ).get(...val) as { ia: number | null; humano: number | null };
 }
 
@@ -3025,41 +3113,87 @@ export function tiemposDeCierre(orgId: number, r: Rango) {
  * dinero, y un producto no vende más por mandarse más lejos.
  */
 export function ventasParaRanking(orgId: number, r: Rango) {
-  const { where, val } = filtroRango(orgId, r);
+  const { where, val } = filtroCierres(orgId, r);
   return s(
     `SELECT producto_vendido, ${FACTURADO} AS facturado FROM conversations
-      WHERE ${where} AND cerrado_por IN ('ia','humano') AND producto_vendido IS NOT NULL`,
+      WHERE ${where} AND producto_vendido IS NOT NULL`,
   ).all(...val) as { producto_vendido: string; facturado: number }[];
 }
 
+/**
+ * EL PANEL DE CADA NÚMERO, contado en la hora de su país.
+ *
+ * Dos cuentas distintas por número: quién LLEGÓ en el periodo —por el día en
+ * que escribió— y qué se VENDIÓ en el periodo —por el día en que se cerró—.
+ * Los leads, los abiertos y la revisión salen de la primera; los cierres y el
+ * dinero, de la segunda. Por eso una fila puede cerrar más ventas de las
+ * conversaciones que le llegaron hoy: cerró pedidos de gente que escribió ayer.
+ *
+ * Y el periodo se vuelve a calcular en el huso del país del número cuando
+ * vino de una clave («hoy», «7d»…): a las diez de la noche en Santo Domingo
+ * sigue siendo hoy, aunque en el servidor ya sea mañana. Con fechas exactas
+ * del calendario se respetan tal cual.
+ *
+ * Con `canalId` en el rango, solo sale ese número.
+ */
 export function metricasPorCanal(orgId: number, r: Rango) {
-  const cond = ["c.org_id = ?", "c.fecha_inicio >= ?", "c.fecha_inicio <= ?"];
-  const val: unknown[] = [orgId, r.desde, r.hasta];
-  if (r.canalId !== undefined) { cond.push("c.canal_id = ?"); val.push(r.canalId); }
-  // El filtro va en el ON del LEFT JOIN, con el resto de condiciones: puesto en
-  // el WHERE tumbaría las filas de los números sin un solo lead de anuncio, y
-  // un número que no está trayendo a nadie es exactamente lo que hay que ver.
-  if (r.soloAnuncio) cond.push(deAnuncio("c."));
-
-  return s(
-    `SELECT ca.id AS canal_id, ca.nombre, ca.phone,
-            COUNT(c.id) AS leads,
-            SUM(CASE WHEN ${deAnuncio("c.")} THEN 1 ELSE 0 END) AS leads_anuncio,
-            SUM(CASE WHEN c.cerrado_por = 'ia'       THEN 1 ELSE 0 END) AS cierres_ia,
-            SUM(CASE WHEN c.cerrado_por = 'humano'   THEN 1 ELSE 0 END) AS cierres_humano,
-            SUM(CASE WHEN c.cerrado_por = 'abierta'  THEN 1 ELSE 0 END) AS sin_cerrar,
-            SUM(CASE WHEN c.cerrado_por = 'revision' THEN 1 ELSE 0 END) AS revision,
-            COALESCE(SUM(CASE WHEN c.cerrado_por IN ('ia','humano') THEN ${facturado('c.')} END), 0) AS ventas
+  const canales = s(
+    `SELECT ca.id AS canal_id, ca.nombre, ca.phone, COALESCE(a.pais, '') AS pais
        FROM canales ca
-       LEFT JOIN conversations c ON c.canal_id = ca.id AND ${cond.join(" AND ")}
+       LEFT JOIN agentes a ON a.org_id = ca.org_id AND a.canal_id = ca.id
       WHERE ca.org_id = ?
-      GROUP BY ca.id
-      ORDER BY leads DESC`,
-  ).all(...val, orgId) as {
-    canal_id: number; nombre: string; phone: string;
-    leads: number; leads_anuncio: number; cierres_ia: number; cierres_humano: number;
-    sin_cerrar: number; revision: number; ventas: number;
-  }[];
+      ORDER BY ca.created_at ASC`,
+  ).all(orgId) as { canal_id: number; nombre: string; phone: string; pais: string }[];
+
+  const filas = canales
+    .filter((ca) => r.canalId === undefined || ca.canal_id === r.canalId)
+    .map((ca) => {
+      const pais = ca.pais || paisDeTelefono(ca.phone)?.codigo || "";
+      const huso = husoDelCanal(ca) ?? r.huso ?? husoDelServidor();
+      const periodo = periodoEnHuso(r, huso);
+      const propio: Rango = { ...r, desde: periodo.desde, hasta: periodo.hasta, canalId: ca.canal_id };
+
+      const cohorte = filtroRango(orgId, propio);
+      const llegaron = s(
+        `SELECT COUNT(*) AS leads,
+                COALESCE(SUM(CASE WHEN ${DE_ANUNCIO} THEN 1 ELSE 0 END), 0) AS leads_anuncio,
+                COALESCE(SUM(CASE WHEN cerrado_por = 'abierta'  THEN 1 ELSE 0 END), 0) AS sin_cerrar,
+                COALESCE(SUM(CASE WHEN cerrado_por = 'revision' THEN 1 ELSE 0 END), 0) AS revision
+           FROM conversations
+          WHERE ${cohorte.where}`,
+      ).get(...cohorte.val) as { leads: number; leads_anuncio: number; sin_cerrar: number; revision: number };
+
+      const cierres = filtroCierres(orgId, propio);
+      const vendieron = s(
+        `SELECT COALESCE(SUM(CASE WHEN cerrado_por = 'ia'     THEN 1 ELSE 0 END), 0) AS cierres_ia,
+                COALESCE(SUM(CASE WHEN cerrado_por = 'humano' THEN 1 ELSE 0 END), 0) AS cierres_humano,
+                COALESCE(SUM(${FACTURADO}), 0) AS ventas,
+                COALESCE(SUM(CASE WHEN cerrado_por = 'ia'     THEN ${FACTURADO} END), 0) AS ventas_ia,
+                COALESCE(SUM(CASE WHEN cerrado_por = 'humano' THEN ${FACTURADO} END), 0) AS ventas_humano,
+                COALESCE(SUM(envio), 0) AS envios,
+                COUNT(total) AS con_monto
+           FROM conversations
+          WHERE ${cierres.where}`,
+      ).get(...cierres.val) as {
+        cierres_ia: number; cierres_humano: number; ventas: number;
+        ventas_ia: number; ventas_humano: number; envios: number; con_monto: number;
+      };
+
+      return {
+        canal_id: ca.canal_id,
+        nombre: ca.nombre,
+        phone: ca.phone,
+        pais,
+        huso,
+        desde: periodo.desde,
+        hasta: periodo.hasta,
+        ...llegaron,
+        ...vendieron,
+      };
+    });
+
+  // Los que más traen arriba; el id desempata para que dos en cero no bailen.
+  return filas.sort((a, b) => b.leads - a.leads || a.canal_id - b.canal_id);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3337,21 +3471,57 @@ export function eventosMetaHuerfanos(limite = 20) {
   }[];
 }
 
+/**
+ * Quién llega y quién cierra, por día. Los leads van al día en que escribieron
+ * y los cierres al día en que se cerraron, y los dos días se cortan en la hora
+ * de la cuenta: SQLite agrupa en UTC, y al oeste de Greenwich la noche entera
+ * caía en el día siguiente.
+ */
 export function serieDiaria(orgId: number, r: Rango) {
-  const { where, val } = filtroRango(orgId, r);
-  return s(
-    `SELECT date(fecha_inicio, 'unixepoch') AS dia,
+  const desfase = Math.round(desfaseMs(r.huso ?? husoDelServidor()) / 1000);
+
+  type Punto = { dia: string; leads: number; leads_anuncio: number; cierres_ia: number; cierres_humano: number };
+  const porDia = new Map<string, Punto>();
+  const punto = (dia: string): Punto => {
+    let p = porDia.get(dia);
+    if (!p) {
+      p = { dia, leads: 0, leads_anuncio: 0, cierres_ia: 0, cierres_humano: 0 };
+      porDia.set(dia, p);
+    }
+    return p;
+  };
+
+  const cohorte = filtroRango(orgId, r);
+  const llegaron = s(
+    `SELECT date(fecha_inicio + ?, 'unixepoch') AS dia,
             COUNT(*) AS leads,
-            SUM(CASE WHEN ${DE_ANUNCIO} THEN 1 ELSE 0 END) AS leads_anuncio,
+            SUM(CASE WHEN ${DE_ANUNCIO} THEN 1 ELSE 0 END) AS leads_anuncio
+       FROM conversations
+      WHERE ${cohorte.where}
+      GROUP BY dia`,
+  ).all(desfase, ...cohorte.val) as { dia: string; leads: number; leads_anuncio: number }[];
+  for (const l of llegaron) {
+    const p = punto(l.dia);
+    p.leads = l.leads;
+    p.leads_anuncio = l.leads_anuncio;
+  }
+
+  const cierres = filtroCierres(orgId, r);
+  const cerraron = s(
+    `SELECT date(fecha_cierre + ?, 'unixepoch') AS dia,
             SUM(CASE WHEN cerrado_por = 'ia'     THEN 1 ELSE 0 END) AS cierres_ia,
             SUM(CASE WHEN cerrado_por = 'humano' THEN 1 ELSE 0 END) AS cierres_humano
        FROM conversations
-      WHERE ${where}
-      GROUP BY dia ORDER BY dia ASC`,
-  ).all(...val) as {
-    dia: string; leads: number; leads_anuncio: number;
-    cierres_ia: number; cierres_humano: number;
-  }[];
+      WHERE ${cierres.where}
+      GROUP BY dia`,
+  ).all(desfase, ...cierres.val) as { dia: string; cierres_ia: number; cierres_humano: number }[];
+  for (const c of cerraron) {
+    const p = punto(c.dia);
+    p.cierres_ia = c.cierres_ia;
+    p.cierres_humano = c.cierres_humano;
+  }
+
+  return [...porDia.values()].sort((a, b) => a.dia.localeCompare(b.dia));
 }
 
 /** Motivos de pérdida del segmento sin cerrar. Lo más valioso del panel. */

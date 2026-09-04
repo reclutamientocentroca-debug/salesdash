@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { contarRevisiones, listarAnomalias } from "@/lib/db";
 import { calcularMetricas } from "@/lib/metrics";
-import { rangoDesdeQuery, sesionApi } from "@/lib/tenant";
+import { rangoDeLaCuenta, sesionApi } from "@/lib/tenant";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
   const canalCrudo = params.get("canalId");
   const canalId = canalCrudo && Number.isInteger(Number(canalCrudo)) ? Number(canalCrudo) : undefined;
 
-  const rango = { ...rangoDesdeQuery(params), canalId };
+  const rango = { ...rangoDeLaCuenta(orgId, params), canalId };
   const metricas = calcularMetricas(orgId, rango);
   const anomalias = listarAnomalias(orgId);
 

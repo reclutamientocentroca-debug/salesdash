@@ -1,7 +1,9 @@
 import Link from "next/link";
 import {
   Donut,
+  FilasPorMoneda,
   GraficoArea,
+  Importes,
   Kpi,
   LeyendaGrafico,
   Meta,
@@ -18,7 +20,8 @@ import {
 } from "@/components/panel/Iconos";
 import { contarCanales, contarRevisiones, listarAnomalias } from "@/lib/db";
 import { calcularMetricas, formatearDuracion } from "@/lib/metrics";
-import { rangoDesdeQuery, requerirSesion } from "@/lib/tenant";
+import { rangoDeLaCuenta, requerirSesion } from "@/lib/tenant";
+import type { Moneda } from "@/lib/moneda";
 
 export const metadata = { title: "Dashboard · SalesDash" };
 export const dynamic = "force-dynamic";
@@ -53,7 +56,8 @@ export default async function Dashboard({ searchParams }: Props) {
   if (hasta) parametros.set("hasta", hasta);
   if (soloAnuncio) parametros.set("solo", "anuncio");
 
-  const rango = { ...rangoDesdeQuery(parametros), soloAnuncio };
+  // En la hora de los países de la cuenta: «hoy» es hoy en Santo Domingo.
+  const rango = { ...rangoDeLaCuenta(ctx.orgId, parametros), soloAnuncio };
   const m = calcularMetricas(ctx.orgId, rango);
   const anomalias = listarAnomalias(ctx.orgId);
   const enRevision = contarRevisiones(ctx.orgId);
@@ -75,8 +79,9 @@ export default async function Dashboard({ searchParams }: Props) {
    * Se suman las FILAS que se están viendo y no las cifras sueltas del periodo,
    * aunque valgan lo mismo: el pie de una tabla es la promesa de que esa
    * columna suma eso, y quien la repase con el dedo tiene que llegar al mismo
-   * número. `facturado` es el total menos los envíos, la misma resta de la
-   * tarjeta de arriba.
+   * número. El dinero no se suma aquí: cada número factura en la moneda de
+   * su país, y el pie lo enseña moneda por moneda (`facturado_por_moneda`,
+   * que es la suma de estas mismas filas).
    */
   const totalCanales = m.por_canal.reduce(
     (a, c) => ({
@@ -86,10 +91,10 @@ export default async function Dashboard({ searchParams }: Props) {
       cierres_humano: a.cierres_humano + c.cierres_humano,
       sin_cerrar: a.sin_cerrar + c.sin_cerrar,
       revision: a.revision + c.revision,
-      facturado: a.facturado + c.ventas,
     }),
-    { leads: 0, leads_anuncio: 0, cierres_ia: 0, cierres_humano: 0, sin_cerrar: 0, revision: 0, facturado: 0 },
+    { leads: 0, leads_anuncio: 0, cierres_ia: 0, cierres_humano: 0, sin_cerrar: 0, revision: 0 },
   );
+  const cerradasDelPeriodo = totalCanales.cierres_ia + totalCanales.cierres_humano;
 
   const tasaTotal =
     totalCanales.leads === 0
@@ -186,8 +191,8 @@ export default async function Dashboard({ searchParams }: Props) {
 
       {!m.cuadra && (
         <div className="aviso aviso-error" role="alert" style={{ marginBottom: 14 }}>
-          Los números no cuadran: hay {m.leads} leads pero {m.cierres_ia + m.cierres_humano + m.sin_cerrar + m.revision}{" "}
-          conversaciones clasificadas. Alguna se está perdiendo y el reporte no es fiable.
+          Los números no cuadran: hay conversaciones del periodo sin clasificar. Alguna se está
+          perdiendo y el reporte no es fiable.
         </div>
       )}
 
@@ -228,7 +233,7 @@ export default async function Dashboard({ searchParams }: Props) {
             <>
               {m.tasa_cierre_ia}% {soloAnuncio ? "de los leads de anuncio" : "de las conversaciones"}
               <br />
-              <strong style={{ color: "var(--acc)" }}>{dinero(m.facturado_ia)}</strong> facturados
+              <Importes lista={m.facturado_por_moneda} campo="facturado_ia" color="var(--acc)" /> facturados
             </>
           }
         />
@@ -244,7 +249,7 @@ export default async function Dashboard({ searchParams }: Props) {
             <>
               {formatearDuracion(m.tiempo_promedio_humano)} de media
               <br />
-              <strong style={{ color: "var(--blue)" }}>{dinero(m.facturado_humano)}</strong> facturados
+              <Importes lista={m.facturado_por_moneda} campo="facturado_humano" color="var(--blue)" /> facturados
             </>
           }
         />
@@ -260,12 +265,28 @@ export default async function Dashboard({ searchParams }: Props) {
           se enseñan igual: están conectados y no están vendiendo, que es
           exactamente lo que hay que ver.
         */}
+        {/*
+          Con una sola moneda, la cifra grande es lo facturado. Con varias no
+          hay cifra grande que valga: arriba va cuántas ventas se cerraron y
+          el dinero va moneda por moneda en el cuerpo, porque pesos, colones y
+          dólares no se suman.
+        */}
         <Kpi
           etiqueta="Facturado"
-          valor={dinero(m.facturado)}
+          valor={m.una_moneda ? dinero(m.facturado, m.una_moneda) : `${cerradasDelPeriodo} venta${cerradasDelPeriodo === 1 ? "" : "s"}`}
           icono={<IconoMoneda tam={17} />}
           tono="ambar"
-          pie={`${dinero(m.valor_promedio_venta)} por pedido · ${dinero(m.envios_cobrados)} de envíos aparte`}
+          pie={
+            m.una_moneda ? (
+              `${dinero(m.valor_promedio_venta, m.una_moneda)} por pedido · ${dinero(m.envios_cobrados, m.una_moneda)} de envíos aparte`
+            ) : (
+              <>
+                <Importes lista={m.facturado_por_moneda} campo="facturado" color="var(--amber)" />
+                <br />
+                cada país en su moneda
+              </>
+            )
+          }
           cuerpo={<FacturadoPorCanal canales={m.facturado_por_canal} />}
         />
       </div>
@@ -325,24 +346,18 @@ export default async function Dashboard({ searchParams }: Props) {
           >
             <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
               <span style={{ flex: 1, color: "var(--ink-2)" }}>Facturado sin envío</span>
-              <span className="num" style={{ fontWeight: 700, fontSize: 15 }}>
-                {dinero(m.facturado)}
-              </span>
+              <FilasPorMoneda lista={m.facturado_por_moneda} campo="facturado" tam={15} />
             </div>
             <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
               <span style={{ flex: 1, color: "var(--ink-2)" }}>Automatizada</span>
-              <span className="num" style={{ fontWeight: 600, color: "var(--acc)" }}>
-                {dinero(m.facturado_ia)}
-              </span>
+              <FilasPorMoneda lista={m.facturado_por_moneda} campo="facturado_ia" color="var(--acc)" tam={12.5} />
             </div>
             <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
               <span style={{ flex: 1, color: "var(--ink-2)" }}>Asistida</span>
-              <span className="num" style={{ fontWeight: 600, color: "var(--blue)" }}>
-                {dinero(m.facturado_humano)}
-              </span>
+              <FilasPorMoneda lista={m.facturado_por_moneda} campo="facturado_humano" color="var(--blue)" tam={12.5} />
             </div>
             <div className="tenue">
-              {dinero(m.envios_cobrados)} de envíos cobrados, fuera de esta cuenta.
+              <Importes lista={m.facturado_por_moneda} campo="envios" /> de envíos cobrados, fuera de esta cuenta.
             </div>
           </div>
         </section>
@@ -453,12 +468,14 @@ export default async function Dashboard({ searchParams }: Props) {
                     <th style={{ textAlign: "right" }}>
                       {soloAnuncio ? "Leads de anuncio" : "Conversaciones"}
                     </th>
+                    {/* Las ventas CERRADAS en el periodo, por el día en que se
+                        cerraron y en la hora del país del número. Pueden ser
+                        más que las conversaciones de la fila: son pedidos de
+                        gente que escribió antes. */}
                     <th style={{ textAlign: "right" }}>Automatizada</th>
                     <th style={{ textAlign: "right" }}>Asistida</th>
-                    {/* Sin cerrar y En revisión completan el conteo de cada
-                        número: con las cuatro columnas, cada fila suma sus
-                        propias conversaciones y se puede comprobar de un
-                        vistazo que no se está perdiendo ninguna. */}
+                    {/* Sin cerrar y En revisión son de las conversaciones que
+                        LLEGARON en el periodo y siguen sin venta. */}
                     <th style={{ textAlign: "right" }}>Sin cerrar</th>
                     <th style={{ textAlign: "right" }}>Revisión</th>
                     <th style={{ textAlign: "right" }}>Tasa</th>
@@ -492,14 +509,17 @@ export default async function Dashboard({ searchParams }: Props) {
                           <div style={{ width: `${Math.min(c.tasa, 100)}%`, height: "100%", background: "var(--acc)" }} />
                         </div>
                       </td>
-                      <td style={{ textAlign: "right" }}>{dinero(c.ventas)}</td>
+                      {/* En la moneda del país del número: RD$, ₡ o US$. */}
+                      <td className="num" style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                        {dinero(c.ventas, c.moneda)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
 
                 {/* La cuenta entera, sumando los números uno a uno. La última
-                    celda es lo facturado sin envíos: la misma cifra de la
-                    tarjeta de arriba, ahora con el desglose que la produce. */}
+                    celda es lo facturado sin envíos, moneda por moneda: la
+                    misma cifra de la tarjeta de arriba. */}
                 <tfoot>
                   <tr>
                     <td><span className="rotulo-total">Todos los números</span></td>
@@ -512,8 +532,8 @@ export default async function Dashboard({ searchParams }: Props) {
                     <td style={{ textAlign: "right" }}>{totalCanales.sin_cerrar}</td>
                     <td style={{ textAlign: "right" }}>{totalCanales.revision}</td>
                     <td style={{ textAlign: "right" }}>{tasaTotal}%</td>
-                    <td style={{ textAlign: "right", color: "var(--amber)" }}>
-                      {dinero(totalCanales.facturado)}
+                    <td style={{ textAlign: "right", color: "var(--amber)", whiteSpace: "nowrap" }}>
+                      <FilasPorMoneda lista={m.facturado_por_moneda} campo="facturado" color="var(--amber)" />
                     </td>
                   </tr>
                 </tfoot>
@@ -539,7 +559,7 @@ export default async function Dashboard({ searchParams }: Props) {
                   </span>
                   <span style={{ flex: 1, fontSize: 13, minWidth: 0 }}>{p.producto}</span>
                   <span style={{ textAlign: "right" }}>
-                    <span className="num" style={{ fontWeight: 600, fontSize: 13 }}>{dinero(p.monto)}</span>
+                    <span className="num" style={{ fontWeight: 600, fontSize: 13 }}>{dinero(p.monto, m.una_moneda)}</span>
                     <span className="tenue" style={{ display: "block" }}>
                       {p.unidades} venta{p.unidades === 1 ? "" : "s"}
                     </span>
@@ -566,7 +586,7 @@ export default async function Dashboard({ searchParams }: Props) {
 function FacturadoPorCanal({
   canales,
 }: {
-  canales: { canal_id: number; nombre: string; facturado: number }[];
+  canales: { canal_id: number; nombre: string; facturado: number; moneda: Moneda }[];
 }) {
   if (canales.length === 0) {
     return (
@@ -607,9 +627,10 @@ function FacturadoPorCanal({
             style={{
               fontWeight: 600,
               color: c.facturado > 0 ? "var(--amber)" : "var(--ink-4)",
+              whiteSpace: "nowrap",
             }}
           >
-            {dinero(c.facturado)}
+            {dinero(c.facturado, c.moneda)}
           </span>
         </li>
       ))}

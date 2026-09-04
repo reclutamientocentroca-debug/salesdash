@@ -13,13 +13,33 @@ import {
   productosDeAnuncio,
   metricasPorCanal,
   obtenerOrg,
-  resumenVentas,
   serieDiaria,
   tiemposDeCierre,
   totalLeads,
   ventasParaRanking,
   type Rango,
 } from "./db";
+import { mismaMoneda, monedaDelPais, SIN_MONEDA, type Moneda } from "./moneda";
+import { fechaISOEn, husoDelServidor } from "./rango";
+
+/**
+ * Lo facturado en UNA moneda. Con números en tres países hay tres de estas, y
+ * no se suman entre sí: RD$2,750 más ₡23.500 más US$45 no son nada.
+ */
+export interface FacturadoPorMoneda {
+  moneda: Moneda;
+  /** Cuántos números venden en esta moneda. */
+  canales: number;
+  /** Ventas cerradas en el periodo en esta moneda. */
+  cierres: number;
+  facturado: number;
+  facturado_ia: number;
+  facturado_humano: number;
+  envios: number;
+  con_monto: number;
+  /** Facturación media por venta con monto, sin el envío. */
+  promedio: number;
+}
 
 export type Semaforo = "verde" | "ambar" | "rojo";
 
@@ -106,6 +126,14 @@ export interface Metricas {
 
   top_productos: { producto: string; unidades: number; monto: number }[];
   /**
+   * La moneda de la cuenta cuando todos sus números venden en la misma, o
+   * null cuando hay varias: ahí `facturado` y compañía son una suma sin
+   * moneda y el panel enseña `facturado_por_moneda` en su lugar.
+   */
+  una_moneda: Moneda | null;
+  /** Lo facturado del periodo, una fila por moneda y de mayor a menor. */
+  facturado_por_moneda: FacturadoPorMoneda[];
+  /**
    * Lo facturado en el periodo, canal por canal y de mayor a menor.
    *
    * Salen TODOS los canales conectados de la cuenta, también los que no
@@ -115,11 +143,21 @@ export interface Metricas {
    * La suma de esta lista es exactamente `facturado`: las dos cifras salen del
    * mismo filtro de periodo y de la misma resta del envío.
    */
-  facturado_por_canal: { canal_id: number; nombre: string; facturado: number }[];
+  facturado_por_canal: { canal_id: number; nombre: string; facturado: number; moneda: Moneda }[];
+  /**
+   * El panel de cada número. Los leads son los que le escribieron en el
+   * periodo; los cierres y las ventas, lo que cerró en el periodo, contado en
+   * la hora de su país y en su moneda.
+   */
   por_canal: {
     canal_id: number; nombre: string; phone: string | null;
+    /** Código ISO del país en el que vende, o vacío. */
+    pais: string;
+    moneda: Moneda;
     leads: number; leads_anuncio: number; cierres_ia: number; cierres_humano: number;
-    sin_cerrar: number; revision: number; ventas: number; tasa: number;
+    sin_cerrar: number; revision: number;
+    ventas: number; ventas_ia: number; ventas_humano: number; envios: number;
+    tasa: number;
   }[];
   serie_diaria: {
     dia: string; leads: number; leads_anuncio: number;
@@ -138,19 +176,65 @@ export function calcularMetricas(orgId: number, rango: Rango): Metricas {
 
   const leads = totalLeads(orgId, rango);
   const estados = conteoPorEstado(orgId, rango);
-  const ventas = resumenVentas(orgId, rango);
   const tiempos = tiemposDeCierre(orgId, rango);
   const anuncio = resumenDeAnuncio(orgId, rango);
 
-  const cierresTotales = estados.ia + estados.humano;
-
   /*
-   * Una sola pasada por canal para las dos cosas que la usan: la tabla de
-   * rendimiento y el desglose de la tarjeta de facturado. La consulta ya sale
-   * de `canales` con un LEFT JOIN, así que trae los canales sin actividad con
-   * sus ceros y respeta el aislamiento por cuenta y el filtro de periodo.
+   * LAS VENTAS SE CUENTAN NÚMERO POR NÚMERO, y la cuenta entera es la suma.
+   *
+   * Cada número cuenta sus cierres el día que se cerraron y en la hora de su
+   * país, y factura en su moneda. Las cifras de la cuenta —cierres, dinero—
+   * salen de sumar esas filas, y no de otra consulta con otro reloj: así la
+   * tarjeta de arriba y el pie de la tabla dicen lo mismo, siempre.
+   *
+   * `estados` sigue siendo la cuenta por llegada: de ahí salen los abiertos,
+   * la revisión y la invariante de que ninguna conversación se pierde.
    */
-  const canales = metricasPorCanal(orgId, rango);
+  const canales = metricasPorCanal(orgId, rango).map((c) => ({ ...c, moneda: monedaDelPais(c.pais) }));
+  const sumar = (campo: "cierres_ia" | "cierres_humano" | "ventas" | "ventas_ia" | "ventas_humano" | "envios" | "con_monto") =>
+    canales.reduce((a, c) => a + c[campo], 0);
+  const cierres = { ia: sumar("cierres_ia"), humano: sumar("cierres_humano") };
+  const ventas = {
+    facturado: sumar("ventas"),
+    facturado_ia: sumar("ventas_ia"),
+    facturado_humano: sumar("ventas_humano"),
+    envios: sumar("envios"),
+    con_monto: sumar("con_monto"),
+  };
+  const cierresTotales = cierres.ia + cierres.humano;
+
+  // ── Lo facturado, moneda por moneda ───────────────────────────────────────
+  const porMoneda = new Map<string, FacturadoPorMoneda>();
+  for (const c of canales) {
+    const f = porMoneda.get(c.moneda.codigo) ?? {
+      moneda: c.moneda, canales: 0, cierres: 0, facturado: 0, facturado_ia: 0,
+      facturado_humano: 0, envios: 0, con_monto: 0, promedio: 0,
+    };
+    f.canales += 1;
+    f.cierres += c.cierres_ia + c.cierres_humano;
+    f.facturado += c.ventas;
+    f.facturado_ia += c.ventas_ia;
+    f.facturado_humano += c.ventas_humano;
+    f.envios += c.envios;
+    f.con_monto += c.con_monto;
+    porMoneda.set(c.moneda.codigo, f);
+  }
+  const facturado_por_moneda = [...porMoneda.values()]
+    .map((f) => ({
+      ...f,
+      facturado: redondear(f.facturado),
+      facturado_ia: redondear(f.facturado_ia),
+      facturado_humano: redondear(f.facturado_humano),
+      envios: redondear(f.envios),
+      promedio: f.con_monto === 0 ? 0 : redondear(f.facturado / f.con_monto),
+    }))
+    .sort((a, b) => b.cierres - a.cierres || b.facturado - a.facturado || a.moneda.codigo.localeCompare(b.moneda.codigo));
+  const una_moneda =
+    canales.length === 0
+      ? SIN_MONEDA
+      : canales.every((c) => mismaMoneda(c.moneda, canales[0].moneda))
+        ? canales[0].moneda
+        : null;
 
   // ── Top de productos ──────────────────────────────────────────────────────
   // Se agrupa por el nombre normalizado, no por el que devolvió el modelo.
@@ -176,7 +260,7 @@ export function calcularMetricas(orgId: number, rango: Rango): Metricas {
    * mirar por qué teclado salió—, y lo asistido es lo que cerró una foto de
    * factura sin resumen en el hilo.
    */
-  const cobertura = porcentaje(estados.ia, cierresTotales);
+  const cobertura = porcentaje(cierres.ia, cierresTotales);
 
   /*
    * Efectividad: de los hilos donde un vendedor llegó a escribir, cuántos
@@ -207,10 +291,13 @@ export function calcularMetricas(orgId: number, rango: Rango): Metricas {
       ...p,
       producto: p.producto ?? "Anuncio sin título",
     })),
-    cierres_ia: estados.ia,
-    cierres_humano: estados.humano,
+    cierres_ia: cierres.ia,
+    cierres_humano: cierres.humano,
     sin_cerrar: estados.abierta,
     revision: estados.revision,
+    // La invariante es por llegada: cada conversación del periodo está en uno
+    // y solo uno de los cuatro estados. Los cierres de arriba van por fecha de
+    // cierre y no entran aquí: pueden ser de gente que llegó antes del periodo.
     cuadra: leads === estados.ia + estados.humano + estados.abierta + estados.revision,
 
     facturado: redondear(ventas.facturado),
@@ -219,7 +306,7 @@ export function calcularMetricas(orgId: number, rango: Rango): Metricas {
     envios_cobrados: redondear(ventas.envios),
     valor_promedio_venta:
       ventas.con_monto === 0 ? 0 : redondear(ventas.facturado / ventas.con_monto),
-    tasa_cierre_ia: porcentaje(estados.ia, leads),
+    tasa_cierre_ia: porcentaje(cierres.ia, leads),
     tasa_cierre_total: porcentaje(cierresTotales, leads),
 
     tiempo_promedio_ia: tiempos.ia === null ? null : Math.round(tiempos.ia),
@@ -239,8 +326,10 @@ export function calcularMetricas(orgId: number, rango: Rango): Metricas {
     },
 
     top_productos,
+    una_moneda,
+    facturado_por_moneda,
     facturado_por_canal: canales
-      .map((c) => ({ canal_id: c.canal_id, nombre: c.nombre, facturado: redondear(c.ventas) }))
+      .map((c) => ({ canal_id: c.canal_id, nombre: c.nombre, facturado: redondear(c.ventas), moneda: c.moneda }))
       // De mayor a menor, y con el nombre como desempate para que dos canales
       // en cero no se intercambien de sitio entre una recarga y la siguiente.
       .sort((a, b) => b.facturado - a.facturado || a.nombre.localeCompare(b.nombre)),
@@ -248,13 +337,18 @@ export function calcularMetricas(orgId: number, rango: Rango): Metricas {
       canal_id: c.canal_id,
       nombre: c.nombre,
       phone: c.phone.startsWith("pendiente:") ? null : c.phone,
+      pais: c.pais,
+      moneda: c.moneda,
       leads: c.leads,
       leads_anuncio: c.leads_anuncio,
       cierres_ia: c.cierres_ia,
       cierres_humano: c.cierres_humano,
       sin_cerrar: c.sin_cerrar,
       revision: c.revision,
-      ventas: Math.round(c.ventas * 100) / 100,
+      ventas: redondear(c.ventas),
+      ventas_ia: redondear(c.ventas_ia),
+      ventas_humano: redondear(c.ventas_humano),
+      envios: redondear(c.envios),
       tasa: porcentaje(c.cierres_ia + c.cierres_humano, c.leads),
     })),
     serie_diaria: rellenarDias(serieDiaria(orgId, rango), rango),
@@ -276,10 +370,13 @@ export function rellenarDias(
     dia: string; leads: number; leads_anuncio: number;
     cierres_ia: number; cierres_humano: number;
   }[],
-  rango: { desde: number; hasta: number },
+  rango: { desde: number; hasta: number; huso?: string },
   maxDias = 92,
 ): typeof serie {
-  const aISO = (epoch: number) => new Date(epoch * 1000).toISOString().slice(0, 10);
+  // El mismo huso con el que `serieDiaria` cortó los días: si no, el relleno
+  // y los datos hablarían de días distintos.
+  const huso = rango.huso ?? husoDelServidor();
+  const aISO = (epoch: number) => fechaISOEn(huso, epoch);
 
   // Con "Todo" el rango empieza en 1970: se ancla al primer día con datos para
   // no generar veinte mil columnas vacías.
@@ -287,12 +384,7 @@ export function rellenarDias(
   let desdeISO = aISO(rango.desde);
   if (rango.desde === 0) desdeISO = primero ?? aISO(rango.hasta);
 
-  /*
-   * El rango se calcula en hora local y termina a las 23:59 del día de hoy;
-   * los días de la serie los agrupa SQLite en UTC. Al oeste de Greenwich esas
-   * 23:59 locales ya son el día siguiente en UTC, así que sin recortar el
-   * gráfico dibuja un día de más — mañana, siempre en cero.
-   */
+  // Nunca más allá de hoy: un rango que termina a las 23:59 no dibuja mañana.
   const hoyISO = aISO(Math.floor(Date.now() / 1000));
   const finISO = aISO(rango.hasta);
   const hastaISO = finISO > hoyISO ? hoyISO : finISO;
