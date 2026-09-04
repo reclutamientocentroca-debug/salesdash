@@ -16,9 +16,9 @@ export const CR: DatosPais = {
 
   // ── Identidad ──────────────────────────────────────────────────────────
   tienda: "TELLERIA",
-  // Sin nombre personal: se presenta la tienda.
+  // El nombre de quien atiende es el que diga el panel («Nombre del agente»).
   nombreAgente: null,
-  saludo: "Hola, le asiste TELLERIA",
+  saludo: "Hola, le asiste <agente> de TELLERIA",
   trato: "usted",
 
   // ── Moneda ─────────────────────────────────────────────────────────────

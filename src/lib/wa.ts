@@ -41,6 +41,7 @@ import { ingerir, type MensajeEntrante } from "@/lib/ingesta";
 import { esDescargable, guardar } from "@/lib/media";
 import { direccionDelChat, esLid, jidDeDestino, normalizarTelefono } from "@/lib/telefono";
 import { textoConEnlace } from "@/lib/enlace";
+import { esClaveDeSistema } from "@/lib/sistema";
 import { enlaceDeMapa, textoDeUbicacion } from "@/lib/ubicacion";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -258,6 +259,8 @@ function traducir(m: WAMessage): MensajeEntrante | null {
     );
   } else {
     const clave = Object.keys(real)[0];
+    // Un aviso interno de WhatsApp no es un mensaje del cliente: no entra.
+    if (esClaveDeSistema(clave)) return null;
     tipo = "otro";
     texto = `[${clave ?? "mensaje"}]`;
   }

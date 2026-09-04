@@ -43,6 +43,7 @@ import {
 import { descifrar } from "./auth";
 import { anuncioParaModelo, anuncioVigente, type DatosAnuncio } from "./anuncio";
 import { aperturaSegura, respuestaMinima } from "./apertura";
+import { esMensajeDeSistema } from "./sistema";
 import { contieneMarcador, MARCADOR_POR_DEFECTO, registrarCierre } from "./cierre";
 import { completar, ErrorIA, hoyISO } from "./ia";
 import { bloqueHumano } from "./humano";
@@ -647,7 +648,9 @@ export type MotivoSilencio =
    * La respuesta era el resumen de un pedido YA cerrado, y nada más. Ver
    * `quitarResumenRepetido`: al quitarlo no quedaba mensaje que mandar.
    */
-  | "resumen_repetido";
+  | "resumen_repetido"
+  /** Lo último del hilo es un aviso interno de WhatsApp, no un mensaje del cliente. */
+  | "mensaje_de_sistema";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Generación
@@ -1450,6 +1453,10 @@ export async function atenderConversacion(
   if (!ultimo || ultimo.emisor !== "cliente") {
     return { atendida: false, motivo: "ultimo_no_es_cliente" };
   }
+  // Un «[protocolMessage]» que entró antes de filtrarse no es del cliente.
+  if (esMensajeDeSistema(ultimo.content)) {
+    return { atendida: false, motivo: "mensaje_de_sistema" };
+  }
 
   /*
    * ── El propio agente ya pasó el caso a una persona ──────────────────────
@@ -1684,7 +1691,9 @@ export async function atenderConversacion(
     const org = obtenerOrg(orgId);
     const negocio = nombreDelNegocio(agente, canal, org ?? null);
     const cliente = { telefono: conv.cliente_phone, nombre: conv.cliente_nombre };
+    const esApertura = historial.every((m) => m.emisor === "cliente") || esClienteQueVuelve(historial);
     const contexto = {
+      esApertura,
       datos: datosPais,
       marcador: org?.marcador_cierre ?? MARCADOR_POR_DEFECTO,
       nombresDeLaCasa: [agente.nombre, agente.negocio, datosPais.nombreAgente ?? "", datosPais.tienda].filter(Boolean),
@@ -1766,7 +1775,6 @@ export async function atenderConversacion(
        *
        * En todos los casos queda una anomalía con el motivo, para verlo.
        */
-      const esApertura = historial.every((m) => m.emisor === "cliente") || esClienteQueVuelve(historial);
       const apertura = esApertura
         ? aperturaSegura(datosPais, anuncioVigente(conv), saludoDe(datosPais, agente.nombre, negocio))
         : null;

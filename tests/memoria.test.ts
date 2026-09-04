@@ -14,6 +14,7 @@ import {
 } from "../src/lib/memoria";
 import { revisarConReglas, type ContextoRevision } from "../src/lib/revisor";
 import { fallasDelResumen, leerResumen } from "../src/lib/supervisor";
+import { esClaveDeSistema, esMensajeDeSistema } from "../src/lib/sistema";
 
 /**
  * LA MEMORIA ES UNA PUERTA, NO UN CONSEJO. Y ES DE ESTA COMPRA.
@@ -205,4 +206,14 @@ test("la ubicación compartida solo cuenta si llegó en esta sesión", () => {
   ];
   assert.equal(clienteCompartioUbicacion(conPin), false, "el pin es de otro día");
   assert.equal(clienteCompartioUbicacion(conPin.slice(0, 1)), true);
+});
+
+/** Un «[protocolMessage]» es un aviso interno de WhatsApp, no un mensaje del cliente. */
+test("los avisos internos de WhatsApp no son mensajes del cliente", () => {
+  assert.equal(esClaveDeSistema("protocolMessage"), true);
+  assert.equal(esClaveDeSistema("reactionMessage"), true);
+  assert.equal(esClaveDeSistema("conversation"), false);
+  assert.equal(esMensajeDeSistema("[protocolMessage]"), true);
+  assert.equal(esMensajeDeSistema("[imagen]"), false, "una imagen sí es del cliente");
+  assert.equal(esMensajeDeSistema("hola"), false);
 });

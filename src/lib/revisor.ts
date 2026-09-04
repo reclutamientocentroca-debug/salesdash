@@ -76,6 +76,8 @@ export interface ContextoRevision {
   lugarDelCliente?: string | null;
   /** Lo último que escribió el cliente: decide si una transferencia tiene motivo. */
   ultimoDelCliente?: string | null;
+  /** Si esta respuesta abre la conversación (o el cliente vuelve tras días). Solo ahí se saluda. */
+  esApertura?: boolean;
 }
 
 /** Sin tildes ni mayúsculas. */
@@ -335,6 +337,15 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
     );
   }
 
+  // 8f. EL SALUDO VA UNA SOLA VEZ, AL PRINCIPIO.
+  //
+  // El caso real: «Hola, le asiste TELLERIA» en el primer mensaje, en el
+  // tercero y «Gracias, le asiste TELLERIA» en el quinto. Fuera de la
+  // apertura, presentarse otra vez no sale.
+  if (ctx.esApertura === false && SE_PRESENTA.test(texto)) {
+    fallas.push("vuelve a saludar y a presentarse, y eso va solo en el primer mensaje: contesta directo y sigue");
+  }
+
   // 9. Tutear donde se vende de usted.
   if (d.trato === "usted" && TUTEO.test(texto)) {
     fallas.push("tutea al cliente («quieres», «te lo», «tu pedido»), y aquí se vende de usted");
@@ -464,6 +475,9 @@ export function preguntaDeVarianteSinVariante(borrador: string, ctx: ContextoRev
 
   return fallas;
 }
+
+/** Cómo suena presentarse: el saludo de apertura, con o sin el «hola». */
+const SE_PRESENTA = /\b(le|te) asiste\b|\bbienvenid[oa]s?\b|\bsoy (su|tu) (asesor|asesora|vendedor|vendedora)\b|\bmi nombre es\b/i;
 
 /** Cómo suena una transferencia en el texto del agente. */
 const HABLA_DE_TRANSFERIR =

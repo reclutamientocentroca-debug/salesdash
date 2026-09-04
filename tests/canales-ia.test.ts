@@ -644,5 +644,5 @@ test("el agente de Costa Rica es formal, educado y habla como en Costa Rica", ()
   assert.ok(tico.includes("¿me regala su dirección?"), "la cortesía tica para pedir un dato");
   assert.ok(tico.includes("«con mucho gusto» en lugar de «de nada»"));
   assert.ok(tico.includes("NO van en una venta formal"), "lo de confianza se nombra para que no se use");
-  assert.ok(tico.includes("Hola, le asiste TELLERIA"));
+  assert.match(tico, /Hola, le asiste .+ de TELLERIA/, "con el nombre que diga el panel");
 });

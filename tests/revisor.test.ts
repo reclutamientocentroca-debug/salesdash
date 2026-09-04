@@ -308,3 +308,13 @@ test("una transferencia sin motivo no sale; con motivo, sí", () => {
   const cierre = { ...rd, ultimoDelCliente: "sí, confirmo", textosDelCliente: ["Ana Pérez", "Calle 1 #2, Los Prados, Santo Domingo", "8095551234"], telefonoDelChat: "18095551234" };
   assert.deepEqual(revisarConReglas(resumen, cierre), []);
 });
+
+/** El saludo va una sola vez: fuera de la apertura, presentarse otra vez no sale. */
+test("presentarse otra vez a mitad de conversación no sale", () => {
+  const enMedio = { ...cr, esApertura: false };
+  assert.ok(revisarConReglas("Hola, le asiste Mildred de TELLERIA\n\n¿A qué dirección se lo enviamos?", enMedio).some((f) => f.includes("saludar")));
+  assert.ok(revisarConReglas("Gracias, le asiste TELLERIA. ¿Me regala su nombre?", enMedio).some((f) => f.includes("saludar")));
+  assert.deepEqual(revisarConReglas("Con mucho gusto. ¿Me regala su dirección?", enMedio), []);
+  // En la apertura, el saludo va.
+  assert.deepEqual(revisarConReglas("Hola, le asiste Mildred de TELLERIA\n\n¿Qué talla le interesa?", { ...cr, esApertura: true }), []);
+});
