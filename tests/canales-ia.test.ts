@@ -632,3 +632,17 @@ test("los cambios se contestan solo si preguntan, y sin política se confirma co
   assert.ok(panameno.includes("eso se lo confirma el equipo y sigue la venta, sin transferir"), "y no se transfiere por eso");
   assert.ok(panameno.includes("SOLO SI EL CLIENTE PREGUNTA"), "y tampoco lo saca él");
 });
+
+/**
+ * COSTA RICA, FORMAL Y EDUCADA, CON EL LENGUAJE DE ALLÁ: de usted, con «con
+ * mucho gusto» y «¿me regala…?», y sin «diay» ni «ocupo» en una venta.
+ */
+test("el agente de Costa Rica es formal, educado y habla como en Costa Rica", () => {
+  const tico = armarSistema("Tienda", D.obtenerAgente(orgId, cr), [], null);
+  assert.ok(tico.includes("FORMAL Y EDUCADA"));
+  assert.ok(tico.includes("Trato de USTED"));
+  assert.ok(tico.includes("¿me regala su dirección?"), "la cortesía tica para pedir un dato");
+  assert.ok(tico.includes("«con mucho gusto» en lugar de «de nada»"));
+  assert.ok(tico.includes("NO van en una venta formal"), "lo de confianza se nombra para que no se use");
+  assert.ok(tico.includes("Hola, le asiste TELLERIA"));
+});

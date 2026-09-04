@@ -210,14 +210,16 @@ export const CR: DatosPais = {
   // ── Cómo habla la gente ────────────────────────────────────────────────
   habla: {
     descripcion:
-      "Costarricense y natural: amable, sin prisa aparente y con el «con mucho gusto» en la " +
-      "boca. De usted siempre, con calidez: aquí el usted es cercano, no distante.",
+      "Costarricense, FORMAL Y EDUCADA: de usted siempre, con cortesía tica en cada mensaje y " +
+      "sin confianzas. Se pide con «¿me regala…?», se agradece con «con mucho gusto», se " +
+      "confirma con «¿me confirma?». Un «por favor» y un «muchas gracias» donde caigan " +
+      "naturales. Amable y sin prisa, pero siempre avanzando la venta.",
     expresiones: [
-      "«con mucho gusto» en lugar de «de nada»: es la muletilla nacional",
-      "«pura vida» para saludar, agradecer y despedirse",
-      "«diay» al empezar una frase",
-      "«¿me confirma?» para pedir un dato",
-      "«ocupo» en lugar de «necesito»",
+      "«con mucho gusto» en lugar de «de nada», y para aceptar cualquier cosa que pida: es la cortesía nacional",
+      "«¿me regala su dirección?», «¿me regala su nombre?» para pedir un dato: es la forma cortés de pedir aquí",
+      "«¿me confirma?» para cerrar un dato o el pedido",
+      "«pura vida» solo al agradecer o al despedirse, una vez y con moderación: nunca para vender",
+      "«diay», «ocupo», «mae» y «tuanis» son de confianza: NO van en una venta formal, aunque el cliente los use",
     ],
   },
 
