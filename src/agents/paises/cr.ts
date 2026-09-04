@@ -40,7 +40,21 @@ export const CR: DatosPais = {
     zonas: [
       {
         nombre: "Zona de entrega a domicilio",
+        // La dueña (2026-09-04): San José, Heredia, Alajuela y Alajuelita van
+        // a domicilio. San José va con su ciudad y sus distritos, como los
+        // escribe la gente.
         lugares: [
+          "San José",
+          "San Jose",
+          "Chepe",
+          "San José centro",
+          "Desamparados",
+          "Pavas",
+          "Hatillo",
+          "Zapote",
+          "San Sebastián",
+          "Uruca",
+          "La Sabana",
           "Alajuela",
           "Alajuelita",
           "Heredia",
@@ -63,7 +77,7 @@ export const CR: DatosPais = {
         ],
         costo: 3500,
         modalidad: "entrega a domicilio",
-        pago: "paga al recibir, por transferencia o SINPE Móvil",
+        pago: "paga al recibir, como prefiera: en efectivo, por transferencia o por SINPE Móvil",
       },
     ],
     restoDelPais: {
@@ -100,6 +114,7 @@ export const CR: DatosPais = {
       "El celular al que se le llama",
       "PROVINCIA, CANTÓN y DISTRITO, más las señas desde un punto conocido: aquí no hay calle y " +
         "número que pedir",
+      "Cómo quiere pagar, si lo dijo: efectivo, transferencia o SINPE Móvil —es su elección, no la tuya—",
       "Fuera de la zona de entrega a domicilio, el pago por delante: ahí se cobra ANTES de enviar, " +
         "y sin el comprobante no sale el paquete",
     ],
@@ -167,13 +182,18 @@ export const CR: DatosPais = {
 
   // ── Pago ───────────────────────────────────────────────────────────────
   pago:
-    "Por SINPE Móvil o transferencia bancaria. CUÁNDO se paga depende de la zona: en la zona " +
-    "de entrega a domicilio se paga al recibir; fuera de ella, antes de enviar. El número de " +
-    "SINPE Móvil o la cuenta se los da el representante después del resumen: tú no los tienes " +
-    "y NO SE LOS INVENTES.",
+    "COMO EL CLIENTE PREFIERA: en efectivo, por transferencia bancaria o por SINPE Móvil. Nunca " +
+    "le impongas una forma: si dice cómo quiere pagar, esa es. CUÁNDO se paga depende de la " +
+    "zona: en la zona de entrega a domicilio (San José, Heredia, Alajuela, Alajuelita y los " +
+    "cantones de la lista) se paga al recibir, en la puerta, con cualquiera de las tres; fuera " +
+    "de ella el paquete va por correo y se cobra antes de enviar, por SINPE Móvil o " +
+    "transferencia —en efectivo no se puede, porque no hay mensajero que lo reciba—. El número " +
+    "de SINPE Móvil o la cuenta se los da el representante después del resumen: tú no los " +
+    "tienes y NO SE LOS INVENTES.",
   pagoAlCliente:
-    "Se paga por SINPE Móvil o transferencia. En la zona de entrega a domicilio se paga al " +
-    "recibir; fuera de ella, antes del envío.",
+    "Paga como prefiera: en efectivo, por transferencia o por SINPE Móvil. En San José, Heredia, " +
+    "Alajuela y Alajuelita se lo llevamos a domicilio y paga al recibir; fuera de esa zona va por " +
+    "correo y se paga antes del envío, por SINPE o transferencia.",
 
   // ── Ubicación ──────────────────────────────────────────────────────────
   ubicacion: {

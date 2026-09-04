@@ -166,3 +166,30 @@ test("una provincia escrita a secas se sitúa por el mapa y se tarifa como inter
   assert.ok(bloque.includes("A ESTE CLIENTE"), "el agente recibe la tarifa que le toca");
   assert.ok(bloque.includes("290"), "y es la del interior");
 });
+
+/**
+ * COSTA RICA, según la dueña (2026-09-04): San José, Heredia, Alajuela y
+ * Alajuelita van a domicilio y se paga al recibir, como el cliente prefiera:
+ * efectivo, transferencia o SINPE Móvil. Fuera de esa zona, por correo y pago
+ * previo.
+ */
+test("en Costa Rica San José, Heredia, Alajuela y Alajuelita van a domicilio y se paga como el cliente quiera", () => {
+  const cr = agenteDePais("cr")!;
+  for (const lugar of ["San José", "san jose", "Chepe", "Heredia", "Alajuela", "Alajuelita", "Pavas", "Desamparados"]) {
+    const z = zonaDelCliente(cr, lugar);
+    assert.ok(z !== null && z !== "resto" && z.modalidad === "entrega a domicilio", `«${lugar}» va a domicilio`);
+  }
+  assert.equal(zonaDelCliente(cr, "Liberia"), "resto", "Guanacaste va por correo");
+
+  const domicilio = cr.envio.zonas[0]!;
+  assert.match(domicilio.pago!, /efectivo/);
+  assert.match(domicilio.pago!, /SINPE/);
+  assert.match(domicilio.pago!, /paga al recibir/);
+  assert.match(cr.pago!, /COMO EL CLIENTE PREFIERA/);
+  assert.match(cr.pagoAlCliente!, /efectivo, por transferencia o por SINPE/);
+
+  // Y el agente lo lee así en su bloque de país.
+  const bloque = bloqueDelPais(cr, "Heredia", "TELLERIA");
+  assert.ok(bloque.includes("entrega a domicilio"));
+  assert.ok(bloque.includes("efectivo"), "el efectivo es una de las tres formas");
+});
