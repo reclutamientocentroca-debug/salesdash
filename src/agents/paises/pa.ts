@@ -162,5 +162,5 @@ export const PA: DatosPais = {
   },
 
   // ── El pie del resumen ─────────────────────────────────────────────────
-  pieDelResumen: ["Enviamos a todo el país.", "Se despacha dentro de 24 a 48 horas."],
+  pieDelResumen: ["Enviamos a todo el país.", "Se lo enviamos dentro de 24 a 48 horas."],
 };

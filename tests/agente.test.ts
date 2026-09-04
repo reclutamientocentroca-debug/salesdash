@@ -1182,7 +1182,7 @@ test("el prompt prohíbe prometer un día de entrega", () => {
   const prompt = armarSistema("Tienda", D.obtenerAgente(orgId), [], null);
 
   assert.ok(prompt.includes("NO PROMETAS UN DÍA NI UNA HORA DE ENTREGA"));
-  assert.ok(prompt.includes("SE DESPACHA dentro de 24 a 48 horas"));
+  assert.ok(prompt.includes("SE ENVÍA dentro de 24 a 48 horas"));
 });
 
 /**
@@ -1523,7 +1523,7 @@ test("el agente dominicano cierra con las tres líneas, y el pedido va una sola 
   for (const linea of [
     "Somos tienda virtual y enviamos a todo el país.",
     "Paga al momento de recibir su pedido.",
-    "Se despacha dentro de 24 a 48 horas.",
+    "Se lo enviamos dentro de 24 a 48 horas.",
   ]) {
     assert.ok(dominicano.includes(linea), "falta la línea de cierre: " + linea);
   }

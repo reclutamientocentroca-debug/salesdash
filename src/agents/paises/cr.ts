@@ -250,6 +250,6 @@ export const CR: DatosPais = {
   // ── El pie del resumen ─────────────────────────────────────────────────
   pieDelResumen: [
     "Somos tienda virtual y enviamos a todo el país.",
-    "Se despacha dentro de 24 a 48 horas.",
+    "Se lo enviamos dentro de 24 a 48 horas.",
   ],
 };

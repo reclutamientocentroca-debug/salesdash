@@ -410,16 +410,28 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
   };
   {
     const tarifaSuya = zonaDe(ctx.lugarDelCliente);
-    if (tarifaSuya !== null) {
-      for (const frase of texto.split(/(?<=[.!?\n])\s+/)) {
-        if (!/env[ií]o/i.test(frase) || /total/i.test(frase)) continue;
-        const otra = importes(frase, d.moneda.simbolo).find((n) => costos.has(n) && n !== tarifaSuya);
-        if (otra !== undefined) {
-          fallas.push(`cotiza el envío en ${d.moneda.simbolo}${otra} y a este cliente, por su zona, le toca ${d.moneda.simbolo}${tarifaSuya}`);
-          break;
-        }
+    for (const frase of texto.split(/(?<=[.!?\n])\s+/)) {
+      if (!/env[ií]o/i.test(frase) || /total/i.test(frase)) continue;
+      /*
+       * La zona que manda es la que nombra la propia frase, si nombra alguna
+       * —«el envío a Santo Domingo Este es RD$290» se corrige solo, diga lo
+       * que diga el resto del hilo—, y si no, la del cliente.
+       */
+      const tarifa = zonaDe(frase) ?? tarifaSuya;
+      if (tarifa === null) continue;
+      // Una frase que lista las dos tarifas informa, no cotiza mal: solo se para la que da UNA y no es la de esa zona.
+      const enLaFrase = [...new Set(importes(frase, d.moneda.simbolo).filter((n) => costos.has(n)))];
+      const otra = enLaFrase.length === 1 && enLaFrase[0] !== tarifa ? enLaFrase[0] : undefined;
+      if (otra !== undefined) {
+        fallas.push(`cotiza el envío en ${d.moneda.simbolo}${otra} y a esa zona le toca ${d.moneda.simbolo}${tarifa}`);
+        break;
       }
     }
+  }
+
+  // 11b. Se dice «enviar», no «despachar». Lo pidió la dueña con esas palabras.
+  if (/\bdespach/i.test(texto)) {
+    fallas.push("dice «despachar» o «despachamos», y aquí se dice «se lo enviamos»: cámbialo por enviar");
   }
 
   // 12. Lo que va en el resumen lo tiene que haber escrito el cliente.

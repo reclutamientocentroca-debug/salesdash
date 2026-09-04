@@ -110,7 +110,10 @@ test("el prompt del agente lleva la tarifa del cliente cuando la escribió, y el
   assert.ok(pos("PASO 3 — Identifica qué información necesita") < pos("PASO 4 — Solicita la provincia"));
   assert.ok(pos("PASO 4 — Solicita la provincia") < pos("PASO 5 — Solicita la información necesaria para la entrega"));
   assert.ok(pos("PASO 5 — Solicita la información necesaria para la entrega") < pos("PASO 6 — Solicita el nombre completo"));
-  assert.ok(pos("PASO 6 — Solicita el nombre completo") < pos("PASO 8 — Genera el resumen del pedido"));
+  assert.ok(pos("PASO 6 — Solicita el nombre completo") < pos("PASO 7 — Cuando ya tengas TODOS los datos"));
+  assert.ok(pos("PASO 7 — Cuando ya tengas TODOS los datos") < pos("PASO 8 — EN CUANTO EL CLIENTE CONFIRME"));
+  assert.ok(ritmo.includes("¿Se lo facturamos y se lo enviamos?"), "la confirmación antes del resumen");
+  assert.ok(ritmo.includes("EN ESE MISMO MENSAJE"), "y el resumen es la respuesta al sí");
   assert.ok(ritmo.includes("LA DIRECCIÓN NUNCA ES LA PRIMERA PREGUNTA"));
   assert.ok(ritmo.includes("Nunca le preguntes nuevamente algo que ya te dijo"));
   assert.ok(ritmo.includes("Si el cliente pregunta algo, se lo contestas primero"));

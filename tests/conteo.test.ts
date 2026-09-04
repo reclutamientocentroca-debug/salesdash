@@ -1157,5 +1157,5 @@ test("el agente de Costa Rica cobra por SINPE, pide señas y no pide talla a una
 
   // Lo que comparte con los demás.
   assert.ok(cr.includes("AQUÍ NO SE RESERVA NADA"));
-  assert.ok(cr.includes("SE DESPACHA dentro de 24 a 48 horas"));
+  assert.ok(cr.includes("SE ENVÍA dentro de 24 a 48 horas"));
 });

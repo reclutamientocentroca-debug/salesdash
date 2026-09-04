@@ -2,7 +2,8 @@ import "./entorno";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { agenteDePais } from "../src/agents";
-import { aperturaSegura, articuloDeLaDescripcion, precioDeLaDescripcion, preguntaDelCliente, primeraPregunta, respuestaDirecta, respuestaMinima, tallasDisponibles } from "../src/lib/apertura";
+import { aperturaSegura, articuloDeLaDescripcion, precioDeLaDescripcion, preguntaDelCliente, primeraPregunta, respuestaDirecta, respuestaMinima, resumenMecanico, tallasDisponibles } from "../src/lib/apertura";
+import { contieneMarcador } from "../src/lib/cierre";
 
 /**
  * EL PRIMER MENSAJE VENDE DE LA DESCRIPCIÓN, SIN MODELO.
@@ -69,7 +70,7 @@ test("la respuesta mínima es la siguiente pregunta del pedido, nunca una transf
   assert.equal(respuestaMinima(rd, { ...vacia, talla: "la M" }, camisa), "Le hacemos envío y paga al recibir. ¿En qué provincia se encuentra?");
   assert.equal(respuestaMinima(rd, vacia, combo), "Le hacemos envío y paga al recibir. ¿En qué provincia se encuentra?");
   assert.equal(respuestaMinima(rd, { ...vacia, direccion: "Los Alcarrizos, calle 3" }, combo), "¿A nombre de quién sale el pedido?");
-  assert.match(respuestaMinima(rd, { ...vacia, direccion: "Los Alcarrizos, calle 3", nombre: "Ana Pérez" }, combo), /resumen de su pedido/);
+  assert.match(respuestaMinima(rd, { ...vacia, direccion: "Los Alcarrizos, calle 3", nombre: "Ana Pérez" }, combo), /¿Se lo facturamos y se lo enviamos\?/);
   for (const f of [vacia, { ...vacia, direccion: "x", nombre: "y" }]) {
     assert.equal(respuestaMinima(rd, f, combo).includes("representante"), false);
   }
@@ -128,4 +129,47 @@ test("las tallas disponibles se contestan con la tabla de tallas", () => {
   const r = respuestaMinima(cr, vacia, faja, { ultimoDelCliente: "¿Cuáles son los tamaños disponibles?", ultimoDelAgente: "Hola, le asiste Mildred de TELLERIA" });
   assert.ok(r.startsWith("Las tallas disponibles son de la 30 a la 42."), r);
   assert.ok(r.endsWith("¿Qué talla le interesa?"), "y después pregunta cuál, de usted");
+});
+
+/**
+ * EL CIERRE SALE SÍ O SÍ. Con todos los datos se pregunta «¿Se lo facturamos
+ * y se lo enviamos?», y cuando el cliente dice que sí, el resumen se manda en
+ * ese mismo mensaje, armado con lo que él escribió: nunca más «ya le preparo
+ * el resumen» sin resumen.
+ */
+test("con los datos se pide la confirmación, y con el sí sale el resumen armado con lo del cliente", () => {
+  const combo = { descripcion_anuncio: "🔥 ¡COMPRA SEGURO! 🔥 ❤️ COMBO 2 EN 1 — SOLO RD$1,690 ✨ Cepillo secador + plancha alisadora.", producto_anuncio: "Combo 2 en 1" };
+  const ficha = { talla: null, color: null, direccion: "Calle 3 #12, Los Mina, Santo Domingo Este", nombre: "Ana Pérez", celular: null, cantidad: null };
+
+  const pregunta = respuestaMinima(rd, ficha, combo, { ultimoDelCliente: "Ana Pérez", ultimoDelAgente: "¿A nombre de quién sale el pedido?" });
+  assert.equal(pregunta, "Ya tengo sus datos. ¿Se lo facturamos y se lo enviamos?");
+
+  const resumen = respuestaMinima(rd, ficha, combo, { ultimoDelCliente: "Sí", ultimoDelAgente: pregunta, telefonoDelChat: "18095551234" });
+  assert.ok(contieneMarcador(resumen, "Resumen:"), "lleva la cabecera que registra la venta");
+  assert.ok(resumen.includes("Nombre: Ana Pérez"));
+  assert.ok(resumen.includes("Teléfono: 18095551234"), "el teléfono del chat");
+  assert.ok(resumen.includes("Dirección: Calle 3 #12, Los Mina, Santo Domingo Este"));
+  assert.ok(resumen.includes("Producto: Combo 2 En 1"));
+  assert.ok(resumen.includes("Costo de envío: RD$250"), "Santo Domingo Este es ciudad");
+  assert.ok(resumen.includes("TOTAL A PAGAR: RD$1,940"), "1,690 + 250");
+  assert.ok(resumen.includes("Su pedido ha sido confirmado exitosamente."));
+  assert.ok(resumen.includes("Se lo enviamos dentro de 24 a 48 horas."));
+  assert.ok(!resumen.includes("despach"));
+
+  // Dos unidades al interior, con talla: se multiplica y va la variante.
+  const dos = resumenMecanico(rd, { ...ficha, talla: "42", cantidad: "2 pares", direccion: "Calle 1, Santiago" }, { descripcion_anuncio: "👞 ZAPATOS DCM ESTILO 💰 RD$1,990" }, { telefonoDelChat: "18095551234" })!;
+  assert.ok(dos.includes("Variante: 42"));
+  assert.ok(dos.includes("Cantidad: 2"));
+  assert.ok(dos.includes("Costo del producto: RD$3,980"));
+  assert.ok(dos.includes("Costo de envío: RD$290"));
+  assert.ok(dos.includes("TOTAL A PAGAR: RD$4,270"));
+
+  // Sin precio en la descripción no se inventa un resumen.
+  assert.equal(resumenMecanico(rd, ficha, { descripcion_anuncio: "Combo de cepillo y plancha, escríbenos" }, {}), null);
+  // Y en Costa Rica, con su forma y su moneda.
+  const tico = resumenMecanico(cr, { ...ficha, direccion: "Heredia centro, 100 norte de la iglesia" }, { descripcion_anuncio: "FAJA REVERSIBLE PARA HOMBRE ₡9.000" }, { telefonoDelChat: "50688881111" })!;
+  assert.ok(tico.startsWith("Resumen de su pedido:"));
+  assert.ok(tico.includes("Costo de envío: ₡3.500"));
+  assert.ok(tico.includes("Total a pagar: ₡12.500"));
+  assert.ok(tico.includes("Conectando con representante..."));
 });

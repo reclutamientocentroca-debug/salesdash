@@ -64,8 +64,10 @@ test("descuentos, envío gratis, días de entrega y reservas no salen", () => {
   assert.ok(revisarConReglas("Por hoy el envío gratis.", rd).some((x) => x.includes("envío gratis")));
   assert.ok(revisarConReglas("Le llega mañana sin falta.", rd).some((x) => x.includes("día de entrega")));
   assert.ok(revisarConReglas("Se lo aparto hasta el viernes.", rd).some((x) => x.includes("reserva")));
-  // Decir que se despacha en 24 a 48 horas no es prometer un día.
-  assert.deepEqual(revisarConReglas("Se despacha dentro de 24 a 48 horas.", rd), []);
+  // Decir que se envía en 24 a 48 horas no es prometer un día.
+  assert.deepEqual(revisarConReglas("Se lo enviamos dentro de 24 a 48 horas.", rd), []);
+  // Y «despachar» no se dice: se dice «enviar».
+  assert.ok(revisarConReglas("Se despacha dentro de 24 a 48 horas.", rd).some((x) => x.includes("enviamos")));
 });
 
 test("un resumen con huecos, a nombre de la vendedora o con un envío ajeno no sale", () => {
@@ -249,7 +251,7 @@ test("una talla, un número o un color a un artículo que no los lleva no se pre
     anuncio: "Este cliente llegó por un anuncio:\n- Producto anunciado: Zapatos DCM Estilo\n- Lo que promete el anuncio: Zapatos DCM Estilo RD$2,500. Disponibles en negro y marrón, del 39 al 45.",
   };
   assert.deepEqual(revisarConReglas("¿Qué número calza?", zapatos), []);
-  assert.deepEqual(revisarConReglas("Los tenemos en negro y marrón. ¿Cuál le despachamos?", zapatos), []);
+  assert.deepEqual(revisarConReglas("Los tenemos en negro y marrón. ¿Cuál le enviamos?", zapatos), []);
 
   // Y la pregunta del teléfono no es una pregunta de talla.
   assert.deepEqual(revisarConReglas("¿A qué número le llama el mensajero, a este mismo?", combo), []);
@@ -268,7 +270,7 @@ test("una mochila o un accesorio no lleva talla, ni aunque el anuncio traiga nú
 
   // Con los colores escritos en el anuncio, el color sí se pregunta; la talla sigue sin ir.
   const conColores = { ...mochila, anuncio: mochila.anuncio + " Disponible en negro y gris." };
-  assert.deepEqual(revisarConReglas("La tenemos en negro y gris. ¿Cuál te despachamos?", conColores), []);
+  assert.deepEqual(revisarConReglas("La tenemos en negro y gris. ¿Cuál te enviamos?", conColores), []);
   assert.ok(revisarConReglas("¿Qué talla necesitas?", conColores).some((f) => f.includes("talla")));
 
   // Y un reloj o una cartera, igual.
@@ -357,4 +359,17 @@ test("un apodo al cliente no sale, y una pregunta por las tallas se contesta con
   assert.ok(revisarConReglas("La faja es de excelente calidad. ¿Qué talla necesita?", tallas).some((f) => f.includes("tallas disponibles")));
   assert.deepEqual(revisarConReglas("Las tallas disponibles son de la 30 a la 42. ¿Cuál le interesa?", tallas), []);
   assert.deepEqual(revisarConReglas("La tenemos en S, M, L y XL. ¿Cuál le interesa?", tallas), []);
+});
+
+/**
+ * EL CASO REAL: «el envío a Santo Domingo Este son RD$290». Santo Domingo Este
+ * es Gran Santo Domingo y va a RD$250, diga lo que diga el hilo: la zona que
+ * nombra la propia frase manda.
+ */
+test("la tarifa de la zona que nombra el propio texto manda", () => {
+  assert.ok(revisarConReglas("El envío a Santo Domingo Este le sale en RD$290.", rd).some((f) => f.includes("RD$250")));
+  assert.ok(revisarConReglas("El envío a Sto Dgo Este es de RD$290.", rd).some((f) => f.includes("RD$250")));
+  assert.ok(revisarConReglas("A Santiago el envío son RD$250.", rd).some((f) => f.includes("RD$290")));
+  assert.deepEqual(revisarConReglas("El envío a Santo Domingo Este le sale en RD$250.", rd), []);
+  assert.deepEqual(revisarConReglas("El envío a Santiago son RD$290.", rd), []);
 });

@@ -43,6 +43,15 @@ export const RD: DatosPais = {
         lugares: [
           "Distrito Nacional",
           "Santo Domingo",
+          // Como lo abrevia la gente: «Sto Dgo Este», «SDE», «SDN», «SDO», «DN».
+          "Sto Dgo",
+          "Sto. Dgo.",
+          "Santo Dgo",
+          "Sto Domingo",
+          "SDE",
+          "SDN",
+          "SDO",
+          "DN",
           "Capital",
           "Los Mameyes",
           "Isabelita",
@@ -398,6 +407,6 @@ export const RD: DatosPais = {
   pieDelResumen: [
     "Somos tienda virtual y enviamos a todo el país.",
     "Paga al momento de recibir su pedido.",
-    "Se despacha dentro de 24 a 48 horas.",
+    "Se lo enviamos dentro de 24 a 48 horas.",
   ],
 };

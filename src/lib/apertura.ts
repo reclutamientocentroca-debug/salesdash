@@ -21,7 +21,10 @@
 import type { DatosPais } from "@/agents";
 import { importe, zonaDelCliente } from "@/agents/armar";
 import { TALLAS_BASE } from "@/agents/base-comportamiento";
+import { FRASE_DE_TRANSFERENCIA } from "@/agents/paises/rd-guion";
+import { MARCADOR_POR_DEFECTO } from "./cierre";
 import type { FichaDelPedido } from "./memoria";
+import { leerImporte } from "./moneda";
 
 /** Sin tildes ni mayúsculas, para comparar. */
 function llano(t: string): string {
@@ -131,6 +134,12 @@ export function respuestaMinima(
     ultimoDelAgente?: string | null;
     /** Dónde está el cliente, si se sabe: decide qué envío se le dice. */
     lugar?: string | null;
+    /** El teléfono del chat: va en el resumen como celular cuando el cliente no dio otro. */
+    telefonoDelChat?: string | null;
+    /** El marcador de cierre de la cuenta («Resumen:»). */
+    marcador?: string;
+    /** Cómo se presenta el artículo, si el anuncio lo trae con título. */
+    productoAnuncio?: string | null;
   } = {},
 ): string {
   const descripcion = anuncio?.descripcion_anuncio ?? "";
@@ -138,6 +147,22 @@ export function respuestaMinima(
 
   const paso: PasoDelPedido =
     llevaTalla && !ficha.talla ? "talla" : !ficha.direccion ? "direccion" : !ficha.nombre ? "nombre" : "resumen";
+
+  /*
+   * EL CIERRE. Con todos los datos, primero se pregunta si se le factura; y
+   * cuando el cliente ya dijo que sí, el resumen sale AQUÍ MISMO, armado con
+   * lo que él escribió y con el precio de la descripción. El caso real: el
+   * agente decía «ya le preparo el resumen» y el resumen nunca llegaba.
+   */
+  if (paso === "resumen") {
+    const yaPregunto = !!opciones.ultimoDelAgente && PIDE_CONFIRMACION.test(opciones.ultimoDelAgente);
+    if (yaPregunto && CONFIRMA.test(opciones.ultimoDelCliente ?? "")) {
+      const resumen = resumenMecanico(d, ficha, anuncio, opciones);
+      if (resumen) return resumen;
+      // Sin zona conocida no hay envío ni total: se pide la provincia.
+      return otraFormaDePreguntar(d, "direccion", descripcion);
+    }
+  }
 
   let pregunta = preguntaDelPaso(d, paso, descripcion);
 
@@ -177,9 +202,90 @@ function preguntaDelPaso(d: DatosPais, paso: PasoDelPedido, descripcion: string)
       return "¿A nombre de quién sale el pedido?";
     case "resumen":
       return tu
-        ? "Perfecto, ya tengo tus datos. Ahora mismo te preparo el resumen del pedido."
-        : "Perfecto, ya tengo sus datos. Ahora mismo le preparo el resumen de su pedido.";
+        ? "Ya tengo tus datos. ¿Te lo facturamos y te lo enviamos?"
+        : "Ya tengo sus datos. ¿Se lo facturamos y se lo enviamos?";
   }
+}
+
+/** Cómo suena la pregunta de confirmación, para saber que ya se hizo. */
+const PIDE_CONFIRMACION = /factur|confirma (su|tu|el) pedido|se lo enviamos\?|te lo enviamos\?/i;
+
+/** Un «sí» del cliente, en cualquiera de sus formas. */
+const CONFIRMA = /^[^\p{L}\p{N}]*(s[ií]|dale|claro|confirmo|confirmado|confirmar|ok|okey|okay|listo|perfecto|de acuerdo|correcto|adelante|vale|va|hagale|h[aá]gale|por supuesto|as[ií] es|exacto|me lo llevo|lo quiero|f[aá]ctureme|fact[uú]relo|env[ií]emelo)(?![\p{L}])/iu;
+
+/** «1», «2 pares», «dos» → cuántos lleva. Sin nada, uno. */
+function cantidadDe(texto: string | null): number {
+  if (!texto) return 1;
+  const n = texto.match(/\d+/);
+  if (n) return Math.max(1, Math.min(99, Number(n[0])));
+  const palabras: Record<string, number> = { un: 1, uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6 };
+  for (const [p, v] of Object.entries(palabras)) if (new RegExp(`\\b${p}\\b`, "i").test(texto)) return v;
+  return 1;
+}
+
+/**
+ * EL RESUMEN DEL PEDIDO, ARMADO SIN MODELO con lo que el cliente escribió:
+ * su nombre, su dirección, su talla o color, el precio de la descripción del
+ * anuncio y el envío de su zona. Con la cabecera que registra la venta, el
+ * pie del país y la transferencia pegada, igual que lo escribiría el agente.
+ * Null si falta algo que no se puede inventar: el precio o la zona.
+ */
+export function resumenMecanico(
+  d: DatosPais,
+  ficha: FichaDelPedido,
+  anuncio: { descripcion_anuncio?: string | null; producto_anuncio?: string | null } | null,
+  opciones: { lugar?: string | null; telefonoDelChat?: string | null; marcador?: string; productoAnuncio?: string | null } = {},
+): string | null {
+  if (!ficha.nombre || !ficha.direccion) return null;
+  const descripcion = anuncio?.descripcion_anuncio ?? "";
+  const precioTexto = precioDeLaDescripcion(descripcion, d.moneda.simbolo);
+  const precio = leerImporte(precioTexto);
+  if (precio === null) return null;
+
+  const zona = zonaDelCliente(d, ficha.direccion) ?? zonaDelCliente(d, opciones.lugar);
+  if (zona === null) return null;
+  const envio = zona === "resto" ? d.envio.restoDelPais.costo : zona.costo;
+
+  const articulo =
+    articuloDeLaDescripcion(descripcion, d.moneda.simbolo) ??
+    opciones.productoAnuncio?.trim() ??
+    anuncio?.producto_anuncio?.trim() ??
+    null;
+  if (!articulo) return null;
+
+  const cantidad = cantidadDe(ficha.cantidad);
+  const total = precio * cantidad + envio;
+  const variante = [ficha.talla, ficha.color].filter(Boolean).join(", ");
+  const marcador = opciones.marcador ?? MARCADOR_POR_DEFECTO;
+  const cabecera = /^resumen:?$/i.test(marcador.trim()) ? "Resumen de su pedido:" : marcador;
+  const celular = ficha.celular && ficha.celular !== "este mismo número" ? ficha.celular : (opciones.telefonoDelChat ?? "");
+
+  const lineas: string[] = [cabecera, ""];
+  if (d.codigo === "do") {
+    lineas.push(`Nombre: ${ficha.nombre}`);
+    if (celular) lineas.push(`Teléfono: ${celular}`);
+    lineas.push(`Dirección: ${ficha.direccion}`);
+    lineas.push(`Producto: ${articulo}`);
+    if (variante) lineas.push(`Variante: ${variante}`);
+    if (cantidad > 1) lineas.push(`Cantidad: ${cantidad}`);
+    lineas.push(`Costo del producto: ${importe(d, precio * cantidad)}`);
+    lineas.push(`Costo de envío: ${importe(d, envio)}`);
+    lineas.push(`TOTAL A PAGAR: ${importe(d, total)}`);
+    lineas.push("", ...d.pieDelResumen, "Su pedido ha sido confirmado exitosamente.", FRASE_DE_TRANSFERENCIA);
+  } else {
+    lineas.push(`Nombre: ${ficha.nombre}`);
+    if (celular) lineas.push(`Cel: ${celular}`);
+    lineas.push(`Producto: ${articulo}`);
+    lineas.push(`Cantidad: ${cantidad}`);
+    if (variante) lineas.push(`Talla y color: ${variante}`);
+    lineas.push(`Dirección: ${ficha.direccion}`);
+    lineas.push(`Costo de envío: ${importe(d, envio)}`);
+    const pago = zona === "resto" ? d.envio.restoDelPais.pago : zona.pago;
+    if (d.pago && pago) lineas.push(`Forma de pago: ${pago}`);
+    lineas.push(`Total a pagar: ${importe(d, total)}`);
+    lineas.push("", ...d.pieDelResumen, "", "Conectando con representante...");
+  }
+  return lineas.join("\n");
 }
 
 /** La misma pregunta con otras palabras, para cuando la anterior quedó sin contestar. */

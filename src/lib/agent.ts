@@ -1807,6 +1807,9 @@ export async function atenderConversacion(
           ultimoDelCliente: ultimo.content,
           ultimoDelAgente: contexto.ultimoDelAgente,
           lugar: contexto.lugarDelCliente,
+          telefonoDelChat: conv.cliente_phone,
+          marcador: contexto.marcador,
+          productoAnuncio: anuncioVigente(conv)?.producto_anuncio ?? null,
         });
         crearAnomalia(orgId, {
           conversationId,
@@ -1816,7 +1819,8 @@ export async function atenderConversacion(
             `El revisor paró la respuesta del agente (${quien}): ${motivo}. ` +
             `Al cliente se le mandó la siguiente pregunta del pedido («${minima}») y la venta sigue con el agente.`,
         });
-        respuesta = { ...respuesta, texto: minima, pideAsesor: false };
+        // Si lo que salió fue el resumen del pedido, la transferencia va pegada, como siempre.
+        respuesta = { ...respuesta, texto: minima, pideAsesor: contieneMarcador(minima, contexto.marcador) };
       }
     }
 
