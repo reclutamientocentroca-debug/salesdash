@@ -1680,7 +1680,7 @@ export async function atenderConversacion(
    */
   const datosPais = agenteDePais(agente.pais);
   if (datosPais) {
-    const { correccionParaElAgente, revisarBorrador } = await import("./revisor");
+    const { correccionParaElAgente, revisarBorrador, transferenciaPermitida } = await import("./revisor");
     const org = obtenerOrg(orgId);
     const negocio = nombreDelNegocio(agente, canal, org ?? null);
     const cliente = { telefono: conv.cliente_phone, nombre: conv.cliente_nombre };
@@ -1699,6 +1699,7 @@ export async function atenderConversacion(
         ubicacion?.zona?.nombre ??
         lugarEscritoPorElCliente(datosPais, mensajesDeLaSesion(historial)),
       nombreDeCuenta: conv.cliente_nombre,
+      ultimoDelCliente: ultimo.content,
       clienteEscribioSuNombre: !!conv.cliente_nombre && historial.some(
         (m) => m.emisor === "cliente" && m.content.toLowerCase().includes(conv.cliente_nombre!.toLowerCase()),
       ),
@@ -1802,6 +1803,20 @@ export async function atenderConversacion(
         });
         respuesta = { ...respuesta, texto: minima, pideAsesor: false };
       }
+    }
+
+    /*
+     * LA ETIQUETA DE TRANSFERENCIA NO PASA EL CHAT SIN MOTIVO.
+     *
+     * El modelo escribe "[HANDOFF]" más de la cuenta, y con ella el hilo se
+     * iba a una persona y el agente se callaba: un cliente sin vendedor. Aquí
+     * la etiqueta solo vale con el resumen, o si el cliente acaba de pedir una
+     * foto, precio al por mayor o una persona. En cualquier otro caso se
+     * ignora, se anota, y el agente sigue vendiendo en el siguiente mensaje.
+     */
+    if (respuesta.pideAsesor && !transferenciaPermitida(respuesta.texto, contexto)) {
+      console.log(`[revisor] etiqueta de transferencia sin motivo en ${conversationId}: se ignora`);
+      respuesta = { ...respuesta, pideAsesor: false };
     }
   }
 

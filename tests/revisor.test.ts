@@ -285,3 +285,26 @@ test("pedir la ubicación por el mapa, o insistir con ella, no sale", () => {
   // Y decirle que ya le llegó su ubicación cuando sí la mandó, también.
   assert.deepEqual(revisarConReglas("Perfecto, ya me llegó su ubicación. El envío es RD$250.", { ...rd, clienteCompartioUbicacion: true }), []);
 });
+
+/**
+ * EL CASO REAL: «en un momento será transferido a un representante» a todo el
+ * mundo. Solo con el resumen, por una foto, por mayoreo o si pide persona.
+ */
+test("una transferencia sin motivo no sale; con motivo, sí", () => {
+  const frase = "En un momento será transferido a un representante que le continuará atendiendo.";
+
+  const preguntaNormal = { ...rd, ultimoDelCliente: "¿Cuánto es el envío a Santiago?" };
+  assert.ok(revisarConReglas(frase, preguntaNormal).some((f) => f.includes("sin motivo")));
+  assert.ok(revisarConReglas("Le paso con un representante que le atiende eso.", preguntaNormal).some((f) => f.includes("sin motivo")));
+  assert.ok(revisarConReglas("Un representante le confirma ese dato.", preguntaNormal).some((f) => f.includes("sin motivo")));
+
+  // Con motivo: foto, mayoreo o persona.
+  assert.deepEqual(revisarConReglas(frase, { ...rd, ultimoDelCliente: "¿Me manda una foto?" }), []);
+  assert.deepEqual(revisarConReglas(frase, { ...rd, ultimoDelCliente: "¿Cuánto al por mayor si llevo 12?" }), []);
+  assert.deepEqual(revisarConReglas(frase, { ...rd, ultimoDelCliente: "Quiero hablar con una persona" }), []);
+
+  // Y con el resumen, siempre.
+  const resumen = "Resumen de su pedido:\n\nNombre: Ana Pérez\nCel: 8095551234\nProducto: Mocasines\nCantidad: 1\nDirección: Calle 1 #2, Los Prados, Santo Domingo\nCosto de envío: RD$250\nTotal a pagar: RD$2,750\n\nSu pedido ha sido confirmado exitosamente.\n" + frase;
+  const cierre = { ...rd, ultimoDelCliente: "sí, confirmo", textosDelCliente: ["Ana Pérez", "Calle 1 #2, Los Prados, Santo Domingo", "8095551234"], telefonoDelChat: "18095551234" };
+  assert.deepEqual(revisarConReglas(resumen, cierre), []);
+});

@@ -74,6 +74,8 @@ export interface ContextoRevision {
   telefonoDelChat?: string | null;
   /** Dónde está el cliente según lo que escribió o su pin: decide la tarifa. */
   lugarDelCliente?: string | null;
+  /** Lo último que escribió el cliente: decide si una transferencia tiene motivo. */
+  ultimoDelCliente?: string | null;
 }
 
 /** Sin tildes ni mayúsculas. */
@@ -320,6 +322,19 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
     }
   }
 
+  // 8e. UNA TRANSFERENCIA SIN MOTIVO NO SALE.
+  //
+  // El caso real: el agente le decía «en un momento será transferido a un
+  // representante» a todo el mundo, y no vendía. Solo se transfiere con el
+  // resumen, cuando el cliente pide una foto, cuando pide precio al por mayor,
+  // cuando pide hablar con una persona, o cuando no hay precio en ningún
+  // sitio. Por nada más: lo demás se contesta y se sigue vendiendo.
+  if (HABLA_DE_TRANSFERIR.test(texto) && !transferenciaPermitida(texto, ctx)) {
+    fallas.push(
+      "transfiere al representante sin motivo: solo se transfiere con el resumen, por una foto, por precio al por mayor o si el cliente pide hablar con una persona. Contesta lo que preguntó y sigue vendiendo el artículo",
+    );
+  }
+
   // 9. Tutear donde se vende de usted.
   if (d.trato === "usted" && TUTEO.test(texto)) {
     fallas.push("tutea al cliente («quieres», «te lo», «tu pedido»), y aquí se vende de usted");
@@ -448,6 +463,28 @@ export function preguntaDeVarianteSinVariante(borrador: string, ctx: ContextoRev
   }
 
   return fallas;
+}
+
+/** Cómo suena una transferencia en el texto del agente. */
+const HABLA_DE_TRANSFERIR =
+  /\[?HANDOFF\]?|ser[aá] transferid|(le|te) (paso|transfiero|conecto|comunico|derivo) (con|a) (un|el|una|la) (representante|asesor|asesora|agente|compañer)|(un|el|una) (representante|asesor|asesora|agente) (le|te) (atiende|atender[aá]|continuar[aá]|contin[uú]a|confirma|confirmar[aá]|pasa|pasar[aá]|escribe|escribir[aá]|contacta|contactar[aá])|conectando con (un )?representante/i;
+
+/** Lo que pide el cliente cuando sí toca transferir. */
+const CLIENTE_PIDE_FOTO = /\b(foto|fotos|imagen|im[aá]genes|video|videos)\b|ver(lo|la|los|las)? (el|la|los|las) (producto|art[ií]culo|modelo|zapato|camisa)|mu[eé]str[ae]me|ens[eé][ñn][ae]me/i;
+const CLIENTE_PIDE_MAYOREO = /\bmayor(eo|ista)?\b|al por mayor|por mayor|revender|reventa|\bdocena|precio (por|de) cantidad|varias unidades para vender/i;
+const CLIENTE_PIDE_PERSONA = /hablar con (una persona|alguien|un asesor|una asesora|un representante|un humano|un agente|el due[ñn]o|la due[ñn]a)|persona real|\bhumano\b|\bhumana\b|no quiero (un )?(bot|robot)/i;
+
+/**
+ * ¿ESTA TRANSFERENCIA TIENE MOTIVO? Con el resumen, siempre. Sin resumen, solo
+ * si el cliente acaba de pedir una foto, precio al por mayor o una persona, o
+ * si no hay ningún precio con el que vender.
+ */
+export function transferenciaPermitida(borrador: string, ctx: ContextoRevision): boolean {
+  if (contieneMarcador(borrador, ctx.marcador ?? MARCADOR_POR_DEFECTO)) return true;
+  const pide = ctx.ultimoDelCliente ?? "";
+  if (CLIENTE_PIDE_FOTO.test(pide) || CLIENTE_PIDE_MAYOREO.test(pide) || CLIENTE_PIDE_PERSONA.test(pide)) return true;
+  // Sin ningún precio escrito en ningún sitio, no se puede vender: ahí sí.
+  return cifrasConocidas(ctx).length === 0;
 }
 
 /** Cómo suena pedirle al cliente la ubicación por el mapa, o que la repita. */
