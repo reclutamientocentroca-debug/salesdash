@@ -1,79 +1,72 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { IconoMarca } from "@/components/IconoMarca";
 import {
   IconoAdmin,
   IconoAgente,
+  IconoChevron,
   IconoConfiguracion,
   IconoConversaciones,
   IconoDashboard,
   IconoEquipo,
+  IconoLuna,
   IconoMessenger,
   IconoNumeros,
   IconoProductos,
   IconoRevision,
   IconoSalir,
+  IconoSol,
   IconoVentas,
 } from "./Iconos";
 
-const MENU = [
-  { href: "/dashboard", texto: "Dashboard", Icono: IconoDashboard },
-  { href: "/numeros", texto: "Números", Icono: IconoNumeros },
-  { href: "/canales/meta", texto: "Messenger", Icono: IconoMessenger },
-  { href: "/conversaciones", texto: "Conversaciones", Icono: IconoConversaciones },
-  { href: "/revision", texto: "Revisión", Icono: IconoRevision },
-  { href: "/agente", texto: "Agente de IA", Icono: IconoAgente },
-  { href: "/ventas", texto: "Ventas", Icono: IconoVentas },
-  { href: "/productos", texto: "Productos", Icono: IconoProductos },
-  { href: "/equipo", texto: "Equipo", Icono: IconoEquipo },
-  { href: "/configuracion", texto: "Configuración", Icono: IconoConfiguracion },
-];
-
-const RANGOS = [
-  { clave: "hoy", texto: "Hoy" },
-  { clave: "ayer", texto: "Ayer" },
-  { clave: "7d", texto: "Últimos 7 días" },
-  { clave: "30d", texto: "Últimos 30 días" },
-  { clave: "mes", texto: "Este mes" },
-  { clave: "mes_pasado", texto: "Mes pasado" },
-  { clave: "todo", texto: "Todo" },
-];
-
 /*
- * El calendario habla en días; la URL, en segundos.
- *
- * La conversión se hace con `new Date(año, mes, día)` —hora local— y no
- * interpretando la cadena «2026-03-04», que se lee como UTC y en media América
- * corre el periodo un día entero. «Desde» empieza a las 00:00 y «hasta»
- * termina a las 23:59:59, igual que los rangos con nombre: un día elegido en
- * el calendario es el día completo, no el instante en que se pulsó.
+ * El menú, en tres grupos: lo que se mira a diario, lo del negocio y lo que se
+ * configura una vez. Un menú de diez entradas seguidas obliga a leerlas todas;
+ * con los rótulos, el ojo va al grupo y luego a la entrada.
  */
-function aSegundos(iso: string, finDelDia: boolean): number | null {
-  const [a, m, d] = iso.split("-").map(Number);
-  if (!a || !m || !d) return null;
-  const fecha = finDelDia ? new Date(a, m - 1, d, 23, 59, 59) : new Date(a, m - 1, d);
-  return Math.floor(fecha.getTime() / 1000);
-}
+const SECCIONES = [
+  {
+    titulo: "Operación",
+    items: [
+      { href: "/dashboard", texto: "Resumen", Icono: IconoDashboard },
+      { href: "/conversaciones", texto: "Conversaciones", Icono: IconoConversaciones },
+      { href: "/canales/meta", texto: "Messenger", Icono: IconoMessenger },
+      { href: "/revision", texto: "Revisión", Icono: IconoRevision },
+    ],
+  },
+  {
+    titulo: "Negocio",
+    items: [
+      { href: "/ventas", texto: "Ventas", Icono: IconoVentas },
+      { href: "/productos", texto: "Productos", Icono: IconoProductos },
+    ],
+  },
+  {
+    titulo: "Configuración",
+    items: [
+      { href: "/numeros", texto: "Números", Icono: IconoNumeros },
+      { href: "/agente", texto: "Agente de IA", Icono: IconoAgente },
+      { href: "/equipo", texto: "Equipo", Icono: IconoEquipo },
+      { href: "/configuracion", texto: "Ajustes", Icono: IconoConfiguracion },
+    ],
+  },
+];
 
-function aIso(segundos: string | null): string {
-  if (!segundos) return "";
-  const n = Number(segundos);
-  if (!Number.isFinite(n) || n <= 0) return "";
-  const f = new Date(n * 1000);
-  const dos = (x: number) => String(x).padStart(2, "0");
-  return `${f.getFullYear()}-${dos(f.getMonth() + 1)}-${dos(f.getDate())}`;
-}
+type Tema = "oscuro" | "claro";
 
 interface Props {
   negocio: string;
+  /** En cuántos países vende la cuenta, por los números conectados. */
+  paises: number;
   usuario: { nombre: string; email: string };
   superadmin: boolean;
   pendientesRevision: number;
 }
 
-export default function BarraLateral({ negocio, usuario, superadmin, pendientesRevision }: Props) {
+export default function BarraLateral({ negocio, paises, usuario, superadmin, pendientesRevision }: Props) {
   const ruta = usePathname();
   const router = useRouter();
   const params = useSearchParams();
@@ -98,182 +91,99 @@ export default function BarraLateral({ negocio, usuario, superadmin, pendientesR
     return p.toString();
   })();
 
+  /*
+   * El tema vive en el marco (`data-tema`) y se recuerda en el navegador. El
+   * marco ya llega pintado desde el servidor y un script lo ajusta antes de
+   * que React arranque, así que aquí solo se lee lo que ya hay.
+   */
+  const [tema, setTema] = useState<Tema>("oscuro");
+  useEffect(() => {
+    const marco = document.querySelector<HTMLElement>(".sd-marco");
+    setTema(marco?.dataset.tema === "claro" ? "claro" : "oscuro");
+  }, []);
+
+  function cambiarTema() {
+    const nuevo: Tema = tema === "oscuro" ? "claro" : "oscuro";
+    const marco = document.querySelector<HTMLElement>(".sd-marco");
+    if (marco) marco.dataset.tema = nuevo;
+    try {
+      localStorage.setItem("sd-tema", nuevo);
+    } catch {
+      // Sin almacenamiento el tema dura lo que dure la página. No pasa nada.
+    }
+    setTema(nuevo);
+  }
+
   async function salir() {
     await fetch("/api/auth/logout", { method: "POST" });
     router.push("/login");
     router.refresh();
   }
 
-  function cambiarRango(clave: string) {
-    const nuevos = new URLSearchParams(params.toString());
-    nuevos.set("rango", clave);
-    // Un rango con nombre manda: las fechas del calendario se retiran.
-    nuevos.delete("desde");
-    nuevos.delete("hasta");
-    router.push(`${ruta}?${nuevos.toString()}`);
-  }
-
-  function aplicarFechas(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const datos = new FormData(e.currentTarget);
-    const uno = String(datos.get("desde") ?? "");
-    const otro = String(datos.get("hasta") ?? "");
-    if (!uno || !otro) return;
-
-    // Elegidas al revés, se ordenan solas en vez de no enseñar nada.
-    const [ini, fin] = uno <= otro ? [uno, otro] : [otro, uno];
-    const desde = aSegundos(ini, false);
-    const hasta = aSegundos(fin, true);
-    if (desde === null || hasta === null) return;
-
-    const nuevos = new URLSearchParams(params.toString());
-    nuevos.set("rango", "personalizado");
-    nuevos.set("desde", String(desde));
-    nuevos.set("hasta", String(hasta));
-    router.push(`${ruta}?${nuevos.toString()}`);
-  }
-
   return (
     <nav className="sd-lateral" aria-label="Menú principal">
       <div className="sd-lateral-cuerpo">
-        {/* Dos filas, y separadas a propósito: arriba el producto, abajo la
-            cuenta. Antes iban mezcladas y "SalesDash" quedaba como un
-            subtítulo del nombre del negocio, que es justo lo contrario de lo
-            que es. El azulejo es el mismo del icono de pestaña: la aplicación
-            se reconoce igual por dentro que en el navegador. */}
+        {/* Arriba el producto, debajo la cuenta. El azulejo es el mismo del
+            icono de pestaña: la aplicación se reconoce igual por dentro que
+            en el navegador. */}
         <div className="sd-marca">
           <IconoMarca tamano={28} id="lateral" />
           <span className="marca-texto" style={{ fontSize: 16 }}>
             Sales<span className="marca-degradado">Dash</span>
           </span>
+          <span className="sd-beta">Beta</span>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 22 }}>
-          <div
-            style={{
-              width: 34, height: 34, borderRadius: 9, background: "var(--acc)", color: "#fff",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              fontWeight: 600, fontSize: 15, flexShrink: 0,
-            }}
-            aria-hidden="true"
-          >
+        <Link href={`/configuracion?${consulta}`} className="sd-org" title="Ajustes de la cuenta">
+          <span className="sd-org-inicial" aria-hidden="true">
             {negocio.charAt(0).toUpperCase()}
+          </span>
+          <span style={{ minWidth: 0, flex: 1 }}>
+            <span className="sd-org-nombre">{negocio}</span>
+            <span className="tenue" style={{ display: "block" }}>
+              {paises > 0 ? `${paises} país${paises === 1 ? "" : "es"}` : "Tu cuenta"}
+            </span>
+          </span>
+          <IconoChevron tam={14} />
+        </Link>
+
+        {SECCIONES.map((seccion) => (
+          <div key={seccion.titulo} className="sd-seccion">
+            <div className="rotulo sd-seccion-titulo">{seccion.titulo}</div>
+            <ul className="sd-menu">
+              {seccion.items.map(({ href, texto, Icono }) => {
+                const activo = ruta === href || ruta.startsWith(`${href}/`);
+                return (
+                  <li key={href}>
+                    <Link
+                      href={`${href}?${consulta}`}
+                      className={`sd-enlace${activo ? " sd-enlace-activo" : ""}`}
+                      aria-current={activo ? "page" : undefined}
+                    >
+                      <Icono />
+                      <span>{texto}</span>
+                      {href === "/revision" && pendientesRevision > 0 && (
+                        <span className="sd-contador num">{pendientesRevision}</span>
+                      )}
+                    </Link>
+                  </li>
+                );
+              })}
+              {seccion.titulo === "Configuración" && superadmin && (
+                <li>
+                  <Link href="/admin" className="sd-enlace">
+                    <IconoAdmin />
+                    <span>Plataforma</span>
+                  </Link>
+                </li>
+              )}
+            </ul>
           </div>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 13.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {negocio}
-            </div>
-            <div className="tenue">Tu cuenta</div>
-          </div>
-        </div>
-
-        <ul className="sd-menu">
-          {MENU.map(({ href, texto, Icono }) => {
-            const activo = ruta === href || ruta.startsWith(`${href}/`);
-            return (
-              <li key={href}>
-                <Link
-                  href={`${href}?${consulta}`}
-                  className={`sd-enlace${activo ? " sd-enlace-activo" : ""}`}
-                  aria-current={activo ? "page" : undefined}
-                >
-                  <Icono />
-                  <span>{texto}</span>
-                  {href === "/revision" && pendientesRevision > 0 && (
-                    <span className="sd-contador num">{pendientesRevision}</span>
-                  )}
-                </Link>
-              </li>
-            );
-          })}
-
-          {superadmin && (
-            <li>
-              <Link href="/admin" className="sd-enlace">
-                <IconoAdmin />
-                <span>Plataforma</span>
-              </Link>
-            </li>
-          )}
-        </ul>
-
-        <div className="rotulo" style={{ margin: "22px 0 8px" }}>
-          Rango de fechas
-        </div>
-        <ul className="sd-menu">
-          {RANGOS.map((r) => (
-            <li key={r.clave}>
-              <button
-                type="button"
-                onClick={() => cambiarRango(r.clave)}
-                className={`sd-enlace sd-rango${!personalizado && rangoActual === r.clave ? " sd-enlace-activo" : ""}`}
-              >
-                {r.texto}
-              </button>
-            </li>
-          ))}
-        </ul>
-
-        {/*
-          El calendario, debajo de los atajos y no en lugar de ellos.
-
-          Los rangos con nombre resuelven casi todo con un clic, pero «del 3 al
-          17» no está en esa lista y hasta ahora solo se podía pedir escribiendo
-          segundos en la URL a mano. Son dos campos de fecha nativos: el
-          calendario lo pone el navegador, que es el que el usuario ya sabe usar
-          en su teléfono y en su ordenador.
-
-          El `key` es lo que mantiene los campos pegados a la URL: al pulsar un
-          rango con nombre —que borra las fechas— React los vuelve a montar
-          vacíos, en vez de dejar a la vista un periodo que ya no se aplica.
-        */}
-        <form
-          className="sd-fechas"
-          key={`${desdeParam ?? ""}:${hastaParam ?? ""}`}
-          onSubmit={aplicarFechas}
-        >
-          <label>
-            <span>Desde</span>
-            <input
-              type="date"
-              name="desde"
-              className="campo sd-campo-fecha"
-              defaultValue={aIso(desdeParam)}
-              required
-            />
-          </label>
-          <label>
-            <span>Hasta</span>
-            <input
-              type="date"
-              name="hasta"
-              className="campo sd-campo-fecha"
-              defaultValue={aIso(hastaParam)}
-              required
-            />
-          </label>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <button type="submit" className="btn btn-secundario sd-btn-fecha">
-              Aplicar
-            </button>
-            {personalizado && (
-              <button type="button" onClick={() => cambiarRango("7d")} className="sd-quitar-fechas">
-                Quitar
-              </button>
-            )}
-          </div>
-        </form>
+        ))}
       </div>
 
       <div className="sd-lateral-pie">
-        <div
-          style={{
-            width: 28, height: 28, borderRadius: "50%", background: "var(--soft)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: 12, fontWeight: 600, color: "var(--ink-2)", flexShrink: 0,
-          }}
-          aria-hidden="true"
-        >
+        <div className="sd-usuario-inicial" aria-hidden="true">
           {usuario.nombre.charAt(0).toUpperCase()}
         </div>
         <div style={{ minWidth: 0, flex: 1 }}>
@@ -284,6 +194,15 @@ export default function BarraLateral({ negocio, usuario, superadmin, pendientesR
             {usuario.email}
           </div>
         </div>
+        <button
+          type="button"
+          onClick={cambiarTema}
+          className="sd-tema-boton"
+          aria-label={tema === "oscuro" ? "Cambiar a tema claro" : "Cambiar a tema oscuro"}
+          title={tema === "oscuro" ? "Tema claro" : "Tema oscuro"}
+        >
+          {tema === "oscuro" ? <IconoSol tam={15} /> : <IconoLuna tam={15} />}
+        </button>
         <button type="button" onClick={salir} className="sd-salir" aria-label="Salir de la cuenta" title="Salir">
           <IconoSalir />
         </button>

@@ -37,6 +37,8 @@
      distintos y tienen que distinguirse sin leer. */
   --naranja: #d2601a;
   --naranja-bg: #fdeee3;
+  --verde: #1f9e6e;
+  --verde-bg: #e3f5ec;
 
   /* Forma */
   --radio-tarjeta: 12px;
@@ -198,11 +200,11 @@ body {
 
 .btn-primario {
   background: var(--ink);
-  color: #ffffff;
+  color: var(--page);
 }
 
 .btn-primario:hover:not(:disabled) {
-  background: #1b2e29;
+  background: color-mix(in srgb, var(--ink) 86%, var(--page));
 }
 
 .btn-acento {
@@ -784,10 +786,416 @@ body {
   color: var(--red);
 }
 
+.sd-columna {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .sd-contenido {
   flex: 1;
   min-width: 0;
-  padding: 22px 24px 40px;
+  padding: 20px 24px 40px;
+}
+
+/* ── La barra de arriba: pantalla, periodo, buscador y rangos ─────────────── */
+
+.sd-superior {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 24px;
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.sd-superior-titulo {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.sd-buscador {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 1 300px;
+  min-width: 160px;
+  padding: 6px 10px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radio-control);
+  background: var(--page);
+  color: var(--ink-3);
+}
+
+.sd-buscador:focus-within {
+  border-color: var(--acc);
+}
+
+.sd-buscador input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 12.5px;
+  outline: none;
+}
+
+.sd-buscador input::placeholder {
+  color: var(--ink-3);
+}
+
+.sd-buscador kbd {
+  font-family: var(--font-sans);
+  font-size: 10.5px;
+  padding: 1px 5px;
+  border: 1px solid var(--line-2);
+  border-radius: 5px;
+  color: var(--ink-3);
+}
+
+.sd-rangos {
+  display: flex;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radio-control);
+  overflow: visible;
+  background: var(--page);
+}
+
+.sd-rango-btn {
+  padding: 6px 11px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink-2);
+  background: transparent;
+  border: 0;
+  border-right: 1px solid var(--line-2);
+  cursor: pointer;
+  white-space: nowrap;
+  list-style: none;
+}
+
+.sd-rangos > :first-child {
+  border-radius: var(--radio-control) 0 0 var(--radio-control);
+}
+
+.sd-rango-btn:hover {
+  color: var(--ink);
+  background: var(--soft);
+}
+
+.sd-rango-btn[aria-pressed="true"] {
+  background: var(--soft);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.sd-mas {
+  position: relative;
+}
+
+.sd-mas > summary {
+  border-right: 0;
+  border-radius: 0 var(--radio-control) var(--radio-control) 0;
+}
+
+.sd-mas > summary::-webkit-details-marker {
+  display: none;
+}
+
+.sd-mas-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  width: 230px;
+  background: var(--card);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radio-tarjeta);
+  padding: 8px;
+  display: grid;
+  gap: 2px;
+  z-index: 30;
+}
+
+.sd-mas-panel .sd-fechas {
+  padding: 8px 2px 2px;
+  border-top: 1px solid var(--line);
+  margin-top: 6px;
+}
+
+/* ── Barra lateral: marca, cuenta y secciones ────────────────────────────── */
+
+.sd-beta {
+  margin-left: auto;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--acc-bg);
+  color: var(--acc);
+}
+
+.sd-org {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  margin-bottom: 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radio-control);
+  background: var(--page);
+  color: inherit;
+  text-decoration: none;
+}
+
+.sd-org:hover {
+  border-color: var(--line-2);
+}
+
+.sd-org-inicial {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--acc);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.sd-org-nombre {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sd-seccion {
+  margin-bottom: 16px;
+}
+
+.sd-seccion-titulo {
+  padding: 0 10px;
+  margin-bottom: 6px;
+}
+
+.sd-usuario-inicial {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+  flex-shrink: 0;
+}
+
+.sd-tema-boton {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid var(--acc);
+  background: transparent;
+  color: var(--acc);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.sd-tema-boton:hover {
+  background: var(--acc-bg);
+}
+
+/* ── La nubecita del pedido ──────────────────────────────────────────────── */
+
+.sd-nube {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px 2px 6px;
+  border-radius: 20px;
+  background: var(--acc-bg);
+  color: var(--acc);
+  white-space: nowrap;
+}
+
+/* ── KPI con insignia y barra de meta ───────────────────────────────────── */
+
+.sd-kpi-insignia {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 20px;
+  background: var(--verde-bg);
+  color: var(--verde);
+}
+
+.sd-kpi-insignia.ambar {
+  background: var(--amber-bg);
+  color: var(--amber);
+}
+
+.sd-kpi-insignia.rojo {
+  background: var(--red-bg);
+  color: var(--red);
+}
+
+.sd-kpi-barra {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--soft);
+  overflow: hidden;
+  margin: 8px 0 5px;
+}
+
+.sd-kpi-barra > div {
+  height: 100%;
+  border-radius: 2px;
+}
+
+/* ── Rendimiento por número: una barra por número ───────────────────────── */
+
+.sd-canales-barras {
+  display: grid;
+}
+
+.sd-canal-barra {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.4fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.sd-canal-barra:last-child {
+  border-bottom: none;
+}
+
+.sd-canal-barra .sd-pista {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--soft);
+  overflow: hidden;
+}
+
+.sd-canal-barra .sd-pista > div {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--acc);
+}
+
+/* ── Necesita tu atención ───────────────────────────────────────────────── */
+
+.sd-etiqueta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 20px;
+  white-space: nowrap;
+  margin-right: 7px;
+}
+
+.sd-etiqueta::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.sd-etiqueta-rojo { background: var(--red-bg); color: var(--red); }
+.sd-etiqueta-ambar { background: var(--amber-bg); color: var(--amber); }
+.sd-etiqueta-azul { background: var(--blue-bg); color: var(--blue); }
+.sd-etiqueta-morado { background: var(--acc-bg); color: var(--acc); }
+
+.sd-atencion td {
+  vertical-align: middle;
+}
+
+/* ── Tema oscuro ────────────────────────────────────────────────────────────
+   Los mismos tokens con otros valores: nada más cambia. El acento en oscuro
+   es el morado de la maqueta salvo que la cuenta haya elegido el suyo. */
+
+.sd-marco {
+  background: var(--page);
+  --acc: var(--acc-claro, #12876a);
+}
+
+.sd-marco[data-tema="oscuro"] {
+  --ink: #f1f0fa;
+  --ink-2: #b1b0cc;
+  --ink-3: #7f7e9d;
+  --ink-4: #5a5978;
+  --page: #0c0b14;
+  --card: #13121d;
+  --line: #232238;
+  --line-2: #2f2e49;
+  --soft: #1b1a2a;
+  --acc: var(--acc-oscuro, #7c6cf9);
+  --acc-2: color-mix(in srgb, var(--acc) 80%, white);
+  --acc-bg: color-mix(in srgb, var(--acc) 20%, var(--card));
+  --blue: #8b9cff;
+  --blue-bg: color-mix(in srgb, #8b9cff 18%, var(--card));
+  --red: #ff7a70;
+  --red-bg: color-mix(in srgb, #ff7a70 18%, var(--card));
+  --amber: #f3b64a;
+  --amber-bg: color-mix(in srgb, #f3b64a 18%, var(--card));
+  --naranja: #ff9357;
+  --naranja-bg: color-mix(in srgb, #ff9357 18%, var(--card));
+  --verde: #2ed8a7;
+  --verde-bg: color-mix(in srgb, #2ed8a7 18%, var(--card));
+  color: var(--ink);
+  color-scheme: dark;
+}
+
+@media (max-width: 820px) {
+  .sd-superior {
+    flex-wrap: wrap;
+    padding: 10px 14px;
+    position: static;
+  }
+  .sd-buscador {
+    order: 3;
+    flex-basis: 100%;
+    margin-left: 0;
+  }
+  .sd-seccion-titulo,
+  .sd-org,
+  .sd-beta {
+    display: none;
+  }
+  .sd-seccion {
+    margin-bottom: 0;
+  }
 }
 
 .sd-cabecera {
@@ -1279,7 +1687,7 @@ body {
 }
 
 .sd-tema-pais .sd-pais-tarjeta .sd-apartado-num {
-  background: color-mix(in srgb, var(--pais, var(--ink-3)) 12%, white);
+  background: color-mix(in srgb, var(--pais, var(--ink-3)) 12%, var(--card));
   color: var(--pais, var(--ink-2));
 }
 
@@ -1289,7 +1697,7 @@ body {
 .sd-tema-pais .sd-canal-activo,
 .sd-tema-pais .sd-canal-activo:hover {
   border-color: var(--pais, var(--acc));
-  background: color-mix(in srgb, var(--pais, var(--acc)) 8%, white);
+  background: color-mix(in srgb, var(--pais, var(--acc)) 8%, var(--card));
 }
 
 .sd-tema-pais .sd-canal-activo .sd-canal-nombre {
@@ -1322,7 +1730,7 @@ body {
 
 .sd-pais-carta-activa {
   border-color: var(--pais, var(--acc));
-  background: color-mix(in srgb, var(--pais, var(--acc)) 7%, white);
+  background: color-mix(in srgb, var(--pais, var(--acc)) 7%, var(--card));
 }
 
 /* «Ninguno» no tiene pais, asi que no puede heredar el color del pais elegido:
@@ -1448,8 +1856,8 @@ body {
   align-items: flex-start;
   gap: 12px;
   padding: 15px 17px;
-  background: color-mix(in srgb, var(--pais, var(--ink)) 8%, white);
-  border-bottom: 1px solid color-mix(in srgb, var(--pais, var(--line)) 22%, white);
+  background: color-mix(in srgb, var(--pais, var(--ink)) 8%, var(--card));
+  border-bottom: 1px solid color-mix(in srgb, var(--pais, var(--line)) 22%, var(--card));
 }
 
 .sd-ficha-bandera {
@@ -1546,7 +1954,7 @@ body {
   border-left: 2px solid var(--pais, var(--ink-3));
   padding-left: 12px;
   margin: 4px 0;
-  background: color-mix(in srgb, var(--pais, var(--soft)) 5%, white);
+  background: color-mix(in srgb, var(--pais, var(--soft)) 5%, var(--card));
   border-radius: 0 var(--radio-control) var(--radio-control) 0;
 }
 
@@ -1589,7 +1997,7 @@ body {
 }
 
 .sd-ficha-zona-cerca {
-  background: color-mix(in srgb, var(--pais, var(--acc)) 11%, white);
+  background: color-mix(in srgb, var(--pais, var(--acc)) 11%, var(--card));
   color: var(--pais, var(--acc));
   font-weight: 600;
 }
@@ -1610,7 +2018,7 @@ body {
 }
 
 .sd-btn-pais:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--pais, var(--acc)) 85%, white);
+  background: color-mix(in srgb, var(--pais, var(--acc)) 85%, var(--card));
 }
 
 @media (max-width: 560px) {
@@ -1702,7 +2110,7 @@ body {
 
 .sd-meta-filtro[aria-pressed="true"] {
   background: var(--ink);
-  color: #fff;
+  color: var(--page);
 }
 
 .sd-meta-filas {

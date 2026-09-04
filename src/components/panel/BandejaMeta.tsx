@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Vacio, dinero, hace } from "@/components/panel/Piezas";
+import { Nube, Vacio, dinero, hace, tienePedido } from "@/components/panel/Piezas";
 
 /**
  * LA BANDEJA DE META.
@@ -27,6 +27,8 @@ export interface FilaMeta {
   superficie: string;
   atiende: string;
   cerradoPor: string;
+  /** Ya tiene un pedido: cerrado o con el resumen escrito. Es la nubecita. */
+  pedido: boolean;
   ultimoTexto: string | null;
   ultimoEmisor: string | null;
   cuando: number;
@@ -292,7 +294,8 @@ export default function BandejaMeta({
                       {(f.ultimoTexto ?? "").replace(/\n/g, " · ") || "—"}
                     </span>
 
-                    <span style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 6 }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 6, flexWrap: "wrap" }}>
+                      {f.pedido && <Nube />}
                       {sinResponder(f) ? (
                         <span className="pastilla pastilla-intervencion">Sin responder</span>
                       ) : f.atiende === "humano" ? (
@@ -321,8 +324,9 @@ export default function BandejaMeta({
             <h2 style={{ margin: 0, fontSize: 14, fontWeight: 600, letterSpacing: "-.012em" }}>
               {conv?.cliente_nombre ?? (cargando ? "Abriendo…" : "Elige una conversación")}
             </h2>
-            <div className="tenue">
+            <div className="tenue" style={{ display: "flex", alignItems: "center", gap: 7 }}>
               {conv ? `${canalDe(conv.superficie).nombre} · ${conv.canal}` : "—"}
+              {conv && tienePedido(conv) && <Nube />}
             </div>
           </div>
 

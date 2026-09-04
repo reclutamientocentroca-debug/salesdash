@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Burbuja } from "@/components/panel/Burbuja";
-import { Pastilla, Vacio, dinero, hace } from "@/components/panel/Piezas";
+import { Nube, Pastilla, Vacio, dinero, hace, tienePedido } from "@/components/panel/Piezas";
 import {
   bandeja,
   getConversation,
@@ -41,12 +41,13 @@ const FILTROS: { clave: string; texto: string }[] = [
 ];
 
 interface Props {
-  searchParams: Promise<{ rango?: string; estado?: string; canal?: string; chat?: string }>;
+  searchParams: Promise<{ rango?: string; estado?: string; canal?: string; chat?: string; q?: string }>;
 }
 
 export default async function PaginaConversaciones({ searchParams }: Props) {
   const ctx = await requerirSesion();
-  const { rango: clave = "7d", estado, canal: canalParam, chat: chatParam } = await searchParams;
+  const { rango: clave = "7d", estado, canal: canalParam, chat: chatParam, q: qParam } = await searchParams;
+  const q = (qParam ?? "").trim();
 
   /*
    * Solo los números REALMENTE vinculados tienen bandeja.
@@ -104,10 +105,21 @@ export default async function PaginaConversaciones({ searchParams }: Props) {
   const pedido = Number(canalParam);
   const canal = canales.find((c) => c.id === pedido) ?? canales[0]!;
 
+  /*
+   * Lo escrito en el buscador de arriba filtra la bandeja de este número: por
+   * nombre, por teléfono, por producto o por lo último que se dijo.
+   */
+  const buscado = q.toLowerCase();
   const chats = bandeja(ctx.orgId, canal.id, {
     estado: (estado as EstadoCierre) || undefined,
     limite: 200,
-  });
+  }).filter(
+    (c) =>
+      !buscado ||
+      [c.cliente_nombre, c.cliente_phone, c.producto_vendido, c.producto_anuncio, c.ultimo_texto].some(
+        (v) => (v ?? "").toLowerCase().includes(buscado),
+      ),
+  );
 
   /*
    * El hilo abierto tiene que pertenecer a ESTE número: al cambiar de bandeja,
@@ -140,6 +152,7 @@ export default async function PaginaConversaciones({ searchParams }: Props) {
   const url = (cambios: { canal?: number; chat?: number | null; estado?: string }) => {
     const p = new URLSearchParams();
     p.set("rango", clave);
+    if (q) p.set("q", q);
     p.set("canal", String(cambios.canal ?? canal.id));
     const est = cambios.estado ?? estado ?? "";
     if (est) p.set("estado", est);
@@ -156,6 +169,14 @@ export default async function PaginaConversaciones({ searchParams }: Props) {
           <p className="tenue" style={{ marginTop: 2 }}>
             {chats.length} en la bandeja de <strong>{canal.nombre}</strong>
             {chats.length > 0 && ` · ${porAnuncio} por anuncio`}
+            {q && (
+              <>
+                {" "}· buscando «{q}»{" "}
+                <Link href={`/conversaciones?rango=${clave}&canal=${canal.id}`} style={{ color: "var(--acc)" }}>
+                  quitar
+                </Link>
+              </>
+            )}
           </p>
         </div>
 
@@ -227,6 +248,8 @@ export default async function PaginaConversaciones({ searchParams }: Props) {
                 <div className="sd-chat-previo">{vistaPrevia(c)}</div>
 
                 <div className="sd-chat-pastillas">
+                  {/* La nubecita: este chat ya tiene un pedido. */}
+                  {tienePedido(c) && <Nube />}
                   <Pastilla estado={c.cerrado_por} />
                   {c.intervencion_humana === 1 && (
                     <span className="pastilla pastilla-intervencion">Intervino</span>
@@ -276,6 +299,7 @@ export default async function PaginaConversaciones({ searchParams }: Props) {
                 </div>
 
                 <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
+                  {tienePedido(abierta) && <Nube />}
                   {abierta.total !== null && (
                     <span className="num" style={{ fontSize: 12.5, fontWeight: 600 }}>
                       {dinero(abierta.total)}

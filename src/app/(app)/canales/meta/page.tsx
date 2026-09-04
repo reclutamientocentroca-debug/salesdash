@@ -71,6 +71,7 @@ export default async function PaginaMeta() {
     superficie: f.superficie ?? "messenger",
     atiende: f.atiende,
     cerradoPor: f.cerrado_por,
+    pedido: f.cerrado_por === "ia" || f.cerrado_por === "humano" || !!f.resumen_pedido,
     ultimoTexto: f.ultimo_texto,
     ultimoEmisor: f.ultimo_emisor,
     cuando: f.last_message_at ?? f.fecha_inicio,

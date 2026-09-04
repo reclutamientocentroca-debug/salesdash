@@ -9,6 +9,7 @@ import {
   Meta,
   Vacio,
   dinero,
+  hace,
 } from "@/components/panel/Piezas";
 import {
   IconoConversaciones,
@@ -18,7 +19,16 @@ import {
   IconoReloj,
   IconoRevision,
 } from "@/components/panel/Iconos";
-import { contarCanales, contarRevisiones, listarAnomalias } from "@/lib/db";
+import {
+  bandejaMeta,
+  contarCanales,
+  contarRevisiones,
+  listarAnomalias,
+  listarAnunciosMeta,
+  listarCanales,
+  listarPaginasMeta,
+} from "@/lib/db";
+import { filasDeAtencion } from "@/lib/atencion";
 import { calcularMetricas, formatearDuracion } from "@/lib/metrics";
 import { rangoDeLaCuenta, requerirSesion } from "@/lib/tenant";
 import type { Moneda } from "@/lib/moneda";
@@ -74,6 +84,42 @@ export default async function Dashboard({ searchParams }: Props) {
   const altas = anomalias.filter((a) => a.severidad === "alta").length;
 
   /*
+   * «Necesita tu atención»: lo que no puede esperar a mañana. Se arma con lo
+   * que ya está en la base —números caídos, Messenger sin responder, anuncios
+   * sin producto, cierres en revisión y anomalías altas— y cada fila trae su
+   * botón. Ver `filasDeAtencion`.
+   */
+  const paginas = listarPaginasMeta(ctx.orgId);
+  const atencion = filasDeAtencion({
+    canales: listarCanales(ctx.orgId),
+    sinResponder: paginas.length > 0 ? bandejaMeta(ctx.orgId, { limite: 120 }).filter((f) => f.ultimo_emisor === "cliente").length : 0,
+    paginas: paginas.map((p) => p.nombre),
+    sinVincular: listarAnunciosMeta(ctx.orgId).filter((a) => a.producto_id === null).length,
+    enRevision,
+    anomalias: anomalias.filter((a) => a.severidad === "alta"),
+  });
+
+  // Lo de arriba a la derecha de cada KPI y lo que se dice debajo de la meta.
+  const cerradas = m.cierres_ia + m.cierres_humano;
+  const diferencia = (valor: number, meta: number) => {
+    const d = Math.round(valor - meta);
+    if (d === 0) return "Justo en tu meta";
+    return `${Math.abs(d)} punto${Math.abs(d) === 1 ? "" : "s"} por ${d > 0 ? "encima" : "debajo"} de tu meta`;
+  };
+  const claseInsignia = (estado: "verde" | "ambar" | "rojo") => (estado === "verde" ? "" : estado);
+  const colorSemaforo = (estado: "verde" | "ambar" | "rojo") =>
+    estado === "verde" ? "var(--verde)" : estado === "ambar" ? "var(--amber)" : "var(--red)";
+
+  // Los números, ordenados por lo que cerraron, con la barra relativa al mejor.
+  const ranking = [...m.por_canal].sort(
+    (a, b) => b.cierres_ia + b.cierres_humano - (a.cierres_ia + a.cierres_humano) || b.leads - a.leads,
+  );
+  const mejor = Math.max(1, ...ranking.map((c) => c.cierres_ia + c.cierres_humano));
+
+  // El pie del gráfico: lo de ayer, que es el último día completo.
+  const ayer = m.serie_diaria.length >= 2 ? m.serie_diaria[m.serie_diaria.length - 2] : null;
+
+  /*
    * El pie de «Rendimiento por número»: cada columna sumada.
    *
    * Se suman las FILAS que se están viendo y no las cifras sueltas del periodo,
@@ -105,8 +151,7 @@ export default async function Dashboard({ searchParams }: Props) {
     <>
       <div className="sd-cabecera">
         <div>
-          <h1 className="h1-pagina">Dashboard</h1>
-          <p className="tenue" style={{ marginTop: 2 }}>
+          <p style={{ fontSize: 13, color: "var(--ink-2)", marginTop: 6 }}>
             {soloAnuncio
               ? `${m.leads} leads por anuncio · el resto del panel no los cuenta`
               : `${m.leads_anuncio} leads por anuncio · ${m.leads} conversaciones en total`}
@@ -198,105 +243,163 @@ export default async function Dashboard({ searchParams }: Props) {
 
       <div className="sd-kpis" style={{ marginBottom: 14 }}>
         {/*
-          «Leads» son los que llegaron por un anuncio, no todo el que escribe.
-          Es la pregunta que se hace de verdad quien paga publicidad: cuánta
-          gente me trajo. El total queda al lado porque sigue siendo la base de
-          la invariante de conteo y de los porcentajes de cierre.
+          Los cuatro números que se miran primero: cuánta gente escribió, qué
+          parte cerró la IA sola, qué parte cerró el equipo cuando entró, y
+          cuántos pedidos hubo. El dinero va en su moneda, país por país.
         */}
         <Kpi
-          etiqueta="Leads por anuncio"
-          valor={m.leads_anuncio}
+          etiqueta="Conversaciones"
+          valor={m.leads}
           icono={<IconoConversaciones tam={17} />}
           tono="acento"
-          pie={
-            soloAnuncio
-              ? `${m.tasa_cierre_anuncio}% cerrados · nadie más entra en el panel`
-              : `de ${m.leads} conversaciones · ${m.tasa_cierre_anuncio}% cerrados`
-          }
+          pie={`${m.cierres_ia} cerradas por la IA · ${m.cierres_humano} con vendedor`}
         />
-        {/*
-          «de las conversaciones» y no «de los leads»: aquí arriba «lead» ya
-          significa el que trajo un anuncio, y este porcentaje se calcula sobre
-          el total. Dos palabras distintas para dos denominadores distintos.
-
-          Debajo del número va el dinero que esos cierres facturaron, sin el
-          envío. Un contador de cierres no dice si la IA está vendiendo o solo
-          despachando pedidos de mil pesos; el importe sí, y es la respuesta a
-          «¿qué me está dejando esto?» sin tener que cruzar dos tarjetas.
-        */}
         <Kpi
-          etiqueta="Automatizada"
-          valor={m.cierres_ia}
+          etiqueta="Cobertura automatizada"
+          valor={`${m.cobertura_ia.valor} %`}
           icono={<IconoRayo tam={17} />}
           tono="acento"
-          pie={
+          insignia={<span className={claseInsignia(m.cobertura_ia.estado)}>Meta {m.cobertura_ia.meta} %</span>}
+          cuerpo={
             <>
-              {m.tasa_cierre_ia}% {soloAnuncio ? "de los leads de anuncio" : "de las conversaciones"}
-              <br />
-              <Importes lista={m.facturado_por_moneda} campo="facturado_ia" color="var(--acc)" /> facturados
+              <div className="sd-kpi-barra">
+                <div style={{ width: `${Math.min(m.cobertura_ia.valor, 100)}%`, background: colorSemaforo(m.cobertura_ia.estado) }} />
+              </div>
+              <div className="tenue">{diferencia(m.cobertura_ia.valor, m.cobertura_ia.meta)}</div>
             </>
           }
         />
-        {/* El equipo lleva su importe por la misma razón: con uno solo de los
-            dos números en pantalla no se puede comparar, que es justo lo que se
-            quiere saber cuando se mira esta fila. */}
         <Kpi
-          etiqueta="Asistida"
-          valor={m.cierres_humano}
+          etiqueta="Efectividad asistida"
+          valor={`${m.efectividad_humana.valor} %`}
           icono={<IconoPersona tam={17} />}
           tono="azul"
-          pie={
+          insignia={<span className={claseInsignia(m.efectividad_humana.estado)}>Meta {m.efectividad_humana.meta} %</span>}
+          cuerpo={
             <>
-              {formatearDuracion(m.tiempo_promedio_humano)} de media
-              <br />
-              <Importes lista={m.facturado_por_moneda} campo="facturado_humano" color="var(--blue)" /> facturados
+              <div className="sd-kpi-barra">
+                <div style={{ width: `${Math.min(m.efectividad_humana.valor, 100)}%`, background: colorSemaforo(m.efectividad_humana.estado) }} />
+              </div>
+              <div className="tenue">De los hilos que tocó un vendedor</div>
             </>
           }
         />
-        {/*
-          Facturado, no cobrado: el envío se le cobra al cliente y se le paga al
-          mensajero, así que sumarlo aquí inflaría la cifra justo con el dinero
-          que el negocio no se queda. Va en el pie para que el total siga
-          cuadrando con lo que el dueño ve en su cuenta.
-
-          Arriba el total de la cuenta entera y debajo canal por canal, porque
-          con un solo número no se sabe si el mes lo sostiene una tienda o si
-          está repartido —y eso cambia qué se hace con él—. Los canales en cero
-          se enseñan igual: están conectados y no están vendiendo, que es
-          exactamente lo que hay que ver.
-        */}
-        {/*
-          Con una sola moneda, la cifra grande es lo facturado. Con varias no
-          hay cifra grande que valga: arriba va cuántas ventas se cerraron y
-          el dinero va moneda por moneda en el cuerpo, porque pesos, colones y
-          dólares no se suman.
-        */}
         <Kpi
-          etiqueta="Facturado"
-          valor={m.una_moneda ? dinero(m.facturado, m.una_moneda) : `${cerradasDelPeriodo} venta${cerradasDelPeriodo === 1 ? "" : "s"}`}
+          etiqueta="Pedidos"
+          valor={cerradas}
           icono={<IconoMoneda tam={17} />}
           tono="ambar"
           pie={
-            m.una_moneda ? (
-              `${dinero(m.valor_promedio_venta, m.una_moneda)} por pedido · ${dinero(m.envios_cobrados, m.una_moneda)} de envíos aparte`
-            ) : (
-              <>
-                <Importes lista={m.facturado_por_moneda} campo="facturado" color="var(--amber)" />
-                <br />
-                cada país en su moneda
-              </>
-            )
+            <>
+              Ticket promedio <Importes lista={m.facturado_por_moneda} campo="promedio" />
+              <br />
+              Facturado <Importes lista={m.facturado_por_moneda} campo="facturado" color="var(--amber)" />
+            </>
           }
-          cuerpo={<FacturadoPorCanal canales={m.facturado_por_canal} />}
         />
       </div>
 
-      <div className="sd-fila-2" style={{ marginBottom: 14 }}>
+      <div className="sd-fila-3" style={{ marginBottom: 14 }}>
         <section className="tarjeta">
-          <h2 className="titulo-tarjeta" style={{ marginBottom: 10 }}>Quién llega y quién cierra, por día</h2>
-          <GraficoArea serie={m.serie_diaria} soloAnuncio={soloAnuncio} />
-          {m.serie_diaria.length >= 2 && <LeyendaGrafico soloAnuncio={soloAnuncio} />}
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
+            <div>
+              <h2 className="titulo-tarjeta">Conversaciones por día</h2>
+              <div className="tenue">Cuántas entran y cuántas terminan en pedido</div>
+            </div>
+            {m.serie_diaria.length >= 2 && <LeyendaGrafico modo="simple" />}
+          </div>
+          <GraficoArea serie={m.serie_diaria} soloAnuncio={soloAnuncio} modo="simple" />
+          {ayer && (
+            <div className="tenue" style={{ textAlign: "right", marginTop: 4 }}>
+              {ayer.leads} entrada{ayer.leads === 1 ? "" : "s"} ayer · {ayer.cierres_ia + ayer.cierres_humano} pedido
+              {ayer.cierres_ia + ayer.cierres_humano === 1 ? "" : "s"}
+            </div>
+          )}
         </section>
+
+        <section className="tarjeta">
+          <h2 className="titulo-tarjeta">Rendimiento por número</h2>
+          <div className="tenue" style={{ marginBottom: 6 }}>Pedidos cerrados en el rango</div>
+          {ranking.length === 0 ? (
+            <Vacio titulo="Sin números conectados" texto="Conecta un número y aquí verás cuánto cierra cada uno." />
+          ) : (
+            <div className="sd-canales-barras">
+              {ranking.map((c) => {
+                const pedidos = c.cierres_ia + c.cierres_humano;
+                return (
+                  <div key={c.canal_id} className="sd-canal-barra">
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {c.nombre}
+                      </div>
+                      <div className="tenue">{[c.pais_nombre, c.modo].filter(Boolean).join(" · ")}</div>
+                    </div>
+                    <div className="sd-pista">
+                      <div style={{ width: `${Math.round((pedidos / mejor) * 100)}%` }} />
+                    </div>
+                    <div className="num" style={{ fontWeight: 600, fontSize: 14, minWidth: 30, textAlign: "right" }}>
+                      {pedidos}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      </div>
+
+      <section className="tarjeta" style={{ marginBottom: 14 }}>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
+          <div>
+            <h2 className="titulo-tarjeta">Necesita tu atención</h2>
+            <div className="tenue">Lo que no puede esperar a mañana</div>
+          </div>
+          <Link href="/conversaciones" className="btn btn-secundario" style={{ textDecoration: "none", padding: "6px 12px", fontSize: 12.5 }}>
+            Ver todo
+          </Link>
+        </div>
+        {atencion.length === 0 ? (
+          <Vacio titulo="Todo en orden" texto="Ningún número caído, nada sin responder y ningún cierre esperando." />
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table className="tabla sd-atencion">
+              <thead>
+                <tr>
+                  <th>Qué pasa</th>
+                  <th>Dónde</th>
+                  <th>Desde</th>
+                  <th>Impacto</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {atencion.map((f) => (
+                  <tr key={f.clave}>
+                    <td>
+                      <span className={`sd-etiqueta sd-etiqueta-${f.tono}`}>{f.etiqueta}</span>
+                      <span style={{ fontWeight: 600 }}>{f.que}</span>
+                    </td>
+                    <td className="num" style={{ color: "var(--ink-2)" }}>{f.donde}</td>
+                    <td style={{ color: "var(--ink-2)", whiteSpace: "nowrap" }}>{f.desde ? hace(f.desde) : "—"}</td>
+                    <td style={{ color: "var(--ink-2)" }}>{f.impacto}</td>
+                    <td style={{ textAlign: "right" }}>
+                      <Link
+                        href={f.accion.href}
+                        className={`btn ${f.tono === "rojo" ? "btn-acento" : "btn-secundario"}`}
+                        style={{ textDecoration: "none", padding: "6px 12px", fontSize: 12.5, whiteSpace: "nowrap" }}
+                      >
+                        {f.accion.texto}
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <div className="sd-mitades" style={{ marginBottom: 14 }}>
 
         <section className="tarjeta">
           <h2 className="titulo-tarjeta" style={{ marginBottom: 12 }}>Quién cerró</h2>

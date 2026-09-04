@@ -4,7 +4,7 @@ import AgenteEnHilo from "@/components/panel/AgenteEnHilo";
 import AnalizarBoton from "@/components/panel/AnalizarBoton";
 import BorrarConversacionBoton from "@/components/panel/BorrarConversacionBoton";
 import { Burbuja } from "@/components/panel/Burbuja";
-import { Pastilla, dinero, fechaHora } from "@/components/panel/Piezas";
+import { Nube, Pastilla, dinero, fechaHora, tienePedido } from "@/components/panel/Piezas";
 import { llegoPorAnuncio } from "@/lib/anuncio";
 import { getConversation, listarCanales, listarMensajes } from "@/lib/db";
 import { porQueCalla } from "@/lib/agent";
@@ -84,7 +84,10 @@ export default async function PaginaConversacion({ params, searchParams }: Props
           <section className="tarjeta">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
               <h2 className="titulo-tarjeta">Pedido</h2>
-              <Pastilla estado={conv.cerrado_por} />
+              <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                {tienePedido(conv) && <Nube />}
+                <Pastilla estado={conv.cerrado_por} />
+              </span>
             </div>
 
             <dl style={{ display: "grid", gap: 9, fontSize: 12.5 }}>

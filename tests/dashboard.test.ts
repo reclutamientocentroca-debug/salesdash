@@ -3,7 +3,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as D from "../src/lib/db";
 import { registrarCierre } from "../src/lib/cierre";
-import { calcularMetricas } from "../src/lib/metrics";
+import { calcularMetricas, modoDelCanal } from "../src/lib/metrics";
+import { filasDeAtencion } from "../src/lib/atencion";
 import { formatearImporte, leerImporte, monedaDelPais, montosDelResumen } from "../src/lib/moneda";
 import { fechaISOEn, periodoEnHuso, rangoAEpochs } from "../src/lib/rango";
 
@@ -268,4 +269,71 @@ test("al sellar por resumen, el total y el envío ya están en la venta", () => 
   const conv2 = D.getConversation(orgId, otra)!;
   assert.equal(conv2.total, 9999, "el total que había, se queda");
   assert.equal(conv2.envio, 250, "el envío, que faltaba, entra");
+});
+
+// ── El resumen: cada número con su país y quién contesta ─────────────────────
+
+test("cada número dice su país con nombre y quién contesta en él", () => {
+  const m = calcularMetricas(orgId, { desde: 0, hasta: 9_999_999_999 });
+  const fila = (id: number) => m.por_canal.find((c) => c.canal_id === id)!;
+  assert.equal(fila(rd).pais_nombre, "República Dominicana");
+  assert.equal(fila(cr).pais_nombre, "Costa Rica");
+  assert.equal(fila(pa).pais_nombre, "Panamá");
+  assert.ok(["IA", "IA apagada", "solo vigila"].includes(fila(rd).modo));
+
+  assert.equal(modoDelCanal({ tipo: "whatsapp", agente_activo: 1, contesta_ia: 0 }), "IA");
+  assert.equal(modoDelCanal({ tipo: "whatsapp", agente_activo: 1, contesta_ia: 1 }), "solo vigila");
+  assert.equal(modoDelCanal({ tipo: "whatsapp", agente_activo: 0, contesta_ia: 0 }), "IA apagada");
+  assert.equal(modoDelCanal({ tipo: "meta", agente_activo: 1, contesta_ia: 0 }), "Messenger · IA");
+  assert.equal(modoDelCanal({ tipo: "meta", agente_activo: 0, contesta_ia: 0 }), "Messenger");
+});
+
+// ── «Necesita tu atención» ───────────────────────────────────────────────────
+
+test("lo que necesita atención sale con su botón, y un número caído va primero", () => {
+  const filas = filasDeAtencion({
+    canales: [
+      { nombre: "TELLERIA", phone: "50672259698", tipo: "whatsapp", estado: "desconectado", activo: 1, ultimo_evento_at: 1_000 },
+      { nombre: "RINCON", phone: "18091110000", tipo: "whatsapp", estado: "conectado", activo: 1, ultimo_evento_at: 2_000 },
+      { nombre: "Sin escanear", phone: "pendiente:abc", tipo: "whatsapp", estado: "iniciando", activo: 1, ultimo_evento_at: null },
+      { nombre: "Página", phone: "123", tipo: "meta", estado: "desconectado", activo: 1, ultimo_evento_at: null },
+    ],
+    sinResponder: 15,
+    paginas: ["Roplis cr", "Telleria Pal."],
+    sinVincular: 184,
+    enRevision: 17,
+    anomalias: [
+      { tipo: "agente_en_bucle", created_at: 500 },
+      { tipo: "agente_en_bucle", created_at: 900 },
+    ],
+  });
+
+  assert.equal(filas[0].etiqueta, "Número caído");
+  assert.ok(filas[0].que.includes("TELLERIA"));
+  assert.equal(filas[0].donde, "+50672259698");
+  assert.equal(filas[0].accion.href, "/numeros");
+  assert.equal(filas.filter((f) => f.etiqueta === "Número caído").length, 1, "el conectado, el sin escanear y la página no cuentan");
+
+  const sinResponder = filas.find((f) => f.clave === "sin_responder")!;
+  assert.ok(sinResponder.que.startsWith("15 chats de Messenger"));
+  assert.equal(sinResponder.donde, "Roplis cr, Telleria Pal.");
+  assert.equal(sinResponder.accion.href, "/canales/meta");
+
+  const anuncios = filas.find((f) => f.clave === "anuncios")!;
+  assert.ok(anuncios.que.startsWith("184 anuncios sin vincular"));
+  assert.equal(anuncios.donde, "2 páginas de Facebook");
+
+  const revision = filas.find((f) => f.clave === "revision")!;
+  assert.ok(revision.que.startsWith("17 cierres dudosos"));
+  assert.equal(revision.accion.href, "/revision");
+
+  const bucle = filas.find((f) => f.clave === "anomalia:agente_en_bucle")!;
+  assert.ok(bucle.que.includes("2 chats"));
+  assert.equal(bucle.desde, 900, "la más reciente");
+
+  // Sin nada que atender, no hay filas.
+  assert.deepEqual(
+    filasDeAtencion({ canales: [], sinResponder: 0, paginas: [], sinVincular: 0, enRevision: 0, anomalias: [] }),
+    [],
+  );
 });

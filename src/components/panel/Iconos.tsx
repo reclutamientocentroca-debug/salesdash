@@ -140,3 +140,37 @@ export const IconoAdmin = (p: Props) => (
     <path d="m8.8 12 2.2 2.2 4.2-4.4" />
   </Svg>
 );
+
+/** La nubecita: esta conversación tiene un pedido. */
+export const IconoPedido = (p: Props) => (
+  <Svg {...p}>
+    <path d="M7.5 18.5a4.2 4.2 0 0 1-.6-8.35A6.2 6.2 0 0 1 18.8 9.2 3.9 3.9 0 0 1 17.6 18.5H7.5Z" />
+    <path d="m9.6 14 1.9 1.9 3.3-3.6" />
+  </Svg>
+);
+
+export const IconoBuscar = (p: Props) => (
+  <Svg {...p}>
+    <circle cx="11" cy="11" r="6.5" />
+    <path d="m16 16 4.5 4.5" />
+  </Svg>
+);
+
+export const IconoSol = (p: Props) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="4" />
+    <path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.5 1.5M17.2 17.2l1.5 1.5M5.3 18.7l1.5-1.5M17.2 6.8l1.5-1.5" />
+  </Svg>
+);
+
+export const IconoLuna = (p: Props) => (
+  <Svg {...p}>
+    <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z" />
+  </Svg>
+);
+
+export const IconoChevron = (p: Props) => (
+  <Svg {...p}>
+    <path d="m9 6 6 6-6 6" />
+  </Svg>
+);

@@ -21,6 +21,17 @@ import {
 } from "./db";
 import { mismaMoneda, monedaDelPais, SIN_MONEDA, type Moneda } from "./moneda";
 import { fechaISOEn, husoDelServidor } from "./rango";
+import { obtenerPais } from "./paises";
+
+/**
+ * Quién contesta en un número, en dos palabras: lo que se lee debajo del
+ * nombre en «Rendimiento por número».
+ */
+export function modoDelCanal(c: { tipo: string; agente_activo: number; contesta_ia: number }): string {
+  if (c.tipo === "meta") return c.agente_activo ? "Messenger · IA" : "Messenger";
+  if (c.contesta_ia) return "solo vigila";
+  return c.agente_activo ? "IA" : "IA apagada";
+}
 
 /**
  * Lo facturado en UNA moneda. Con números en tres países hay tres de estas, y
@@ -153,6 +164,10 @@ export interface Metricas {
     canal_id: number; nombre: string; phone: string | null;
     /** Código ISO del país en el que vende, o vacío. */
     pais: string;
+    /** El país con su nombre, o null si el número no tiene uno. */
+    pais_nombre: string | null;
+    /** «IA», «solo vigila», «Messenger · IA»… Ver `modoDelCanal`. */
+    modo: string;
     moneda: Moneda;
     leads: number; leads_anuncio: number; cierres_ia: number; cierres_humano: number;
     sin_cerrar: number; revision: number;
@@ -338,6 +353,8 @@ export function calcularMetricas(orgId: number, rango: Rango): Metricas {
       nombre: c.nombre,
       phone: c.phone.startsWith("pendiente:") ? null : c.phone,
       pais: c.pais,
+      pais_nombre: obtenerPais(c.pais)?.nombre ?? null,
+      modo: modoDelCanal(c),
       moneda: c.moneda,
       leads: c.leads,
       leads_anuncio: c.leads_anuncio,

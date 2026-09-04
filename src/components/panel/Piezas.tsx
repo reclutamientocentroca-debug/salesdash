@@ -5,6 +5,26 @@
 import type { EstadoCierre } from "@/lib/db";
 import { formatearImporte, type Moneda } from "@/lib/moneda";
 import type { FacturadoPorMoneda } from "@/lib/metrics";
+import { IconoPedido } from "./Iconos";
+
+/**
+ * LA NUBECITA DEL PEDIDO. Va en la lista de chats y en la cabecera del hilo:
+ * con un vistazo se sabe qué conversaciones ya tienen un pedido hecho, sin
+ * abrirlas ni leer la pastilla.
+ */
+export function Nube({ texto = "Pedido" }: { texto?: string }) {
+  return (
+    <span className="sd-nube" title="Esta conversación tiene un pedido">
+      <IconoPedido tam={12} />
+      {texto}
+    </span>
+  );
+}
+
+/** ¿Tiene un pedido? Cerrada por resumen o por factura, o con el resumen escrito. */
+export function tienePedido(c: { cerrado_por: string; resumen_pedido?: string | null }): boolean {
+  return c.cerrado_por === "ia" || c.cerrado_por === "humano" || !!c.resumen_pedido;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Pastilla de estado
@@ -43,6 +63,7 @@ export function Kpi({
   cuerpo,
   icono,
   tono = "neutro",
+  insignia,
 }: {
   etiqueta: string;
   valor: string | number;
@@ -57,10 +78,13 @@ export function Kpi({
   cuerpo?: React.ReactNode;
   icono: React.ReactNode;
   tono?: TonoKpi;
+  /** Una pastilla arriba a la derecha: «Meta 90 %». */
+  insignia?: React.ReactNode;
 }) {
   const t = FONDOS[tono];
   return (
-    <div className="tarjeta" style={{ display: "flex", gap: 13, alignItems: "flex-start" }}>
+    <div className="tarjeta" style={{ display: "flex", gap: 13, alignItems: "flex-start", position: "relative" }}>
+      {insignia && <span className="sd-kpi-insignia">{insignia}</span>}
       <div
         style={{
           width: 36, height: 36, borderRadius: 10, background: t.fondo, color: t.color,
@@ -164,12 +188,29 @@ export interface PuntoSerie {
  * trazo ámbar encima de otro verde que parece un fallo de pintado. Se dibuja
  * una sola y la leyenda la nombra por lo que es.
  */
+/**
+ * El rótulo de un día en el eje. Con una semana o dos, el nombre del día —«vie»,
+ * «sáb»— que es como uno piensa en la semana pasada; con más, la fecha corta.
+ * La fecha viene en ISO y se parte a mano: leerla con `new Date` la tomaría
+ * como UTC y en media América caería en el día anterior.
+ */
+const DIAS_CORTOS = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
+function etiquetaDelDia(iso: string, dias: number): string {
+  const [a, m, d] = iso.split("-").map(Number);
+  if (!a || !m || !d) return iso.slice(5);
+  if (dias > 14) return `${d}/${m}`;
+  return DIAS_CORTOS[new Date(Date.UTC(a, m - 1, d)).getUTCDay()] ?? iso.slice(5);
+}
+
 export function GraficoArea({
   serie,
   soloAnuncio = false,
+  modo = "completo",
 }: {
   serie: PuntoSerie[];
   soloAnuncio?: boolean;
+  /** «simple»: solo las entradas y las cerradas. Es el del resumen. */
+  modo?: "completo" | "simple";
 }) {
   if (serie.length < 2) {
     return (
@@ -190,8 +231,10 @@ export function GraficoArea({
   const x = (i: number) => margen.izquierda + (i * anchoUtil) / (serie.length - 1);
   const y = (v: number) => margen.arriba + altoUtil - (v / maximo) * altoUtil;
 
-  const linea = (campo: keyof PuntoSerie) =>
-    serie.map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(Number(p[campo])).toFixed(1)}`).join(" ");
+  const valor = (p: PuntoSerie, campo: keyof PuntoSerie | "cerradas") =>
+    campo === "cerradas" ? p.cierres_ia + p.cierres_humano : Number(p[campo]);
+  const linea = (campo: keyof PuntoSerie | "cerradas") =>
+    serie.map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(valor(p, campo)).toFixed(1)}`).join(" ");
 
   const area = `${linea("leads")} L${x(serie.length - 1).toFixed(1)},${margen.arriba + altoUtil} L${margen.izquierda},${margen.arriba + altoUtil} Z`;
 
@@ -234,14 +277,24 @@ export function GraficoArea({
 
       <path d={area} fill="var(--acc-bg)" />
       <path d={linea("leads")} fill="none" stroke="var(--acc)" strokeWidth="1.8" />
-      {/* Los de anuncio van en ámbar: son un subconjunto de la línea de arriba,
-          y la distancia entre las dos es exactamente la gente que escribió sin
-          que la publicidad la trajera. */}
-      {!soloAnuncio && (
-        <path d={linea("leads_anuncio")} fill="none" stroke="var(--amber)" strokeWidth="1.6" />
+      {modo === "simple" ? (
+        // Las cerradas, en verde y a trazos: cuántas de las que entran terminan en pedido.
+        <path d={linea("cerradas")} fill="none" stroke="var(--verde)" strokeWidth="1.5" strokeDasharray="4 3" />
+      ) : (
+        <>
+          {/* Los de anuncio van en ámbar: son un subconjunto de la línea de arriba,
+              y la distancia entre las dos es exactamente la gente que escribió sin
+              que la publicidad la trajera. */}
+          {!soloAnuncio && (
+            <path d={linea("leads_anuncio")} fill="none" stroke="var(--amber)" strokeWidth="1.6" />
+          )}
+          <path d={linea("cierres_ia")} fill="none" stroke="var(--acc)" strokeWidth="1.4" strokeDasharray="4 3" />
+          <path d={linea("cierres_humano")} fill="none" stroke="var(--blue)" strokeWidth="1.4" />
+        </>
       )}
-      <path d={linea("cierres_ia")} fill="none" stroke="var(--acc)" strokeWidth="1.4" strokeDasharray="4 3" />
-      <path d={linea("cierres_humano")} fill="none" stroke="var(--blue)" strokeWidth="1.4" />
+      {modo === "simple" && (
+        <circle cx={x(serie.length - 1)} cy={y(ultimo.leads)} r="3.5" fill="var(--acc)" stroke="var(--card)" strokeWidth="1.5" />
+      )}
 
       {serie.map((p, i) =>
         i === 0 || i === serie.length - 1 || serie.length <= 8 ? (
@@ -253,7 +306,7 @@ export function GraficoArea({
             fontSize="9.5"
             fill="var(--ink-4)"
           >
-            {p.dia.slice(5)}
+            {etiquetaDelDia(p.dia, serie.length)}
           </text>
         ) : null,
       )}
@@ -261,7 +314,25 @@ export function GraficoArea({
   );
 }
 
-export function LeyendaGrafico({ soloAnuncio = false }: { soloAnuncio?: boolean }) {
+export function LeyendaGrafico({
+  soloAnuncio = false,
+  modo = "completo",
+}: {
+  soloAnuncio?: boolean;
+  modo?: "completo" | "simple";
+}) {
+  if (modo === "simple") {
+    return (
+      <div style={{ display: "flex", gap: 14, fontSize: 11.5, color: "var(--ink-2)" }}>
+        <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ width: 9, height: 9, borderRadius: 3, background: "var(--acc)" }} /> Entradas
+        </span>
+        <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ width: 9, height: 9, borderRadius: 3, background: "var(--verde)" }} /> Cerradas
+        </span>
+      </div>
+    );
+  }
   const items = [
     { color: "var(--acc)", texto: soloAnuncio ? "Leads por anuncio" : "Conversaciones", guion: false },
     ...(soloAnuncio

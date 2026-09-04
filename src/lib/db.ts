@@ -3138,12 +3138,16 @@ export function ventasParaRanking(orgId: number, r: Rango) {
  */
 export function metricasPorCanal(orgId: number, r: Rango) {
   const canales = s(
-    `SELECT ca.id AS canal_id, ca.nombre, ca.phone, COALESCE(a.pais, '') AS pais
+    `SELECT ca.id AS canal_id, ca.nombre, ca.phone, COALESCE(a.pais, '') AS pais,
+            ca.tipo, ca.agente_activo, ca.contesta_ia, ca.estado
        FROM canales ca
        LEFT JOIN agentes a ON a.org_id = ca.org_id AND a.canal_id = ca.id
       WHERE ca.org_id = ?
       ORDER BY ca.created_at ASC`,
-  ).all(orgId) as { canal_id: number; nombre: string; phone: string; pais: string }[];
+  ).all(orgId) as {
+    canal_id: number; nombre: string; phone: string; pais: string;
+    tipo: string; agente_activo: number; contesta_ia: number; estado: string;
+  }[];
 
   const filas = canales
     .filter((ca) => r.canalId === undefined || ca.canal_id === r.canalId)
@@ -3184,6 +3188,10 @@ export function metricasPorCanal(orgId: number, r: Rango) {
         nombre: ca.nombre,
         phone: ca.phone,
         pais,
+        tipo: ca.tipo,
+        agente_activo: ca.agente_activo,
+        contesta_ia: ca.contesta_ia,
+        estado: ca.estado,
         huso,
         desde: periodo.desde,
         hasta: periodo.hasta,
