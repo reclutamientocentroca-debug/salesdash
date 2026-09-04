@@ -33,10 +33,10 @@ test("el precio y el artículo salen tal cual de la descripción", () => {
 });
 
 test("la primera pregunta es la del orden de venta según el artículo", () => {
-  assert.equal(primeraPregunta("camisas de lino para caballeros a RD$1,500", rd), "¿Qué talla necesita?");
+  assert.equal(primeraPregunta("camisas de lino para caballeros a RD$1,500", rd), "¿Qué talla le interesa?");
   assert.equal(primeraPregunta("ZAPATOS DCM ESTILO RD$1,990", rd), "¿Qué número calza?");
   assert.equal(primeraPregunta("COMBO 2 EN 1 cepillo secador + plancha RD$1,690", rd), "Le hacemos envío y paga al recibir. ¿En qué provincia se encuentra?");
-  assert.equal(primeraPregunta("Camisa de lino ₡25.000", cr), "¿Qué talla necesitas?");
+  assert.equal(primeraPregunta("Camisa de lino ₡25.000", cr), "¿Qué talla le interesa?");
 });
 
 test("la apertura segura lleva saludo, artículo, precio y pregunta, y nada inventado", () => {
@@ -65,7 +65,7 @@ test("la respuesta mínima es la siguiente pregunta del pedido, nunca una transf
   const camisa = { descripcion_anuncio: "camisas de lino para caballeros a RD$1,500" };
   const combo = { descripcion_anuncio: "COMBO 2 EN 1 cepillo secador + plancha RD$1,690" };
 
-  assert.equal(respuestaMinima(rd, vacia, camisa), "¿Qué talla necesita?");
+  assert.equal(respuestaMinima(rd, vacia, camisa), "¿Qué talla le interesa?");
   assert.equal(respuestaMinima(rd, { ...vacia, talla: "la M" }, camisa), "Le hacemos envío y paga al recibir. ¿En qué provincia se encuentra?");
   assert.equal(respuestaMinima(rd, vacia, combo), "Le hacemos envío y paga al recibir. ¿En qué provincia se encuentra?");
   assert.equal(respuestaMinima(rd, { ...vacia, direccion: "Los Alcarrizos, calle 3" }, combo), "¿A nombre de quién sale el pedido?");

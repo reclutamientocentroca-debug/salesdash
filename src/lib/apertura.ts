@@ -70,12 +70,12 @@ export function primeraPregunta(descripcion: string, d: DatosPais): string {
   const texto = descripcion;
   const tu = d.trato === "tu";
   if (CALZADO.test(texto)) return tu ? "¿Qué número calzas?" : "¿Qué número calza?";
-  if (ROPA.test(texto)) return tu ? "¿Qué talla necesitas?" : "¿Qué talla necesita?";
+  if (ROPA.test(texto)) return tu ? "¿Qué talla te interesa?" : "¿Qué talla le interesa?";
   switch (d.codigo) {
     case "do":
       return "Le hacemos envío y paga al recibir. ¿En qué provincia se encuentra?";
     case "cr":
-      return "Te lo enviamos a todo el país. ¿En qué cantón estás?";
+      return tu ? "Te lo enviamos a todo el país. ¿En qué cantón estás?" : "Le enviamos a todo el país. ¿En qué cantón se encuentra?";
     default:
       return tu ? "¿A qué corregimiento te lo enviamos?" : "¿A qué corregimiento se lo enviamos?";
   }
@@ -128,7 +128,7 @@ export function respuestaMinima(
       case "do":
         return "Le hacemos envío y paga al recibir. ¿En qué provincia se encuentra?";
       case "cr":
-        return "Te lo enviamos a todo el país. ¿En qué cantón estás?";
+        return tu ? "Te lo enviamos a todo el país. ¿En qué cantón estás?" : "Le enviamos a todo el país. ¿En qué cantón se encuentra?";
       default:
         return tu ? "¿A qué corregimiento te lo enviamos?" : "¿A qué corregimiento se lo enviamos?";
     }

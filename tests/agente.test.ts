@@ -2038,9 +2038,9 @@ test("cada pais abre con su saludo, y el prompt lo dice una sola vez", () => {
    */
   D.actualizarAgente(orgId, { pais: "cr" }, canalId);
   const tico = armarSistema("Rincon", D.obtenerAgente(orgId, canalId), [], null);
-  assert.ok(tico.includes("Hola, te asiste TELLERIA"), "el tico abre con la tienda y de tú");
+  assert.ok(tico.includes("Hola, le asiste TELLERIA"), "el tico abre con la tienda y de usted");
   assert.equal(tico.includes("Orlanda"), false, "cr: nada del dominicano");
-  assert.ok(tico.includes("Trato de TÚ"), "cr: de tú en todo el hilo");
+  assert.ok(tico.includes("Trato de USTED"), "cr: de usted en todo el hilo");
 
   D.actualizarAgente(orgId, { pais: "pa" }, canalId);
   const panameno = armarSistema("Rincon", D.obtenerAgente(orgId, canalId), [], null);

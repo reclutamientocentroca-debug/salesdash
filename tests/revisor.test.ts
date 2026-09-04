@@ -29,7 +29,7 @@ const pa = contexto("pa");
 
 test("una respuesta normal, con el envío del país, pasa sin objeción", () => {
   assert.deepEqual(revisarConReglas("Los mocasines están en RD$2,500. El envío a Santiago es RD$290.\n\n¿Qué talla necesita?", rd), []);
-  assert.deepEqual(revisarConReglas("Diay, el envío son ₡3.500 a todo el país.\n\n¿A qué cantón te lo mando?", cr), []);
+  assert.deepEqual(revisarConReglas("Diay, el envío son ₡3.500 a todo el país.\n\n¿A qué cantón se lo enviamos?", cr), []);
   assert.deepEqual(revisarConReglas("El envío es US$5.00 a todo el país.\n\n¿A qué corregimiento se lo enviamos?", pa), []);
 });
 
@@ -150,8 +150,9 @@ test("tutear donde se vende de usted no sale", () => {
   assert.deepEqual(revisarConReglas("¿Me confirma para levantar el pedido?", rd), []);
   // «Dime a ver» es dominicano, no tuteo de venta.
   assert.deepEqual(revisarConReglas("Dime a ver, ¿qué talla necesita?", rd), []);
-  // En Costa Rica se tutea: ahí no es falla.
-  assert.deepEqual(revisarConReglas("¿Quieres que te lo mande hoy mismo?", cr), []);
+  // Costa Rica también vende de usted: tutear ahí también se para.
+  assert.ok(revisarConReglas("¿Quieres que te lo mande hoy mismo?", cr).some((f) => f.includes("tutea")));
+  assert.deepEqual(revisarConReglas("¿Qué número calza? Le enviamos a todo el país.", cr), []);
 });
 
 test("una ubicación que el cliente no compartió en esta sesión no se da por recibida", () => {
@@ -260,7 +261,7 @@ test("una mochila o un accesorio no lleva talla, ni aunque el anuncio traiga nú
   };
   assert.ok(revisarConReglas("La mochila ejecutiva está en ₡18.500.\n\n¿Qué talla necesitas?", mochila).some((f) => f.includes("talla")));
   assert.ok(revisarConReglas("¿De qué color la quieres?", mochila).some((f) => f.includes("color")), "sin colores en el anuncio, no se pregunta");
-  assert.deepEqual(revisarConReglas("La mochila ejecutiva está en ₡18.500.\n\nTe lo enviamos a todo el país. ¿En qué cantón estás?", mochila), []);
+  assert.deepEqual(revisarConReglas("La mochila ejecutiva está en ₡18.500.\n\nLe enviamos a todo el país. ¿En qué cantón se encuentra?", mochila), []);
 
   // Con los colores escritos en el anuncio, el color sí se pregunta; la talla sigue sin ir.
   const conColores = { ...mochila, anuncio: mochila.anuncio + " Disponible en negro y gris." };
