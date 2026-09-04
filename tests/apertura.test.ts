@@ -2,7 +2,7 @@ import "./entorno";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { agenteDePais } from "../src/agents";
-import { aperturaSegura, articuloDeLaDescripcion, precioDeLaDescripcion, preguntaDelCliente, primeraPregunta, respuestaDirecta, respuestaMinima } from "../src/lib/apertura";
+import { aperturaSegura, articuloDeLaDescripcion, precioDeLaDescripcion, preguntaDelCliente, primeraPregunta, respuestaDirecta, respuestaMinima, tallasDisponibles } from "../src/lib/apertura";
 
 /**
  * EL PRIMER MENSAJE VENDE DE LA DESCRIPCIÓN, SIN MODELO.
@@ -111,4 +111,21 @@ test("la respuesta mínima contesta la pregunta del cliente y no se repite", () 
   assert.match(respuestaDirecta(rd, "¿cómo se paga?", zapatos, null)!, /contra entrega/);
   assert.equal(respuestaDirecta(rd, "¿cuánto cuesta?", zapatos, null), "ZAPATOS DCM ESTILO Elegancia que deja huella está en RD$1,990.");
   assert.equal(respuestaDirecta(cr, "¿dónde están?", zapatos, null), cr.ubicacion.tiendaFisica);
+});
+
+/** «¿Cuáles son los tamaños disponibles?» se contesta con las tallas de la tabla, antes de preguntar cuál. */
+test("las tallas disponibles se contestan con la tabla de tallas", () => {
+  const faja = { descripcion_anuncio: "FAJA REVERSIBLE PARA HOMBRE, cuero de primera, ₡9.000" };
+  assert.equal(preguntaDelCliente("¿Cuáles son los tamaños disponibles?"), "tallas");
+  assert.equal(preguntaDelCliente("¿qué tallas hay?"), "tallas");
+  assert.equal(preguntaDelCliente("¿tienen la 42?"), null, "pedir una talla no es preguntar cuáles hay");
+  assert.equal(tallasDisponibles(faja.descripcion_anuncio, cr), "de la 30 a la 42");
+  assert.equal(tallasDisponibles("Camisas de lino RD$1,500", rd), "de la S a la XXL");
+  assert.equal(tallasDisponibles("Plancha alisadora ₡12.000", cr), null, "una plancha no lleva talla");
+  assert.equal(respuestaDirecta(cr, "¿Cuáles son los tamaños disponibles?", faja, null), "Las tallas disponibles son de la 30 a la 42.");
+
+  const vacia = { talla: null, color: null, direccion: null, nombre: null, celular: null, cantidad: null };
+  const r = respuestaMinima(cr, vacia, faja, { ultimoDelCliente: "¿Cuáles son los tamaños disponibles?", ultimoDelAgente: "Hola, le asiste Mildred de TELLERIA" });
+  assert.ok(r.startsWith("Las tallas disponibles son de la 30 a la 42."), r);
+  assert.ok(r.endsWith("¿Qué talla le interesa?"), "y después pregunta cuál, de usted");
 });

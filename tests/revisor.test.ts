@@ -340,3 +340,21 @@ test("el mismo mensaje dos veces seguidas no sale, y una pregunta del cliente se
   assert.ok(revisarConReglas("¿A nombre de quién sale el pedido?", envio).some((f) => f.includes("envío")));
   assert.deepEqual(revisarConReglas("El envío es RD$250 en el Gran Santo Domingo y RD$290 al interior. ¿Qué número calza?", envio), []);
 });
+
+/**
+ * EL CASO REAL en Costa Rica: «¿Maestro, me regala su talla para la faja?».
+ * Al cliente no se le llama maestro, jefe ni amigo: trato de empresa. Y a
+ * «¿cuáles son los tamaños disponibles?» se contesta con las tallas.
+ */
+test("un apodo al cliente no sale, y una pregunta por las tallas se contesta con las tallas", () => {
+  assert.ok(revisarConReglas("¿Maestro, me regala su talla para la faja reversible para hombre?", cr).some((f) => f.includes("«Maestro»")));
+  assert.ok(revisarConReglas("Hola, amigo. ¿Qué talla necesita?", cr).some((f) => f.includes("«amigo»")));
+  assert.ok(revisarConReglas("Con mucho gusto, jefe.", rd).some((f) => f.includes("«jefe»")), "en ningún país");
+  assert.deepEqual(revisarConReglas("Con mucho gusto, don Chema. ¿Me regala su talla?", cr), [], "por su nombre sí");
+  assert.deepEqual(revisarConReglas("Le atiende el maestro sastre de la tienda.", cr), [], "una palabra que no es un apodo al cliente no cuenta");
+
+  const tallas = { ...cr, ultimoDelCliente: "¿Cuáles son los tamaños disponibles?", ultimoDelAgente: "Hola, le asiste Mildred de TELLERIA" };
+  assert.ok(revisarConReglas("La faja es de excelente calidad. ¿Qué talla necesita?", tallas).some((f) => f.includes("tallas disponibles")));
+  assert.deepEqual(revisarConReglas("Las tallas disponibles son de la 30 a la 42. ¿Cuál le interesa?", tallas), []);
+  assert.deepEqual(revisarConReglas("La tenemos en S, M, L y XL. ¿Cuál le interesa?", tallas), []);
+});

@@ -2183,6 +2183,41 @@ export async function enviarSeguimiento(
       return false;
     }
     texto = generada.texto;
+
+    /*
+     * EL RECORDATORIO PASA POR LAS MISMAS REGLAS QUE UNA RESPUESTA. El caso
+     * real: «¿Maestro, me regala su talla…?» salió por aquí sin que nadie lo
+     * revisara. Si no pasa las reglas no se manda: nadie lo estaba esperando,
+     * y un mensaje que nadie pidió tiene que ser impecable o no ser.
+     */
+    const datosPais = agenteDePais(agente.pais);
+    if (datosPais) {
+      const { revisarConReglas } = await import("./revisor");
+      const org = obtenerOrg(orgId);
+      const negocio = nombreDelNegocio(agente, canal, org ?? null);
+      const fallas = revisarConReglas(texto, {
+        esApertura: false,
+        datos: datosPais,
+        marcador: org?.marcador_cierre ?? MARCADOR_POR_DEFECTO,
+        nombresDeLaCasa: [agente.nombre, negocio, datosPais.nombreAgente ?? "", datosPais.tienda].filter(Boolean),
+        catalogo: textoDeLoQueVende(agente, listarCatalogo(orgId, true)),
+        anuncio: anuncioParaModelo(anuncioVigente(conv)) || null,
+        ficha: fichaDelHilo(historial, agente.pais),
+        textosDelCliente: textosDelClienteEnSesion(historial),
+        telefonoDelChat: conv.cliente_phone,
+        nombreDeCuenta: conv.cliente_nombre,
+        ultimoDelAgente: [...historial].reverse().find((m) => m.emisor !== "cliente")?.content ?? null,
+        bloqueDelPais: bloqueDelPais(
+          datosPais,
+          lugarEscritoPorElCliente(datosPais, mensajesDeLaSesion(historial)),
+          negocio,
+        ),
+      });
+      if (fallas.length > 0) {
+        console.log(`[seguimiento] el recordatorio de ${conversationId} no pasó las reglas y no se manda: ${fallas.join("; ")}`);
+        return false;
+      }
+    }
   }
 
   if (!texto.trim()) return false;
@@ -2220,7 +2255,8 @@ const INSTRUCCION_VISTO =
   "venta: recuérdale con naturalidad el artículo del que estaban hablando, dile que queda poco " +
   "inventario de ese modelo y termina con una pregunta que lo acerque al cierre —la talla, la " +
   "medida, el color o la dirección, lo que faltara—. Sin saludo largo, sin disculpas, sin repetir " +
-  "todo lo hablado, y nunca inventes precios, descuentos ni plazos.";
+  "todo lo hablado, y nunca inventes precios, descuentos ni plazos. Trato formal y de empresa: de " +
+  "usted y sin apodos —nada de «maestro», «jefe», «amigo»—; por su nombre si lo dio, o sin nada.";
 
 /** Un turno «del cliente» que en realidad es una instrucción para el modelo. */
 function mensajeInterno(orgId: number, conversationId: number, texto: string): Mensaje {

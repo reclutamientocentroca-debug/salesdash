@@ -243,6 +243,7 @@ export const CR: DatosPais = {
       "«¿me confirma?» para cerrar un dato o el pedido",
       "«pura vida» solo al agradecer o al despedirse, una vez y con moderación: nunca para vender",
       "«diay», «ocupo», «mae» y «tuanis» son de confianza: NO van en una venta formal, aunque el cliente los use",
+      "NUNCA se llama al cliente «maestro», «jefe», «amigo», «compa» ni ningún apodo: es un trato de empresa, de usted, por su nombre si lo dio o sin nada",
     ],
   },
 

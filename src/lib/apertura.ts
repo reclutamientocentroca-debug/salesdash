@@ -20,6 +20,7 @@
  */
 import type { DatosPais } from "@/agents";
 import { importe, zonaDelCliente } from "@/agents/armar";
+import { TALLAS_BASE } from "@/agents/base-comportamiento";
 import type { FichaDelPedido } from "./memoria";
 
 /** Sin tildes ni mayúsculas, para comparar. */
@@ -33,7 +34,7 @@ const EMOJIS = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}\u
 const RELLENO = /^(¡?compra seguro!?|solo|oferta|promoci[oó]n|nuevo|nueva|disponible|¡?atenci[oó]n!?|hoy)\s*[:!.-]*\s*/i;
 
 /** Ropa y calzado: la primera pregunta es la talla o el número. */
-const ROPA = /\b(camisa|camisas|pantal[oó]n|pantalones|jean|jeans|short|shorts|vestido|blusa|polo|t-?shirt|franela|chacabana|chaqueta|abrigo|su[eé]ter|sudadera|conjunto|falda|bermuda|correa|correas|cintur[oó]n|cinturones)\b/i;
+const ROPA = /\b(camisa|camisas|pantal[oó]n|pantalones|jean|jeans|short|shorts|vestido|blusa|polo|t-?shirt|franela|chacabana|chaqueta|abrigo|su[eé]ter|sudadera|conjunto|falda|bermuda|correa|correas|cintur[oó]n|cinturones|faja|fajas)\b/i;
 const CALZADO = /\b(zapato|zapatos|tenis|bota|botas|mocas[ií]n|mocasines|sandalia|sandalias|calzado|zapatilla|zapatillas|chancleta|chancletas)\b/i;
 
 /** El primer importe con el símbolo del país, tal cual está escrito. */
@@ -207,7 +208,22 @@ function otraFormaDePreguntar(d: DatosPais, paso: PasoDelPedido, descripcion: st
 }
 
 /** De qué va la pregunta del cliente, si es una de las que se contestan solas. */
-export type PreguntaDelCliente = "ubicacion" | "envio" | "pago" | "precio";
+export type PreguntaDelCliente = "ubicacion" | "envio" | "pago" | "precio" | "tallas";
+
+/**
+ * LAS TALLAS QUE HAY para el artículo del anuncio, según la tabla base:
+ * «de la 30 a la 42» para una correa o una faja, «de la 39 a la 45» para un
+ * zapato. Null si el artículo no está en la tabla o no lleva talla.
+ */
+export function tallasDisponibles(descripcion: string, d: DatosPais): string | null {
+  if (!d.tallas.usaTablaBase) return null;
+  const fila = (articulo: string) => TALLAS_BASE.find((f) => f.articulo === articulo)?.tallas ?? null;
+  if (CALZADO.test(descripcion)) return d.tallas.zapatoEn || fila("Zapatos");
+  if (/\b(correa|correas|cintur[oó]n|cinturones|faja|fajas)\b/i.test(descripcion)) return fila("Correas y cinturones");
+  if (/\b(pantal[oó]n|pantalones|jean|jeans|short|shorts|bermuda)\b/i.test(descripcion)) return fila("Pantalones");
+  if (/\b(camisa|camisas|polo|t-?shirt|franela|blusa|chacabana|su[eé]ter|sudadera|chaqueta|abrigo)\b/i.test(descripcion)) return fila("Camisas y t-shirts");
+  return null;
+}
 
 /**
  * QUÉ PREGUNTÓ EL CLIENTE. Solo lo que tiene una respuesta fija en los datos
@@ -217,6 +233,8 @@ export type PreguntaDelCliente = "ubicacion" | "envio" | "pago" | "precio";
 export function preguntaDelCliente(texto: string | null | undefined): PreguntaDelCliente | null {
   const t = llano(texto ?? "").trim();
   if (!t) return null;
+  // «¿Cuáles son los tamaños disponibles?», «¿qué tallas hay?»: se contestan con las tallas, no con otra pregunta.
+  if (/\b(tallas?|tamanos?|medidas?|numeros?)\b/.test(t) && /\b(disponible|disponibles|hay|tienen|tiene|cuales|cual|que|manejan|maneja|vienen|viene)\b/.test(t) && /\?|cuales|que|hay|tienen/.test(t)) return "tallas";
   if (/\b(donde (estan|esta|queda|quedan|tuta|ta|se ubican|se encuentran|es la tienda|estan ubicados|los encuentro|puedo ir)|ubicad[oa]s?|tienda fisica|local fisico|direccion de la tienda)\b/.test(t)) return "ubicacion";
   if (/\b(envio|envios|envian|delivery|entregan|mandan)\b/.test(t) && /\?|cuanto|como|hacen|tienen|hay/.test(t)) return "envio";
   if (/\b(pago|pagar|pagos|se paga|forma de pago|contra entrega|transferencia|tarjeta|es seguro|es confiable|confiable)\b/.test(t)) return "pago";
@@ -242,6 +260,10 @@ export function respuestaDirecta(
       return d.ubicacion.tiendaFisica;
     case "pago":
       return d.pagoAlCliente;
+    case "tallas": {
+      const tallas = tallasDisponibles(anuncio?.descripcion_anuncio ?? "", d);
+      return tallas ? `Las tallas disponibles son ${tallas}.` : null;
+    }
     case "precio": {
       const descripcion = anuncio?.descripcion_anuncio ?? "";
       const precio = precioDeLaDescripcion(descripcion, d.moneda.simbolo);

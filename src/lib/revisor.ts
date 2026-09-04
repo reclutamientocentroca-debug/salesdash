@@ -354,6 +354,21 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
   if (pregunta === "pago" && !/pag|contra entrega|sinpe|transferencia|efectivo|recibir/i.test(texto)) {
     fallas.push("el cliente preguntó cómo se paga y no se lo contesta: dile primero cómo se paga y después sigue");
   }
+  // El caso real: «¿Cuáles son los tamaños disponibles?» → «¿Qué talla necesita?».
+  if (pregunta === "tallas" && !TIENE_TALLAS.test(texto)) {
+    fallas.push("el cliente preguntó qué tallas hay y no se las dice: dile primero las tallas disponibles (de la descripción o de la tabla de tallas) y después pregúntale cuál quiere");
+  }
+
+  // 9b. SIN APODOS NI CONFIANZAS. El trato es formal y de empresa.
+  //
+  // El caso real: «¿Maestro, me regala su talla…?» en Costa Rica. Al cliente
+  // no se le llama maestro, jefe, amigo ni nada parecido, en ningún país.
+  const apodo = texto.match(APODOS);
+  if (apodo) {
+    fallas.push(
+      `llama al cliente «${apodo[2]}» y eso no es aceptable: el trato es formal y educado, de empresa, sin apodos ni confianzas. Si hace falta dirigirse a él, por su nombre o sin nada`,
+    );
+  }
 
   // 8e. UNA TRANSFERENCIA SIN MOTIVO NO SALE.
   //
@@ -506,6 +521,15 @@ export function preguntaDeVarianteSinVariante(borrador: string, ctx: ContextoRev
 
   return fallas;
 }
+
+/** Algo que suene a una talla: una letra, un número de talla o un rango. */
+const TIENE_TALLAS = /\b(xs|s|m|l|xl|xxl|xxxl)\b|\b(2[6-9]|3\d|4[0-8])\b|talla [uú]nica|de la \w+ a la \w+/i;
+
+/** Los apodos con los que NO se llama a un cliente, como vocativo: «¿Maestro, …», «Hola, amigo.» */
+const APODOS = new RegExp(
+  "(^|[\\s¡¿,;:(])(maestro|maestra|jefe|jefa|jefecito|jefecita|amigo|amiga|amig[ao]s|mi amor|amorcito|coraz[oó]n|cari[ñn]o|mi vida|mi reina|mi rey|reina|campe[oó]n|campeona|patr[oó]n|patrona|hermano|hermana|manito|manita|bro|compa|compadre|comadre|pana|socio|socia|mami|papi|mamita|papito|linda|lindo|guapa|guapo|mae|tigre|beb[eé]|nena|nene|mijo|mija|mi ni[ñn]a|mi ni[ñn]o|querido|querida|primo|prima|vecino|vecina|loco|loca|parcero|parcera|jefaza|jefazo)([,.?!;:)]|$)",
+  "im",
+);
 
 /** Cómo suena presentarse: el saludo de apertura, con o sin el «hola». */
 const SE_PRESENTA = /\b(le|te) asiste\b|\bbienvenid[oa]s?\b|\bsoy (su|tu) (asesor|asesora|vendedor|vendedora)\b|\bmi nombre es\b/i;
