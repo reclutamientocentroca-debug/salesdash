@@ -365,7 +365,11 @@ export const RD: DatosPais = {
     usaTablaBase: true,
     zapatoEn: "numeración europea (de la 39 a la 45, que es lo mismo que del 7 al 11 americana)",
     conTallaYColor: ["Correas y cinturones"],
-    sinTallaNiColor: ["Cepillos", "Abejones"],
+    // Lo que se vende fijo, tal cual: ni talla ni color se preguntan.
+    sinTallaNiColor: [
+      "Cepillos", "Blowers", "Secadores", "Planchas", "Combos de cepillo y plancha",
+      "Abejones", "Electrodomésticos", "Artículos del hogar", "Perfumes", "Relojes",
+    ],
     soloRopaYCalzado: false,
     notas: [
       "Si el cliente da la talla del zapato en americana (7, 8, 9, 10, 11), se acepta tal cual y " +

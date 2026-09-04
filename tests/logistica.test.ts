@@ -106,8 +106,9 @@ test("el prompt del agente lleva la tarifa del cliente cuando la escribió, y el
     return i;
   };
   assert.ok(pos("PASO 1 — Saluda") < pos("PASO 2 — Presenta brevemente el producto"));
-  assert.ok(pos("PASO 2 — Presenta brevemente el producto") < pos("PASO 3 — Identifica qué información necesita"));
-  assert.ok(pos("PASO 3 — Identifica qué información necesita") < pos("PASO 4 — Solicita la provincia"));
+  assert.ok(pos("PASO 2 — Presenta brevemente el producto") < pos("PASO 3 — PIENSA QUÉ ARTÍCULO ES"));
+  assert.ok(pos("PASO 3 — PIENSA QUÉ ARTÍCULO ES") < pos("PASO 4 — Solicita la provincia"));
+  assert.ok(ritmo.includes("NO TIENEN TALLA NI COLOR"), "un cepillo, un blower o una plancha se venden tal cual");
   assert.ok(pos("PASO 4 — Solicita la provincia") < pos("PASO 5 — Solicita la información necesaria para la entrega"));
   assert.ok(pos("PASO 5 — Solicita la información necesaria para la entrega") < pos("PASO 6 — Solicita el nombre completo"));
   assert.ok(pos("PASO 6 — Solicita el nombre completo") < pos("PASO 7 — Cuando ya tengas TODOS los datos"));
@@ -217,4 +218,13 @@ test("en Panamá no hay impuesto, el envío es a domicilio en todo el país y se
   assert.ok(bloque.includes("FORMA DE PAGO: COMO EL CLIENTE PREFIERA"));
   assert.ok(!bloque.includes("NO CONFIGURADA"), "ya no está pendiente");
   assert.ok(bloque.includes("US$5.00"));
+});
+
+/** Lo que el agente dominicano lee: los productos fijos, con sus nombres, no llevan talla ni color. */
+test("el guion dominicano nombra los productos fijos y les prohíbe la talla y el color", () => {
+  const rdDatos = agenteDePais("do")!;
+  assert.ok(rdDatos.tallas.sinTallaNiColor.includes("Blowers"));
+  assert.ok(rdDatos.tallas.sinTallaNiColor.includes("Planchas"));
+  const bloque = bloqueDelPais(rdDatos, null, "RINCON DCM");
+  assert.ok(bloque.includes("NO llevan talla ni color, y no se preguntan: Cepillos, Blowers, Secadores, Planchas"));
 });

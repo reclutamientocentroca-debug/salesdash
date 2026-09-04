@@ -1060,7 +1060,7 @@ test("el agente dominicano cobra en pesos y pide sector y provincia", () => {
   assert.ok(rd.includes("de la 39 a la 45"));
   assert.ok(rd.includes("del 7 al 11 americana"), "y se acepta como la dice el cliente");
   assert.ok(
-    rd.includes("NO llevan talla ni color, y no se preguntan: Cepillos, Abejones"),
+    rd.includes("NO llevan talla ni color, y no se preguntan: Cepillos, Blowers, Secadores, Planchas"),
     "lo que no lleva talla, dicho por su nombre",
   );
 

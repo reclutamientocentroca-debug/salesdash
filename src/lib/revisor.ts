@@ -473,7 +473,7 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
 
 /** Artículos que se venden sin talla, número ni color, salvo que el anuncio diga lo contrario. */
 const SIN_VARIANTES =
-  /\b(cepillo|secador|plancha|abejon|abejones|perfume|colonia|reloj|relojes|cartera|carteras|bolso|bolsos|mochila|mochilas|morral|bulto|bultos|riñonera|rinonera|billetera|maleta|maletas|lonchera|estuche|bolsa|gorra|gorras|lentes|gafas|collar|pulsera|aretes|anillo|paraguas|sombrilla|toalla|kit|combo|set|crema|serum|maquillaje|licuadora|freidora|audifono|audifonos|bocina|cargador|lampara|termo|botella|juguete|sartén|sarten|olla|ventilador|extension|masajeador|rasuradora|afeitadora|barbera|maquina|máquina)\b/i;
+  /\b(cepillo|cepillos|secador|secadora|secadores|blower|blowers|plancha|planchas|planchita|alisadora|alisador|rizador|rizadora|tenaza|tenazas|difusor|onduladora|abejon|abejones|perfume|colonia|reloj|relojes|cartera|carteras|bolso|bolsos|mochila|mochilas|morral|bulto|bultos|riñonera|rinonera|billetera|maleta|maletas|lonchera|estuche|bolsa|gorra|gorras|lentes|gafas|collar|pulsera|aretes|anillo|paraguas|sombrilla|toalla|kit|combo|set|crema|serum|maquillaje|licuadora|freidora|audifono|audifonos|bocina|cargador|lampara|termo|botella|juguete|sartén|sarten|olla|ventilador|extension|masajeador|rasuradora|afeitadora|barbera|maquina|máquina)\b/i;
 
 /** Ropa y calzado llevan talla aunque el anuncio no la escriba. */
 const CON_TALLA_SIEMPRE =
@@ -491,7 +491,8 @@ const NUMEROS_DE_TALLA = /\b(3[4-9]|4[0-6])\b(?!\s*(?:l\b|lt|litros?|cm|mm|kg|g\
 /** Lo que en un anuncio o catálogo dice que hay colores. */
 const HAY_COLORES = /\bcolor(es)?\b|\b(negro|negra|blanco|blanca|azul|rojo|roja|marr[oó]n|beige|gris|verde|rosado|rosa|dorado|plateado|caf[eé]|vino|crema|amarillo|naranja|morado|celeste|turquesa|chocolate|camel|nude|fucsia)\b/i;
 
-const PREGUNTA_TALLA = /[¿?][^?¿]*\b(que|cual|de que)\b[^?¿]*\b(talla|numero|numeracion|medida)\b[^?¿]*\?/i;
+// Cualquier forma de preguntar la talla: «¿qué talla?», «¿me indica su talla?», «¿qué número calza?».
+const PREGUNTA_TALLA = /[¿?][^?¿]*\b(talla|tallas|numeracion|size)\b[^?¿]*\?|[¿?][^?¿]*\b(que|cual|de que)\b[^?¿]*\b(numero|medida)\b[^?¿]*\?/i;
 const PREGUNTA_COLOR = /[¿?][^?¿]*\bcolor(es)?\b[^?¿]*\?/i;
 
 /**

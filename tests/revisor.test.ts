@@ -373,3 +373,35 @@ test("la tarifa de la zona que nombra el propio texto manda", () => {
   assert.deepEqual(revisarConReglas("El envío a Santo Domingo Este le sale en RD$250.", rd), []);
   assert.deepEqual(revisarConReglas("El envío a Santiago son RD$290.", rd), []);
 });
+
+/**
+ * EL CASO REAL en República Dominicana: talla y color a un cepillo, a un
+ * blower y a una plancha. No llevan ni lo uno ni lo otro: se pasa a la
+ * provincia.
+ */
+test("a un cepillo, un blower o una plancha no se les pregunta talla ni color, se pregunte como se pregunte", () => {
+  const combo = {
+    ...rd,
+    anuncio: "Anuncio: 🔥 COMBO 2 EN 1 — SOLO RD$1,690 ✨ Cepillo secador + plancha alisadora. Seca rápido y ahorra tiempo.",
+    ultimoDelCliente: "Quiero más información",
+  };
+  for (const pregunta of [
+    "¿Qué talla necesita?",
+    "¿Me indica su talla, por favor?",
+    "¿Qué número calza?",
+    "¿En qué talla lo quiere?",
+    "¿De qué color lo prefiere?",
+    "¿Qué color le gustaría?",
+  ]) {
+    const fallas = revisarConReglas(`Claro que sí. ${pregunta}`, combo);
+    assert.ok(fallas.some((f) => f.includes("talla") || f.includes("color")), `«${pregunta}» a un combo de cepillo y plancha no sale`);
+  }
+  assert.deepEqual(
+    revisarConReglas("El combo de cepillo secador y plancha alisadora está en RD$1,690. Le hacemos envío y paga al recibir. ¿En qué provincia se encuentra?", combo),
+    [],
+    "sin talla ni color se pasa a la provincia",
+  );
+
+  const blower = { ...rd, anuncio: "Anuncio: BLOWER PROFESIONAL 2000W, RD$2,500. Secado rápido.", ultimoDelCliente: "Hola" };
+  assert.ok(revisarConReglas("¿Qué talla le interesa?", blower).some((f) => f.includes("talla")));
+});
