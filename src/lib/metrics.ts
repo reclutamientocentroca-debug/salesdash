@@ -39,8 +39,12 @@ export function modoDelCanal(c: { tipo: string; agente_activo: number; contesta_
  */
 export interface FacturadoPorMoneda {
   moneda: Moneda;
+  /** El país que factura en esta moneda, con su nombre, o null si no tiene. */
+  pais_nombre: string | null;
   /** Cuántos números venden en esta moneda. */
   canales: number;
+  /** Ventas cerradas sin monto: cuentan como pedido y facturan cero. */
+  sin_monto: number;
   /** Ventas cerradas en el periodo en esta moneda. */
   cierres: number;
   facturado: number;
@@ -98,6 +102,9 @@ export interface Metricas {
   leads_anuncio: number;
   /** De esos, cuántos acabaron cerrados. Numerador y denominador del MISMO grupo. */
   cierres_anuncio: number;
+  /** De los cerrados por anuncio, los que cerró un resumen y los que cerró una factura. */
+  cierres_anuncio_ia: number;
+  cierres_anuncio_humano: number;
   /** Porcentaje de los leads de anuncio que se cerró. Nunca pasa de 100. */
   tasa_cierre_anuncio: number;
   /** Qué producto anunciado los trajo, y qué prometía ese anuncio. */
@@ -168,6 +175,14 @@ export interface Metricas {
     pais_nombre: string | null;
     /** «IA», «solo vigila», «Messenger · IA»… Ver `modoDelCanal`. */
     modo: string;
+    /** 'whatsapp' o 'meta'. */
+    tipo: string;
+    /** El estado de la conexión: «conectado», «desconectado», «iniciando». */
+    estado: string;
+    /** Si el número llegó a escanearse (o la página a conectarse). */
+    vinculado: boolean;
+    /** Ventas cerradas sin monto: cuentan y facturan cero. */
+    sin_monto: number;
     moneda: Moneda;
     leads: number; leads_anuncio: number; cierres_ia: number; cierres_humano: number;
     sin_cerrar: number; revision: number;
@@ -222,11 +237,12 @@ export function calcularMetricas(orgId: number, rango: Rango): Metricas {
   const porMoneda = new Map<string, FacturadoPorMoneda>();
   for (const c of canales) {
     const f = porMoneda.get(c.moneda.codigo) ?? {
-      moneda: c.moneda, canales: 0, cierres: 0, facturado: 0, facturado_ia: 0,
-      facturado_humano: 0, envios: 0, con_monto: 0, promedio: 0,
+      moneda: c.moneda, pais_nombre: obtenerPais(c.pais)?.nombre ?? null, canales: 0, cierres: 0,
+      sin_monto: 0, facturado: 0, facturado_ia: 0, facturado_humano: 0, envios: 0, con_monto: 0, promedio: 0,
     };
     f.canales += 1;
     f.cierres += c.cierres_ia + c.cierres_humano;
+    f.sin_monto += Math.max(c.cierres_ia + c.cierres_humano - c.con_monto, 0);
     f.facturado += c.ventas;
     f.facturado_ia += c.ventas_ia;
     f.facturado_humano += c.ventas_humano;
@@ -293,9 +309,12 @@ export function calcularMetricas(orgId: number, rango: Rango): Metricas {
 
   return {
     leads,
-    leads_anuncio: anuncio.leads,
-    cierres_anuncio: anuncio.cerrados,
-    tasa_cierre_anuncio: porcentaje(anuncio.cerrados, anuncio.leads),
+    // Sin ningún lead de anuncio, SQLite suma NULL y no cero: se coalesce aquí.
+    leads_anuncio: anuncio.leads ?? 0,
+    cierres_anuncio: anuncio.cerrados ?? 0,
+    cierres_anuncio_ia: anuncio.cierres_ia ?? 0,
+    cierres_anuncio_humano: anuncio.cierres_humano ?? 0,
+    tasa_cierre_anuncio: porcentaje(anuncio.cerrados ?? 0, anuncio.leads ?? 0),
     /*
      * Un anuncio sin título tiene que llamarse de alguna forma en la tabla: la
      * fila existe igual, con sus leads y su tasa, y dejarla en blanco parecería
@@ -355,6 +374,10 @@ export function calcularMetricas(orgId: number, rango: Rango): Metricas {
       pais: c.pais,
       pais_nombre: obtenerPais(c.pais)?.nombre ?? null,
       modo: modoDelCanal(c),
+      tipo: c.tipo,
+      estado: c.estado,
+      vinculado: !c.phone.startsWith("pendiente:"),
+      sin_monto: Math.max(c.cierres_ia + c.cierres_humano - c.con_monto, 0),
       moneda: c.moneda,
       leads: c.leads,
       leads_anuncio: c.leads_anuncio,

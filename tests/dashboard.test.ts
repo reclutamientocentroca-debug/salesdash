@@ -337,3 +337,30 @@ test("lo que necesita atención sale con su botón, y un número caído va prime
     [],
   );
 });
+
+// ── Lo que pide la segunda maqueta del Resumen ───────────────────────────────
+
+test("cada moneda sabe su país y cuántas ventas van sin monto; cada número sabe si está vinculado", () => {
+  const huso = D.husoDeLaCuenta(orgId);
+  const m = calcularMetricas(orgId, { ...rangoAEpochs("todo", huso), huso });
+
+  const pesos = m.facturado_por_moneda.find((f) => f.moneda.codigo === "DOP")!;
+  assert.equal(pesos.pais_nombre, "República Dominicana");
+  assert.equal(pesos.sin_monto, 0, "todas las ventas dominicanas de la prueba tienen monto");
+
+  const fila = m.por_canal.find((c) => c.canal_id === rd)!;
+  assert.equal(fila.tipo, "whatsapp");
+  assert.equal(fila.vinculado, true);
+  assert.equal(fila.estado, "conectado");
+  assert.equal(fila.sin_monto, 0);
+
+  // Una venta sellada sin monto cuenta como pedido y como «sin monto».
+  const id = conversacion(rd, ahora - 100);
+  D.sellarCierre(orgId, id, { cerradoPor: "ia", senal: "resumen_ia", fechaCierre: ahora - 50 });
+  const despues = calcularMetricas(orgId, { ...rangoAEpochs("todo", huso), huso });
+  assert.equal(despues.por_canal.find((c) => c.canal_id === rd)!.sin_monto, 1);
+  assert.equal(despues.facturado_por_moneda.find((f) => f.moneda.codigo === "DOP")!.sin_monto, 1);
+
+  // Los cierres de anuncio se reparten entre IA y vendedor.
+  assert.equal(despues.cierres_anuncio_ia + despues.cierres_anuncio_humano, despues.cierres_anuncio);
+});

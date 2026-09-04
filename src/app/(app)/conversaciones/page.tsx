@@ -41,13 +41,15 @@ const FILTROS: { clave: string; texto: string }[] = [
 ];
 
 interface Props {
-  searchParams: Promise<{ rango?: string; estado?: string; canal?: string; chat?: string; q?: string }>;
+  searchParams: Promise<{ rango?: string; estado?: string; canal?: string; chat?: string; q?: string; solo?: string }>;
 }
 
 export default async function PaginaConversaciones({ searchParams }: Props) {
   const ctx = await requerirSesion();
-  const { rango: clave = "7d", estado, canal: canalParam, chat: chatParam, q: qParam } = await searchParams;
+  const { rango: clave = "7d", estado, canal: canalParam, chat: chatParam, q: qParam, solo } = await searchParams;
   const q = (qParam ?? "").trim();
+  // «Leads» en el resumen son los que trajo un anuncio: el enlace llega con este filtro.
+  const soloAnuncio = solo === "anuncio";
 
   /*
    * Solo los números REALMENTE vinculados tienen bandeja.
@@ -113,13 +115,15 @@ export default async function PaginaConversaciones({ searchParams }: Props) {
   const chats = bandeja(ctx.orgId, canal.id, {
     estado: (estado as EstadoCierre) || undefined,
     limite: 200,
-  }).filter(
-    (c) =>
-      !buscado ||
-      [c.cliente_nombre, c.cliente_phone, c.producto_vendido, c.producto_anuncio, c.ultimo_texto].some(
-        (v) => (v ?? "").toLowerCase().includes(buscado),
-      ),
-  );
+  })
+    .filter((c) => !soloAnuncio || llegoPorAnuncio(c))
+    .filter(
+      (c) =>
+        !buscado ||
+        [c.cliente_nombre, c.cliente_phone, c.producto_vendido, c.producto_anuncio, c.ultimo_texto].some(
+          (v) => (v ?? "").toLowerCase().includes(buscado),
+        ),
+    );
 
   /*
    * El hilo abierto tiene que pertenecer a ESTE número: al cambiar de bandeja,
@@ -153,6 +157,7 @@ export default async function PaginaConversaciones({ searchParams }: Props) {
     const p = new URLSearchParams();
     p.set("rango", clave);
     if (q) p.set("q", q);
+    if (soloAnuncio) p.set("solo", "anuncio");
     p.set("canal", String(cambios.canal ?? canal.id));
     const est = cambios.estado ?? estado ?? "";
     if (est) p.set("estado", est);

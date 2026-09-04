@@ -174,3 +174,18 @@ export const IconoChevron = (p: Props) => (
     <path d="m9 6 6 6-6 6" />
   </Svg>
 );
+
+export const IconoDescargar = (p: Props) => (
+  <Svg {...p}>
+    <path d="M12 3.5v11M7.5 10.5 12 15l4.5-4.5" />
+    <path d="M4.5 16.5v2a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-2" />
+  </Svg>
+);
+
+export const IconoRosca = (p: Props) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="8.5" />
+    <circle cx="12" cy="12" r="3.5" />
+    <path d="M12 3.5v5M15.5 12h5" />
+  </Svg>
+);

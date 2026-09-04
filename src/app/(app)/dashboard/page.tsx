@@ -1,23 +1,20 @@
 import Link from "next/link";
 import {
-  Donut,
-  FilasPorMoneda,
   GraficoArea,
   Importes,
   Kpi,
   LeyendaGrafico,
-  Meta,
   Vacio,
   dinero,
   hace,
 } from "@/components/panel/Piezas";
 import {
   IconoConversaciones,
+  IconoDescargar,
   IconoMoneda,
   IconoPersona,
   IconoRayo,
-  IconoReloj,
-  IconoRevision,
+  IconoRosca,
 } from "@/components/panel/Iconos";
 import {
   bandejaMeta,
@@ -29,15 +26,26 @@ import {
   listarPaginasMeta,
 } from "@/lib/db";
 import { filasDeAtencion } from "@/lib/atencion";
-import { calcularMetricas, formatearDuracion } from "@/lib/metrics";
-import { rangoDeLaCuenta, requerirSesion } from "@/lib/tenant";
+import { calcularMetricas, type Metricas } from "@/lib/metrics";
 import type { Moneda } from "@/lib/moneda";
+import { rangoDeLaCuenta, requerirSesion } from "@/lib/tenant";
 
-export const metadata = { title: "Dashboard · SalesDash" };
+export const metadata = { title: "Resumen · SalesDash" };
 export const dynamic = "force-dynamic";
 
 interface Props {
   searchParams: Promise<{ rango?: string; solo?: string; desde?: string; hasta?: string }>;
+}
+
+/** «6,3 %»: el porcentaje como se escribe aquí, con la coma. */
+function pct(n: number, decimales = 1): string {
+  return `${n.toLocaleString("es", { minimumFractionDigits: 0, maximumFractionDigits: decimales })} %`;
+}
+
+/** «Rep. Dominicana»: el país corto, para las cabeceras. */
+function paisCorto(nombre: string | null): string {
+  if (!nombre) return "Sin país";
+  return nombre.replace("República", "Rep.");
 }
 
 export default async function Dashboard({ searchParams }: Props) {
@@ -52,14 +60,6 @@ export default async function Dashboard({ searchParams }: Props) {
    */
   const soloAnuncio = solo === "anuncio";
 
-  /*
-   * Fechas exactas por encima de la clave de rango.
-   *
-   * Los rangos de la barra lateral —hoy, 7 días, este mes— resuelven casi
-   * todo, pero no «desde el martes pasado». `?desde=…&hasta=…` en segundos sí,
-   * y como vive en la URL, ese periodo se puede guardar en marcadores, mandar
-   * por chat y descargar, que es de donde salió la necesidad.
-   */
   const parametros = new URLSearchParams();
   parametros.set("rango", clave);
   if (desde) parametros.set("desde", desde);
@@ -69,25 +69,35 @@ export default async function Dashboard({ searchParams }: Props) {
   // En la hora de los países de la cuenta: «hoy» es hoy en Santo Domingo.
   const rango = { ...rangoDeLaCuenta(ctx.orgId, parametros), soloAnuncio };
   const m = calcularMetricas(ctx.orgId, rango);
+
+  /*
+   * EL PERIODO ANTERIOR, del mismo largo y justo antes: de ahí sale el «+12,4 %»
+   * de las conversaciones y el «+31» de los pedidos. Con «Todo» no hay antes.
+   */
+  const largo = rango.hasta - rango.desde + 1;
+  const anterior =
+    rango.desde > 0
+      ? calcularMetricas(ctx.orgId, { desde: rango.desde - largo, hasta: rango.desde - 1, huso: rango.huso, soloAnuncio })
+      : null;
+  const variacion = (ahora: number, antes: number | undefined): string | null => {
+    if (antes === undefined || antes === 0) return null;
+    const v = Math.round(((ahora - antes) / antes) * 1000) / 10;
+    return `${v > 0 ? "+" : ""}${v.toLocaleString("es", { maximumFractionDigits: 1 })} %`;
+  };
+  const cerradas = m.cierres_ia + m.cierres_humano;
+  const cerradasAntes = anterior ? anterior.cierres_ia + anterior.cierres_humano : undefined;
+  const variacionLeads = variacion(m.leads, anterior?.leads);
+  const variacionPedidos = cerradasAntes === undefined ? null : `${cerradas - cerradasAntes >= 0 ? "+" : ""}${cerradas - cerradasAntes}`;
+
   const anomalias = listarAnomalias(ctx.orgId);
   const enRevision = contarRevisiones(ctx.orgId);
   const numeros = contarCanales(ctx.orgId);
-
-  /*
-   * Sin números conectados NO se sustituye el panel por una pantalla vacía.
-   * El dashboard se enseña entero, con sus ceros, y la invitación a conectar
-   * va en una franja arriba. Un panel completo en cero comunica qué vas a
-   * tener; una pantalla vacía no comunica nada y parece un producto a medio
-   * hacer.
-   */
   const sinConectar = numeros === 0;
   const altas = anomalias.filter((a) => a.severidad === "alta").length;
 
   /*
    * «Necesita tu atención»: lo que no puede esperar a mañana. Se arma con lo
-   * que ya está en la base —números caídos, Messenger sin responder, anuncios
-   * sin producto, cierres en revisión y anomalías altas— y cada fila trae su
-   * botón. Ver `filasDeAtencion`.
+   * que ya está en la base y cada fila trae su botón. Ver `filasDeAtencion`.
    */
   const paginas = listarPaginasMeta(ctx.orgId);
   const atencion = filasDeAtencion({
@@ -99,8 +109,7 @@ export default async function Dashboard({ searchParams }: Props) {
     anomalias: anomalias.filter((a) => a.severidad === "alta"),
   });
 
-  // Lo de arriba a la derecha de cada KPI y lo que se dice debajo de la meta.
-  const cerradas = m.cierres_ia + m.cierres_humano;
+  // Lo que dice cada KPI debajo de su meta.
   const diferencia = (valor: number, meta: number) => {
     const d = Math.round(valor - meta);
     if (d === 0) return "Justo en tu meta";
@@ -110,46 +119,17 @@ export default async function Dashboard({ searchParams }: Props) {
   const colorSemaforo = (estado: "verde" | "ambar" | "rojo") =>
     estado === "verde" ? "var(--verde)" : estado === "ambar" ? "var(--amber)" : "var(--red)";
 
-  // Los números, ordenados por lo que cerraron, con la barra relativa al mejor.
-  const ranking = [...m.por_canal].sort(
-    (a, b) => b.cierres_ia + b.cierres_humano - (a.cierres_ia + a.cierres_humano) || b.leads - a.leads,
-  );
-  const mejor = Math.max(1, ...ranking.map((c) => c.cierres_ia + c.cierres_humano));
-
   // El pie del gráfico: lo de ayer, que es el último día completo.
   const ayer = m.serie_diaria.length >= 2 ? m.serie_diaria[m.serie_diaria.length - 2] : null;
 
-  /*
-   * El pie de «Rendimiento por número»: cada columna sumada.
-   *
-   * Se suman las FILAS que se están viendo y no las cifras sueltas del periodo,
-   * aunque valgan lo mismo: el pie de una tabla es la promesa de que esa
-   * columna suma eso, y quien la repase con el dedo tiene que llegar al mismo
-   * número. El dinero no se suma aquí: cada número factura en la moneda de
-   * su país, y el pie lo enseña moneda por moneda (`facturado_por_moneda`,
-   * que es la suma de estas mismas filas).
-   */
-  const totalCanales = m.por_canal.reduce(
-    (a, c) => ({
-      leads: a.leads + c.leads,
-      leads_anuncio: a.leads_anuncio + c.leads_anuncio,
-      cierres_ia: a.cierres_ia + c.cierres_ia,
-      cierres_humano: a.cierres_humano + c.cierres_humano,
-      sin_cerrar: a.sin_cerrar + c.sin_cerrar,
-      revision: a.revision + c.revision,
-    }),
-    { leads: 0, leads_anuncio: 0, cierres_ia: 0, cierres_humano: 0, sin_cerrar: 0, revision: 0 },
-  );
-  const cerradasDelPeriodo = totalCanales.cierres_ia + totalCanales.cierres_humano;
-
-  const tasaTotal =
-    totalCanales.leads === 0
-      ? 0
-      : Math.round(((totalCanales.cierres_ia + totalCanales.cierres_humano) / totalCanales.leads) * 1000) / 10;
+  // Las dos tablas: los números de WhatsApp y las páginas de Meta.
+  const whatsapp = m.por_canal.filter((c) => c.tipo !== "meta");
+  const meta = m.por_canal.filter((c) => c.tipo === "meta");
+  const lineasActivas = whatsapp.filter((c) => c.vinculado && c.estado === "conectado").length;
 
   return (
     <>
-      <div className="sd-cabecera">
+      <div className="sd-cabecera" style={{ marginBottom: 12 }}>
         <div>
           <p style={{ fontSize: 13, color: "var(--ink-2)", marginTop: 6 }}>
             {soloAnuncio
@@ -159,16 +139,6 @@ export default async function Dashboard({ searchParams }: Props) {
         </div>
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {/*
-            El interruptor de quién entra en el panel. Apagado, el panel cuenta
-            toda conversación y «Leads por anuncio» es una cifra más dentro;
-            encendido, TODO —la rosca, lo facturado, las tasas, el gráfico y la
-            tabla por número— habla solo de la gente que trajo un anuncio.
-
-            Es un enlace y no un interruptor de cliente porque el filtro se
-            aplica en el SQL: la página se vuelve a pintar con otras cifras, no
-            esconde las que ya estaban.
-          */}
           <Link
             href={(() => {
               const p = new URLSearchParams(parametros);
@@ -177,35 +147,18 @@ export default async function Dashboard({ searchParams }: Props) {
               return `/dashboard?${p.toString()}`;
             })()}
             className={`btn ${soloAnuncio ? "btn-acento" : "btn-secundario"}`}
-            style={{ textDecoration: "none" }}
+            style={{ textDecoration: "none", padding: "6px 12px", fontSize: 12.5 }}
             aria-pressed={soloAnuncio}
           >
             {soloAnuncio ? "Solo leads de anuncio" : "Contando a todos"}
           </Link>
-
-          {/*
-            El panel que se está viendo, en un archivo. Lleva los MISMOS
-            parámetros que la página —el rango, las fechas exactas si las hay y
-            el filtro—, así que lo que se baja es lo que hay en pantalla y no
-            otra cosa parecida. Un resumen que no coincide con el panel del que
-            salió no se puede enseñar a nadie.
-          */}
-          <Link
-            href={`/api/informe?${parametros.toString()}`}
-            className="btn btn-secundario"
-            style={{ textDecoration: "none" }}
-          >
-            Descargar resumen
-          </Link>
-
           {enRevision > 0 && (
-            <Link href="/revision" className="btn btn-secundario" style={{ textDecoration: "none" }}>
-              <IconoRevision />
+            <Link href="/revision" className="btn btn-secundario" style={{ textDecoration: "none", padding: "6px 12px", fontSize: 12.5 }}>
               {enRevision} sin clasificar
             </Link>
           )}
           {altas > 0 && (
-            <Link href="/conversaciones" className="btn btn-secundario" style={{ textDecoration: "none", color: "var(--red)" }}>
+            <Link href="/conversaciones" className="btn btn-secundario" style={{ textDecoration: "none", color: "var(--red)", padding: "6px 12px", fontSize: 12.5 }}>
               {altas} anomalía{altas === 1 ? "" : "s"} alta{altas === 1 ? "" : "s"}
             </Link>
           )}
@@ -241,22 +194,24 @@ export default async function Dashboard({ searchParams }: Props) {
         </div>
       )}
 
+      {/* ── Los cuatro números ─────────────────────────────────────────── */}
       <div className="sd-kpis" style={{ marginBottom: 14 }}>
-        {/*
-          Los cuatro números que se miran primero: cuánta gente escribió, qué
-          parte cerró la IA sola, qué parte cerró el equipo cuando entró, y
-          cuántos pedidos hubo. El dinero va en su moneda, país por país.
-        */}
         <Kpi
           etiqueta="Conversaciones"
           valor={m.leads}
           icono={<IconoConversaciones tam={17} />}
           tono="acento"
-          pie={`${m.cierres_ia} cerradas por la IA · ${m.cierres_humano} con vendedor`}
+          insignia={variacionLeads ? <span className={`texto${variacionLeads.startsWith("-") ? " baja" : ""}`}>{variacionLeads}</span> : undefined}
+          pie={
+            <>
+              <strong style={{ color: "var(--ink)" }}>{m.leads_anuncio}</strong> llegaron por un anuncio ·{" "}
+              <strong style={{ color: "var(--ink)" }}>{m.escribieron_por_su_cuenta}</strong> escribieron directo
+            </>
+          }
         />
         <Kpi
           etiqueta="Cobertura automatizada"
-          valor={`${m.cobertura_ia.valor} %`}
+          valor={pct(m.cobertura_ia.valor, 0)}
           icono={<IconoRayo tam={17} />}
           tono="acento"
           insignia={<span className={claseInsignia(m.cobertura_ia.estado)}>Meta {m.cobertura_ia.meta} %</span>}
@@ -271,7 +226,7 @@ export default async function Dashboard({ searchParams }: Props) {
         />
         <Kpi
           etiqueta="Efectividad asistida"
-          valor={`${m.efectividad_humana.valor} %`}
+          valor={pct(m.efectividad_humana.valor, 0)}
           icono={<IconoPersona tam={17} />}
           tono="azul"
           insignia={<span className={claseInsignia(m.efectividad_humana.estado)}>Meta {m.efectividad_humana.meta} %</span>}
@@ -285,20 +240,50 @@ export default async function Dashboard({ searchParams }: Props) {
           }
         />
         <Kpi
-          etiqueta="Pedidos"
+          etiqueta="Pedidos cerrados"
           valor={cerradas}
           icono={<IconoMoneda tam={17} />}
           tono="ambar"
+          insignia={variacionPedidos ? <span className={`texto${variacionPedidos.startsWith("-") ? " baja" : ""}`}>{variacionPedidos}</span> : undefined}
           pie={
             <>
               Ticket promedio <Importes lista={m.facturado_por_moneda} campo="promedio" />
-              <br />
-              Facturado <Importes lista={m.facturado_por_moneda} campo="facturado" color="var(--amber)" />
             </>
           }
         />
       </div>
 
+      {/* ── Lo facturado, país por país ─────────────────────────────────── */}
+      {m.facturado_por_moneda.length > 0 && (
+        <div className="sd-paises" style={{ marginBottom: 14 }}>
+          {m.facturado_por_moneda.map((f) => (
+            <section key={f.moneda.codigo || "sin"} className="tarjeta">
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                <span style={{ fontSize: 12.5, color: "var(--ink-2)" }}>Facturado · {paisCorto(f.pais_nombre)}</span>
+                {f.sin_monto > 0 && <span className="sd-sin-monto">{f.sin_monto} sin monto</span>}
+              </div>
+              <div className="sd-pais-cifra">{dinero(f.facturado, f.moneda)}</div>
+              <div className="tenue" style={{ marginTop: 4 }}>
+                {f.cierres} pedido{f.cierres === 1 ? "" : "s"} cerrado{f.cierres === 1 ? "" : "s"} · sin costo de envío
+              </div>
+              <div className="sd-pais-lista">
+                {m.facturado_por_canal
+                  .filter((c) => m.por_canal.find((x) => x.canal_id === c.canal_id)?.moneda.codigo === f.moneda.codigo)
+                  .map((c) => (
+                    <div key={c.canal_id}>
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.nombre}</span>
+                      <span className="num" style={{ fontFamily: "var(--font-mono)", fontWeight: 600, color: c.facturado > 0 ? "var(--ink)" : "var(--ink-4)" }}>
+                        {dinero(c.facturado, c.moneda)}
+                      </span>
+                    </div>
+                  ))}
+              </div>
+            </section>
+          ))}
+        </div>
+      )}
+
+      {/* ── Por día, y los leads de anuncios ────────────────────────────── */}
       <div className="sd-fila-3" style={{ marginBottom: 14 }}>
         <section className="tarjeta">
           <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
@@ -317,37 +302,50 @@ export default async function Dashboard({ searchParams }: Props) {
           )}
         </section>
 
-        <section className="tarjeta">
-          <h2 className="titulo-tarjeta">Rendimiento por número</h2>
-          <div className="tenue" style={{ marginBottom: 6 }}>Pedidos cerrados en el rango</div>
-          {ranking.length === 0 ? (
-            <Vacio titulo="Sin números conectados" texto="Conecta un número y aquí verás cuánto cierra cada uno." />
-          ) : (
-            <div className="sd-canales-barras">
-              {ranking.map((c) => {
-                const pedidos = c.cierres_ia + c.cierres_humano;
-                return (
-                  <div key={c.canal_id} className="sd-canal-barra">
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 600, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {c.nombre}
-                      </div>
-                      <div className="tenue">{[c.pais_nombre, c.modo].filter(Boolean).join(" · ")}</div>
-                    </div>
-                    <div className="sd-pista">
-                      <div style={{ width: `${Math.round((pedidos / mejor) * 100)}%` }} />
-                    </div>
-                    <div className="num" style={{ fontWeight: 600, fontSize: 14, minWidth: 30, textAlign: "right" }}>
-                      {pedidos}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
+        <LeadsDeAnuncios m={m} />
       </div>
 
+      {/* ── Rendimiento por WhatsApp ───────────────────────────────────── */}
+      <TablaRendimiento
+        titulo="Rendimiento por WhatsApp"
+        subtitulo="Los números en azul se pueden abrir: te llevan a esas conversaciones exactas"
+        insignia={<span className="sd-pastilla-verde">{lineasActivas} línea{lineasActivas === 1 ? "" : "s"} activa{lineasActivas === 1 ? "" : "s"}</span>}
+        cabecera="Línea de WhatsApp"
+        pie="Todo WhatsApp"
+        filas={whatsapp}
+        parametros={parametros}
+        vacio="Conecta un número de WhatsApp y aquí verás cuánto cierra."
+        enlaces={(c) => ({
+          leads: `/conversaciones?rango=${clave}&canal=${c.canal_id}&solo=anuncio`,
+          conversaciones: `/conversaciones?rango=${clave}&canal=${c.canal_id}`,
+          automatizada: `/conversaciones?rango=${clave}&canal=${c.canal_id}&estado=ia`,
+          asistida: `/conversaciones?rango=${clave}&canal=${c.canal_id}&estado=humano`,
+          revision: `/conversaciones?rango=${clave}&canal=${c.canal_id}&estado=revision`,
+          ver: `/conversaciones?rango=${clave}&canal=${c.canal_id}`,
+        })}
+      />
+
+      {/* ── Rendimiento por Messenger e Instagram ──────────────────────── */}
+      <TablaRendimiento
+        titulo="Rendimiento por Messenger e Instagram"
+        subtitulo="Páginas de Facebook y cuentas de Instagram conectadas"
+        insignia={<span className="sd-pastilla-azul">{meta.length} página{meta.length === 1 ? "" : "s"}</span>}
+        cabecera="Página o cuenta"
+        pie="Todo Messenger"
+        filas={meta}
+        parametros={parametros}
+        vacio="Conecta una página de Facebook en Messenger y aquí verás cuánto cierra."
+        enlaces={() => ({
+          leads: "/canales/meta",
+          conversaciones: "/canales/meta",
+          automatizada: "/canales/meta",
+          asistida: "/canales/meta",
+          revision: "/revision",
+          ver: "/canales/meta",
+        })}
+      />
+
+      {/* ── Necesita tu atención ───────────────────────────────────────── */}
       <section className="tarjeta" style={{ marginBottom: 14 }}>
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
           <div>
@@ -398,363 +396,285 @@ export default async function Dashboard({ searchParams }: Props) {
           </div>
         )}
       </section>
-
-      <div className="sd-mitades" style={{ marginBottom: 14 }}>
-
-        <section className="tarjeta">
-          <h2 className="titulo-tarjeta" style={{ marginBottom: 12 }}>Quién cerró</h2>
-          <Donut
-            centro={`${m.cobertura_ia.valor}%`}
-            pie="automatizada"
-            porciones={[
-              { etiqueta: "Automatizada", valor: m.cierres_ia, color: "var(--acc)" },
-              { etiqueta: "Asistida", valor: m.cierres_humano, color: "var(--blue)" },
-            ]}
-          />
-
-          {/*
-            QUÉ SIGNIFICA CADA MITAD, escrito donde se mira el reparto.
-
-            Es la pregunta que el dueño hace en cuanto ve esta rosca, y sin la
-            respuesta a la vista cada uno se inventa la suya —«asistida será
-            donde contestó alguien del equipo»—, que no es lo que cuenta el
-            panel. La regla es corta y cabe en dos líneas: una venta es
-            automatizada si se mandó el resumen del pedido, venga de nuestro
-            agente, del bot del número o del móvil de un vendedor; es asistida
-            si la cerró la foto de la factura y en el hilo no hubo resumen.
-
-            Que además interviniera una persona es otro dato, y se lee en la
-            pastilla de cada conversación.
-          */}
-          <p className="tenue" style={{ marginTop: 12, fontSize: 12, lineHeight: 1.5 }}>
-            <strong style={{ color: "var(--acc)" }}>Automatizada</strong>: se mandó el resumen del
-            pedido. <strong style={{ color: "var(--blue)" }}>Asistida</strong>: la cerró la foto de
-            la factura, sin resumen en el hilo.
-          </p>
-
-          {/*
-            Debajo del reparto de cierres, el dinero de esos cierres. La rosca
-            dice cuántos hilos cerró cada uno y esta línea dice cuánto entró por
-            ellos: son las dos mitades de la misma pregunta, y separarlas en dos
-            tarjetas obliga a mirar arriba y abajo para responderla.
-
-            Sin el envío, que se le cobra al cliente y se le paga al mensajero.
-            El importe sale del resumen del pedido que saca el analista.
-          */}
-          <div
-            style={{
-              marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--line)",
-              display: "grid", gap: 7, fontSize: 12.5,
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-              <span style={{ flex: 1, color: "var(--ink-2)" }}>Facturado sin envío</span>
-              <FilasPorMoneda lista={m.facturado_por_moneda} campo="facturado" tam={15} />
-            </div>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-              <span style={{ flex: 1, color: "var(--ink-2)" }}>Automatizada</span>
-              <FilasPorMoneda lista={m.facturado_por_moneda} campo="facturado_ia" color="var(--acc)" tam={12.5} />
-            </div>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-              <span style={{ flex: 1, color: "var(--ink-2)" }}>Asistida</span>
-              <FilasPorMoneda lista={m.facturado_por_moneda} campo="facturado_humano" color="var(--blue)" tam={12.5} />
-            </div>
-            <div className="tenue">
-              <Importes lista={m.facturado_por_moneda} campo="envios" /> de envíos cobrados, fuera de esta cuenta.
-            </div>
-          </div>
-        </section>
-
-        <section className="tarjeta">
-          <h2 className="titulo-tarjeta" style={{ marginBottom: 12 }}>Resumen</h2>
-
-          <div style={{ display: "grid", gap: 12, marginBottom: 16 }}>
-            <Meta
-              etiqueta="Cobertura automatizada"
-              valor={m.cobertura_ia.valor}
-              meta={m.cobertura_ia.meta}
-              estado={m.cobertura_ia.estado}
-            />
-            <Meta
-              etiqueta="Efectividad asistida"
-              valor={m.efectividad_humana.valor}
-              meta={m.efectividad_humana.meta}
-              estado={m.efectividad_humana.estado}
-            />
-          </div>
-
-          <ul style={{ display: "grid", gap: 9 }}>
-            <FilaResumen
-              icono={<IconoReloj tam={15} />}
-              etiqueta="Automatizada tarda"
-              valor={formatearDuracion(m.tiempo_promedio_ia)}
-            />
-            <FilaResumen
-              icono={<IconoPersona tam={15} />}
-              etiqueta="Asistida tarda"
-              valor={formatearDuracion(m.tiempo_promedio_humano)}
-            />
-            <FilaResumen
-              icono={<IconoConversaciones tam={15} />}
-              etiqueta="Sin cerrar"
-              valor={String(m.sin_cerrar)}
-            />
-            <FilaResumen
-              icono={<IconoRevision tam={15} />}
-              etiqueta="En revisión"
-              valor={String(m.revision)}
-            />
-          </ul>
-        </section>
-      </div>
-
-      {/*
-        Qué anuncio trae a cada cliente. La descripción es la mitad útil: el
-        título dice el producto, y el texto dice qué se le prometió — que es lo
-        que explica por qué el cliente escribe lo que escribe.
-      */}
-      <section className="tarjeta" style={{ marginBottom: 14 }}>
-        <h2 className="titulo-tarjeta" style={{ marginBottom: 12 }}>Productos que traen leads</h2>
-
-        {m.productos_anuncio.length === 0 ? (
-          <Vacio
-            titulo="Todavía no ha llegado nadie por un anuncio"
-            texto="Cuando un cliente escriba desde un anuncio de Facebook o Instagram, aquí aparecerá qué producto lo trajo y qué le prometía."
-          />
-        ) : (
-          <div style={{ overflowX: "auto" }}>
-            <table className="tabla">
-              <thead>
-                <tr>
-                  <th>Producto anunciado</th>
-                  <th>Lo que promete el anuncio</th>
-                  <th style={{ textAlign: "right" }}>Leads</th>
-                  <th style={{ textAlign: "right" }}>Cerrados</th>
-                  <th style={{ textAlign: "right" }}>Tasa</th>
-                </tr>
-              </thead>
-              <tbody>
-                {m.productos_anuncio.map((p) => (
-                  <tr key={p.producto}>
-                    <td style={{ fontWeight: 600, maxWidth: 220 }}>{p.producto}</td>
-                    <td className="tenue" style={{ maxWidth: 340 }}>
-                      {p.descripcion ?? "—"}
-                    </td>
-                    <td style={{ textAlign: "right" }}>{p.leads}</td>
-                    <td style={{ textAlign: "right", color: "var(--acc)" }}>{p.cerrados}</td>
-                    <td style={{ textAlign: "right" }}>
-                      {p.leads === 0 ? 0 : Math.round((p.cerrados / p.leads) * 100)}%
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
-      <div className="sd-fila-3">
-        <section className="tarjeta">
-          <h2 className="titulo-tarjeta" style={{ marginBottom: 12 }}>Rendimiento por número</h2>
-
-          {m.por_canal.length === 0 ? (
-            <Vacio titulo="Sin actividad en este rango" texto="Prueba con un rango de fechas más amplio." />
-          ) : (
-            <div style={{ overflowX: "auto" }}>
-              <table className="tabla">
-                <thead>
-                  <tr>
-                    <th>Número</th>
-                    {/* Con el panel filtrado las dos columnas dirían el mismo
-                        número: se deja una y se la llama por su nombre. */}
-                    {!soloAnuncio && <th style={{ textAlign: "right" }}>Por anuncio</th>}
-                    <th style={{ textAlign: "right" }}>
-                      {soloAnuncio ? "Leads de anuncio" : "Conversaciones"}
-                    </th>
-                    {/* Las ventas CERRADAS en el periodo, por el día en que se
-                        cerraron y en la hora del país del número. Pueden ser
-                        más que las conversaciones de la fila: son pedidos de
-                        gente que escribió antes. */}
-                    <th style={{ textAlign: "right" }}>Automatizada</th>
-                    <th style={{ textAlign: "right" }}>Asistida</th>
-                    {/* Sin cerrar y En revisión son de las conversaciones que
-                        LLEGARON en el periodo y siguen sin venta. */}
-                    <th style={{ textAlign: "right" }}>Sin cerrar</th>
-                    <th style={{ textAlign: "right" }}>Revisión</th>
-                    <th style={{ textAlign: "right" }}>Tasa</th>
-                    <th style={{ textAlign: "right" }}>Ventas</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {m.por_canal.map((c) => (
-                    <tr key={c.canal_id}>
-                      <td>
-                        <div className="sd-franja">
-                          <div style={{ fontWeight: 600 }}>{c.nombre}</div>
-                          <div className="tenue">{c.phone ?? "sin vincular"}</div>
-                        </div>
-                      </td>
-                      {!soloAnuncio && (
-                        <td style={{ textAlign: "right", fontWeight: 600, color: "var(--amber)" }}>
-                          {c.leads_anuncio}
-                        </td>
-                      )}
-                      <td style={{ textAlign: "right" }}>{c.leads}</td>
-                      <td style={{ textAlign: "right", color: "var(--acc)" }}>{c.cierres_ia}</td>
-                      <td style={{ textAlign: "right", color: "var(--blue)" }}>{c.cierres_humano}</td>
-                      <td style={{ textAlign: "right" }}>{c.sin_cerrar}</td>
-                      <td style={{ textAlign: "right", color: c.revision > 0 ? "var(--amber)" : undefined }}>
-                        {c.revision}
-                      </td>
-                      <td style={{ textAlign: "right", minWidth: 66 }}>
-                        {c.tasa}%
-                        <div className="sd-minibarra">
-                          <div style={{ width: `${Math.min(c.tasa, 100)}%`, height: "100%", background: "var(--acc)" }} />
-                        </div>
-                      </td>
-                      {/* En la moneda del país del número: RD$, ₡ o US$. */}
-                      <td className="num" style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                        {dinero(c.ventas, c.moneda)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-
-                {/* La cuenta entera, sumando los números uno a uno. La última
-                    celda es lo facturado sin envíos, moneda por moneda: la
-                    misma cifra de la tarjeta de arriba. */}
-                <tfoot>
-                  <tr>
-                    <td><span className="rotulo-total">Todos los números</span></td>
-                    {!soloAnuncio && (
-                      <td style={{ textAlign: "right", color: "var(--amber)" }}>{totalCanales.leads_anuncio}</td>
-                    )}
-                    <td style={{ textAlign: "right" }}>{totalCanales.leads}</td>
-                    <td style={{ textAlign: "right", color: "var(--acc)" }}>{totalCanales.cierres_ia}</td>
-                    <td style={{ textAlign: "right", color: "var(--blue)" }}>{totalCanales.cierres_humano}</td>
-                    <td style={{ textAlign: "right" }}>{totalCanales.sin_cerrar}</td>
-                    <td style={{ textAlign: "right" }}>{totalCanales.revision}</td>
-                    <td style={{ textAlign: "right" }}>{tasaTotal}%</td>
-                    <td style={{ textAlign: "right", color: "var(--amber)", whiteSpace: "nowrap" }}>
-                      <FilasPorMoneda lista={m.facturado_por_moneda} campo="facturado" color="var(--amber)" />
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          )}
-        </section>
-
-        <section className="tarjeta">
-          <h2 className="titulo-tarjeta" style={{ marginBottom: 12 }}>Lo que más se vende</h2>
-
-          {m.top_productos.length === 0 ? (
-            <Vacio
-              titulo="Aún no hay ventas con producto"
-              texto="Analiza tus conversaciones para que aparezca qué se vendió."
-            />
-          ) : (
-            <ol style={{ display: "grid", gap: 11 }}>
-              {m.top_productos.map((p, i) => (
-                <li key={p.producto} style={{ display: "flex", gap: 11, alignItems: "baseline" }}>
-                  <span className="num" style={{ color: "var(--ink-4)", fontSize: 12.5, width: 14 }}>
-                    {i + 1}
-                  </span>
-                  <span style={{ flex: 1, fontSize: 13, minWidth: 0 }}>{p.producto}</span>
-                  <span style={{ textAlign: "right" }}>
-                    <span className="num" style={{ fontWeight: 600, fontSize: 13 }}>{dinero(p.monto, m.una_moneda)}</span>
-                    <span className="tenue" style={{ display: "block" }}>
-                      {p.unidades} venta{p.unidades === 1 ? "" : "s"}
-                    </span>
-                  </span>
-                </li>
-              ))}
-            </ol>
-          )}
-        </section>
-      </div>
     </>
   );
 }
 
 /**
- * El desglose de lo facturado, un canal por línea.
- *
- * La lista tiene su propio scroll y no crece con la cuenta: la tarjeta vive en
- * la rejilla de cuatro KPIs de arriba, y una cuenta con veinte canales —el tope
- * que soporta el panel— estiraría esa fila hasta empujar el resto del dashboard
- * fuera de la pantalla. Con la altura fija, la fila mide lo mismo con un canal
- * que con veinte y el desglose se recorre dentro.
+ * LA ROSCA DE LOS LEADS DE ANUNCIOS: de la gente que trajo la publicidad,
+ * cuántos cerró la IA, cuántos un vendedor y cuántos siguen sin cerrar. El
+ * centro dice qué parte de lo cerrado lo cerró la IA sola.
  */
-function FacturadoPorCanal({
-  canales,
-}: {
-  canales: { canal_id: number; nombre: string; facturado: number; moneda: Moneda }[];
-}) {
-  if (canales.length === 0) {
-    return (
-      <div className="tenue" style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--line)" }}>
-        Sin canales conectados
-      </div>
-    );
-  }
+function LeadsDeAnuncios({ m }: { m: Metricas }) {
+  const total = m.leads_anuncio;
+  const ia = m.cierres_anuncio_ia;
+  const vendedor = m.cierres_anuncio_humano;
+  const sinCerrar = Math.max(total - ia - vendedor, 0);
+  const cerrados = ia + vendedor;
+  const loCierraLaIA = cerrados === 0 ? 0 : Math.round((ia / cerrados) * 100);
+
+  const porciones = [
+    { etiqueta: "Cerrados por la IA", valor: ia, color: "var(--acc)" },
+    { etiqueta: "Cerrados por un vendedor", valor: vendedor, color: "var(--blue)" },
+    { etiqueta: "Sin cerrar", valor: sinCerrar, color: "var(--line-2)" },
+  ];
+
+  const radio = 46;
+  const grosor = 12;
+  const circunferencia = 2 * Math.PI * radio;
+  let acumulado = 0;
 
   return (
-    <ul
-      style={{
-        marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--line)",
-        display: "grid", gap: 5, maxHeight: 104, overflowY: "auto",
-      }}
-    >
-      {canales.map((c) => (
-        <li
-          key={c.canal_id}
-          style={{ display: "flex", alignItems: "baseline", gap: 8, fontSize: 12 }}
-        >
-          <span
-            style={{
-              flex: 1, minWidth: 0, color: "var(--ink-2)",
-              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-            }}
-            title={c.nombre}
-          >
-            {c.nombre}
-          </span>
-          {/*
-            El cero se pinta apagado en vez de esconderse: la fila sigue ahí
-            para decir que el canal existe, pero no compite con los que sí
-            facturaron cuando se recorre la lista de un vistazo.
-          */}
-          <span
-            className="num"
-            style={{
-              fontWeight: 600,
-              color: c.facturado > 0 ? "var(--amber)" : "var(--ink-4)",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {dinero(c.facturado, c.moneda)}
-          </span>
-        </li>
-      ))}
-    </ul>
+    <section className="tarjeta">
+      <h2 className="titulo-tarjeta" style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 12 }}>
+        <span style={{ color: "var(--acc)", display: "flex" }}><IconoRosca tam={15} /></span>
+        Leads de anuncios
+      </h2>
+
+      {total === 0 ? (
+        <Vacio titulo="Todavía no ha llegado nadie por un anuncio" texto="Cuando un cliente escriba desde un anuncio, aquí verás cuántos cierran." />
+      ) : (
+        <>
+          <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" }}>
+            <svg width="120" height="120" viewBox="0 0 120 120" role="img" aria-label={`${loCierraLaIA} % de los leads de anuncio cerrados los cierra la IA`}>
+              <circle cx="60" cy="60" r={radio} fill="none" stroke="var(--soft)" strokeWidth={grosor} />
+              <g transform="rotate(-90 60 60)">
+                {porciones.map((p) => {
+                  const fraccion = total === 0 ? 0 : p.valor / total;
+                  const trazo = fraccion * circunferencia;
+                  const desfase = -acumulado * circunferencia;
+                  acumulado += fraccion;
+                  return (
+                    <circle
+                      key={p.etiqueta}
+                      cx="60" cy="60" r={radio}
+                      fill="none"
+                      stroke={p.color}
+                      strokeWidth={grosor}
+                      strokeDasharray={`${trazo} ${circunferencia - trazo}`}
+                      strokeDashoffset={desfase}
+                    />
+                  );
+                })}
+              </g>
+              <text x="60" y="58" textAnchor="middle" fontSize="20" fontWeight="700" fill="var(--ink)" style={{ letterSpacing: "-0.03em" }}>
+                {loCierraLaIA} %
+              </text>
+              <text x="60" y="73" textAnchor="middle" fontSize="9" fill="var(--ink-3)">
+                lo cierra la IA
+              </text>
+            </svg>
+
+            <div className="sd-rosca-leyenda" style={{ flex: 1, minWidth: 150 }}>
+              {porciones.map((p) => (
+                <div key={p.etiqueta}>
+                  <span className="punto" style={{ background: p.color }} />
+                  <span>
+                    <span style={{ color: "var(--ink-2)", display: "block" }}>{p.etiqueta}</span>
+                    <span className="valor">{p.valor}</span>
+                    <span className="pct">{pct(total === 0 ? 0 : (p.valor / total) * 100)}</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 14, paddingTop: 10, borderTop: "1px solid var(--line)", fontSize: 12.5 }}>
+            <span style={{ color: "var(--ink-2)" }}>Total de leads de anuncios</span>
+            <strong className="num" style={{ fontSize: 15 }}>{total}</strong>
+          </div>
+        </>
+      )}
+    </section>
   );
 }
 
-function FilaResumen({
-  icono,
-  etiqueta,
-  valor,
+type FilaCanal = Metricas["por_canal"][number];
+
+interface Enlaces {
+  leads: string;
+  conversaciones: string;
+  automatizada: string;
+  asistida: string;
+  revision: string;
+  ver: string;
+}
+
+/** Una cifra que se puede abrir cuando es mayor que cero. */
+function Cifra({ n, href }: { n: number; href: string }) {
+  if (n === 0) return <span className="sd-cero">0</span>;
+  return <Link href={href} className="sd-cifra">{n}</Link>;
+}
+
+/**
+ * LA TABLA DE RENDIMIENTO, una por tipo de canal. Cada fila es una línea de
+ * WhatsApp o una página de Meta, con sus leads, sus cierres, su tasa y lo que
+ * facturó en su moneda. El pie suma las columnas, y el dinero se apila moneda
+ * por moneda porque no se suma entre países.
+ */
+function TablaRendimiento({
+  titulo,
+  subtitulo,
+  insignia,
+  cabecera,
+  pie,
+  filas,
+  parametros,
+  vacio,
+  enlaces,
 }: {
-  icono: React.ReactNode;
-  etiqueta: string;
-  valor: string;
+  titulo: string;
+  subtitulo: string;
+  insignia: React.ReactNode;
+  cabecera: string;
+  pie: string;
+  filas: FilaCanal[];
+  parametros: URLSearchParams;
+  vacio: string;
+  enlaces: (c: FilaCanal) => Enlaces;
 }) {
+  const total = filas.reduce(
+    (a, c) => ({
+      leads: a.leads + c.leads_anuncio,
+      conversaciones: a.conversaciones + c.leads,
+      ia: a.ia + c.cierres_ia,
+      humano: a.humano + c.cierres_humano,
+      sin_cerrar: a.sin_cerrar + c.sin_cerrar,
+      revision: a.revision + c.revision,
+    }),
+    { leads: 0, conversaciones: 0, ia: 0, humano: 0, sin_cerrar: 0, revision: 0 },
+  );
+  const tasaTotal = total.conversaciones === 0 ? 0 : Math.round(((total.ia + total.humano) / total.conversaciones) * 1000) / 10;
+
+  // El dinero del pie, moneda por moneda.
+  const porMoneda = new Map<string, { moneda: Moneda; facturado: number }>();
+  for (const c of filas) {
+    const f = porMoneda.get(c.moneda.codigo) ?? { moneda: c.moneda, facturado: 0 };
+    f.facturado += c.ventas;
+    porMoneda.set(c.moneda.codigo, f);
+  }
+
   return (
-    <li style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 12.5 }}>
-      <span style={{ color: "var(--ink-3)", display: "flex" }}>{icono}</span>
-      <span style={{ flex: 1, color: "var(--ink-2)" }}>{etiqueta}</span>
-      <span className="num" style={{ fontWeight: 600 }}>{valor}</span>
-    </li>
+    <section className="tarjeta" style={{ marginBottom: 14 }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
+        <div>
+          <h2 className="titulo-tarjeta">{titulo}</h2>
+          <div className="tenue">{subtitulo}</div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {insignia}
+          <Link href={`/api/informe?${parametros.toString()}`} className="btn btn-tenue" style={{ textDecoration: "none", padding: "5px 10px", fontSize: 12.5 }}>
+            <IconoDescargar tam={14} /> Exportar
+          </Link>
+        </div>
+      </div>
+
+      {filas.length === 0 ? (
+        <Vacio titulo="Nada conectado todavía" texto={vacio} />
+      ) : (
+        <div style={{ overflowX: "auto" }}>
+          <table className="tabla sd-rendimiento">
+            <thead>
+              <tr>
+                <th>{cabecera}</th>
+                <th>Leads</th>
+                <th>Conversaciones</th>
+                <th>Automatizada</th>
+                <th>Asistida</th>
+                <th>Sin cerrar</th>
+                <th>Revisión</th>
+                <th>Tasa</th>
+                <th>Facturado</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {filas.map((c) => {
+                const e = enlaces(c);
+                const detalle = !c.vinculado
+                  ? "sin vincular"
+                  : c.tipo === "meta"
+                    ? `Página de Facebook · ${paisCorto(c.pais_nombre)}`
+                    : `${c.phone ? `+${c.phone}` : ""} · ${c.estado === "conectado" ? paisCorto(c.pais_nombre) : c.estado}`;
+                return (
+                  <tr key={c.canal_id} style={{ opacity: c.vinculado ? 1 : 0.6 }}>
+                    <td>
+                      <div className="sd-linea" style={{ borderLeftColor: c.vinculado ? "var(--acc)" : "var(--line-2)" }}>
+                        <div className="sd-linea-nombre">{c.nombre}</div>
+                        <div className="sd-linea-detalle">
+                          {c.vinculado && c.tipo !== "meta" && c.estado !== "conectado" ? (
+                            <>
+                              {c.phone ? `+${c.phone} · ` : ""}
+                              <span className="caido">{c.estado}</span>
+                            </>
+                          ) : (
+                            detalle
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                    <td><Cifra n={c.leads_anuncio} href={e.leads} /></td>
+                    <td><Cifra n={c.leads} href={e.conversaciones} /></td>
+                    <td><Cifra n={c.cierres_ia} href={e.automatizada} /></td>
+                    <td><Cifra n={c.cierres_humano} href={e.asistida} /></td>
+                    <td>{c.sin_cerrar === 0 ? <span className="sd-cero">0</span> : c.sin_cerrar}</td>
+                    <td>
+                      {c.revision === 0 ? <span className="sd-cero">0</span> : <Link href={e.revision} className="sd-cifra">{c.revision}</Link>}
+                    </td>
+                    <td>
+                      <span className="sd-tasa">
+                        <span className="sd-minibarra">
+                          <span style={{ display: "block", width: `${Math.min(c.tasa, 100)}%`, height: "100%", background: "var(--acc)" }} />
+                        </span>
+                        {pct(c.tasa)}
+                      </span>
+                    </td>
+                    <td>
+                      <span className="sd-apilado">
+                        <span style={{ fontWeight: 600, color: c.ventas > 0 ? "var(--ink)" : "var(--ink-4)" }}>
+                          {c.vinculado ? dinero(c.ventas, c.moneda) : "—"}
+                        </span>
+                        {c.sin_monto > 0 && <span className="sd-sin-monto">{c.sin_monto} sin monto</span>}
+                      </span>
+                    </td>
+                    <td>
+                      {!c.vinculado ? null : c.revision > 0 ? (
+                        <Link href={e.revision} className="btn btn-secundario" style={{ textDecoration: "none", padding: "5px 11px", fontSize: 12.5 }}>
+                          Revisar
+                        </Link>
+                      ) : (
+                        <Link href={e.ver} style={{ fontSize: 12.5, fontWeight: 600, color: "var(--ink-2)", textDecoration: "none" }}>
+                          Ver
+                        </Link>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td>{pie}</td>
+                <td>{total.leads}</td>
+                <td>{total.conversaciones}</td>
+                <td style={{ color: "var(--acc)" }}>{total.ia}</td>
+                <td style={{ color: "var(--blue)" }}>{total.humano}</td>
+                <td>{total.sin_cerrar}</td>
+                <td style={{ color: total.revision > 0 ? "var(--amber)" : undefined }}>{total.revision}</td>
+                <td>{pct(tasaTotal)}</td>
+                <td>
+                  <span className="sd-apilado">
+                    {[...porMoneda.values()].map((f) => (
+                      <span key={f.moneda.codigo || "sin"}>{dinero(f.facturado, f.moneda)}</span>
+                    ))}
+                  </span>
+                </td>
+                <td />
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+    </section>
   );
 }
