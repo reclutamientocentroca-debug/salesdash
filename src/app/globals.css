@@ -1602,6 +1602,17 @@ body {
   gap: 9px;
 }
 
+/* La nota de voz. El ancho es fijo a propósito: el globo se ajusta a su
+   contenido, y un reproductor con ancho en porcentaje dentro de él se
+   resuelve a cero en Chrome — quedaba una pastilla vacía sin botón de
+   reproducir. En pantallas estrechas lo acota el propio globo. */
+.sd-audio {
+  display: block;
+  width: 260px;
+  max-width: 100%;
+  height: 40px;
+}
+
 /* ── Bandeja ──────────────────────────────────────────────────────────────── *
  * Dos paneles fijos, como cualquier cliente de mensajería: la lista de chats a
  * la izquierda y el hilo abierto a la derecha. Cada uno con su propio scroll —

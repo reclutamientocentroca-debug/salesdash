@@ -2,6 +2,7 @@ import type { Mensaje } from "@/lib/db";
 import { urlServida } from "@/lib/media";
 import { esUbicacion, textoSinMarca } from "@/lib/ubicacion";
 import { sinFichaDelAnuncio } from "@/lib/enlace";
+import { Foto } from "@/components/panel/Foto";
 
 /**
  * Una burbuja del hilo.
@@ -51,8 +52,11 @@ export function Burbuja({
     return (
       <div className={`sd-burbuja ${clase}`} style={{ maxWidth: "82%" }}>
         {/* `preload="none"`: en un hilo de treinta audios, precargarlos todos
-            son treinta descargas para escuchar quizá uno. */}
-        <audio controls preload="none" src={archivo} style={{ width: "100%", maxWidth: 260 }} />
+            son treinta descargas para escuchar quizá uno. El ancho es fijo y
+            está en el CSS: con `width: 100%` dentro de un globo que se ajusta
+            al contenido, Chrome lo resolvía a cero y quedaba una pastilla
+            vacía sin botón de reproducir. */}
+        <audio controls preload="none" src={archivo} className="sd-audio" />
         {m.transcripcion && (
           <div style={{ fontSize: 12, marginTop: 6, opacity: 0.9, fontStyle: "italic" }}>
             {m.transcripcion}
@@ -70,12 +74,10 @@ export function Burbuja({
   if (m.tipo === "imagen" && archivo) {
     return (
       <div className={`sd-burbuja ${clase}`} style={{ maxWidth: "82%" }}>
-        {/* Sin next/image: la ruta exige sesión y su optimizador no la lleva. */}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
+        <Foto
           src={archivo}
           alt={m.descripcion_imagen ?? "Imagen enviada en la conversación"}
-          style={{ display: "block", maxWidth: "100%", borderRadius: 8, marginBottom: 6 }}
+          fallback={<FilaDeArchivo m={m} texto="La foto ya no está disponible" />}
         />
         {m.descripcion_imagen && (
           <div style={{ fontSize: 11.5, opacity: 0.85 }}>
@@ -124,21 +126,8 @@ export function Burbuja({
    */
   if (m.tipo !== "texto") {
     return (
-      <div className={`sd-burbuja ${clase}`} style={{ display: "flex", gap: 9, alignItems: "flex-start" }}>
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"
-          style={{ flexShrink: 0, marginTop: 2, opacity: 0.75 }} aria-hidden="true">
-          <rect x="3" y="4.5" width="18" height="15" rx="2.5" />
-          <circle cx="8.5" cy="10" r="1.6" />
-          <path d="m4 17 5-4.5 4 3.5 3-2.5 4 3.5" />
-        </svg>
-        <span>
-          {m.descripcion_imagen ?? m.content}
-          {m.categoria_imagen && (
-            <span style={{ display: "block", fontSize: 11, opacity: 0.8, marginTop: 2 }}>
-              {CATEGORIAS[m.categoria_imagen] ?? m.categoria_imagen}
-            </span>
-          )}
-        </span>
+      <div className={`sd-burbuja ${clase}`}>
+        <FilaDeArchivo m={m} />
       </div>
     );
   }
@@ -155,4 +144,29 @@ export function Burbuja({
   }
 
   return <div className={`sd-burbuja ${clase}`}>{texto}</div>;
+}
+
+/**
+ * La fila de un archivo que no se ve: icono y descripción. Sirve para lo que
+ * no se descargó y para la foto que existió y ya no carga.
+ */
+function FilaDeArchivo({ m, texto }: { m: Mensaje; texto?: string }) {
+  return (
+    <div style={{ display: "flex", gap: 9, alignItems: "flex-start" }}>
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"
+        style={{ flexShrink: 0, marginTop: 2, opacity: 0.75 }} aria-hidden="true">
+        <rect x="3" y="4.5" width="18" height="15" rx="2.5" />
+        <circle cx="8.5" cy="10" r="1.6" />
+        <path d="m4 17 5-4.5 4 3.5 3-2.5 4 3.5" />
+      </svg>
+      <span>
+        {texto ?? m.descripcion_imagen ?? (m.content.trim() || "Imagen")}
+        {m.categoria_imagen && (
+          <span style={{ display: "block", fontSize: 11, opacity: 0.8, marginTop: 2 }}>
+            {CATEGORIAS[m.categoria_imagen] ?? m.categoria_imagen}
+          </span>
+        )}
+      </span>
+    </div>
+  );
 }
