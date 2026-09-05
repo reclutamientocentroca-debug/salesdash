@@ -414,3 +414,34 @@ test("«despachar» pasa: es el cierre de los guiones de la dueña", () => {
   assert.deepEqual(revisarConReglas("¿Se lo despacho hoy mismo?", contexto("do")), []);
   assert.deepEqual(revisarConReglas("¿Se lo despachamos hoy mismo?", contexto("pa")), []);
 });
+
+/**
+ * LA CAPTURA DE LA DUEÑA (2026-09-05): «El combo 2 en 1 incluye un cepillo
+ * secador y una plancha alisadora, en negro y rosa. […] ¿Qué talla le
+ * interesa?». Talla a un combo, colores que la descripción no dice, y un
+ * primer mensaje que no es el del documento. Las tres se paran.
+ */
+test("un combo no lleva talla aunque el catálogo hable de tallas, y un color que no está escrito no se nombra", () => {
+  const combo = {
+    ...rd,
+    catalogo: "Catálogo:\n- Camisas lino talla S a XL — 1,850\n- Mocasines de cuero — 2500",
+    anuncio: "Anuncio: 🔥 COMBO 2 EN 1 — SOLO RD$1,690 ✨ Cepillo secador + plancha alisadora. Seca rápido y ahorra tiempo.",
+    esApertura: true,
+    ultimoDelCliente: "¡Hola! Quiero más información",
+  };
+  const captura =
+    "Hola, perfecto. El combo 2 en 1 incluye un cepillo secador y una plancha alisadora, en negro y rosa. Tiene control de temperatura, seca rápido, alisa, da brillo, aporta volumen y movimiento, y es ideal para un acabado profesional en casa. El precio es RD$1,690. ¿Qué talla le interesa?";
+  const fallas = revisarConReglas(captura, combo);
+  assert.ok(fallas.some((f) => f.includes("talla")), "talla a un combo, aunque el catálogo tenga camisas con talla");
+  assert.ok(fallas.some((f) => f.includes("«negro», «rosa»")), "colores que la descripción no dice");
+  assert.ok(fallas.some((f) => f.includes("empieza con «Hola! Bienvenido(a) a RINCON DCM")), "el primer mensaje no es el del documento");
+
+  // El primer mensaje del documento pasa limpio.
+  const bueno = "Hola! Bienvenido(a) a RINCON DCM. Gracias por escribirnos.\n🖤 COMBO 2 EN 1 🖤\nRD$1,690\n¿Cuántas unidades desea?";
+  assert.deepEqual(revisarConReglas(bueno, combo), []);
+
+  // Un color que sí está en la descripción se puede nombrar.
+  const conColores = { ...rd, anuncio: "Anuncio: Camisa de lino RD$1,850, en blanco, azul y negro.", esApertura: false };
+  assert.deepEqual(revisarConReglas("La tenemos en blanco, azul y negro. ¿Cuál le interesa?", conColores), []);
+  assert.ok(revisarConReglas("La tenemos en rojo. ¿Le interesa?", conColores).some((f) => f.includes("«rojo»")));
+});

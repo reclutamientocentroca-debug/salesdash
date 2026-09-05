@@ -172,7 +172,8 @@ export function fichaDelPedido(
   for (const [i, m] of sesion.entries()) {
     if (m.emisor === "cliente") {
       // Un sitio del país escrito por él es su dirección hasta que dé otra.
-      if (datos && !APERTURA.test(m.content) && zonaDelCliente(datos, m.content) !== null) {
+      // «¿Envían a Las Matas de Farfán?» es una pregunta, no su dirección.
+      if (datos && !APERTURA.test(m.content) && !m.content.includes("?") && zonaDelCliente(datos, m.content) !== null) {
         ficha.direccion = m.content.trim().slice(0, 160);
       }
       // Un número de teléfono suelto es el celular.

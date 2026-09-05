@@ -237,3 +237,11 @@ test("los avisos internos de WhatsApp no son mensajes del cliente", () => {
   assert.equal(esMensajeDeSistema("[imagen]"), false, "una imagen sí es del cliente");
   assert.equal(esMensajeDeSistema("hola"), false);
 });
+
+/** «¿Envían a Las Matas de Farfán?» pregunta por el envío; no es la dirección del cliente. */
+test("una pregunta con un lugar dentro no se toma como la dirección", () => {
+  const f = fichaDelPedido([{ emisor: "cliente", content: "Envían a las matas de Farfán ?" }], rd);
+  assert.equal(f.direccion, null);
+  const dada = fichaDelPedido([{ emisor: "cliente", content: "Estoy en Las Matas de Farfán, calle Duarte 12" }], rd);
+  assert.match(dada.direccion!, /Farfán/);
+});

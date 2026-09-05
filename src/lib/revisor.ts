@@ -314,6 +314,34 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
   // pregunta no sale.
   fallas.push(...preguntaDeVarianteSinVariante(texto, ctx));
 
+  // 8g. COLORES INVENTADOS. El caso real: «en negro y rosa» para un combo cuya
+  // descripción no dice ningún color. Un color que no está escrito no existe.
+  {
+    const fuentes = llano(ctx.anuncio ? ctx.anuncio : ctx.catalogo);
+    if (fuentes.trim()) {
+      const dichos = [...new Set(llano(texto).match(COLORES_NOMBRADOS) ?? [])];
+      const inventados = dichos.filter((c) => !fuentes.includes(c));
+      if (inventados.length) {
+        fallas.push(
+          `dice que viene en «${inventados.join("», «")}» y ni la descripción del anuncio ni el catálogo lo dicen: no inventes colores; si no hay colores escritos, no se nombran ni se preguntan`,
+        );
+      }
+    }
+  }
+
+  // 8h. EL PRIMER MENSAJE DOMINICANO, CON EL FORMATO DEL DOCUMENTO: el saludo
+  // tal cual, y debajo el producto, el precio y la pregunta. Sin párrafos.
+  if (ctx.esApertura && d.codigo === "do") {
+    const saludo = llano(d.saludo).trim();
+    if (saludo && !llano(texto).trim().startsWith(saludo)) {
+      fallas.push(`el primer mensaje empieza con «${d.saludo}» tal cual, y debajo el producto, el precio y la pregunta`);
+    }
+    const lineas = texto.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    if (lineas.length > 6 || texto.length > 420) {
+      fallas.push("el primer mensaje va en cuatro líneas cortas —saludo, producto, precio y pregunta—, sin párrafos ni ficha técnica");
+    }
+  }
+
   // 8d. LA UBICACIÓN NO SE PIDE POR EL MAPA, Y NO SE INSISTE.
   //
   // El cliente puede decir dónde está y con eso basta. Pedirle que comparta
@@ -501,7 +529,13 @@ const PREGUNTA_COLOR = /[¿?][^?¿]*\bcolor(es)?\b[^?¿]*\?/i;
  */
 export function preguntaDeVarianteSinVariante(borrador: string, ctx: ContextoRevision): string[] {
   const b = llano(borrador);
-  const fuentes = llano(`${ctx.catalogo}\n${ctx.anuncio ?? ""}`);
+  /*
+   * Con anuncio, SOLO el anuncio dice si este artículo lleva talla o color.
+   * El caso real: un combo de cepillo y plancha, y un catálogo con camisas
+   * «talla S a XL»: la palabra «talla» del catálogo dejaba pasar «¿qué talla
+   * le interesa?» para el combo.
+   */
+  const fuentes = llano(ctx.anuncio ? ctx.anuncio : ctx.catalogo);
   const fallas: string[] = [];
 
   const sinVariantesDelPais = ctx.datos.tallas.sinTallaNiColor.map((s) => llano(s));
@@ -532,6 +566,9 @@ export function preguntaDeVarianteSinVariante(borrador: string, ctx: ContextoRev
 
   return fallas;
 }
+
+/** Los colores que se pueden nombrar, ya sin tildes: para pillar uno que no está escrito en ningún sitio. */
+const COLORES_NOMBRADOS = /\b(negro|negra|blanco|blanca|azul|rojo|roja|marron|beige|gris|verde|rosado|rosa|dorado|plateado|amarillo|naranja|morado|celeste|turquesa|fucsia)\b/g;
 
 /** Algo que suene a una talla: una letra, un número de talla o un rango. */
 const TIENE_TALLAS = /\b(xs|s|m|l|xl|xxl|xxxl)\b|\b(2[6-9]|3\d|4[0-8])\b|talla [uú]nica|de la \w+ a la \w+/i;

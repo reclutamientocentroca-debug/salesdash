@@ -113,8 +113,8 @@ export function aperturaSegura(
   const articulo = articuloDeLaDescripcion(descripcion, d.moneda.simbolo) ?? anuncio?.producto_anuncio?.trim();
   if (!articulo) return null;
 
-  // Costa Rica: el primer mensaje del guion de la dueña, en un solo globo.
-  if (d.codigo === "cr") {
+  // Costa Rica y República Dominicana: el primer mensaje de los guiones de la dueña, en un solo globo.
+  if (d.codigo === "cr" || d.codigo === "do") {
     return `${saludo}\n🖤 ${articulo} 🖤\n${precio}\n${primeraPregunta(descripcion, d)}`;
   }
 

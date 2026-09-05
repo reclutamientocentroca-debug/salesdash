@@ -46,8 +46,7 @@ test("la apertura segura lleva saludo, artículo, precio y pregunta, y nada inve
     { producto_anuncio: "Rincondcm", descripcion_anuncio: "🔥 ¡COMPRA SEGURO! 🔥 COMBO 2 EN 1 — SOLO RD$1,690 ✨ Cepillo secador + plancha alisadora." },
     saludo,
   )!;
-  assert.ok(texto.startsWith(`${saludo}\n\n`), "el saludo, aparte");
-  assert.ok(texto.includes("Combo 2 En 1 está disponible, en RD$1,690."));
+  assert.ok(texto.startsWith(`${saludo}\n🖤 Combo 2 En 1 🖤\nRD$1,690\n`), "el formato del documento: saludo, producto, precio y pregunta");
   assert.ok(texto.endsWith("¿Cuántas unidades desea?"));
   assert.equal(texto.includes("talla"), false, "un combo no lleva talla");
   assert.equal(texto.includes("Un momento"), false);
