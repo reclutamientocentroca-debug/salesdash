@@ -1798,7 +1798,7 @@ export async function atenderConversacion(
        * En todos los casos queda una anomalía con el motivo, para verlo.
        */
       const apertura = esApertura
-        ? aperturaSegura(datosPais, anuncioVigente(conv), saludoDe(datosPais, agente.nombre, negocio))
+        ? aperturaSegura(datosPais, anuncioVigente(conv), saludoDe(datosPais, agente.nombre, negocio), ultimo.content)
         : null;
 
       if (apertura) {

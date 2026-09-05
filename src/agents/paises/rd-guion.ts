@@ -108,7 +108,7 @@ ${ctx.saludo}
 RD$<PRECIO> (<presentación, si la descripción la dice: paquete de 3 unidades, par, etc.>)
 ¿Qué talla le interesa?
 Si el producto no lleva talla, cierras con: ¿Cuántas unidades desea?
-En calzado la talla se pide como número: «¿Qué número calza?».
+También en calzado se pregunta así, «¿Qué talla le interesa?»: el cliente contesta con su número (del 39 al 45) y ese es su dato.
 «Info», «precio», «quiero más información» o un «hola» a secas significan que le presentes el producto con su precio así; está PROHIBIDO contestar preguntando «¿qué información necesita?» o «¿sobre qué artículo?». Y nunca preguntes «¿le interesa?» ni «¿desea comprar?»: ya escribió porque le interesa.
 
 2. Talla → esperas respuesta.

@@ -81,7 +81,7 @@ export function articuloDeLaDescripcion(descripcion: string, simbolo: string): s
 export function primeraPregunta(descripcion: string, d: DatosPais): string {
   const texto = descripcion;
   const tu = d.trato === "tu";
-  if (CALZADO.test(texto)) return tu ? "¿Qué número calzas?" : "¿Qué número calza?";
+  if (CALZADO.test(texto)) return d.codigo === "do" ? "¿Qué talla le interesa?" : tu ? "¿Qué número calzas?" : "¿Qué número calza?";
   if (ROPA.test(texto)) return tu ? "¿Qué talla te interesa?" : "¿Qué talla le interesa?";
   switch (d.codigo) {
     case "do":
@@ -103,6 +103,8 @@ export function aperturaSegura(
   d: DatosPais,
   anuncio: { producto_anuncio?: string | null; descripcion_anuncio?: string | null } | null,
   saludo: string,
+  /** Lo que escribió el cliente al llegar: si preguntó algo, se le contesta después del saludo. */
+  ultimoDelCliente?: string | null,
 ): string | null {
   const descripcion = anuncio?.descripcion_anuncio?.trim() ?? "";
   if (!descripcion) return null;
@@ -113,9 +115,18 @@ export function aperturaSegura(
   const articulo = articuloDeLaDescripcion(descripcion, d.moneda.simbolo) ?? anuncio?.producto_anuncio?.trim();
   if (!articulo) return null;
 
+  /*
+   * Si llegó preguntando algo —«¿dónde están ubicados?»—, se le contesta en
+   * una línea justo después del saludo, y se sigue con el producto y la
+   * pregunta que toca. El precio no se contesta aparte: ya va en el mensaje.
+   */
+  const tipo = preguntaDelCliente(ultimoDelCliente);
+  const directa = tipo && tipo !== "precio" ? respuestaDirecta(d, ultimoDelCliente, anuncio, null) : null;
+  const contestacion = directa ? `${directa}\n` : "";
+
   // Costa Rica y República Dominicana: el primer mensaje de los guiones de la dueña, en un solo globo.
   if (d.codigo === "cr" || d.codigo === "do") {
-    return `${saludo}\n🖤 ${articulo} 🖤\n${precio}\n${primeraPregunta(descripcion, d)}`;
+    return `${saludo}\n${contestacion}🖤 ${articulo} 🖤\n${precio}\n${primeraPregunta(descripcion, d)}`;
   }
 
   const cuerpo = d.trato === "tu"
@@ -449,9 +460,9 @@ function otraFormaDePreguntar(d: DatosPais, paso: PasoDelPedido, descripcion: st
   switch (paso) {
     case "talla":
       if (CALZADO.test(descripcion)) {
-        return tu ? "Para apartarlo necesito tu número de calzado. ¿Cuál es?" : "Para apartárselo necesito el número que calza. ¿Cuál es?";
+        return d.codigo === "do" ? "¿Cuál talla le interesa? Van de la 39 a la 45." : tu ? "Para enviártelo necesito tu número de calzado. ¿Cuál es?" : "Para enviárselo necesito el número que calza. ¿Cuál es?";
       }
-      return tu ? "Para apartarlo necesito tu talla. ¿Cuál te interesa?" : "Para apartárselo necesito su talla. ¿Cuál le interesa?";
+      return tu ? "Para enviártelo necesito tu talla. ¿Cuál te interesa?" : "Para enviárselo necesito su talla. ¿Cuál le interesa?";
     case "cantidad":
       return tu ? "¿Cuántas llevas?" : "¿Cuántas va a llevar?";
     case "direccion":

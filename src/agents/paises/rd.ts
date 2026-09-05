@@ -354,7 +354,7 @@ export const RD: DatosPais = {
 
   // ── Ubicación ──────────────────────────────────────────────────────────
   ubicacion: {
-    tiendaFisica: "Somos tienda virtual y enviamos a todo el país. No tenemos local físico.",
+    tiendaFisica: "Somos tienda virtual, le llevamos el pedido hasta su casa.",
     alRecibirMapa:
       "Esa ES su dirección. La tomas como buena, se lo confirmas en corto —«Perfecto, ya me " +
       "llegó su ubicación en <sector>»—, le dices de una vez cuánto le sale el envío de esa " +

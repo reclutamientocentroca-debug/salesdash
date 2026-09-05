@@ -35,7 +35,8 @@ test("el precio y el artículo salen tal cual de la descripción", () => {
 
 test("la primera pregunta es la del orden de venta según el artículo", () => {
   assert.equal(primeraPregunta("camisas de lino para caballeros a RD$1,500", rd), "¿Qué talla le interesa?");
-  assert.equal(primeraPregunta("ZAPATOS DCM ESTILO RD$1,990", rd), "¿Qué número calza?");
+  assert.equal(primeraPregunta("ZAPATOS DCM ESTILO RD$1,990", rd), "¿Qué talla le interesa?", "en RD la talla se pide como talla, también en calzado");
+  assert.equal(primeraPregunta("ZAPATOS DE CUERO ₡25.000", cr), "¿Qué número calza?");
   assert.equal(primeraPregunta("COMBO 2 EN 1 cepillo secador + plancha RD$1,690", rd), "¿Cuántas unidades desea?");
   assert.equal(primeraPregunta("Camisa de lino ₡25.000", cr), "¿Qué talla le interesa?");
 });
@@ -100,12 +101,13 @@ test("la respuesta mínima contesta la pregunta del cliente y no se repite", () 
   // Preguntó dónde están: se le dice, y se sigue con la talla.
   const contesta = respuestaMinima(rd, vacia, zapatos, { ultimoDelCliente: "Donde tuta", ultimoDelAgente: "Claro que sí. ¿En qué provincia se encuentra?" });
   assert.ok(contesta.startsWith("Somos tienda virtual"), contesta);
-  assert.ok(contesta.endsWith("¿Qué número calza?"));
+  assert.ok(contesta.endsWith("¿Qué talla le interesa?"));
 
   // Lo último que mandó el agente fue esa misma pregunta: se pregunta de otra forma.
-  const otra = respuestaMinima(rd, vacia, zapatos, { ultimoDelCliente: "Yo vivo en pekín", ultimoDelAgente: "¿Qué número calza?" });
-  assert.notEqual(otra, "¿Qué número calza?");
-  assert.ok(otra.includes("número que calza"), otra);
+  const otra = respuestaMinima(rd, vacia, zapatos, { ultimoDelCliente: "Yo vivo en pekín", ultimoDelAgente: "¿Qué talla le interesa?" });
+  assert.notEqual(otra, "¿Qué talla le interesa?");
+  assert.ok(otra.includes("¿Cuál talla le interesa?"), otra);
+  assert.ok(!otra.includes("apart"), "la empresa no aparta nada");
 
   // Con la talla ya en la ficha, el siguiente paso es la provincia.
   assert.equal(respuestaMinima(rd, { ...vacia, talla: "39" }, zapatos, { ultimoDelAgente: "¿Qué número calza?" }), "Indique su dirección exacta de entrega.");
@@ -227,4 +229,29 @@ test("en Costa Rica el envío y el teléfono van juntos tras la dirección, y el
   // Y cuando dice que sí, el resumen sale en ese mismo mensaje.
   const resumen = respuestaMinima(cr, completo, faja, { ultimoDelAgente: confirmacion, ultimoDelCliente: "Sí" });
   assert.ok(resumen.startsWith("📋 RESUMEN DEL PEDIDO"), resumen);
+});
+
+/**
+ * LA CAPTURA DE LA DUEÑA (2026-09-05): «¡Hola! Quiero más información. Dónde
+ * están ubicado» → sin saludo, y «¿A dónde se lo enviamos?» en vez de la talla.
+ * La apertura saluda, contesta lo que preguntó en una línea y pregunta la talla.
+ */
+test("la apertura saluda, contesta lo que preguntó el cliente y pregunta la talla", () => {
+  const zapatos = {
+    producto_anuncio: "Rincondcm",
+    descripcion_anuncio: "Compra seguro! ORDENA, RECIBE Y LUEGO PAGA!! Luce un estilo exclusivo con zapatos de acabado premium, diseñados para hombres que valoran la elegancia y la calidad. 💰 Precio: RD$2,500 ✅ Acabado de lujo",
+  };
+  const texto = aperturaSegura(rd, zapatos, "Hola! Bienvenido(a) a RINCON DCM. Gracias por escribirnos.", "¡Hola! Quiero más información\nDónde están ubicado")!;
+  const lineas = texto.split("\n");
+  assert.equal(lineas[0], "Hola! Bienvenido(a) a RINCON DCM. Gracias por escribirnos.");
+  assert.equal(lineas[1], "Somos tienda virtual, le llevamos el pedido hasta su casa.", "la respuesta, en una línea, después del saludo");
+  assert.ok(texto.includes("RD$2,500"));
+  assert.ok(texto.endsWith("¿Qué talla le interesa?"), "y la pregunta que toca: la talla");
+
+  // Sin pregunta del cliente, sin línea de más.
+  const limpio = aperturaSegura(rd, zapatos, "Hola! Bienvenido(a) a RINCON DCM. Gracias por escribirnos.", "¡Hola! Quiero más información")!;
+  assert.ok(!limpio.includes("tienda virtual"));
+  // Y preguntar el precio no añade nada: el precio ya va.
+  const precio = aperturaSegura(rd, zapatos, "Hola! Bienvenido(a) a RINCON DCM. Gracias por escribirnos.", "¿Cuánto cuestan?")!;
+  assert.equal(precio.split("\n").length, 4);
 });
