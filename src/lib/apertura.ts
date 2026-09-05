@@ -25,6 +25,7 @@ import { FRASE_DE_TRANSFERENCIA } from "@/agents/paises/rd-guion";
 import { MARCADOR_POR_DEFECTO } from "./cierre";
 import type { FichaDelPedido } from "./memoria";
 import { leerImporte } from "./moneda";
+import { contieneLugar, nombresDeLugar } from "./envio";
 
 /** Sin tildes ni mayúsculas, para comparar. */
 function llano(t: string): string {
@@ -164,7 +165,10 @@ export function respuestaMinima(
     }
   }
 
-  let pregunta = preguntaDelPaso(d, paso, descripcion);
+  // En el paso final, la confirmación va con el pedido escrito: «Le confirmo: …».
+  let pregunta =
+    (paso === "resumen" ? confirmacionMecanica(d, ficha, anuncio, opciones) : null) ??
+    preguntaDelPaso(d, paso, descripcion);
 
   /*
    * LA MISMA PREGUNTA NO SALE DOS VECES SEGUIDAS. El caso real: «¿Qué número
@@ -208,10 +212,10 @@ function preguntaDelPaso(d: DatosPais, paso: PasoDelPedido, descripcion: string)
 }
 
 /** Cómo suena la pregunta de confirmación, para saber que ya se hizo. */
-const PIDE_CONFIRMACION = /factur|confirma (su|tu|el) pedido|se lo enviamos\?|te lo enviamos\?/i;
+const PIDE_CONFIRMACION = /factur|le confirmo|confirma (su|tu|el) pedido|se lo enviamos|te lo enviamos|enviamos hoy mismo/i;
 
 /** Un «sí» del cliente, en cualquiera de sus formas. */
-const CONFIRMA = /^[^\p{L}\p{N}]*(s[ií]|dale|claro|confirmo|confirmado|confirmar|ok|okey|okay|listo|perfecto|de acuerdo|correcto|adelante|vale|va|hagale|h[aá]gale|por supuesto|as[ií] es|exacto|me lo llevo|lo quiero|f[aá]ctureme|fact[uú]relo|env[ií]emelo)(?![\p{L}])/iu;
+const CONFIRMA = /^[^\p{L}\p{N}]*(s[ií]|dale|claro|confirmo|confirmado|confirmar|ok|okey|okay|listo|perfecto|de acuerdo|correcto|adelante|vale|va|hagale|h[aá]gale|por supuesto|as[ií] es|exacto|me lo llevo|lo quiero|f[aá]ctureme|fact[uú]relo|env[ií]emelo|lo espero|est[aá] bien|de una|m[aá]ndelo|as[ií] mismo|env[ií]elo)(?![\p{L}])/iu;
 
 /** «1», «2 pares», «dos» → cuántos lleva. Sin nada, uno. */
 function cantidadDe(texto: string | null): number {
@@ -260,19 +264,27 @@ export function resumenMecanico(
   const cabecera = /^resumen:?$/i.test(marcador.trim()) ? "Resumen de su pedido:" : marcador;
   const celular = ficha.celular && ficha.celular !== "este mismo número" ? ficha.celular : (opciones.telefonoDelChat ?? "");
 
-  const lineas: string[] = [cabecera, ""];
   if (d.codigo === "do") {
-    lineas.push(`Nombre: ${ficha.nombre}`);
-    if (celular) lineas.push(`Teléfono: ${celular}`);
-    lineas.push(`Dirección: ${ficha.direccion}`);
-    lineas.push(`Producto: ${articulo}`);
-    if (variante) lineas.push(`Variante: ${variante}`);
-    if (cantidad > 1) lineas.push(`Cantidad: ${cantidad}`);
-    lineas.push(`Costo del producto: ${importe(d, precio * cantidad)}`);
-    lineas.push(`Costo de envío: ${importe(d, envio)}`);
+    // El formato que pidió la dueña, línea por línea.
+    const titulo = /^resumen:?$/i.test(marcador.trim()) ? "📋 RESUMEN DEL PEDIDO" : marcador;
+    const lineas: string[] = [titulo, `Producto: ${articulo}`];
+    if (ficha.talla) lineas.push(`Talla: ${ficha.talla}`);
+    if (ficha.color) lineas.push(`Color: ${ficha.color}`);
+    lineas.push(`Cantidad: ${cantidad}`);
+    lineas.push(`Precio: ${importe(d, precio * cantidad)}`);
+    lineas.push(`Envio: ${importe(d, envio)}`);
     lineas.push(`TOTAL A PAGAR: ${importe(d, total)}`);
-    lineas.push("", ...d.pieDelResumen, "Su pedido ha sido confirmado exitosamente.", FRASE_DE_TRANSFERENCIA);
-  } else {
+    lineas.push("Forma de pago: contra entrega");
+    lineas.push(`Nombre: ${ficha.nombre}`);
+    if (celular) lineas.push(`Telefono: ${celular}`);
+    lineas.push(`Direccion: ${ficha.direccion}`);
+    lineas.push(`Zona: ${nombreDeLaZona(d, ficha.direccion, opciones.lugar)}`);
+    lineas.push("✅ PEDIDO REGISTRADO", FRASE_DE_TRANSFERENCIA);
+    return lineas.join("\n");
+  }
+
+  const lineas: string[] = [cabecera, ""];
+  {
     lineas.push(`Nombre: ${ficha.nombre}`);
     if (celular) lineas.push(`Cel: ${celular}`);
     lineas.push(`Producto: ${articulo}`);
@@ -286,6 +298,69 @@ export function resumenMecanico(
     lineas.push("", ...d.pieDelResumen, "", "Conectando con representante...");
   }
   return lineas.join("\n");
+}
+
+/**
+ * «Gran Santo Domingo» o la provincia del interior que nombró el cliente:
+ * la línea «Zona» del resumen dominicano.
+ */
+function nombreDeLaZona(d: DatosPais, direccion: string, lugar?: string | null): string {
+  const textos = [direccion, lugar ?? ""];
+  for (const texto of textos) {
+    for (const z of d.envio.zonas) if (contieneLugar(texto, z.lugares)) return z.nombre;
+  }
+  for (const texto of textos) {
+    for (const entrada of d.envio.restoDelPais.lugares ?? []) {
+      if (contieneLugar(texto, [entrada])) return nombresDeLugar(entrada)[0]!;
+    }
+    for (const region of d.mapa.regiones) {
+      for (const entrada of region.lugares) {
+        if (contieneLugar(texto, [entrada])) return nombresDeLugar(entrada)[0]!;
+      }
+    }
+  }
+  return "Interior";
+}
+
+/**
+ * «Le confirmo: …» — el pedido leído en una línea antes de cerrarlo, con el
+ * total y la pregunta de si se lo enviamos hoy mismo. Es la confirmación que
+ * pidió la dueña para República Dominicana; en los demás países, la pregunta
+ * corta de siempre. Null si falta el precio o la zona.
+ */
+export function confirmacionMecanica(
+  d: DatosPais,
+  ficha: FichaDelPedido,
+  anuncio: { descripcion_anuncio?: string | null; producto_anuncio?: string | null } | null,
+  opciones: { lugar?: string | null; productoAnuncio?: string | null } = {},
+): string | null {
+  if (d.codigo !== "do" || !ficha.nombre || !ficha.direccion) return null;
+  const descripcion = anuncio?.descripcion_anuncio ?? "";
+  const precio = leerImporte(precioDeLaDescripcion(descripcion, d.moneda.simbolo));
+  if (precio === null) return null;
+  const zona = zonaDelCliente(d, ficha.direccion) ?? zonaDelCliente(d, opciones.lugar);
+  if (zona === null) return null;
+  const envio = zona === "resto" ? d.envio.restoDelPais.costo : zona.costo;
+  const articulo =
+    articuloDeLaDescripcion(descripcion, d.moneda.simbolo) ??
+    opciones.productoAnuncio?.trim() ??
+    anuncio?.producto_anuncio?.trim() ??
+    null;
+  if (!articulo) return null;
+  const cantidad = cantidadDe(ficha.cantidad);
+  const total = precio * cantidad + envio;
+
+  const partes = [articulo];
+  if (cantidad > 1) partes.push(`${cantidad} unidades`);
+  if (ficha.talla) partes.push(`talla ${ficha.talla}`);
+  if (ficha.color) partes.push(`color ${ficha.color}`);
+  partes.push(`a nombre de ${ficha.nombre}`, `entrega en ${ficha.direccion}`);
+
+  return (
+    `Le confirmo: ${partes.join(", ")}.\n` +
+    `Son ${importe(d, precio * cantidad)} más ${importe(d, envio)} de envío, total ${importe(d, total)}, y se paga al recibir.\n` +
+    "¿Se lo enviamos hoy mismo?"
+  );
 }
 
 /** La misma pregunta con otras palabras, para cuando la anterior quedó sin contestar. */

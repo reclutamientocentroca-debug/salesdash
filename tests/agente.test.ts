@@ -1520,10 +1520,11 @@ test("el agente dominicano cierra con las tres líneas, y el pedido va una sola 
   D.actualizarAgente(orgId, { pais: "do", instrucciones: "" }, canalId);
   const dominicano = armarSistema("Tienda", D.obtenerAgente(orgId, canalId), [], null);
 
+  // El cierre, como lo escribió la dueña: forma de pago, pedido registrado y la transferencia.
   for (const linea of [
-    "Somos tienda virtual y enviamos a todo el país.",
-    "Paga al momento de recibir su pedido.",
-    "Se lo enviamos dentro de 24 a 48 horas.",
+    "Forma de pago: contra entrega",
+    "✅ PEDIDO REGISTRADO",
+    "Le conecto con un representante para finalizar. Aguarde un momento.",
   ]) {
     assert.ok(dominicano.includes(linea), "falta la línea de cierre: " + linea);
   }
@@ -2020,13 +2021,13 @@ test("cada pais abre con su saludo, y el prompt lo dice una sola vez", () => {
 
   // El saludo dominicano lo fija su archivo: nombre y tienda incluidos, diga
   // lo que diga el panel.
-  assert.ok(dominicano.includes("Hola, le asiste Orlanda de RINCON DCM"), "el dominicano saluda así");
+  assert.ok(dominicano.includes("¡Hola! Bienvenido(a) a RINCON DCM, le asiste Orlanda. Gracias por escribirnos."), "el dominicano saluda así");
   assert.equal(dominicano.includes("Saludos cordiales"), false, "y ya no arrastra el saludo viejo");
   assert.equal(dominicano.includes("Mildred"), false, "ni el nombre del panel, que el archivo sustituye");
 
   // La regla y el ejemplo dicen LA MISMA frase, no dos parecidas.
   assert.equal(
-    dominicano.split("Hola, le asiste Orlanda de RINCON DCM").length - 1,
+    dominicano.split("¡Hola! Bienvenido(a) a RINCON DCM, le asiste Orlanda. Gracias por escribirnos.").length - 1,
     2,
     "una vez en la regla y otra en el ejemplo: ni una copia suelta más",
   );

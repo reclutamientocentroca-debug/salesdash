@@ -296,7 +296,7 @@ test("pedir la ubicación por el mapa, o insistir con ella, no sale", () => {
  * mundo. Solo con el resumen, por una foto, por mayoreo o si pide persona.
  */
 test("una transferencia sin motivo no sale; con motivo, sí", () => {
-  const frase = "En un momento será transferido a un representante que le continuará atendiendo.";
+  const frase = "Le conecto con un representante para finalizar. Aguarde un momento.";
 
   const preguntaNormal = { ...rd, ultimoDelCliente: "¿Cuánto es el envío a Santiago?" };
   assert.ok(revisarConReglas(frase, preguntaNormal).some((f) => f.includes("sin motivo")));

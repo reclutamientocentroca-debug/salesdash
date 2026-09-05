@@ -16,7 +16,8 @@ export const RD: DatosPais = {
   // ── Identidad ──────────────────────────────────────────────────────────
   tienda: "RINCON DCM",
   nombreAgente: "Orlanda",
-  saludo: "Hola, le asiste Orlanda de RINCON DCM",
+  // Como lo pidió la dueña (2026-09-04): bienvenida, quién atiende y gracias.
+  saludo: "¡Hola! Bienvenido(a) a RINCON DCM, le asiste Orlanda. Gracias por escribirnos.",
   trato: "usted",
 
   // ── Moneda ─────────────────────────────────────────────────────────────
