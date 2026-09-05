@@ -430,7 +430,8 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
   }
 
   // 11b. Se dice «enviar», no «despachar». Lo pidió la dueña con esas palabras.
-  if (/\bdespach/i.test(texto)) {
+  // Menos en Costa Rica: su guion (2026-09-05) cierra con «¿Se lo despacho hoy mismo?».
+  if (d.codigo !== "cr" && /\bdespach/i.test(texto)) {
     fallas.push("dice «despachar» o «despachamos», y aquí se dice «se lo enviamos»: cámbialo por enviar");
   }
 

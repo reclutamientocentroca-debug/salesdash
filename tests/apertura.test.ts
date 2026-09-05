@@ -174,10 +174,53 @@ test("con los datos se pide la confirmación, y con el sí sale el resumen armad
 
   // Sin precio en la descripción no se inventa un resumen.
   assert.equal(resumenMecanico(rd, ficha, { descripcion_anuncio: "Combo de cepillo y plancha, escríbenos" }, {}), null);
-  // Y en Costa Rica, con su forma y su moneda.
+  // Y en Costa Rica, con la forma del guion de la dueña (2026-09-05) y su moneda.
   const tico = resumenMecanico(cr, { ...ficha, direccion: "Heredia centro, 100 norte de la iglesia" }, { descripcion_anuncio: "FAJA REVERSIBLE PARA HOMBRE ₡9.000" }, { telefonoDelChat: "50688881111" })!;
-  assert.ok(tico.startsWith("Resumen de su pedido:"));
-  assert.ok(tico.includes("Costo de envío: ₡3.500"));
-  assert.ok(tico.includes("Total a pagar: ₡12.500"));
-  assert.ok(tico.includes("Conectando con representante..."));
+  assert.ok(tico.startsWith("📋 RESUMEN DEL PEDIDO\nNombre: "), tico);
+  assert.ok(contieneMarcador(tico, "Resumen:"), "el título cuenta la venta");
+  assert.ok(tico.includes("Telefono: 8095551234"), "el que dio el cliente, no el del chat");
+  assert.ok(tico.includes("Envio: ₡3.500"));
+  assert.ok(tico.includes("TOTAL A PAGAR: ₡12.500"));
+  assert.ok(tico.includes("Forma de pago: contra entrega"), "Heredia va a domicilio");
+  assert.ok(tico.endsWith("✅ PEDIDO REGISTRADO\nLe conecto con un representante para finalizar. Aguarde un momento."));
+
+  // Al interior, por correo y por adelantado.
+  const ticoInterior = resumenMecanico(cr, { ...ficha, direccion: "Liberia, Guanacaste" }, { descripcion_anuncio: "FAJA REVERSIBLE PARA HOMBRE ₡9.000" }, { telefonoDelChat: "50688881111" })!;
+  assert.ok(ticoInterior.includes("Forma de pago: SINPE o transferencia por adelantado"));
+});
+
+/**
+ * EL ORDEN DE COSTA RICA, según el guion de la dueña (2026-09-05): con la
+ * dirección se dice cómo llega, el envío y cuándo se paga, y en el mismo
+ * mensaje se pide el teléfono; después el nombre; y el cierre pregunta «¿Se
+ * lo despacho hoy mismo?».
+ */
+test("en Costa Rica el envío y el teléfono van juntos tras la dirección, y el cierre despacha", () => {
+  const faja = { descripcion_anuncio: "FAJA REVERSIBLE PARA HOMBRE ₡9.000" };
+  const base = { talla: "34", color: null, direccion: null, nombre: null, celular: null, cantidad: null };
+
+  const pideDireccion = respuestaMinima(cr, base, faja, {});
+  assert.equal(pideDireccion, "Indique su dirección exacta de entrega.");
+
+  const conDireccion = { ...base, direccion: "Escazú centro, 200 sur de la iglesia" };
+  const logistica = respuestaMinima(cr, conDireccion, faja, { ultimoDelCliente: conDireccion.direccion });
+  assert.ok(logistica.startsWith("Perfecto, hasta Zona de entrega a domicilio se lo llevamos a domicilio. El envío es ₡3.500 y paga al recibir."), logistica);
+  assert.ok(logistica.endsWith("¿Me facilita su número de teléfono para el pedido?"));
+
+  const alInterior = respuestaMinima(cr, { ...base, direccion: "Liberia, Guanacaste" }, faja, {});
+  assert.ok(alInterior.includes("va por correo y lo retira en la sucursal más cercana"), alInterior);
+  assert.ok(alInterior.includes("el pago va por adelantado, por SINPE o transferencia"));
+
+  const conTelefono = { ...conDireccion, celular: "88881111" };
+  assert.equal(respuestaMinima(cr, conTelefono, faja, {}), "¿A nombre de quién sale el pedido?");
+
+  const completo = { ...conTelefono, nombre: "Cliente" };
+  const confirmacion = respuestaMinima(cr, completo, faja, {});
+  assert.ok(confirmacion.startsWith("Le confirmo: Faja Reversible Para Hombre, talla 34, a nombre de Cliente, entrega en Escazú centro"), confirmacion);
+  assert.ok(confirmacion.includes("Son ₡9.000 más ₡3.500 de envío, total ₡12.500, se paga al recibir."));
+  assert.ok(confirmacion.endsWith("¿Se lo despacho hoy mismo?"));
+
+  // Y cuando dice que sí, el resumen sale en ese mismo mensaje.
+  const resumen = respuestaMinima(cr, completo, faja, { ultimoDelAgente: confirmacion, ultimoDelCliente: "Sí" });
+  assert.ok(resumen.startsWith("📋 RESUMEN DEL PEDIDO"), resumen);
 });

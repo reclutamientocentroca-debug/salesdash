@@ -22,6 +22,7 @@ import type { DatosPais } from "@/agents";
 import { importe, zonaDelCliente } from "@/agents/armar";
 import { TALLAS_BASE } from "@/agents/base-comportamiento";
 import { FRASE_DE_TRANSFERENCIA } from "@/agents/paises/rd-guion";
+import { FRASE_DE_CIERRE_CR } from "@/agents/paises/cr-guion";
 import { MARCADOR_POR_DEFECTO } from "./cierre";
 import type { FichaDelPedido } from "./memoria";
 import { leerImporte } from "./moneda";
@@ -86,7 +87,8 @@ export function primeraPregunta(descripcion: string, d: DatosPais): string {
     case "do":
       return "¿A dónde se lo enviamos?";
     case "cr":
-      return tu ? "Te lo enviamos a todo el país. ¿En qué cantón estás?" : "Le enviamos a todo el país. ¿En qué cantón se encuentra?";
+      // El guion de la dueña: sin talla, «¿Cuántas unidades desea?».
+      return "¿Cuántas unidades desea?";
     default:
       return tu ? "¿A qué corregimiento te lo enviamos?" : "¿A qué corregimiento se lo enviamos?";
   }
@@ -109,6 +111,11 @@ export function aperturaSegura(
 
   const articulo = articuloDeLaDescripcion(descripcion, d.moneda.simbolo) ?? anuncio?.producto_anuncio?.trim();
   if (!articulo) return null;
+
+  // Costa Rica: el primer mensaje del guion de la dueña, en un solo globo.
+  if (d.codigo === "cr") {
+    return `${saludo}\n🖤 ${articulo} 🖤\n${precio}\n${primeraPregunta(descripcion, d)}`;
+  }
 
   const cuerpo = d.trato === "tu"
     ? `${articulo} está disponible, en ${precio}.`
@@ -147,12 +154,15 @@ export function respuestaMinima(
   const llevaTalla = ROPA.test(descripcion) || CALZADO.test(descripcion);
 
   // El orden de la dueña: talla, a dónde, nombre, teléfono (en RD) y el cierre.
+  // En Costa Rica el teléfono va justo después de la dirección, con el envío,
+  // y el nombre después.
   const paso: PasoDelPedido =
     llevaTalla && !ficha.talla ? "talla"
       : !ficha.direccion ? "direccion"
-        : !ficha.nombre ? "nombre"
-          : d.codigo === "do" && !ficha.celular ? "celular"
-            : "resumen";
+        : d.codigo === "cr" && !ficha.celular ? "celular"
+          : !ficha.nombre ? "nombre"
+            : d.codigo === "do" && !ficha.celular ? "celular"
+              : "resumen";
 
   /*
    * EL CIERRE. Con todos los datos, primero se pregunta si se le factura; y
@@ -199,6 +209,25 @@ export function respuestaMinima(
     }
   }
 
+  /*
+   * «PERFECTO, HASTA <ZONA>…»: en Costa Rica, en cuanto el cliente da la
+   * dirección se le dice cómo le llega, el envío y cuándo se paga, y en el
+   * mismo mensaje se le pide el teléfono. Es la regla fija del guion de la
+   * dueña (2026-09-05).
+   */
+  if (paso === "celular" && d.codigo === "cr") {
+    const zona = zonaDelCliente(d, ficha.direccion) ?? zonaDelCliente(d, opciones.lugar);
+    if (zona !== null) {
+      const donde = nombreDeLaZona(d, ficha.direccion ?? "", opciones.lugar);
+      const costo = importe(d, zona === "resto" ? d.envio.restoDelPais.costo : zona.costo);
+      const logistica =
+        zona === "resto"
+          ? `Perfecto, hasta ${donde} va por correo y lo retira en la sucursal más cercana. El envío es ${costo} y el pago va por adelantado, por SINPE o transferencia.`
+          : `Perfecto, hasta ${donde} se lo llevamos a domicilio. El envío es ${costo} y paga al recibir.`;
+      return `${logistica}\n${pregunta}`;
+    }
+  }
+
   // Y si el cliente preguntó algo, se le contesta antes de seguir.
   const directa = respuestaDirecta(d, opciones.ultimoDelCliente, anuncio, opciones.lugar);
   return directa ? `${directa}\n\n${pregunta}` : pregunta;
@@ -217,7 +246,7 @@ function preguntaDelPaso(d: DatosPais, paso: PasoDelPedido, descripcion: string)
         case "do":
           return "¿A dónde se lo enviamos?";
         case "cr":
-          return tu ? "Te lo enviamos a todo el país. ¿En qué cantón estás?" : "Le enviamos a todo el país. ¿En qué cantón se encuentra?";
+          return "Indique su dirección exacta de entrega.";
         default:
           return tu ? "¿A qué corregimiento te lo enviamos?" : "¿A qué corregimiento se lo enviamos?";
       }
@@ -233,7 +262,7 @@ function preguntaDelPaso(d: DatosPais, paso: PasoDelPedido, descripcion: string)
 }
 
 /** Cómo suena la pregunta de confirmación, para saber que ya se hizo. */
-const PIDE_CONFIRMACION = /factur|le confirmo|confirma (su|tu|el) pedido|se lo enviamos|te lo enviamos|enviamos hoy mismo/i;
+const PIDE_CONFIRMACION = /factur|le confirmo|confirma (su|tu|el) pedido|se lo enviamos|te lo enviamos|enviamos hoy mismo|despacho hoy mismo/i;
 
 /** Un «sí» del cliente, en cualquiera de sus formas. */
 const CONFIRMA = /^[^\p{L}\p{N}]*(s[ií]|dale|claro|confirmo|confirmado|confirmar|ok|okey|okay|listo|perfecto|de acuerdo|correcto|adelante|vale|va|hagale|h[aá]gale|por supuesto|as[ií] es|exacto|me lo llevo|lo quiero|f[aá]ctureme|fact[uú]relo|env[ií]emelo|lo espero|est[aá] bien|de una|m[aá]ndelo|as[ií] mismo|env[ií]elo)(?![\p{L}])/iu;
@@ -304,6 +333,25 @@ export function resumenMecanico(
     return lineas.join("\n");
   }
 
+  if (d.codigo === "cr") {
+    // El formato del guion de la dueña (2026-09-05), línea por línea. La forma
+    // de pago se deduce de la zona: a domicilio, contra entrega; por correo,
+    // por adelantado.
+    const titulo = /^resumen:?$/i.test(marcador.trim()) ? "📋 RESUMEN DEL PEDIDO" : marcador;
+    const lineas: string[] = [titulo, `Nombre: ${ficha.nombre}`];
+    if (celular) lineas.push(`Telefono: ${celular}`);
+    lineas.push(`Direccion: ${ficha.direccion}`);
+    lineas.push(`Producto: ${articulo}`);
+    if (ficha.talla) lineas.push(`Talla: ${ficha.talla}`);
+    if (ficha.color) lineas.push(`Color: ${ficha.color}`);
+    lineas.push(`Cantidad: ${cantidad}`);
+    lineas.push(`Envio: ${importe(d, envio)}`);
+    lineas.push(`TOTAL A PAGAR: ${importe(d, total)}`);
+    lineas.push(`Forma de pago: ${zona === "resto" ? "SINPE o transferencia por adelantado" : "contra entrega"}`);
+    lineas.push("✅ PEDIDO REGISTRADO", FRASE_DE_CIERRE_CR);
+    return lineas.join("\n");
+  }
+
   const lineas: string[] = [cabecera, ""];
   {
     lineas.push(`Nombre: ${ficha.nombre}`);
@@ -355,7 +403,7 @@ export function confirmacionMecanica(
   anuncio: { descripcion_anuncio?: string | null; producto_anuncio?: string | null } | null,
   opciones: { lugar?: string | null; productoAnuncio?: string | null } = {},
 ): string | null {
-  if (d.codigo !== "do" || !ficha.nombre || !ficha.direccion) return null;
+  if ((d.codigo !== "do" && d.codigo !== "cr") || !ficha.nombre || !ficha.direccion) return null;
   const descripcion = anuncio?.descripcion_anuncio ?? "";
   const precio = leerImporte(precioDeLaDescripcion(descripcion, d.moneda.simbolo));
   if (precio === null) return null;
@@ -376,6 +424,16 @@ export function confirmacionMecanica(
   if (ficha.talla) partes.push(`talla ${ficha.talla}`);
   if (ficha.color) partes.push(`color ${ficha.color}`);
   partes.push(`a nombre de ${ficha.nombre}`, `entrega en ${ficha.direccion}`);
+
+  if (d.codigo === "cr") {
+    // El guion de la dueña (2026-09-05): el pago según la zona, y «¿Se lo despacho hoy mismo?».
+    const pago = zona === "resto" ? "se paga por adelantado por SINPE o transferencia" : "se paga al recibir";
+    return (
+      `Le confirmo: ${partes.join(", ")}.\n` +
+      `Son ${importe(d, precio * cantidad)} más ${importe(d, envio)} de envío, total ${importe(d, total)}, ${pago}.\n` +
+      "¿Se lo despacho hoy mismo?"
+    );
+  }
 
   return (
     `Le confirmo: ${partes.join(", ")}.\n` +
@@ -398,7 +456,7 @@ function otraFormaDePreguntar(d: DatosPais, paso: PasoDelPedido, descripcion: st
         case "do":
           return "¿A qué provincia o sector se lo enviamos?";
         case "cr":
-          return tu ? "¿A qué cantón te lo enviamos?" : "¿A qué cantón se lo enviamos?";
+          return "¿Cuál es su dirección exacta de entrega, con el cantón?";
         default:
           return tu ? "¿En qué corregimiento estás?" : "¿En qué corregimiento se encuentra?";
       }

@@ -18,7 +18,8 @@ export const CR: DatosPais = {
   tienda: "TELLERIA",
   // El nombre de quien atiende es el que diga el panel («Nombre del agente»).
   nombreAgente: null,
-  saludo: "Hola, le asiste <agente> de TELLERIA",
+  // El de la dueña (2026-09-05), primera línea de su guion (`cr-guion.ts`).
+  saludo: "Hola! Bienvenido(a) a <negocio>. Gracias por escribirnos.",
   trato: "usted",
 
   // ── Moneda ─────────────────────────────────────────────────────────────
@@ -211,19 +212,24 @@ export const CR: DatosPais = {
     usaTablaBase: true,
     zapatoEn: "numeración europea (de la 39 a la 45)",
     conTallaYColor: [],
-    sinTallaNiColor: ["Planchas", "Mochilas", "Bolsos", "Carteras", "Gorras", "Relojes", "Accesorios"],
+    // Cepillos y abejones: la dueña (2026-09-05), «sin talla ni color, no las preguntes».
+    sinTallaNiColor: ["Cepillos", "Abejones", "Planchas", "Mochilas", "Bolsos", "Carteras", "Gorras", "Relojes", "Accesorios"],
     // Una plancha, un electrodoméstico o cualquier cosa que no sea ropa ni
     // calzado: no se pide talla ni color, solo se ofrece y se vende.
     soloRopaYCalzado: true,
-    notas: ["La talla se pide como la pida el anuncio: por letra o por número, nunca al revés."],
+    notas: [
+      "La talla se pide como la pida el anuncio: por letra o por número, nunca al revés.",
+      "Los polos y los bóxers van como las camisas: de la S a la XXL.",
+    ],
   },
 
   // ── Mayoreo ────────────────────────────────────────────────────────────
+  // La dueña (2026-09-05): de 3 unidades en adelante va el precio por mayor,
+  // SOLO si la descripción del producto lo trae; si no lo trae, se transfiere.
   mayoreo: {
-    // PENDIENTE DE CONFIRMAR: mientras no se sepa, se transfiere.
-    vende: null,
-    agenteCotiza: false,
-    desde: null,
+    vende: true,
+    agenteCotiza: true,
+    desde: 3,
   },
 
   // ── Cambios y devoluciones ─────────────────────────────────────────────

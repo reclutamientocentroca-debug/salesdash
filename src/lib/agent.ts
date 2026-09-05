@@ -64,6 +64,7 @@ import {
   bloqueDelPais,
   esGuionRetirado,
   guionRD,
+  guionCR,
   lineasDelResumen,
   lugarEscritoPorElCliente,
   saludoDe,
@@ -838,9 +839,9 @@ export function armarSistema(
       // La dueña (2026-09-04): en RD el teléfono también se pide, después del nombre.
       bloqueCliente(cliente, { pedirCelular: true }),
       /*
-       * REPÚBLICA DOMINICANA LLEVA SU PROPIO GUION, escrito desde cero por
-       * orden de la dueña (`src/agents/paises/rd-guion.ts`): corto y en su
-       * orden. Costa Rica y Panamá siguen con la base compartida.
+       * REPÚBLICA DOMINICANA Y COSTA RICA LLEVAN SU PROPIO GUION, escrito
+       * por la dueña (`src/agents/paises/rd-guion.ts` y `cr-guion.ts`), cada
+       * uno en su orden. Panamá sigue con la base compartida.
        */
       datos.codigo === "do"
         ? guionRD({
@@ -850,6 +851,14 @@ export function armarSistema(
             conFoto,
             lineasResumen: lineasDelResumen(datos),
             pieDelResumen: datos.pieDelResumen,
+            datosParaCerrar: datos.envio.datosParaCerrar,
+          })
+        : datos.codigo === "cr"
+        ? guionCR({
+            saludo: saludoDe(datos, agente.nombre, negocio),
+            marcador,
+            conAnuncio: deAnuncio !== null,
+            conFoto,
             datosParaCerrar: datos.envio.datosParaCerrar,
           })
         : baseComportamiento({

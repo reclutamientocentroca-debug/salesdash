@@ -1096,43 +1096,24 @@ test("Costa Rica y Panamá venden con el mismo comportamiento, y República Domi
   assert.ok(!rd.includes("Reglas que no puedes romper:"), "do: y no la base de los otros dos");
   assert.equal(monedaAjena(rd, "DOP"), null, "do: no puede llevar dentro la moneda de otro país");
 
-  // Las reglas de forma de responder son las que Costa Rica ya no lleva, por
-  // orden de la dueña (2026-09-05): se apartan también, como el trato.
-  const deForma = ["- Trato de", "- Responde corto", "- ESCRIBE LIMPIO", "- UNA SOLA IDEA"];
-  const reglas = (prompt: string) =>
-    prompt
-      .slice(prompt.indexOf("Reglas que no puedes romper:"), prompt.indexOf("CÓMO EMPIEZA UNA CONVERSACIÓN"))
-      // El trato es del país: se aparta antes de comparar.
-      .split("\n")
-      .filter((l) => !deForma.some((d) => l.startsWith(d)))
-      .join("\n");
+  // Costa Rica también lleva su guion, por orden de la dueña (2026-09-05).
+  const cr = promptDe("cr");
+  assert.ok(cr.includes("AGENTE DE VENTAS — COSTA RICA"), "cr: lleva su guion propio");
+  assert.ok(!cr.includes("Reglas que no puedes romper:"), "cr: y no la base");
+  assert.ok(!cr.includes("ASÍ VENDES — EL GUION DE ESTE NÚMERO, aplicado tal cual lo escribió la dueña.\n\nAGENTE DE VENTAS – REPÚBLICA DOMINICANA"), "cr: y no el guion dominicano");
+  assert.equal(monedaAjena(cr, "CRC"), null, "cr: no puede llevar dentro la moneda de otro país");
 
-  const moldes = ["cr", "pa"].map((p) => {
-    const prompt = promptDe(p);
-    assert.ok(prompt.includes("EL SALUDO VA SOLO"), `${p}: el saludo va aparte`);
-    assert.equal(
-      prompt.includes("UNA SOLA IDEA POR MENSAJE"),
-      p === "pa",
-      `${p}: un dato por mensaje solo en Panamá; Costa Rica va sin reglas de forma`,
-    );
-    assert.ok(prompt.includes("LO QUE EL CLIENTE YA TE DIJO ES TUYO"), `${p}: con memoria`);
-    assert.ok(prompt.includes("EL RITMO DEL CIERRE"), `${p}: y el mismo orden de cierre`);
-
-    const pais = obtenerPais(p);
-    assert.ok(pais, `${p}: declara un país que existe`);
-    assert.equal(
-      monedaAjena(prompt, pais.moneda.codigo),
-      null,
-      `${p}: no puede llevar dentro la moneda de otro país`,
-    );
-
-    return { p, texto: reglas(prompt) };
-  });
-
-  assert.ok(moldes[0]!.texto.length > 1000, "las reglas se encontraron enteras");
-  for (const m of moldes) {
-    assert.equal(m.texto, moldes[0]!.texto, `${m.p}: las reglas tienen que ser las mismas`);
-  }
+  // Panamá es el único que queda con la base, entera.
+  const pa = promptDe("pa");
+  assert.ok(pa.includes("Reglas que no puedes romper:"), "pa: la base");
+  assert.ok(pa.includes("EL SALUDO VA SOLO"), "pa: el saludo va aparte");
+  assert.ok(pa.includes("UNA SOLA IDEA POR MENSAJE"), "pa: un dato por mensaje");
+  assert.ok(pa.includes("LO QUE EL CLIENTE YA TE DIJO ES TUYO"), "pa: con memoria");
+  assert.ok(pa.includes("EL RITMO DEL CIERRE"), "pa: y el orden de cierre");
+  assert.ok(!pa.includes("AGENTE DE VENTAS"), "pa: ningún guion ajeno");
+  const pais = obtenerPais("pa");
+  assert.ok(pais, "pa: declara un país que existe");
+  assert.equal(monedaAjena(pa, pais.moneda.codigo), null, "pa: no puede llevar dentro la moneda de otro país");
 });
 
 /**

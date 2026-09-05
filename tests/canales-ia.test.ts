@@ -638,44 +638,51 @@ test("los cambios se contestan solo si preguntan, y sin política se confirma co
 test("el agente de Costa Rica es formal, educado y habla como en Costa Rica", () => {
   const tico = armarSistema("Tienda", D.obtenerAgente(orgId, cr), [], null);
   assert.ok(tico.includes("FORMAL Y EDUCADA"));
-  assert.ok(tico.includes("Trato de USTED"));
+  assert.ok(tico.includes("Tratas al cliente de USTED siempre"));
   assert.ok(tico.includes("¿me regala su dirección?"), "la cortesía tica para pedir un dato");
   assert.ok(tico.includes("«con mucho gusto» en lugar de «de nada»"));
   assert.ok(tico.includes("NO van en una venta formal"), "lo de confianza se nombra para que no se use");
-  assert.match(tico, /Hola, le asiste .+ de TELLERIA/, "con el nombre que diga el panel");
+  assert.match(tico, /Hola! Bienvenido\(a\) a TELLERIA\. Gracias por escribirnos\./, "con el saludo de la dueña");
 });
 
 /**
- * COSTA RICA SIN REGLAS DE FORMA DE RESPONDER, por orden de la dueña
- * (2026-09-05): lo mismo que se le quitó al guion de República Dominicana. Ni
- * «responde corto», ni la línea en blanco obligatoria, ni «una sola idea por
- * mensaje», ni la forma exacta de la primera respuesta. Lo que no es forma se
- * queda: el saludo tal cual y solo la primera vez, el trato de usted y el
- * orden de cierre. Y Panamá no se entera: sigue con las reglas.
+ * COSTA RICA LLEVA EL GUION DE LA DUEÑA (2026-09-05), como República
+ * Dominicana lleva el suyo: en su orden —talla, color, dirección, envío con
+ * teléfono, nombre, «Le confirmo», resumen— y sin la base compartida. Panamá
+ * sigue con la base, con todas sus reglas.
  */
-test("Costa Rica va sin reglas de forma de responder, y Panamá sigue con ellas", () => {
+test("Costa Rica vende con el guion de la dueña, y Panamá con la base", () => {
   const tico = armarSistema("Tienda", D.obtenerAgente(orgId, cr), [], null);
   const panameno = armarSistema("Tienda", D.obtenerAgente(orgId, pa), [], null);
 
+  assert.ok(tico.includes("AGENTE DE VENTAS — COSTA RICA"), "cr: su guion");
+  assert.ok(!tico.includes("Reglas que no puedes romper:"), "cr: y no la base");
+  assert.ok(panameno.includes("Reglas que no puedes romper:"), "pa: la base");
+  assert.ok(!panameno.includes("AGENTE DE VENTAS — COSTA RICA"), "pa: nada del tico");
+
+  // Las reglas fijas del guion, tal cual las escribió.
   for (const regla of [
-    "Responde corto",
-    "ESCRIBE LIMPIO Y CON AIRE",
-    "UNA SOLA IDEA POR MENSAJE",
-    "Debajo dejas una LÍNEA EN BLANCO",
-    "Tu primera respuesta tiene EXACTAMENTE esta forma",
-    "excepción a lo de escribir corto",
+    "Un mensaje por turno",
+    "Indique su dirección exacta de entrega.",
+    "Nunca pides el teléfono sin haber dicho antes el costo de envío",
+    "¿A nombre de quién sale el pedido?",
+    "¿Se lo despacho hoy mismo?",
+    "📋 RESUMEN DEL PEDIDO",
+    "✅ PEDIDO REGISTRADO",
+    "Le conecto con un representante para finalizar. Aguarde un momento.",
+    "[HANDOFF]",
+    "La empresa no reserva pedidos",
+    "De 3 unidades en adelante",
+    "Permítame un momento, le transfiero con un representante.",
   ]) {
-    assert.ok(!tico.includes(regla), `cr: sin «${regla}»`);
-    assert.ok(panameno.includes(regla), `pa: sigue con «${regla}»`);
+    assert.ok(tico.includes(regla), `cr: falta «${regla}»`);
   }
 
-  // Lo que se queda, en los dos.
-  for (const regla of ["EL SALUDO VA SOLO", "TAL CUAL está escrito aquí", "Solo la primera vez", "Trato de USTED", "EL RITMO DEL CIERRE", "TEXTO PLANO"]) {
-    assert.ok(tico.includes(regla), `cr: conserva «${regla}»`);
-    assert.ok(panameno.includes(regla), `pa: conserva «${regla}»`);
-  }
+  // El saludo de la dueña, una sola vez en el prompt, en la regla del primer mensaje.
+  const saludo = tico.match(/Hola! Bienvenido\(a\) a TELLERIA\. Gracias por escribirnos\./g) ?? [];
+  assert.equal(saludo.length, 1, "una vez y ninguna copia suelta más");
 
-  // El saludo sale una sola vez en el prompt tico: en la regla, ya sin el ejemplo.
-  const saludo = tico.match(/Hola, le asiste .+ de TELLERIA/g) ?? [];
-  assert.equal(saludo.length, 1, "una vez en la regla y ninguna copia suelta más");
+  // Y el mayoreo, que ahora sí cotiza: a partir de 3, con el precio de la descripción.
+  assert.ok(tico.includes("vende al por mayor a partir de 3 unidades"));
+  assert.ok(!tico.includes("TÚ NO COTIZAS MAYOREO"));
 });

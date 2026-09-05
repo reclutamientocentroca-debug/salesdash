@@ -405,3 +405,14 @@ test("a un cepillo, un blower o una plancha no se les pregunta talla ni color, s
   const blower = { ...rd, anuncio: "Anuncio: BLOWER PROFESIONAL 2000W, RD$2,500. Secado rápido.", ultimoDelCliente: "Hola" };
   assert.ok(revisarConReglas("¿Qué talla le interesa?", blower).some((f) => f.includes("talla")));
 });
+
+/**
+ * «¿SE LO DESPACHO HOY MISMO?» ES EL CIERRE DE COSTA RICA, tal cual lo
+ * escribió la dueña en su guion (2026-09-05). En los demás países sigue
+ * valiendo lo que pidió antes: se dice «enviar», nunca «despachar».
+ */
+test("«despachar» pasa en Costa Rica, que cierra así por su guion, y se para en los demás", () => {
+  assert.deepEqual(revisarConReglas("¿Se lo despacho hoy mismo?", cr), []);
+  assert.ok(revisarConReglas("¿Se lo despachamos hoy mismo?", contexto("do")).some((f) => f.includes("despachar")));
+  assert.ok(revisarConReglas("¿Se lo despachamos hoy mismo?", contexto("pa")).some((f) => f.includes("despachar")));
+});

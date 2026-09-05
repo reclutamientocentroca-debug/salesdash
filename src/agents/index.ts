@@ -10,6 +10,8 @@ export { agenteDePais, AGENTES_DE_PAIS } from "./paises";
 export { baseComportamiento, bloqueCliente, TALLAS_BASE, tablaDeTallas } from "./base-comportamiento";
 export { guionRD } from "./paises/rd-guion";
 export type { ContextoGuionRD } from "./paises/rd-guion";
+export { guionCR, FRASE_AL_TRANSFERIR_CR, FRASE_DE_CIERRE_CR } from "./paises/cr-guion";
+export type { ContextoGuionCR } from "./paises/cr-guion";
 export {
   bloqueDelPais,
   importe,
