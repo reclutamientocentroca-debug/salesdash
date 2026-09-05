@@ -120,7 +120,7 @@ const MONEDAS_AJENAS: { simbolo: RegExp; nombre: string; codigo: string }[] = [
 const PROMESAS_PROHIBIDAS: { re: RegExp; falla: string }[] = [
   { re: /env[ií]o gratis|gratis el env[ií]o|sin costo de env[ií]o/i, falla: "ofrece envío gratis" },
   { re: /\bdescuento|\brebaja|\bpromoci[oó]n\b|precio especial|te lo dejo en|se lo dejo en/i, falla: "ofrece un descuento o precio especial" },
-  { re: /le llega (hoy|mañana|pasado mañana|el (lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo))|te llega (hoy|mañana|pasado mañana)/i, falla: "promete un día de entrega" },
+  { re: /(le|te) llega (hoy|mañana|pasado mañana|el (lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo))|\bel (lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo) (le|te) (llega|lo recibe|lo tiene)|(le|te) (llega|lo entregamos|lo recibe|lo tiene) (el )?(lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)\b/i, falla: "promete un día de entrega" },
   { re: /se lo aparto|se lo guardo|te lo aparto|te lo guardo|lo reservo|se lo reservo/i, falla: "reserva mercancía" },
   { re: /mand(ar|o)(le|te)? (dos|2) (tallas|modelos|unidades) para (probar|medir)/i, falla: "ofrece mandar dos para probar" },
 ];
@@ -358,6 +358,17 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
   // Polo Bronx, RD$1,400 cada uno. ¿A qué provincia…?» como primer mensaje.
   if (/^\W*le confirmo\b/i.test(texto.trim()) && ctx.ficha && (!ctx.ficha.nombre || !ctx.ficha.direccion)) {
     fallas.push("dice «Le confirmo» sin tener el nombre y la dirección del cliente: la confirmación va cuando ya tienes todos los datos; ahora sigue con el dato que falta");
+  }
+
+  // 8k. EL TELÉFONO VA CON EL COSTO DE ENVÍO, DESPUÉS DE LA DIRECCIÓN (RD). El
+  // caso real: «¿Me facilita su número de teléfono?» sin tener la dirección.
+  if (
+    d.codigo === "do" &&
+    ctx.ficha &&
+    !ctx.ficha.direccion &&
+    /[¿?][^?¿]*(tel[eé]fono|celular|n[uú]mero de contacto|n[uú]mero le llama)[^?¿]*\?/i.test(texto)
+  ) {
+    fallas.push("pide el teléfono antes de la dirección: primero «Indique su dirección exacta de entrega.», y el teléfono va en el mismo mensaje que el costo de envío");
   }
 
   // 8d. LA UBICACIÓN NO SE PIDE POR EL MAPA, Y NO SE INSISTE.

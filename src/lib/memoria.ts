@@ -104,7 +104,7 @@ export function campoDeLaPregunta(pregunta: string): CampoDelPedido | null {
   const p = llano(pregunta);
   if (/\bcolor/.test(p)) return "color";
   // El celular va antes que la talla: «¿a qué número le llama el mensajero?» también dice «número».
-  if (/(numero|celular|telefono|whatsapp).*(llama|contact|mensajero)|a este mismo|mismo numero/.test(p)) return "celular";
+  if (/(numero|celular|telefono|whatsapp).*(llama|contact|mensajero)|a este mismo|mismo numero|numero de (telefono|celular|whatsapp)|su (telefono|celular)|facilita su numero|su numero de contacto/.test(p)) return "celular";
   // «¿Qué número calza?» pregunta la talla: el caso real fue un «39» que nadie tomó.
   if (/\btalla|numero de (zapato|calzado)|numero (que )?(calza|usa)|que numero (calza|usa|es|necesita|quiere|lleva)|\bsize\b|\bmedida\b/.test(p)) return "talla";
   if (/a nombre de|su nombre|como se llama|nombre completo/.test(p)) return "nombre";
@@ -166,8 +166,28 @@ export function fichaDelPedido(
   mensajes: MensajeDeMemoria[],
   datos: DatosPais | null = null,
 ): FichaDelPedido {
+  const inicio = inicioDeSesion(mensajes);
+  const ficha = fichaDe(mensajes.slice(inicio), datos);
+
+  /*
+   * LO QUE NO CAMBIA DE UN PEDIDO A OTRO SE HEREDA. El caso real: el cliente
+   * dio su teléfono, pasó la noche, y al día siguiente el agente se lo volvió
+   * a pedir. El nombre, el celular y la dirección son de la persona, no de la
+   * compra: si esta sesión no los trae, valen los de la anterior. La talla, el
+   * color y la cantidad sí son de esta compra y empiezan de cero.
+   */
+  if (inicio > 0) {
+    const previa = fichaDe(mensajes.slice(0, inicio), datos);
+    for (const k of ["nombre", "celular", "direccion"] as const) {
+      if (!ficha[k] && previa[k]) ficha[k] = previa[k];
+    }
+  }
+  return ficha;
+}
+
+/** La ficha de UNA lista de mensajes, tal cual, sin mirar sesiones. */
+function fichaDe(sesion: MensajeDeMemoria[], datos: DatosPais | null): FichaDelPedido {
   const ficha: FichaDelPedido = { ...VACIA };
-  const sesion = mensajesDeLaSesion(mensajes);
 
   for (const [i, m] of sesion.entries()) {
     if (m.emisor === "cliente") {
@@ -261,7 +281,7 @@ const PREGUNTA_POR: Record<CampoDelPedido, RegExp> = {
   color: /[¿?][^?¿]*\bcolor\b[^?¿]*\?/i,
   direccion: /[¿?][^?¿]*(direccion|donde se lo|a donde|donde (esta|vive|se encuentra)|en que (sector|provincia|canton|corregimiento|zona)|ubicacion)[^?¿]*\?/i,
   nombre: /[¿?][^?¿]*(a nombre de quien|su nombre|como se llama)[^?¿]*\?/i,
-  celular: /[¿?][^?¿]*((numero|celular|telefono)[^?¿]*(llama|contact|mensajero)|a este mismo|mismo numero)[^?¿]*\?/i,
+  celular: /[¿?][^?¿]*((numero|celular|telefono)[^?¿]*(llama|contact|mensajero)|a este mismo|mismo numero|numero de (telefono|celular|whatsapp)|su (telefono|celular)|facilita su numero)[^?¿]*\?/i,
   cantidad: /[¿?][^?¿]*\b(cuant[oa]s|cantidad)\b[^?¿]*\?/i,
 };
 

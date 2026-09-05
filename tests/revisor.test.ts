@@ -474,3 +474,20 @@ test("a unos polos se les pregunta la talla antes que la provincia, y «Le confi
   const completo = { ...conTalla, ficha: { ...conTalla.ficha, direccion: "Calle 3, Los Mina, Santo Domingo Este", nombre: "Pedro Sabater" }, textosDelCliente: ["M", "Calle 3, Los Mina, Santo Domingo Este", "Pedro Sabater"], ultimoDelCliente: "Pedro Sabater" };
   assert.deepEqual(revisarConReglas("Le confirmo: Polos Bronx Originales, talla M, a nombre de Pedro Sabater, entrega en Calle 3, Los Mina, Santo Domingo Este.\nSon RD$1,400 más RD$250 de envío, total RD$1,650, y se paga al recibir.\n¿Se lo despacho hoy mismo?", completo), []);
 });
+
+/**
+ * EL CASO REAL (2026-09-05): «El envío tarda entre 24 y 48 horas. ¿Me facilita
+ * su número de teléfono?» sin tener la dirección, y «Sí, el lunes le llega».
+ */
+test("en RD el teléfono no se pide antes de la dirección, y un día de entrega no se promete", () => {
+  const sinDireccion = { ...rd, ficha: { talla: "42", color: null, direccion: null, nombre: null, celular: null, cantidad: null }, ultimoDelCliente: "Cuando vendría llegando?" };
+  assert.ok(revisarConReglas("El envío tarda entre 24 y 48 horas. ¿Me facilita su número de teléfono para el pedido?", sinDireccion).some((f) => f.includes("antes de la dirección")));
+  assert.deepEqual(revisarConReglas("Entre 24 y 48 horas. Indique su dirección exacta de entrega.", sinDireccion), []);
+
+  const conDireccion = { ...sinDireccion, ficha: { ...sinDireccion.ficha, direccion: "Las Matas de Farfán, junta central electoral" }, ultimoDelCliente: "Las Matas de Farfán, junta central electoral" };
+  assert.deepEqual(revisarConReglas("Perfecto, hasta Las Matas de Farfán el envío le sale en RD$290.\n¿Me facilita su número de teléfono para el pedido?", conDireccion), []);
+
+  assert.ok(revisarConReglas("Sí, el lunes le llega, entre 24 y 48 horas.", rd).some((f) => f.includes("día de entrega")));
+  assert.ok(revisarConReglas("Le llega el lunes sin falta.", rd).some((f) => f.includes("día de entrega")));
+  assert.deepEqual(revisarConReglas("Entre 24 y 48 horas.", rd), []);
+});

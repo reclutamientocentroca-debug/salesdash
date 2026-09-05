@@ -143,7 +143,7 @@ test("una frase de llegada no contesta a ningún dato", () => {
  * EL CLIENTE QUE VUELVE. Tres días después, por otro anuncio, es otro pedido:
  * la ficha empieza de cero, se saluda otra vez y no se da por hecho nada.
  */
-test("la ficha solo mira la sesión actual, y el cliente que vuelve empieza de cero", () => {
+test("la ficha solo mira la sesión actual: el cliente que vuelve empieza otra compra, con sus datos de siempre", () => {
   const ayer = 1_700_000_000;
   const hoy = ayer + 3 * 24 * 3600;
   const conFechas = hilo.map((m, i) => ({ ...m, created_at: ayer + i * 60 }));
@@ -158,8 +158,15 @@ test("la ficha solo mira la sesión actual, y el cliente que vuelve empieza de c
   assert.equal(esClienteQueVuelve(conFechas), false, "sin silencio largo, es la misma compra");
 
   const f = fichaDelPedido(vuelve, rd);
-  assert.deepEqual(f, { talla: null, color: null, direccion: null, nombre: null, celular: null, cantidad: null });
-  assert.equal(fichaParaModelo(f), "", "sin ficha vieja que empuje al teléfono");
+  // Lo de la compra empieza de cero; lo de la persona —nombre, celular, dirección— se hereda (la dueña, 2026-09-05).
+  assert.deepEqual(f, {
+    talla: null, color: null, cantidad: null,
+    direccion: "Calle 3 #12, Los Alcarrizos, Santo Domingo Oeste", nombre: "Yamil Peña", celular: "este mismo número",
+  });
+  assert.ok(fichaParaModelo(f).includes("- Talla: (falta)"), "la talla de hoy se pregunta");
+  assert.ok(fichaParaModelo(f).includes("Nombre con el que recibe: Yamil Peña"), "y el nombre no se vuelve a pedir");
+  // Y el «Quiero más información» de hoy nunca es un nombre.
+  assert.notEqual(f.nombre, "Quiero más información sobre el negocio.");
 
   const aviso = avisoDeClienteQueVuelve(vuelve);
   assert.ok(aviso.includes("VUELVE A ESCRIBIR"));
@@ -244,4 +251,39 @@ test("una pregunta con un lugar dentro no se toma como la dirección", () => {
   assert.equal(f.direccion, null);
   const dada = fichaDelPedido([{ emisor: "cliente", content: "Estoy en Las Matas de Farfán, calle Duarte 12" }], rd);
   assert.match(dada.direccion!, /Farfán/);
+});
+
+/**
+ * EL CASO REAL (la dueña, 2026-09-05): el cliente escribió «829-812-7158» a
+ * «¿Me facilita su número de teléfono para el pedido?», y al día siguiente el
+ * agente se lo volvió a pedir. La pregunta se reconoce como la del celular, el
+ * número queda en la ficha, repetirla es una falla, y el celular se hereda de
+ * la sesión anterior.
+ */
+test("el teléfono que el cliente dio no se vuelve a pedir, ni al día siguiente", () => {
+  assert.equal(campoDeLaPregunta("¿Me facilita su número de teléfono para el pedido?"), "celular");
+  assert.equal(campoDeLaPregunta("¿Me da su celular?"), "celular");
+
+  const ayer = 1_700_000_000;
+  const hoy = ayer + 20 * 3600; // veinte horas después: otra sesión
+  const hilo = [
+    { emisor: "cliente", content: "Me lo traen hasta aquí?", created_at: ayer },
+    { emisor: "ia", content: "Sí, le enviamos a domicilio en todo el país. ¿Me facilita su número de teléfono para el pedido?", created_at: ayer + 60 },
+    { emisor: "cliente", content: "829-812-7158", created_at: ayer + 120 },
+    { emisor: "ia", content: "¿A nombre de quién sale el pedido?", created_at: ayer + 180 },
+    { emisor: "cliente", content: "Jorgelina Taveras", created_at: ayer + 240 },
+    { emisor: "cliente", content: "Me enviará ?", created_at: hoy },
+  ];
+  const f = fichaDelPedido(hilo, rd);
+  assert.equal(f.celular, "8298127158", "el celular de ayer sigue siendo el suyo");
+  assert.equal(f.nombre, "Jorgelina Taveras", "y el nombre también");
+  assert.ok(preguntasRepetidas("Perfecto. ¿Me facilita su número de teléfono para el pedido?", f).length > 0, "volver a pedirlo es una falla");
+
+  // Lo de la compra —talla, color, cantidad— sí empieza de cero en la sesión nueva.
+  const conTalla = fichaDelPedido([
+    { emisor: "ia", content: "¿Qué talla le interesa?", created_at: ayer },
+    { emisor: "cliente", content: "M", created_at: ayer + 60 },
+    { emisor: "cliente", content: "hola, otra cosa", created_at: hoy },
+  ], rd);
+  assert.equal(conTalla.talla, null);
 });
