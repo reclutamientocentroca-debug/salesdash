@@ -84,7 +84,7 @@ export function primeraPregunta(descripcion: string, d: DatosPais): string {
   if (ROPA.test(texto)) return tu ? "¿Qué talla te interesa?" : "¿Qué talla le interesa?";
   switch (d.codigo) {
     case "do":
-      return "Le hacemos envío y paga al recibir. ¿En qué provincia se encuentra?";
+      return "¿A dónde se lo enviamos?";
     case "cr":
       return tu ? "Te lo enviamos a todo el país. ¿En qué cantón estás?" : "Le enviamos a todo el país. ¿En qué cantón se encuentra?";
     default:
@@ -146,8 +146,13 @@ export function respuestaMinima(
   const descripcion = anuncio?.descripcion_anuncio ?? "";
   const llevaTalla = ROPA.test(descripcion) || CALZADO.test(descripcion);
 
+  // El orden de la dueña: talla, a dónde, nombre, teléfono (en RD) y el cierre.
   const paso: PasoDelPedido =
-    llevaTalla && !ficha.talla ? "talla" : !ficha.direccion ? "direccion" : !ficha.nombre ? "nombre" : "resumen";
+    llevaTalla && !ficha.talla ? "talla"
+      : !ficha.direccion ? "direccion"
+        : !ficha.nombre ? "nombre"
+          : d.codigo === "do" && !ficha.celular ? "celular"
+            : "resumen";
 
   /*
    * EL CIERRE. Con todos los datos, primero se pregunta si se le factura; y
@@ -180,12 +185,26 @@ export function respuestaMinima(
     pregunta = otraFormaDePreguntar(d, paso, descripcion);
   }
 
+  /*
+   * «EXCELENTE…»: en cuanto el cliente dice a dónde, se le confirma el envío
+   * a domicilio, el pago al recibir y su costo, y se sigue con el nombre. Es
+   * el paso que pidió la dueña para República Dominicana.
+   */
+  if (paso === "nombre" && d.codigo === "do") {
+    const zona = zonaDelCliente(d, opciones.ultimoDelCliente);
+    if (zona !== null) {
+      const costo = zona === "resto" ? d.envio.restoDelPais.costo : zona.costo;
+      const donde = nombreDeLaZona(d, opciones.ultimoDelCliente ?? "", opciones.lugar);
+      return `Excelente. Le hacemos el envío a domicilio y paga al recibir. El costo de envío a ${donde} es ${importe(d, costo)}.\n\n${pregunta}`;
+    }
+  }
+
   // Y si el cliente preguntó algo, se le contesta antes de seguir.
   const directa = respuestaDirecta(d, opciones.ultimoDelCliente, anuncio, opciones.lugar);
   return directa ? `${directa}\n\n${pregunta}` : pregunta;
 }
 
-type PasoDelPedido = "talla" | "direccion" | "nombre" | "resumen";
+type PasoDelPedido = "talla" | "direccion" | "nombre" | "celular" | "resumen";
 
 /** La pregunta de cada paso del pedido, en el orden de venta. */
 function preguntaDelPaso(d: DatosPais, paso: PasoDelPedido, descripcion: string): string {
@@ -196,7 +215,7 @@ function preguntaDelPaso(d: DatosPais, paso: PasoDelPedido, descripcion: string)
     case "direccion":
       switch (d.codigo) {
         case "do":
-          return "Le hacemos envío y paga al recibir. ¿En qué provincia se encuentra?";
+          return "¿A dónde se lo enviamos?";
         case "cr":
           return tu ? "Te lo enviamos a todo el país. ¿En qué cantón estás?" : "Le enviamos a todo el país. ¿En qué cantón se encuentra?";
         default:
@@ -204,6 +223,8 @@ function preguntaDelPaso(d: DatosPais, paso: PasoDelPedido, descripcion: string)
       }
     case "nombre":
       return "¿A nombre de quién sale el pedido?";
+    case "celular":
+      return "¿Me facilita su número de teléfono para el pedido?";
     case "resumen":
       return tu
         ? "Ya tengo tus datos. ¿Te lo facturamos y te lo enviamos?"
@@ -375,7 +396,7 @@ function otraFormaDePreguntar(d: DatosPais, paso: PasoDelPedido, descripcion: st
     case "direccion":
       switch (d.codigo) {
         case "do":
-          return "¿A qué provincia se lo enviamos?";
+          return "¿A qué provincia o sector se lo enviamos?";
         case "cr":
           return tu ? "¿A qué cantón te lo enviamos?" : "¿A qué cantón se lo enviamos?";
         default:
@@ -383,6 +404,8 @@ function otraFormaDePreguntar(d: DatosPais, paso: PasoDelPedido, descripcion: st
       }
     case "nombre":
       return tu ? "¿Con qué nombre lo dejamos?" : "¿Con qué nombre lo dejamos?";
+    case "celular":
+      return "¿A qué número le llama el mensajero, a este mismo?";
     case "resumen":
       return preguntaDelPaso(d, paso, descripcion);
   }

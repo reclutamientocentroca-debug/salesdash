@@ -835,7 +835,8 @@ export function armarSistema(
       deAnuncio ?? "",
       notas,
       // En RD el teléfono no se pregunta: el guion de la dueña usa el del chat.
-      bloqueCliente(cliente, { pedirCelular: datos.codigo !== "do" }),
+      // La dueña (2026-09-04): en RD el teléfono también se pide, después del nombre.
+      bloqueCliente(cliente, { pedirCelular: true }),
       /*
        * REPÚBLICA DOMINICANA LLEVA SU PROPIO GUION, escrito desde cero por
        * orden de la dueña (`src/agents/paises/rd-guion.ts`): corto y en su

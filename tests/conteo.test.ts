@@ -1066,7 +1066,7 @@ test("el agente dominicano cobra en pesos y pide sector y provincia", () => {
 
   // Las reglas que valen la venta, que ahora son de los tres.
   assert.ok(rd.includes("NUNCA TE QUEDAS EN SILENCIO"));
-  assert.ok(rd.includes("Nunca pidas el número de teléfono"), "el teléfono lo tiene el sistema");
+  assert.ok(rd.includes("El número de teléfono se pide UNA VEZ"), "el teléfono se pide una vez, después del nombre");
   assert.ok(rd.includes("TÚ NO PUEDES ENVIAR FOTOS"), "las fotos se transfieren");
   assert.ok(rd.includes("LA TRANSFERENCIA VA PEGADA AL RESUMEN"), "y nunca se transfiere sin haberlo mandado");
   assert.ok(rd.includes("AQUÍ NO SE RESERVA NADA"));

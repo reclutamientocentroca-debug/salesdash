@@ -36,7 +36,7 @@ test("el precio y el artículo salen tal cual de la descripción", () => {
 test("la primera pregunta es la del orden de venta según el artículo", () => {
   assert.equal(primeraPregunta("camisas de lino para caballeros a RD$1,500", rd), "¿Qué talla le interesa?");
   assert.equal(primeraPregunta("ZAPATOS DCM ESTILO RD$1,990", rd), "¿Qué número calza?");
-  assert.equal(primeraPregunta("COMBO 2 EN 1 cepillo secador + plancha RD$1,690", rd), "Le hacemos envío y paga al recibir. ¿En qué provincia se encuentra?");
+  assert.equal(primeraPregunta("COMBO 2 EN 1 cepillo secador + plancha RD$1,690", rd), "¿A dónde se lo enviamos?");
   assert.equal(primeraPregunta("Camisa de lino ₡25.000", cr), "¿Qué talla le interesa?");
 });
 
@@ -48,7 +48,7 @@ test("la apertura segura lleva saludo, artículo, precio y pregunta, y nada inve
   )!;
   assert.ok(texto.startsWith(`${saludo}\n\n`), "el saludo, aparte");
   assert.ok(texto.includes("Combo 2 En 1 está disponible, en RD$1,690."));
-  assert.ok(texto.endsWith("¿En qué provincia se encuentra?"));
+  assert.ok(texto.endsWith("¿A dónde se lo enviamos?"));
   assert.equal(texto.includes("talla"), false, "un combo no lleva talla");
   assert.equal(texto.includes("Un momento"), false);
 
@@ -67,10 +67,11 @@ test("la respuesta mínima es la siguiente pregunta del pedido, nunca una transf
   const combo = { descripcion_anuncio: "COMBO 2 EN 1 cepillo secador + plancha RD$1,690" };
 
   assert.equal(respuestaMinima(rd, vacia, camisa), "¿Qué talla le interesa?");
-  assert.equal(respuestaMinima(rd, { ...vacia, talla: "la M" }, camisa), "Le hacemos envío y paga al recibir. ¿En qué provincia se encuentra?");
-  assert.equal(respuestaMinima(rd, vacia, combo), "Le hacemos envío y paga al recibir. ¿En qué provincia se encuentra?");
+  assert.equal(respuestaMinima(rd, { ...vacia, talla: "la M" }, camisa), "¿A dónde se lo enviamos?");
+  assert.equal(respuestaMinima(rd, vacia, combo), "¿A dónde se lo enviamos?");
   assert.equal(respuestaMinima(rd, { ...vacia, direccion: "Los Alcarrizos, calle 3" }, combo), "¿A nombre de quién sale el pedido?");
-  assert.match(respuestaMinima(rd, { ...vacia, direccion: "Los Alcarrizos, calle 3", nombre: "Ana Pérez" }, combo), /^Le confirmo: .*¿Se lo enviamos hoy mismo\?$/s);
+  assert.equal(respuestaMinima(rd, { ...vacia, direccion: "Los Alcarrizos, calle 3", nombre: "Ana Pérez" }, combo), "¿Me facilita su número de teléfono para el pedido?", "en RD, después del nombre va el teléfono");
+  assert.match(respuestaMinima(rd, { ...vacia, direccion: "Los Alcarrizos, calle 3", nombre: "Ana Pérez", celular: "8095551234" }, combo), /^Le confirmo: .*¿Se lo enviamos hoy mismo\?$/s);
   for (const f of [vacia, { ...vacia, direccion: "x", nombre: "y" }]) {
     assert.equal(respuestaMinima(rd, f, combo).includes("representante"), false);
   }
@@ -104,7 +105,7 @@ test("la respuesta mínima contesta la pregunta del cliente y no se repite", () 
   assert.ok(otra.includes("número que calza"), otra);
 
   // Con la talla ya en la ficha, el siguiente paso es la provincia.
-  assert.equal(respuestaMinima(rd, { ...vacia, talla: "39" }, zapatos, { ultimoDelAgente: "¿Qué número calza?" }), "Le hacemos envío y paga al recibir. ¿En qué provincia se encuentra?");
+  assert.equal(respuestaMinima(rd, { ...vacia, talla: "39" }, zapatos, { ultimoDelAgente: "¿Qué número calza?" }), "¿A dónde se lo enviamos?");
 
   // El envío se contesta con la tarifa del cliente si se sabe dónde está, y con las dos si no.
   assert.equal(respuestaDirecta(rd, "¿cuánto es el envío?", zapatos, "Santiago"), "El envío a su zona le sale en RD$290.");
@@ -139,7 +140,14 @@ test("las tallas disponibles se contestan con la tabla de tallas", () => {
  */
 test("con los datos se pide la confirmación, y con el sí sale el resumen armado con lo del cliente", () => {
   const combo = { descripcion_anuncio: "🔥 ¡COMPRA SEGURO! 🔥 ❤️ COMBO 2 EN 1 — SOLO RD$1,690 ✨ Cepillo secador + plancha alisadora.", producto_anuncio: "Combo 2 en 1" };
-  const ficha = { talla: null, color: null, direccion: "Calle 3 #12, Los Mina, Santo Domingo Este", nombre: "Ana Pérez", celular: null, cantidad: null };
+  const ficha = { talla: null, color: null, direccion: "Calle 3 #12, Los Mina, Santo Domingo Este", nombre: "Ana Pérez", celular: "8095551234", cantidad: null };
+
+  // En cuanto dice a dónde: «Excelente…», con su envío, y se sigue con el nombre.
+  const excelente = respuestaMinima(rd, { ...ficha, nombre: null, celular: null }, combo, { ultimoDelCliente: "Calle 3 #12, Los Mina, Santo Domingo Este", ultimoDelAgente: "¿A dónde se lo enviamos?" });
+  assert.ok(excelente.startsWith("Excelente. Le hacemos el envío a domicilio y paga al recibir. El costo de envío a Gran Santo Domingo es RD$250."), excelente);
+  assert.ok(excelente.endsWith("¿A nombre de quién sale el pedido?"));
+  const interior = respuestaMinima(rd, { ...ficha, direccion: "Estoy en Santiago", nombre: null, celular: null }, combo, { ultimoDelCliente: "Estoy en Santiago", ultimoDelAgente: "¿A dónde se lo enviamos?" });
+  assert.ok(interior.includes("El costo de envío a Santiago es RD$290."), interior);
 
   // Con todos los datos: «Le confirmo: …», con el total y la pregunta de si se lo enviamos hoy.
   const pregunta = respuestaMinima(rd, ficha, combo, { ultimoDelCliente: "Ana Pérez", ultimoDelAgente: "¿A nombre de quién sale el pedido?" });
@@ -150,9 +158,9 @@ test("con los datos se pide la confirmación, y con el sí sale el resumen armad
   );
 
   // Y con el «okey» del cliente, el resumen con el formato de la dueña.
-  const resumen = respuestaMinima(rd, ficha, combo, { ultimoDelCliente: "Okey lo espero gracias", ultimoDelAgente: pregunta, telefonoDelChat: "18095551234" });
+  const resumen = respuestaMinima(rd, ficha, combo, { ultimoDelCliente: "Okey lo espero gracias", ultimoDelAgente: pregunta, telefonoDelChat: "18095550000" });
   assert.ok(contieneMarcador(resumen, "Resumen:"), "lleva la cabecera que registra la venta");
-  assert.ok(resumen.startsWith("📋 RESUMEN DEL PEDIDO\nProducto: Combo 2 En 1\nCantidad: 1\nPrecio: RD$1,690\nEnvio: RD$250\nTOTAL A PAGAR: RD$1,940\nForma de pago: contra entrega\nNombre: Ana Pérez\nTelefono: 18095551234\nDireccion: Calle 3 #12, Los Mina, Santo Domingo Este\nZona: Gran Santo Domingo\n✅ PEDIDO REGISTRADO\nLe conecto con un representante para finalizar."), resumen);
+  assert.ok(resumen.startsWith("📋 RESUMEN DEL PEDIDO\nProducto: Combo 2 En 1\nCantidad: 1\nPrecio: RD$1,690\nEnvio: RD$250\nTOTAL A PAGAR: RD$1,940\nForma de pago: contra entrega\nNombre: Ana Pérez\nTelefono: 8095551234\nDireccion: Calle 3 #12, Los Mina, Santo Domingo Este\nZona: Gran Santo Domingo\n✅ PEDIDO REGISTRADO\nLe conecto con un representante para finalizar."), resumen);
   assert.ok(!resumen.includes("despach"));
 
   // Dos unidades al interior, con talla: se multiplica, y la zona es la provincia.
