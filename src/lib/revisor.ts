@@ -429,11 +429,8 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
     }
   }
 
-  // 11b. Se dice «enviar», no «despachar». Lo pidió la dueña con esas palabras.
-  // Menos en Costa Rica: su guion (2026-09-05) cierra con «¿Se lo despacho hoy mismo?».
-  if (d.codigo !== "cr" && /\bdespach/i.test(texto)) {
-    fallas.push("dice «despachar» o «despachamos», y aquí se dice «se lo enviamos»: cámbialo por enviar");
-  }
+  // («Despachar» dejó de pararse el 2026-09-05: los guiones de la dueña cierran
+  // con «¿Se lo despacho hoy mismo?».)
 
   // 12. Lo que va en el resumen lo tiene que haber escrito el cliente.
   if (contieneMarcador(texto, marcador) && ctx.textosDelCliente) {

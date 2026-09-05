@@ -185,7 +185,8 @@ export function fichaDelPedido(
     const preguntas = m.content
       .split(/(?<=[?.!\n])/)
       .map((f) => f.trim())
-      .filter((f) => f.endsWith("?") && f.length >= 6);
+      // Una petición en imperativo («Indique su dirección exacta de entrega.») también pregunta.
+      .filter((f) => (f.endsWith("?") || /^(indique|ind[ií]queme|me indica|d[ií]game|escr[ií]bame)\b/i.test(f)) && f.length >= 6);
     if (!preguntas.length) continue;
 
     const contesto = sesion.slice(i + 1).find((x) => x.emisor === "cliente");

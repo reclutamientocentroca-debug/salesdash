@@ -28,7 +28,7 @@ const rd = agenteDePais("do")!;
 
 const hilo = [
   { emisor: "cliente", content: "Hola, vi el anuncio de los mocasines" },
-  { emisor: "ia", content: "¡Hola! Bienvenido(a) a RINCON DCM, le asiste Orlanda. Gracias por escribirnos.\n\nLos mocasines están en RD$2,500.\n\n¿Qué talla necesita?" },
+  { emisor: "ia", content: "Hola! Bienvenido(a) a RINCON DCM. Gracias por escribirnos.\n\nLos mocasines están en RD$2,500.\n\n¿Qué talla necesita?" },
   { emisor: "cliente", content: "la 42" },
   { emisor: "ia", content: "Perfecto.\n\n¿En qué color, negro o marrón?" },
   { emisor: "cliente", content: "negro" },

@@ -1050,7 +1050,7 @@ test("el agente dominicano cobra en pesos y pide sector y provincia", () => {
   assert.ok(!rd.includes("US$"), "aquí no se cobra en dólares");
   assert.ok(!rd.toLowerCase().includes("corregimiento"), "eso es de Panamá");
   assert.ok(rd.includes("PROVINCIA"), "la dirección lleva provincia");
-  assert.ok(rd.includes("Nunca hagas que el cliente repita información"), "y no se repregunta");
+  assert.ok(rd.includes("lo que ya está ahí no se vuelve a preguntar"), "y no se repregunta");
 
   /*
    * Las tallas son las de esta tienda: el calzado en europea con su
@@ -1066,14 +1066,15 @@ test("el agente dominicano cobra en pesos y pide sector y provincia", () => {
 
   // Las reglas que valen la venta, que ahora son de los tres.
   assert.ok(rd.includes("NUNCA TE QUEDAS EN SILENCIO"));
-  assert.ok(rd.includes("El número de teléfono se pide UNA VEZ"), "el teléfono se pide una vez, después del nombre");
+  assert.ok(rd.includes("Nunca pides el teléfono sin haber dicho antes el costo de envío"), "el teléfono se pide con el costo de envío");
   assert.ok(rd.includes("TÚ NO PUEDES ENVIAR FOTOS"), "las fotos se transfieren");
-  assert.ok(rd.includes("LA TRANSFERENCIA VA PEGADA AL RESUMEN"), "y nunca se transfiere sin haberlo mandado");
-  assert.ok(rd.includes("AQUÍ NO SE RESERVA NADA"));
+  assert.ok(rd.includes("va pegada al resumen, en el mismo mensaje"), "y la transferencia va con el resumen");
+  assert.ok(rd.includes("NO SE RESERVAN PEDIDOS"));
   assert.ok(rd.includes("NO SE MANDAN DOS PARA PROBAR"));
 
-  // El mayoreo existe, pero no lo cotiza el agente.
-  assert.ok(rd.includes("TÚ NO COTIZAS MAYOREO"));
+  // El mayoreo existe y el agente lo cotiza de 3 en adelante, solo con el precio que traiga la descripción (la dueña, 2026-09-05).
+  assert.ok(rd.includes("vende al por mayor a partir de 3 unidades"));
+  assert.ok(rd.includes("De 3 unidades en adelante"));
 
   // Y el panameño sigue siendo el panameño.
   assert.ok(promptDe("pa").includes("US$5.00"));

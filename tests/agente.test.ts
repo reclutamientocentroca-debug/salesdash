@@ -1417,8 +1417,8 @@ test("el cierre exige los datos que pide cada país", () => {
   D.actualizarAgente(orgId, { pais: "do", instrucciones: "" }, canalId);
   const rd = armarSistema("Tienda", D.obtenerAgente(orgId, canalId), [], null);
 
-  assert.ok(rd.includes("SIN ESTOS DATOS NO SE LEVANTA LA ORDEN"));
-  assert.ok(rd.includes("EL SECTOR y LA PROVINCIA"), "en RD sitúa el sector");
+  assert.ok((rd.includes("SIN ESTOS DATOS NO SE LEVANTA LA ORDEN") || rd.includes("NO ENVÍAS EL RESUMEN SI FALTA")));
+  assert.ok(rd.includes("sector y provincia"), "en RD sitúa el sector");
   assert.ok(!rd.includes("CORREGIMIENTO"), "el corregimiento es de Panamá");
 
   D.actualizarAgente(orgId, { pais: "cr" }, canalId);
@@ -1490,14 +1490,14 @@ test("ningún agente de país deja mandar el resumen con un dato que falta", () 
       `${pais}: autoriza cerrar sin los datos`,
     );
     assert.ok(
-      prompt.includes("SIN ESTOS DATOS NO SE LEVANTA LA ORDEN"),
+      (prompt.includes("SIN ESTOS DATOS NO SE LEVANTA LA ORDEN") || prompt.includes("NO ENVÍAS EL RESUMEN SI FALTA")),
       `${pais}: no le prohíbe cerrar sin los datos`,
     );
     assert.ok(
       prompt.includes("que te los haya dado EL CLIENTE"),
       `${pais}: no exige que los datos vengan del cliente`,
     );
-    assert.ok(prompt.includes("TODAVÍA NO TOCA EL RESUMEN"), `${pais}: un hueco no se rellena, se pregunta`);
+    assert.ok(prompt.includes("TODAVÍA NO TOCA EL RESUMEN") || prompt.includes("NO ENVÍAS EL RESUMEN SI FALTA"), `${pais}: un hueco no se rellena, se pregunta`);
   }
 
   D.actualizarAgente(orgId, { pais: "do" }, canalId);
@@ -1524,11 +1524,11 @@ test("el agente dominicano cierra con las tres líneas, y el pedido va una sola 
   for (const linea of [
     "Forma de pago: contra entrega",
     "✅ PEDIDO REGISTRADO",
-    "Le conecto con un representante para finalizar. Aguarde un momento.",
+    "Permítame un momento, le transfiero con un representante.",
   ]) {
     assert.ok(dominicano.includes(linea), "falta la línea de cierre: " + linea);
   }
-  assert.ok(dominicano.includes("Van AHÍ y no antes"), "y van debajo del resumen, no en el primer mensaje");
+  assert.ok(dominicano.includes("Después de esto te detienes"), "y van debajo del resumen, no en el primer mensaje");
 
   // La regla también está en el prompt sin país, que es lo que lee un número
   // sin archivo propio: el comportamiento es el mismo.
@@ -1554,9 +1554,9 @@ test("el total multiplica por la cantidad antes de sumar el envío, en todos los
     D.actualizarAgente(orgId, { pais, instrucciones: "" }, canalId);
     const prompt = armarSistema("Tienda", D.obtenerAgente(orgId, canalId), [], null);
 
-    assert.match(prompt, /POR la cantidad/, `${pais}: el precio se multiplica por lo que lleva`);
+    assert.match(prompt, /por la cantidad/i, `${pais}: el precio se multiplica por lo que lleva`);
     assert.match(prompt, /se le suma el envío/, `${pais}: y el envío se suma después`);
-    assert.match(prompt, /EL PRECIO SE MULTIPLICA/, `${pais}: dicho donde se decide`);
+    assert.match(prompt, /EL PRECIO SE MULTIPLICA/i, `${pais}: dicho donde se decide`);
     assert.ok(
       prompt.includes("2 artículos de 1.000 son 2.000, + 100 de envío = 2.100"),
       `${pais}: con la cuenta de dos unidades resuelta delante`,
@@ -1721,7 +1721,7 @@ test("el primer mensaje de venta sale de la descripción del anuncio", () => {
     descripcion_anuncio: "Incluye sábana, ajustable y 2 fundas.",
   });
 
-  assert.ok(prompt.includes("TU PRIMER MENSAJE DE VENTA VENDE EL ARTÍCULO"));
+  assert.ok(prompt.includes("EL CLIENTE LLEGA DESDE UN ANUNCIO"));
   assert.ok(
     prompt.includes("ni una lista de características"),
     "un apunte de calidad sí, una ficha técnica no",
@@ -1749,7 +1749,7 @@ test("el artículo es el de la descripción del anuncio y no se cambia por otro"
   assert.ok(prompt.includes("EL ARTÍCULO DE ESTE CHAT ES EL QUE NOMBRA ESA DESCRIPCIÓN"));
   assert.ok(prompt.includes("Y EL PRECIO ES EL QUE ESTÁ ESCRITO EN ESA DESCRIPCIÓN"), "y el precio también sale de ahí");
   assert.ok(prompt.includes("Una cifra que no está escrita arriba no existe"));
-  assert.ok(prompt.includes("EL ARTÍCULO ES EL QUE ESTÁ ESCRITO ARRIBA, CON SU NOMBRE"));
+  assert.ok(prompt.includes("con su nombre exacto y su precio"));
   assert.ok(prompt.includes("no lo vendes ni le pones precio"), "otro artículo que no está arriba no se vende");
   assert.equal(prompt.includes("manda lo que él diga"), false, "ya no se sigue a ciegas lo que nombre el cliente");
 
@@ -1773,15 +1773,13 @@ test("el artículo es el de la descripción del anuncio y no se cambia por otro"
 test("lo que no conoce no se vende ni se transfiere: se confirma con el equipo y se sigue", () => {
   const prompt = armarSistema("Tienda", D.obtenerAgente(orgId, canalId), [], null);
 
-  assert.ok(prompt.includes("UN ARTÍCULO DEL QUE NO SABES NADA NO SE VENDE NI SE COTIZA, Y TAMPOCO SE TRANSFIERE"));
-  assert.ok(
-    prompt.includes("no inventes colores ni medidas"),
-    "ni precio, ni colores, ni medidas de algo que no tiene delante",
-  );
-  assert.ok(prompt.includes("lo confirmo con el equipo"), "se dice que se confirma, y se sigue vendiendo");
+  // El guion de la dueña (2026-09-05): un producto distinto se transfiere, sin inventarle precio.
+  assert.ok(prompt.includes("Preguntan por un producto distinto al que están consultando"));
+  assert.ok(prompt.includes("Mandan foto de otro artículo"), "ni precio ni nada de algo que no tiene delante: se transfiere");
+  assert.ok(prompt.includes("TU TRABAJO ES VENDER, NO TRANSFERIR"), "y por lo demás se sigue vendiendo");
 
-  // Solo se transfiere por tres cosas, y la etiqueta sigue existiendo para ellas.
-  assert.ok(prompt.includes("SOLO SE TRANSFIERE EN TRES CASOS"));
+  // Solo se transfiere por lo que dice el guion, y la etiqueta sigue existiendo para ello.
+  assert.ok(prompt.includes("CUÁNDO TRANSFIERES AL REPRESENTANTE"));
   assert.ok(prompt.includes("[HANDOFF]"), "la etiqueta sigue para la foto, el mayoreo y el artículo sin precio");
 });
 
@@ -2021,13 +2019,13 @@ test("cada pais abre con su saludo, y el prompt lo dice una sola vez", () => {
 
   // El saludo dominicano lo fija su archivo: nombre y tienda incluidos, diga
   // lo que diga el panel.
-  assert.ok(dominicano.includes("¡Hola! Bienvenido(a) a RINCON DCM, le asiste Orlanda. Gracias por escribirnos."), "el dominicano saluda así");
+  assert.ok(dominicano.includes("Hola! Bienvenido(a) a RINCON DCM. Gracias por escribirnos."), "el dominicano saluda así");
   assert.equal(dominicano.includes("Saludos cordiales"), false, "y ya no arrastra el saludo viejo");
   assert.equal(dominicano.includes("Mildred"), false, "ni el nombre del panel, que el archivo sustituye");
 
   // La regla y el ejemplo dicen LA MISMA frase, no dos parecidas.
   assert.equal(
-    dominicano.split("¡Hola! Bienvenido(a) a RINCON DCM, le asiste Orlanda. Gracias por escribirnos.").length - 1,
+    dominicano.split("Hola! Bienvenido(a) a RINCON DCM. Gracias por escribirnos.").length - 1,
     1,
     "una sola vez, en la regla: el bloque de formato con el ejemplo se borró a petición de la dueña",
   );

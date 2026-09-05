@@ -39,7 +39,7 @@ const EMOJIS = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}\u
 const RELLENO = /^(¡?compra seguro!?|solo|oferta|promoci[oó]n|nuevo|nueva|disponible|¡?atenci[oó]n!?|hoy)\s*[:!.-]*\s*/i;
 
 /** Ropa y calzado: la primera pregunta es la talla o el número. */
-const ROPA = /\b(camisa|camisas|pantal[oó]n|pantalones|jean|jeans|short|shorts|vestido|blusa|polo|t-?shirt|franela|chacabana|chaqueta|abrigo|su[eé]ter|sudadera|conjunto|falda|bermuda|correa|correas|cintur[oó]n|cinturones|faja|fajas)\b/i;
+const ROPA = /\b(camisa|camisas|pantal[oó]n|pantalones|jean|jeans|short|shorts|vestido|blusa|polo|t-?shirt|franela|chacabana|chaqueta|abrigo|su[eé]ter|sudadera|conjunto|falda|bermuda|correa|correas|cintur[oó]n|cinturones|faja|fajas|boxer|boxers|b[oó]xer|underwear|ropa interior)\b/i;
 const CALZADO = /\b(zapato|zapatos|tenis|bota|botas|mocas[ií]n|mocasines|sandalia|sandalias|calzado|zapatilla|zapatillas|chancleta|chancletas)\b/i;
 
 /** El primer importe con el símbolo del país, tal cual está escrito. */
@@ -85,7 +85,8 @@ export function primeraPregunta(descripcion: string, d: DatosPais): string {
   if (ROPA.test(texto)) return tu ? "¿Qué talla te interesa?" : "¿Qué talla le interesa?";
   switch (d.codigo) {
     case "do":
-      return "¿A dónde se lo enviamos?";
+      // El guion de la dueña (2026-09-05): sin talla, primero cuántas unidades.
+      return "¿Cuántas unidades desea?";
     case "cr":
       // El guion de la dueña: sin talla, «¿Cuántas unidades desea?».
       return "¿Cuántas unidades desea?";
@@ -153,15 +154,15 @@ export function respuestaMinima(
   const descripcion = anuncio?.descripcion_anuncio ?? "";
   const llevaTalla = ROPA.test(descripcion) || CALZADO.test(descripcion);
 
-  // El orden de la dueña: talla, a dónde, nombre, teléfono (en RD) y el cierre.
-  // En Costa Rica el teléfono va justo después de la dirección, con el envío,
-  // y el nombre después.
+  // El orden de los guiones de la dueña (RD y CR, 2026-09-05): talla, cantidad
+  // si no lleva talla (RD), dirección, teléfono con el costo de envío, nombre
+  // y el cierre.
   const paso: PasoDelPedido =
     llevaTalla && !ficha.talla ? "talla"
-      : !ficha.direccion ? "direccion"
-        : d.codigo === "cr" && !ficha.celular ? "celular"
-          : !ficha.nombre ? "nombre"
-            : d.codigo === "do" && !ficha.celular ? "celular"
+      : d.codigo === "do" && !llevaTalla && !ficha.cantidad ? "cantidad"
+        : !ficha.direccion ? "direccion"
+          : (d.codigo === "cr" || d.codigo === "do") && !ficha.celular ? "celular"
+            : !ficha.nombre ? "nombre"
               : "resumen";
 
   /*
@@ -196,17 +197,17 @@ export function respuestaMinima(
   }
 
   /*
-   * «EXCELENTE…»: en cuanto el cliente dice a dónde, se le confirma el envío
-   * a domicilio, el pago al recibir y su costo, y se sigue con el nombre. Es
-   * el paso que pidió la dueña para República Dominicana.
+   * REGLA FIJA DE LA DUEÑA (RD, 2026-09-05): el teléfono se pide en el mismo
+   * mensaje en que se dice el costo de envío, y nunca antes de decirlo. Si
+   * todavía no se sabe la zona, se pide la provincia o el sector primero.
    */
-  if (paso === "nombre" && d.codigo === "do") {
-    const zona = zonaDelCliente(d, opciones.ultimoDelCliente);
-    if (zona !== null) {
-      const costo = zona === "resto" ? d.envio.restoDelPais.costo : zona.costo;
-      const donde = nombreDeLaZona(d, opciones.ultimoDelCliente ?? "", opciones.lugar);
-      return `Excelente. Le hacemos el envío a domicilio y paga al recibir. El costo de envío a ${donde} es ${importe(d, costo)}.\n\n${pregunta}`;
-    }
+  if (paso === "celular" && d.codigo === "do") {
+    const zona = zonaDelCliente(d, ficha.direccion) ?? zonaDelCliente(d, opciones.lugar);
+    if (zona === null) return otraFormaDePreguntar(d, "direccion", descripcion);
+    const costo = zona === "resto" ? d.envio.restoDelPais.costo : zona.costo;
+    const donde = nombreDeLaZona(d, ficha.direccion ?? "", opciones.lugar);
+    const yaLoPidio = !!opciones.ultimoDelAgente && /tel[eé]fono/i.test(opciones.ultimoDelAgente);
+    return `Perfecto, hasta ${donde} el envío le sale en ${importe(d, costo)}.\n${yaLoPidio ? otraFormaDePreguntar(d, "celular", descripcion) : pregunta}`;
   }
 
   /*
@@ -233,7 +234,7 @@ export function respuestaMinima(
   return directa ? `${directa}\n\n${pregunta}` : pregunta;
 }
 
-type PasoDelPedido = "talla" | "direccion" | "nombre" | "celular" | "resumen";
+type PasoDelPedido = "talla" | "cantidad" | "direccion" | "nombre" | "celular" | "resumen";
 
 /** La pregunta de cada paso del pedido, en el orden de venta. */
 function preguntaDelPaso(d: DatosPais, paso: PasoDelPedido, descripcion: string): string {
@@ -241,10 +242,12 @@ function preguntaDelPaso(d: DatosPais, paso: PasoDelPedido, descripcion: string)
   switch (paso) {
     case "talla":
       return primeraPregunta(descripcion, d);
+    case "cantidad":
+      return tu ? "¿Cuántas unidades quieres?" : "¿Cuántas unidades desea?";
     case "direccion":
       switch (d.codigo) {
         case "do":
-          return "¿A dónde se lo enviamos?";
+          return "Indique su dirección exacta de entrega.";
         case "cr":
           return "Indique su dirección exacta de entrega.";
         default:
@@ -317,18 +320,16 @@ export function resumenMecanico(
   if (d.codigo === "do") {
     // El formato que pidió la dueña, línea por línea.
     const titulo = /^resumen:?$/i.test(marcador.trim()) ? "📋 RESUMEN DEL PEDIDO" : marcador;
-    const lineas: string[] = [titulo, `Producto: ${articulo}`];
+    const lineas: string[] = [titulo, `Nombre: ${ficha.nombre}`];
+    if (celular) lineas.push(`Telefono: ${celular}`);
+    lineas.push(`Direccion: ${ficha.direccion}`);
+    lineas.push(`Producto: ${articulo}`);
     if (ficha.talla) lineas.push(`Talla: ${ficha.talla}`);
     if (ficha.color) lineas.push(`Color: ${ficha.color}`);
     lineas.push(`Cantidad: ${cantidad}`);
-    lineas.push(`Precio: ${importe(d, precio * cantidad)}`);
     lineas.push(`Envio: ${importe(d, envio)}`);
     lineas.push(`TOTAL A PAGAR: ${importe(d, total)}`);
     lineas.push("Forma de pago: contra entrega");
-    lineas.push(`Nombre: ${ficha.nombre}`);
-    if (celular) lineas.push(`Telefono: ${celular}`);
-    lineas.push(`Direccion: ${ficha.direccion}`);
-    lineas.push(`Zona: ${nombreDeLaZona(d, ficha.direccion, opciones.lugar)}`);
     lineas.push("✅ PEDIDO REGISTRADO", FRASE_DE_TRANSFERENCIA);
     return lineas.join("\n");
   }
@@ -438,7 +439,7 @@ export function confirmacionMecanica(
   return (
     `Le confirmo: ${partes.join(", ")}.\n` +
     `Son ${importe(d, precio * cantidad)} más ${importe(d, envio)} de envío, total ${importe(d, total)}, y se paga al recibir.\n` +
-    "¿Se lo enviamos hoy mismo?"
+    "¿Se lo despacho hoy mismo?"
   );
 }
 
@@ -451,10 +452,12 @@ function otraFormaDePreguntar(d: DatosPais, paso: PasoDelPedido, descripcion: st
         return tu ? "Para apartarlo necesito tu número de calzado. ¿Cuál es?" : "Para apartárselo necesito el número que calza. ¿Cuál es?";
       }
       return tu ? "Para apartarlo necesito tu talla. ¿Cuál te interesa?" : "Para apartárselo necesito su talla. ¿Cuál le interesa?";
+    case "cantidad":
+      return tu ? "¿Cuántas llevas?" : "¿Cuántas va a llevar?";
     case "direccion":
       switch (d.codigo) {
         case "do":
-          return "¿A qué provincia o sector se lo enviamos?";
+          return "¿Cuál es su dirección exacta de entrega, con el sector y la provincia?";
         case "cr":
           return "¿Cuál es su dirección exacta de entrega, con el cantón?";
         default:
@@ -470,7 +473,7 @@ function otraFormaDePreguntar(d: DatosPais, paso: PasoDelPedido, descripcion: st
 }
 
 /** De qué va la pregunta del cliente, si es una de las que se contestan solas. */
-export type PreguntaDelCliente = "ubicacion" | "envio" | "pago" | "precio" | "tallas";
+export type PreguntaDelCliente = "ubicacion" | "envio" | "pago" | "precio" | "tallas" | "tiempo";
 
 /**
  * LAS TALLAS QUE HAY para el artículo del anuncio, según la tabla base:
@@ -483,7 +486,7 @@ export function tallasDisponibles(descripcion: string, d: DatosPais): string | n
   if (CALZADO.test(descripcion)) return d.tallas.zapatoEn || fila("Zapatos");
   if (/\b(correa|correas|cintur[oó]n|cinturones|faja|fajas)\b/i.test(descripcion)) return fila("Correas y cinturones");
   if (/\b(pantal[oó]n|pantalones|jean|jeans|short|shorts|bermuda)\b/i.test(descripcion)) return fila("Pantalones");
-  if (/\b(camisa|camisas|polo|t-?shirt|franela|blusa|chacabana|su[eé]ter|sudadera|chaqueta|abrigo)\b/i.test(descripcion)) return fila("Camisas y t-shirts");
+  if (/\b(camisa|camisas|polo|t-?shirt|franela|blusa|chacabana|su[eé]ter|sudadera|chaqueta|abrigo|boxer|boxers|b[oó]xer|underwear)\b/i.test(descripcion)) return fila("Camisas, t-shirts, polos y boxers");
   return null;
 }
 
@@ -497,6 +500,7 @@ export function preguntaDelCliente(texto: string | null | undefined): PreguntaDe
   if (!t) return null;
   // «¿Cuáles son los tamaños disponibles?», «¿qué tallas hay?»: se contestan con las tallas, no con otra pregunta.
   if (/\b(tallas?|tamanos?|medidas?|numeros?)\b/.test(t) && /\b(disponible|disponibles|hay|tienen|tiene|cuales|cual|que|manejan|maneja|vienen|viene)\b/.test(t) && /\?|cuales|que|hay|tienen/.test(t)) return "tallas";
+  if (/\b(cuanto (tarda|demora|se demora|dura)|cuando (llega|me llega|lo recibo)|en cuanto tiempo|cuantos dias)\b/.test(t)) return "tiempo";
   if (/\b(donde (estan|esta|queda|quedan|tuta|ta|se ubican|se encuentran|es la tienda|estan ubicados|los encuentro|puedo ir)|ubicad[oa]s?|tienda fisica|local fisico|direccion de la tienda)\b/.test(t)) return "ubicacion";
   if (/\b(envio|envios|envian|delivery|entregan|mandan)\b/.test(t) && /\?|cuanto|como|hacen|tienen|hay/.test(t)) return "envio";
   if (/\b(pago|pagar|pagos|se paga|forma de pago|contra entrega|transferencia|tarjeta|es seguro|es confiable|confiable)\b/.test(t)) return "pago";
@@ -522,6 +526,8 @@ export function respuestaDirecta(
       return d.ubicacion.tiendaFisica;
     case "pago":
       return d.pagoAlCliente;
+    case "tiempo":
+      return "Entre 24 y 48 horas.";
     case "tallas": {
       const tallas = tallasDisponibles(anuncio?.descripcion_anuncio ?? "", d);
       return tallas ? `Las tallas disponibles son ${tallas}.` : null;

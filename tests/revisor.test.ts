@@ -66,8 +66,6 @@ test("descuentos, envío gratis, días de entrega y reservas no salen", () => {
   assert.ok(revisarConReglas("Se lo aparto hasta el viernes.", rd).some((x) => x.includes("reserva")));
   // Decir que se envía en 24 a 48 horas no es prometer un día.
   assert.deepEqual(revisarConReglas("Se lo enviamos dentro de 24 a 48 horas.", rd), []);
-  // Y «despachar» no se dice: se dice «enviar».
-  assert.ok(revisarConReglas("Se despacha dentro de 24 a 48 horas.", rd).some((x) => x.includes("enviamos")));
 });
 
 test("un resumen con huecos, a nombre de la vendedora o con un envío ajeno no sale", () => {
@@ -296,7 +294,7 @@ test("pedir la ubicación por el mapa, o insistir con ella, no sale", () => {
  * mundo. Solo con el resumen, por una foto, por mayoreo o si pide persona.
  */
 test("una transferencia sin motivo no sale; con motivo, sí", () => {
-  const frase = "Le conecto con un representante para finalizar. Aguarde un momento.";
+  const frase = "Permítame un momento, le transfiero con un representante.";
 
   const preguntaNormal = { ...rd, ultimoDelCliente: "¿Cuánto es el envío a Santiago?" };
   assert.ok(revisarConReglas(frase, preguntaNormal).some((f) => f.includes("sin motivo")));
@@ -407,12 +405,12 @@ test("a un cepillo, un blower o una plancha no se les pregunta talla ni color, s
 });
 
 /**
- * «¿SE LO DESPACHO HOY MISMO?» ES EL CIERRE DE COSTA RICA, tal cual lo
- * escribió la dueña en su guion (2026-09-05). En los demás países sigue
- * valiendo lo que pidió antes: se dice «enviar», nunca «despachar».
+ * «¿SE LO DESPACHO HOY MISMO?» ES EL CIERRE que la dueña escribió en sus
+ * guiones de Costa Rica y de República Dominicana (2026-09-05): la palabra
+ * «despachar» ya no se para en ningún país.
  */
-test("«despachar» pasa en Costa Rica, que cierra así por su guion, y se para en los demás", () => {
+test("«despachar» pasa: es el cierre de los guiones de la dueña", () => {
   assert.deepEqual(revisarConReglas("¿Se lo despacho hoy mismo?", cr), []);
-  assert.ok(revisarConReglas("¿Se lo despachamos hoy mismo?", contexto("do")).some((f) => f.includes("despachar")));
-  assert.ok(revisarConReglas("¿Se lo despachamos hoy mismo?", contexto("pa")).some((f) => f.includes("despachar")));
+  assert.deepEqual(revisarConReglas("¿Se lo despacho hoy mismo?", contexto("do")), []);
+  assert.deepEqual(revisarConReglas("¿Se lo despachamos hoy mismo?", contexto("pa")), []);
 });

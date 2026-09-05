@@ -17,7 +17,7 @@ export const RD: DatosPais = {
   tienda: "RINCON DCM",
   nombreAgente: "Orlanda",
   // Como lo pidió la dueña (2026-09-04): bienvenida, quién atiende y gracias.
-  saludo: "¡Hola! Bienvenido(a) a RINCON DCM, le asiste Orlanda. Gracias por escribirnos.",
+  saludo: "Hola! Bienvenido(a) a RINCON DCM. Gracias por escribirnos.",
   trato: "usted",
 
   // ── Moneda ─────────────────────────────────────────────────────────────
@@ -69,6 +69,8 @@ export const RD: DatosPais = {
           "Villa Mella",
           "Sabana Perdida",
           "Pedro Brand",
+          "San Antonio de Guerra",
+          "Guerra",
           "Boca Chica",
           "Los Mina",
           "Villa Duarte",
@@ -381,8 +383,9 @@ export const RD: DatosPais = {
   // ── Mayoreo ────────────────────────────────────────────────────────────
   mayoreo: {
     vende: true,
-    // El agente no cotiza mayoreo: lo pasa a un representante.
-    agenteCotiza: false,
+    // La dueña (2026-09-05): de 3 en adelante el agente cotiza con el precio por
+    // mayor SI la descripción del anuncio lo trae; si no lo trae, transfiere.
+    agenteCotiza: true,
     desde: 3,
   },
 

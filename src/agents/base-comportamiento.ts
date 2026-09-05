@@ -31,7 +31,7 @@ export const TALLAS_BASE: { articulo: string; tallas: string }[] = [
   { articulo: "Correas y cinturones", tallas: "de la 30 a la 42" },
   { articulo: "Zapatos", tallas: "de la 39 a la 45" },
   { articulo: "Pantalones", tallas: "de la 30 a la 42" },
-  { articulo: "Camisas y t-shirts", tallas: "de la S a la XXL" },
+  { articulo: "Camisas, t-shirts, polos y boxers", tallas: "de la S a la XXL" },
 ];
 
 /** La tabla, escrita para que la lea el modelo. */

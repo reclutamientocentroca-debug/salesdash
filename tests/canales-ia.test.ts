@@ -619,7 +619,7 @@ test("el guion se copia a todos los números, y solo el guion", () => {
  */
 test("los cambios se contestan solo si preguntan, y sin política se confirma con el equipo", () => {
   const dominicano = armarSistema("Tienda", D.obtenerAgente(orgId, rd), [], null);
-  assert.ok(dominicano.includes("SOLO SI EL CLIENTE PREGUNTA"), "no lo saca por su cuenta");
+  assert.ok(dominicano.includes("solo si el cliente pregunta"), "no lo saca por su cuenta");
   assert.ok(dominicano.includes("24 horas"), "y cuando pregunta, tiene la respuesta");
   assert.ok(dominicano.includes("antes de pagarle al mensajero"), "puede revisar antes de pagar");
   assert.ok(dominicano.includes("cambio y devolución"), "y la devolución también entra");
@@ -669,7 +669,7 @@ test("Costa Rica vende con el guion de la dueña, y Panamá con la base", () => 
     "¿Se lo despacho hoy mismo?",
     "📋 RESUMEN DEL PEDIDO",
     "✅ PEDIDO REGISTRADO",
-    "Le conecto con un representante para finalizar. Aguarde un momento.",
+    "Permítame un momento, le transfiero con un representante.",
     "[HANDOFF]",
     "La empresa no reserva pedidos",
     "De 3 unidades en adelante",

@@ -203,6 +203,9 @@ CREATE TABLE IF NOT EXISTS conversations (
      prefiere atender a mano. Hasta ahora eso solo se podía decir apagando el
      agente en el número entero —o sea, para todos los clientes a la vez—. */
   atiende TEXT CHECK(atiende IN ('ia','humano')) NOT NULL DEFAULT 'ia',
+  /* CUÁNDO SE LE DEVOLVIÓ EL HILO A LA IA por última vez. Lo que escribió el
+     equipo antes de ese momento ya no la calla: el botón manda. */
+  devuelta_a_ia_at INTEGER,
   fecha_inicio INTEGER NOT NULL DEFAULT (unixepoch()),
   fecha_cierre INTEGER, last_message_at INTEGER,
   UNIQUE(canal_id, cliente_phone)
@@ -620,6 +623,11 @@ function migrar(conexion: DB): void {
     conexion.exec(
       `ALTER TABLE conversations ADD COLUMN atiende TEXT NOT NULL DEFAULT 'ia'`,
     );
+  }
+
+  // conversations: cuándo se le devolvió el hilo a la IA por última vez.
+  if (!columnas("conversations").includes("devuelta_a_ia_at")) {
+    conexion.exec(`ALTER TABLE conversations ADD COLUMN devuelta_a_ia_at INTEGER`);
   }
 
   // messages: la transcripción de las notas de voz.
@@ -1260,6 +1268,8 @@ export interface Conversacion {
   intervencion_humana: number; cerrado_por: EstadoCierre;
   /** Quién atiende este hilo: 'ia' o 'humano'. Se cambia desde la conversación. */
   atiende: string;
+  /** Cuándo se le devolvió el hilo a la IA por última vez. Ver `devolverALaIa`. */
+  devuelta_a_ia_at: number | null;
   senal_de_cierre: string | null;
   total: number | null; envio: number | null;
   producto_vendido: string | null; resumen_pedido: string | null;
@@ -2290,9 +2300,19 @@ export function orgsParaBarrerCierres(): number[] {
 
 /** ¿Escribió un humano desde `desde`? Silencia al agente vendedor. */
 export function huboHumanoReciente(orgId: number, conversationId: number, desde: number): boolean {
+  /*
+   * LO QUE ESCRIBIÓ EL EQUIPO ANTES DE DEVOLVER EL HILO A LA IA NO CUENTA.
+   *
+   * El caso real (la dueña, 2026-09-05): un mensaje salió por el número desde
+   * otra plataforma, entró como «humano», y el agente se calló dos horas
+   * aunque ella le devolvió la atención. Devolver el hilo es decir «desde ahora
+   * contesta la IA»: solo la calla lo que el equipo escriba DESPUÉS.
+   */
   const fila = s(
-    `SELECT 1 AS x FROM messages
-      WHERE org_id = ? AND conversation_id = ? AND emisor = 'humano' AND created_at >= ?
+    `SELECT 1 AS x FROM messages m
+      JOIN conversations c ON c.id = m.conversation_id
+      WHERE m.org_id = ? AND m.conversation_id = ? AND m.emisor = 'humano'
+        AND m.created_at >= ? AND m.created_at >= COALESCE(c.devuelta_a_ia_at, 0)
       LIMIT 1`,
   ).get(orgId, conversationId, desde) as { x: number } | undefined;
   return !!fila;

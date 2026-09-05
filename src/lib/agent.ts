@@ -1949,6 +1949,8 @@ export async function atenderConversacion(
   const partes = partirEnMensajes(respuesta.texto, {
     saludoAparte:
       conv.superficie !== "comentario" &&
+      // El guion dominicano (2026-09-05) manda el primer mensaje entero, en un solo globo.
+      agente.pais !== "do" &&
       (historial.every((m) => m.emisor === "cliente") || esClienteQueVuelve(historial)),
     marcador: marcadorOrg,
   });

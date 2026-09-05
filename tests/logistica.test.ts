@@ -90,48 +90,45 @@ test("el prompt del agente lleva la tarifa del cliente cuando la escribió, y el
   // inventar precio, resumen al final y transferir.
   assert.ok(prompt.includes("CÓMO SUENA UNA PERSONA"));
   assert.ok(prompt.includes("No inventes precios"));
-  assert.ok(prompt.includes("UN ARTÍCULO DEL QUE NO SABES NADA NO SE VENDE NI SE COTIZA, Y TAMPOCO SE TRANSFIERE"));
-  assert.ok(prompt.includes("EL RESUMEN SE MANDA UNA VEZ, Y CUANDO YA NO FALTA NADA"));
-  assert.ok(prompt.includes("Le conecto con un representante para finalizar. Aguarde un momento."));
+  assert.ok(prompt.includes("TU TRABAJO ES VENDER, NO TRANSFERIR"));
+  assert.ok(prompt.includes("El resumen va UNA SOLA VEZ"));
+  assert.ok(prompt.includes("Permítame un momento, le transfiero con un representante."));
   assert.ok(prompt.includes("[HANDOFF]"));
-  assert.ok(prompt.includes("Cuando el cliente indique su provincia o ubicación, identifica correctamente el costo de envío"));
+  assert.ok(prompt.includes("identificas la zona, le informas el costo de envío"));
 
-  // El guion de la dueña, aplicado tal cual (src/agents/paises/rd-guion.ts):
-  // saludo, producto con precio, variante, provincia con su envío, dirección,
-  // nombre, verificación y resumen, con la transferencia pegada.
+  // El guion de la dueña (2026-09-05), aplicado tal cual (src/agents/paises/rd-guion.ts):
+  // primer mensaje con producto y precio, talla, color, dirección, envío y
+  // teléfono en el mismo mensaje, nombre, confirmación y resumen con la
+  // transferencia pegada.
   const ritmo = prompt.slice(prompt.indexOf("ASÍ VENDES — EL GUION DE ESTE NÚMERO"));
   const pos = (s: string) => {
     const i = ritmo.indexOf(s);
     assert.ok(i >= 0, `falta en el guion: ${s}`);
     return i;
   };
-  assert.ok(pos("PASO 1 — Saluda") < pos("PASO 2 — Presenta el producto"));
-  assert.ok(pos("PASO 2 — Presenta el producto") < pos("PASO 3 — PIENSA QUÉ ARTÍCULO ES"));
-  assert.ok(pos("PASO 3 — PIENSA QUÉ ARTÍCULO ES") < pos("PASO 4 — Pregunta a dónde se lo enviamos"));
-  assert.ok(ritmo.includes("NO TIENEN TALLA NI COLOR"), "un cepillo, un blower o una plancha se venden tal cual");
-  assert.ok(pos("PASO 4 — Pregunta a dónde se lo enviamos") < pos("PASO 5 — Si con eso no tienes la dirección completa"));
-  assert.ok(pos("PASO 5 — Si con eso no tienes la dirección completa") < pos("PASO 6 — Solicita el nombre completo"));
-  assert.ok(pos("PASO 6 — Solicita el nombre completo") < pos("PASO 7 — Pide el número de teléfono"));
-  assert.ok(pos("PASO 7 — Pide el número de teléfono") < pos("PASO 8 — Cuando ya tengas TODOS los datos"));
-  assert.ok(pos("PASO 8 — Cuando ya tengas TODOS los datos") < pos("PASO 9 — EN CUANTO EL CLIENTE CONFIRME"));
-  assert.ok(ritmo.includes("¿Se lo enviamos hoy mismo?"), "la confirmación antes del resumen");
-  assert.ok(ritmo.includes("EN ESE MISMO MENSAJE"), "y el resumen es la respuesta al sí");
-  assert.ok(ritmo.includes("LA DIRECCIÓN NUNCA ES LA PRIMERA PREGUNTA"));
-  assert.ok(ritmo.includes("Nunca le preguntes nuevamente algo que ya te dijo"));
-  assert.ok(ritmo.includes("Si el cliente pregunta algo, se lo contestas primero"));
-  assert.ok(ritmo.includes("Santo Domingo (el Gran Santo Domingo): RD$250. Provincias: RD$290."));
-  assert.ok(ritmo.includes("PASO 7 — Pide el número de teléfono"), "el teléfono se pide después del nombre");
-  assert.ok(ritmo.includes("Excelente. Le hacemos el envío a domicilio y paga al recibir."), "y al dar la dirección se confirma el envío");
-  assert.ok(ritmo.includes("Telefono: <el que dio el cliente"), "el teléfono del chat, escrito como en el ejemplo de la dueña");
+  assert.ok(pos("1. Primer mensaje") < pos("2. Talla"));
+  assert.ok(pos("2. Talla") < pos("3. Color"));
+  assert.ok(pos("3. Color") < pos("4. Dirección"));
+  assert.ok(pos("4. Dirección") < pos("5. Costo de envío + teléfono"));
+  assert.ok(pos("5. Costo de envío + teléfono") < pos("6. Nombre real"));
+  assert.ok(pos("6. Nombre real") < pos("7. Confirmación en un solo mensaje"));
+  assert.ok(pos("7. Confirmación en un solo mensaje") < pos("8. Resumen final"));
+  assert.ok(ritmo.includes("Indique su dirección exacta de entrega."));
+  assert.ok(ritmo.includes("Perfecto, hasta <zona> el envío le sale en RD$<250 o 290>."), "el envío y el teléfono en el mismo mensaje");
+  assert.ok(ritmo.includes("¿Me facilita su número de teléfono para el pedido?"));
+  assert.ok(ritmo.includes("Nunca tomas el nombre de ninguna fuente que no sea la boca del cliente"));
+  assert.ok(ritmo.includes("San Antonio de Guerra): RD$250"), "las zonas de la ciudad, con sus nombres");
+  assert.ok(ritmo.includes("¿Se lo despacho hoy mismo?"), "la confirmación, con las palabras de la dueña");
   assert.ok(ritmo.includes("✅ PEDIDO REGISTRADO"), "el resumen cierra como lo escribió la dueña");
-  assert.ok(ritmo.includes("Le confirmo: <producto>"), "y antes va la confirmación en una línea");
-  assert.ok(ritmo.includes("Le conecto con un representante para finalizar. Aguarde un momento."));
+  assert.ok(ritmo.includes("Permítame un momento, le transfiero con un representante."));
   assert.ok(ritmo.includes("[HANDOFF]"));
   assert.ok(ritmo.includes("NO VUELVES A RESPONDER EN ESE CHAT"), "después del resumen, el chat es del asesor");
-  assert.ok(ritmo.includes("Siempre asume una unidad"));
-  assert.ok(ritmo.includes("Nunca uses S, M o L para calzado"));
-  assert.ok(ritmo.includes("Transferir es el último recurso"));
-  // Y el bloque del cliente pide el celular también en RD (la dueña, 2026-09-04).
+  assert.ok(ritmo.includes("NO SE RESERVAN PEDIDOS"));
+  assert.ok(ritmo.includes("De 3 unidades en adelante"), "el precio por mayor, si la descripción lo trae");
+  assert.ok(ritmo.includes("Cepillos, blowers, planchas y abejones: sin talla ni color"));
+  assert.ok(ritmo.includes("Entre 24 y 48 horas."), "y a cuánto tarda se contesta");
+
+  // Y el bloque del cliente pide el celular también en RD.
   assert.ok(prompt.includes("PREGÚNTALE A QUÉ NÚMERO LLAMA EL MENSAJERO"));
   assert.equal(prompt.includes("EL TELÉFONO NO SE PREGUNTA"), false);
 
@@ -141,10 +138,10 @@ test("el prompt del agente lleva la tarifa del cliente cuando la escribió, y el
     producto_anuncio: "Mocasines de cuero",
     descripcion_anuncio: "Mocasines de cuero genuino a RD$2,500",
   }, "Resumen:", null, null, false, null);
-  assert.ok(conAnuncio.includes("CLIENTE QUE LLEGA DESDE UN ANUNCIO"));
-  assert.ok(conAnuncio.includes("El precio debe buscarse en este orden"));
-  assert.ok(conAnuncio.includes("Si el precio no aparece en ninguno de esos lugares, no inventes"));
-  assert.ok(conAnuncio.includes("SI QUIERE MÁS DE UNA UNIDAD, SE LAS VENDES"));
+  assert.ok(conAnuncio.includes("EL CLIENTE LLEGA DESDE UN ANUNCIO"));
+  assert.ok(conAnuncio.includes("El precio que te llega en la descripción del producto es el precio principal"));
+  assert.ok(conAnuncio.includes("Nunca lo inventas ni lo cambias"));
+  assert.ok(conAnuncio.includes("De 3 unidades en adelante"), "el precio por mayor, si la descripción lo trae");
 });
 
 /**
