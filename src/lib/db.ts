@@ -2359,8 +2359,11 @@ export function devolverALaIa(orgId: number, conversationId: number): number {
     ).run(orgId, conversationId);
 
     // Y el interruptor de la conversación, que es la otra forma de tenerla
-    // callada: devolver el hilo a la IA es una sola cosa, no dos.
-    s(`UPDATE conversations SET atiende = 'ia' WHERE org_id = ? AND id = ?`).run(orgId, conversationId);
+    // callada: devolver el hilo a la IA es una sola cosa, no dos. Con la hora,
+    // para que lo que el equipo escribió antes deje de callarla (ver
+    // `huboHumanoReciente`): no hay que esperar dos horas.
+    s(`UPDATE conversations SET atiende = 'ia', devuelta_a_ia_at = ? WHERE org_id = ? AND id = ?`)
+      .run(ahora(), orgId, conversationId);
 
     return r.changes;
   });

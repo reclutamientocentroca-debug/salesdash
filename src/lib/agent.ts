@@ -1391,9 +1391,12 @@ export function porQueCalla(
   const t = ahora();
 
   if (agente.silenciar_si_humano === 1 && huboHumanoReciente(orgId, conversationId, t - SILENCIO_TRAS_HUMANO)) {
+    // Reversible: «Contesta la IA» lo deshace en el acto, sin esperar las dos horas.
     return callado(
       "vendedor_reciente",
-      "Escribió alguien del equipo hace poco: el agente espera dos horas para no escribir encima.",
+      "Escribió alguien del equipo hace poco: el agente espera dos horas para no escribir encima. " +
+        "Si ya terminó, pulsa «Contesta la IA» y sigue ahora mismo.",
+      true,
     );
   }
 

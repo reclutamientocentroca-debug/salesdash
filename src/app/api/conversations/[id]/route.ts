@@ -153,6 +153,21 @@ export async function POST(req: NextRequest, { params }: Ctx) {
    * pulsa el botón tiene que enterarse ahora, no cuando el cliente no reciba
    * respuesta.
    */
-  const { porQueCalla } = await import("@/lib/agent");
-  return NextResponse.json({ ok: true, cerradas, agente: porQueCalla(orgId, conv.canal_id, conv.id) });
+  const { porQueCalla, atenderConversacion } = await import("@/lib/agent");
+  const estado = porQueCalla(orgId, conv.canal_id, conv.id);
+
+  /*
+   * Y AL DEVOLVERLE EL HILO, CONTESTA YA. La dueña (2026-09-05): «si le
+   * devuelvo la atención debe de responder». Si lo último que hay en el hilo
+   * es del cliente y nadie se lo contestó, el agente lo atiende ahora mismo,
+   * sin esperar a que el cliente vuelva a escribir. Si lo último es del
+   * equipo, no hay nada pendiente y `atenderConversacion` no hace nada.
+   */
+  if (datos.data.accion === "devolver_a_la_ia" && !estado.callado) {
+    void atenderConversacion(orgId, conv.canal_id, conv.id).catch((e) => {
+      console.error(`El agente falló al retomar la conversación ${conv.id}:`, e);
+    });
+  }
+
+  return NextResponse.json({ ok: true, cerradas, agente: estado });
 }

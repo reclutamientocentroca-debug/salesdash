@@ -73,6 +73,20 @@ function hilo(mensajes: { emisor: D.Emisor; content: string; hace: number }[]) {
   return conversacion.id;
 }
 
+/** Más mensajes en un hilo que ya existe, en orden. */
+function hiloAnade(conversationId: number, mensajes: { emisor: D.Emisor; content: string; hace: number }[]) {
+  for (const [i, m] of mensajes.entries()) {
+    D.insertMessage(orgId, {
+      conversationId,
+      whapiMessageId: `${conversationId}-mas-${Date.now()}-${i}`,
+      emisor: m.emisor,
+      tipo: "texto",
+      content: m.content,
+      createdAt: D.ahora() - m.hace,
+    });
+  }
+}
+
 /*
  * Encender el agente en un número le quita el sitio a la IA del dueño, igual
  * que hace la API: por número contesta uno solo. Un canal nace en modo vigilar
@@ -190,6 +204,41 @@ test("pasadas las dos horas, el vendedor ya no lo silencia", async () => {
   // Ya no hay silencio: el control llega hasta el modelo, que sin clave falla.
   const r = await atenderConversacion(orgId, canalId, id);
   assert.notEqual(motivoDe(r), "vendedor_reciente");
+});
+
+/**
+ * EL CASO REAL (la dueña, 2026-09-05): un mensaje salió por el número desde
+ * otra plataforma, entró como «humano», y el agente se calló dos horas aunque
+ * ella le devolvió la atención. Devolver el hilo a la IA es «desde ahora
+ * contesta la IA»: no hay que esperar las dos horas, y solo la vuelve a callar
+ * lo que el equipo escriba DESPUÉS.
+ */
+test("devolver el hilo a la IA levanta el silencio del vendedor sin esperar dos horas", async () => {
+  encender(true);
+  const id = hilo([
+    { emisor: "cliente", content: "¡Hola! Quiero más información", hace: 1900 },
+    { emisor: "humano", content: "Hemos pasado la conversación a un miembro del equipo.", hace: 1800 },
+    { emisor: "cliente", content: "¿sigue ahí?", hace: 60 },
+  ]);
+
+  assert.equal(motivoDe(await atenderConversacion(orgId, canalId, id)), "vendedor_reciente");
+  const callado = porQueCalla(orgId, canalId, id);
+  assert.equal(callado.motivo, "vendedor_reciente");
+  assert.equal(callado.reversible, true, "el botón tiene que poder deshacerlo");
+
+  D.devolverALaIa(orgId, id);
+  assert.ok(D.getConversation(orgId, id)?.devuelta_a_ia_at, "queda apuntado cuándo se devolvió");
+  assert.equal(porQueCalla(orgId, canalId, id).callado, false, "ya no espera");
+  // Llega hasta el modelo, que en las pruebas no existe: el silencio se levantó.
+  assert.equal(motivoDe(await atenderConversacion(orgId, canalId, id)), "fallo_modelo");
+
+  // Y si el equipo vuelve a escribir DESPUÉS de devolverlo, el silencio vuelve.
+  hiloAnade(id, [{ emisor: "humano", content: "yo sigo con este", hace: 0 }]);
+  assert.equal(motivoDe(await atenderConversacion(orgId, canalId, id)), "ultimo_no_es_cliente");
+  hiloAnade(id, [{ emisor: "cliente", content: "ok", hace: 0 }]);
+  assert.equal(motivoDe(await atenderConversacion(orgId, canalId, id)), "vendedor_reciente");
+
+  encender(false);
 });
 
 test("si el cliente pide una persona, se calla y deja constancia", async () => {

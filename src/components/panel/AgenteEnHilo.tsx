@@ -73,6 +73,14 @@ export default function AgenteEnHilo({
 
   const enManosDeUnHumano = atiende === "humano";
 
+  /*
+   * «Contesta la IA» también vale cuando el hilo ya es de la IA pero está
+   * callada por algo que el botón deshace: un vendedor que escribió hace
+   * poco. Antes el botón salía apagado y la única salida era esperar dos
+   * horas.
+   */
+  const sePuedeDevolver = enManosDeUnHumano || (estado.callado && estado.reversible);
+
   return (
     <div style={{ display: "grid", gap: 9 }}>
       <div style={{ display: "flex", gap: 6 }}>
@@ -80,7 +88,7 @@ export default function AgenteEnHilo({
           type="button"
           className={`btn ${enManosDeUnHumano ? "btn-secundario" : "btn-acento"}`}
           style={{ flex: 1 }}
-          disabled={ocupado || !enManosDeUnHumano}
+          disabled={ocupado || !sePuedeDevolver}
           aria-pressed={!enManosDeUnHumano}
           onClick={() => cambiar("devolver_a_la_ia")}
         >
