@@ -342,6 +342,24 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
     }
   }
 
+  // 8i. LA TALLA VA ANTES QUE LA DIRECCIÓN. El caso real: «¿A qué provincia se
+  // lo enviamos?» a unos polos, sin haber preguntado la talla.
+  {
+    const fuentes = llano(ctx.anuncio ? ctx.anuncio : ctx.catalogo);
+    const llevaTalla = CON_TALLA_SIEMPRE.test(fuentes) && !SIN_VARIANTES.test(fuentes);
+    const pideDireccion =
+      /[¿?][^?¿]*(direcci[oó]n|provincia|a d[oó]nde se lo|d[oó]nde se lo enviamos|sector|cant[oó]n|corregimiento)[^?¿]*\?|indique su direcci[oó]n/i.test(texto);
+    if (llevaTalla && ctx.ficha && !ctx.ficha.talla && pideDireccion && !PREGUNTA_TALLA.test(llano(texto))) {
+      fallas.push("pide la dirección o la provincia antes de la talla, y este artículo lleva talla: primero «¿Qué talla le interesa?»");
+    }
+  }
+
+  // 8j. «LE CONFIRMO» SOLO CON TODOS LOS DATOS. El caso real: «Le confirmo:
+  // Polo Bronx, RD$1,400 cada uno. ¿A qué provincia…?» como primer mensaje.
+  if (/^\W*le confirmo\b/i.test(texto.trim()) && ctx.ficha && (!ctx.ficha.nombre || !ctx.ficha.direccion)) {
+    fallas.push("dice «Le confirmo» sin tener el nombre y la dirección del cliente: la confirmación va cuando ya tienes todos los datos; ahora sigue con el dato que falta");
+  }
+
   // 8d. LA UBICACIÓN NO SE PIDE POR EL MAPA, Y NO SE INSISTE.
   //
   // El cliente puede decir dónde está y con eso basta. Pedirle que comparta
@@ -503,7 +521,7 @@ const SIN_VARIANTES =
 
 /** Ropa y calzado llevan talla aunque el anuncio no la escriba. */
 const CON_TALLA_SIEMPRE =
-  /\b(camisa|camisas|pantalon|pantalones|jean|jeans|short|shorts|vestido|blusa|polo|t-?shirt|franela|chacabana|chaqueta|abrigo|sueter|sudadera|conjunto|falda|zapato|zapatos|tenis|bota|botas|mocasin|mocasines|sandalia|sandalias|calzado|correa|correas|cinturon|cinturones|bermuda|ropa)\b/i;
+  /\b(camisa|camisas|pantalon|pantalones|jean|jeans|short|shorts|vestido|vestidos|blusa|blusas|polo|polos|t-?shirts?|franela|franelas|chacabana|chacabanas|chaqueta|abrigo|sueter|sudadera|conjunto|falda|zapato|zapatos|tenis|bota|botas|mocasin|mocasines|sandalia|sandalias|calzado|correa|correas|cinturon|cinturones|bermuda|bermudas|boxer|boxers|ropa)\b/i;
 
 /** Lo que en un anuncio o catálogo dice CON PALABRAS que hay tallas o números. */
 const HAY_TALLAS_EXPLICITAS = /\btallas?\b|\bsize\b|numeraci[oó]n|\bx?xl\b|\bs\s*[,\/-]\s*m\b|\bde la s a la\b/i;

@@ -445,3 +445,32 @@ test("un combo no lleva talla aunque el catálogo hable de tallas, y un color qu
   assert.deepEqual(revisarConReglas("La tenemos en blanco, azul y negro. ¿Cuál le interesa?", conColores), []);
   assert.ok(revisarConReglas("La tenemos en rojo. ¿Le interesa?", conColores).some((f) => f.includes("«rojo»")));
 });
+
+/**
+ * LA CAPTURA DE LA DUEÑA (2026-09-05): «Le confirmo: Polo Bronx Originales,
+ * RD$1,400 cada uno. ¿A qué provincia se lo enviamos?» como primer mensaje a
+ * un «Precio». Sin saludo, sin talla y con un «Le confirmo» sin datos.
+ */
+test("a unos polos se les pregunta la talla antes que la provincia, y «Le confirmo» espera a tener los datos", () => {
+  const polos = {
+    ...rd,
+    anuncio: "Anuncio: 🔥 POLOS BRONX ORIGINALES 🔥 Moderno, Fresco y duradero 👕 RD$1,400 C/U RD$1,190 al por mayor 📦 ENVÍO A TODO EL PAÍS y PAGA AL MOMENTO DE RECIBIR",
+    ficha: { talla: null, color: null, direccion: null, nombre: null, celular: null, cantidad: null },
+    esApertura: true,
+    ultimoDelCliente: "Precio",
+  };
+  const fallas = revisarConReglas("Le confirmo: Polo Bronx Originales, RD$1,400 cada uno.\n¿A qué provincia se lo enviamos?", polos);
+  assert.ok(fallas.some((f) => f.includes("antes de la talla")), "la talla va antes que la provincia");
+  assert.ok(fallas.some((f) => f.includes("«Le confirmo» sin tener")), "la confirmación espera a los datos");
+  assert.ok(fallas.some((f) => f.includes("empieza con «Hola! Bienvenido(a)")), "y el primer mensaje saluda");
+
+  const bien = "Hola! Bienvenido(a) a RINCON DCM. Gracias por escribirnos.\n🖤 POLOS BRONX ORIGINALES 🖤\nRD$1,400\n¿Qué talla le interesa?";
+  assert.deepEqual(revisarConReglas(bien, polos), []);
+
+  // Con la talla ya dada, pedir la dirección es lo que toca.
+  const conTalla = { ...polos, esApertura: false, ficha: { ...polos.ficha, talla: "M" }, ultimoDelCliente: "M" };
+  assert.deepEqual(revisarConReglas("Indique su dirección exacta de entrega.", conTalla), []);
+  // Y el «Le confirmo» con todo, también.
+  const completo = { ...conTalla, ficha: { ...conTalla.ficha, direccion: "Calle 3, Los Mina, Santo Domingo Este", nombre: "Pedro Sabater" }, textosDelCliente: ["M", "Calle 3, Los Mina, Santo Domingo Este", "Pedro Sabater"], ultimoDelCliente: "Pedro Sabater" };
+  assert.deepEqual(revisarConReglas("Le confirmo: Polos Bronx Originales, talla M, a nombre de Pedro Sabater, entrega en Calle 3, Los Mina, Santo Domingo Este.\nSon RD$1,400 más RD$250 de envío, total RD$1,650, y se paga al recibir.\n¿Se lo despacho hoy mismo?", completo), []);
+});

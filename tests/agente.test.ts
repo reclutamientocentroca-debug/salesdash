@@ -74,11 +74,13 @@ function hilo(mensajes: { emisor: D.Emisor; content: string; hace: number }[]) {
 }
 
 /** Más mensajes en un hilo que ya existe, en orden. */
+// Un contador y no solo la hora: dos llamadas en el mismo milisegundo daban el mismo id y la segunda se perdía.
+let contadorAnade = 0;
 function hiloAnade(conversationId: number, mensajes: { emisor: D.Emisor; content: string; hace: number }[]) {
   for (const [i, m] of mensajes.entries()) {
     D.insertMessage(orgId, {
       conversationId,
-      whapiMessageId: `${conversationId}-mas-${Date.now()}-${i}`,
+      whapiMessageId: `${conversationId}-mas-${Date.now()}-${i}-${++contadorAnade}`,
       emisor: m.emisor,
       tipo: "texto",
       content: m.content,
