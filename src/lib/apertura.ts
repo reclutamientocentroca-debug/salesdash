@@ -83,16 +83,9 @@ export function primeraPregunta(descripcion: string, d: DatosPais): string {
   const tu = d.trato === "tu";
   if (CALZADO.test(texto)) return d.codigo === "do" ? "¿Qué talla le interesa?" : tu ? "¿Qué número calzas?" : "¿Qué número calza?";
   if (ROPA.test(texto)) return tu ? "¿Qué talla te interesa?" : "¿Qué talla le interesa?";
-  switch (d.codigo) {
-    case "do":
-      // El guion de la dueña (2026-09-05): sin talla, primero cuántas unidades.
-      return "¿Cuántas unidades desea?";
-    case "cr":
-      // El guion de la dueña: sin talla, «¿Cuántas unidades desea?».
-      return "¿Cuántas unidades desea?";
-    default:
-      return tu ? "¿A qué corregimiento te lo enviamos?" : "¿A qué corregimiento se lo enviamos?";
-  }
+  // Sin talla, a dónde se lo enviamos: la cantidad NO se pregunta nunca, se
+  // asume una unidad salvo que el cliente diga otra (la dueña, 2026-09-05).
+  return preguntaDelPaso(d, "direccion", descripcion);
 }
 
 /**
@@ -165,16 +158,15 @@ export function respuestaMinima(
   const descripcion = anuncio?.descripcion_anuncio ?? "";
   const llevaTalla = ROPA.test(descripcion) || CALZADO.test(descripcion);
 
-  // El orden de los guiones de la dueña (RD y CR, 2026-09-05): talla, cantidad
-  // si no lleva talla (RD), dirección, teléfono con el costo de envío, nombre
-  // y el cierre.
+  // El orden de los guiones de la dueña (2026-09-05): talla si la lleva,
+  // dirección, teléfono con el costo de envío, nombre y el cierre. La cantidad
+  // no es un paso: se asume una unidad salvo que el cliente diga otra.
   const paso: PasoDelPedido =
     llevaTalla && !ficha.talla ? "talla"
-      : d.codigo === "do" && !llevaTalla && !ficha.cantidad ? "cantidad"
-        : !ficha.direccion ? "direccion"
-          : (d.codigo === "cr" || d.codigo === "do") && !ficha.celular ? "celular"
-            : !ficha.nombre ? "nombre"
-              : "resumen";
+      : !ficha.direccion ? "direccion"
+        : (d.codigo === "cr" || d.codigo === "do") && !ficha.celular ? "celular"
+          : !ficha.nombre ? "nombre"
+            : "resumen";
 
   /*
    * EL CIERRE. Con todos los datos, primero se pregunta si se le factura; y
@@ -245,7 +237,7 @@ export function respuestaMinima(
   return directa ? `${directa}\n\n${pregunta}` : pregunta;
 }
 
-type PasoDelPedido = "talla" | "cantidad" | "direccion" | "nombre" | "celular" | "resumen";
+type PasoDelPedido = "talla" | "direccion" | "nombre" | "celular" | "resumen";
 
 /** La pregunta de cada paso del pedido, en el orden de venta. */
 function preguntaDelPaso(d: DatosPais, paso: PasoDelPedido, descripcion: string): string {
@@ -253,8 +245,6 @@ function preguntaDelPaso(d: DatosPais, paso: PasoDelPedido, descripcion: string)
   switch (paso) {
     case "talla":
       return primeraPregunta(descripcion, d);
-    case "cantidad":
-      return tu ? "¿Cuántas unidades quieres?" : "¿Cuántas unidades desea?";
     case "direccion":
       switch (d.codigo) {
         case "do":
@@ -463,8 +453,6 @@ function otraFormaDePreguntar(d: DatosPais, paso: PasoDelPedido, descripcion: st
         return d.codigo === "do" ? "¿Cuál talla le interesa? Van de la 39 a la 45." : tu ? "Para enviártelo necesito tu número de calzado. ¿Cuál es?" : "Para enviárselo necesito el número que calza. ¿Cuál es?";
       }
       return tu ? "Para enviártelo necesito tu talla. ¿Cuál te interesa?" : "Para enviárselo necesito su talla. ¿Cuál le interesa?";
-    case "cantidad":
-      return tu ? "¿Cuántas llevas?" : "¿Cuántas va a llevar?";
     case "direccion":
       switch (d.codigo) {
         case "do":

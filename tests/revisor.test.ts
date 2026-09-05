@@ -437,8 +437,11 @@ test("un combo no lleva talla aunque el catálogo hable de tallas, y un color qu
   assert.ok(fallas.some((f) => f.includes("empieza con «Hola! Bienvenido(a) a RINCON DCM")), "el primer mensaje no es el del documento");
 
   // El primer mensaje del documento pasa limpio.
-  const bueno = "Hola! Bienvenido(a) a RINCON DCM. Gracias por escribirnos.\n🖤 COMBO 2 EN 1 🖤\nRD$1,690\n¿Cuántas unidades desea?";
+  const bueno = "Hola! Bienvenido(a) a RINCON DCM. Gracias por escribirnos.\n🖤 COMBO 2 EN 1 🖤\nRD$1,690\nIndique su dirección exacta de entrega.";
   assert.deepEqual(revisarConReglas(bueno, combo), []);
+  // Y preguntar cuántas unidades es una falla (la dueña, 2026-09-05): se asume una.
+  const conCantidad = "Hola! Bienvenido(a) a RINCON DCM. Gracias por escribirnos.\n🖤 COMBO 2 EN 1 🖤\nRD$1,690\n¿Cuántas unidades desea?";
+  assert.ok(revisarConReglas(conCantidad, combo).some((f) => f.includes("pregunta la cantidad")));
 
   // Un color que sí está en la descripción se puede nombrar.
   const conColores = { ...rd, anuncio: "Anuncio: Camisa de lino RD$1,850, en blanco, azul y negro.", esApertura: false };
@@ -490,4 +493,21 @@ test("en RD el teléfono no se pide antes de la dirección, y un día de entrega
   assert.ok(revisarConReglas("Sí, el lunes le llega, entre 24 y 48 horas.", rd).some((f) => f.includes("día de entrega")));
   assert.ok(revisarConReglas("Le llega el lunes sin falta.", rd).some((f) => f.includes("día de entrega")));
   assert.deepEqual(revisarConReglas("Entre 24 y 48 horas.", rd), []);
+});
+
+/**
+ * LA CAPTURA DE LA DUEÑA (2026-09-05): «¿Cuántas unidades desea?» de primer
+ * mensaje a un combo. La cantidad no se pregunta nunca, en ningún país: se
+ * asume una unidad salvo que el cliente diga otra.
+ */
+test("la cantidad no se pregunta en ningún país, salvo que el cliente hable de mayoreo sin un número", () => {
+  for (const pais of [rd, cr, pa]) {
+    const ctx = { ...pais, esApertura: false, ultimoDelCliente: "Me interesa" };
+    assert.ok(revisarConReglas("¿Cuántas unidades desea?", ctx).some((f) => f.includes("pregunta la cantidad")), pais.datos.codigo);
+    assert.ok(revisarConReglas("Perfecto. ¿Cuántos va a llevar?", ctx).some((f) => f.includes("pregunta la cantidad")), pais.datos.codigo);
+    assert.ok(revisarConReglas("¿Qué cantidad necesita?", ctx).some((f) => f.includes("pregunta la cantidad")), pais.datos.codigo);
+  }
+  // Con mayoreo sin número, sí hay que saber cuántas para cotizar.
+  const mayoreo = { ...rd, esApertura: false, ultimoDelCliente: "Quiero precio al por mayor" };
+  assert.deepEqual(revisarConReglas("De 3 unidades en adelante le sale en RD$1,190 cada uno. ¿Cuántas unidades desea?", mayoreo).filter((f) => f.includes("cantidad")), []);
 });

@@ -360,6 +360,19 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
     fallas.push("dice «Le confirmo» sin tener el nombre y la dirección del cliente: la confirmación va cuando ya tienes todos los datos; ahora sigue con el dato que falta");
   }
 
+  // 8l. LA CANTIDAD NO SE PREGUNTA NUNCA (los tres países). Se asume una unidad
+  // salvo que el cliente diga otra. El caso real: «¿Cuántas unidades desea?» de
+  // primer mensaje a un combo. La única excepción: el cliente habló de mayoreo
+  // sin decir un número, y ahí sí hay que saber cuántas para cotizar.
+  {
+    const pideCantidad =
+      /[¿?][^?¿]*(cu[aá]nt[oa]s (unidades|pares|piezas|art[ií]culos|va a llevar|vas a llevar|desea|deseas|quiere|quieres|lleva|llevas|necesita|necesitas|le env[ií]o|te env[ií]o)|qu[eé] cantidad|cantidad (desea|quiere|necesita|va a llevar))[^?¿]*\?/i.test(texto);
+    const mayoreoSinNumero = CLIENTE_PIDE_MAYOREO.test(ctx.ultimoDelCliente ?? "") && !/\d/.test(ctx.ultimoDelCliente ?? "");
+    if (pideCantidad && !mayoreoSinNumero) {
+      fallas.push("pregunta la cantidad: nunca se pregunta, se asume una unidad salvo que el cliente diga otra; sigue con el paso que toca (talla si la lleva, si no la dirección)");
+    }
+  }
+
   // 8k. EL TELÉFONO VA CON EL COSTO DE ENVÍO, DESPUÉS DE LA DIRECCIÓN (RD). El
   // caso real: «¿Me facilita su número de teléfono?» sin tener la dirección.
   if (

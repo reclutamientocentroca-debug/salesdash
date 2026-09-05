@@ -14,6 +14,7 @@ import { contieneMarcador } from "../src/lib/cierre";
  */
 const rd = agenteDePais("do")!;
 const cr = agenteDePais("cr")!;
+const pa = agenteDePais("pa")!;
 const saludo = "Hola! Bienvenido(a) a RINCON DCM. Gracias por escribirnos.";
 
 test("el precio y el artículo salen tal cual de la descripción", () => {
@@ -37,7 +38,9 @@ test("la primera pregunta es la del orden de venta según el artículo", () => {
   assert.equal(primeraPregunta("camisas de lino para caballeros a RD$1,500", rd), "¿Qué talla le interesa?");
   assert.equal(primeraPregunta("ZAPATOS DCM ESTILO RD$1,990", rd), "¿Qué talla le interesa?", "en RD la talla se pide como talla, también en calzado");
   assert.equal(primeraPregunta("ZAPATOS DE CUERO ₡25.000", cr), "¿Qué número calza?");
-  assert.equal(primeraPregunta("COMBO 2 EN 1 cepillo secador + plancha RD$1,690", rd), "¿Cuántas unidades desea?");
+  assert.equal(primeraPregunta("COMBO 2 EN 1 cepillo secador + plancha RD$1,690", rd), "Indique su dirección exacta de entrega.", "sin talla, la cantidad no se pregunta: a dónde se lo enviamos");
+  assert.equal(primeraPregunta("Plancha alisadora ₡18.000", cr), "Indique su dirección exacta de entrega.");
+  assert.equal(primeraPregunta("Cepillo secador US$35", pa), "¿A qué corregimiento se lo enviamos?");
   assert.equal(primeraPregunta("Camisa de lino ₡25.000", cr), "¿Qué talla le interesa?");
 });
 
@@ -48,7 +51,8 @@ test("la apertura segura lleva saludo, artículo, precio y pregunta, y nada inve
     saludo,
   )!;
   assert.ok(texto.startsWith(`${saludo}\n🖤 Combo 2 En 1 🖤\nRD$1,690\n`), "el formato del documento: saludo, producto, precio y pregunta");
-  assert.ok(texto.endsWith("¿Cuántas unidades desea?"));
+  assert.ok(texto.endsWith("Indique su dirección exacta de entrega."), "la cantidad no se pregunta nunca");
+  assert.equal(/cu[aá]nt/i.test(texto), false);
   assert.equal(texto.includes("talla"), false, "un combo no lleva talla");
   assert.equal(texto.includes("Un momento"), false);
 
@@ -68,7 +72,7 @@ test("la respuesta mínima es la siguiente pregunta del pedido, nunca una transf
 
   assert.equal(respuestaMinima(rd, vacia, camisa), "¿Qué talla le interesa?");
   assert.equal(respuestaMinima(rd, { ...vacia, talla: "la M" }, camisa), "Indique su dirección exacta de entrega.");
-  assert.equal(respuestaMinima(rd, vacia, combo), "¿Cuántas unidades desea?", "un combo no lleva talla: primero cuántas");
+  assert.equal(respuestaMinima(rd, vacia, combo), "Indique su dirección exacta de entrega.", "un combo no lleva talla: a dónde se lo enviamos, sin preguntar cuántos");
   assert.equal(
     respuestaMinima(rd, { ...vacia, cantidad: "1", direccion: "Los Alcarrizos, calle 3" }, combo),
     "Perfecto, hasta Gran Santo Domingo el envío le sale en RD$250.\n¿Me facilita su número de teléfono para el pedido?",

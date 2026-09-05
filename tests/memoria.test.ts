@@ -287,3 +287,11 @@ test("el teléfono que el cliente dio no se vuelve a pedir, ni al día siguiente
   ], rd);
   assert.equal(conTalla.talla, null);
 });
+
+test("la ficha nunca dice que falta la cantidad: es una unidad salvo que el cliente diga otra", () => {
+  const texto = fichaParaModelo({ talla: "M", color: null, direccion: null, nombre: null, celular: null, cantidad: null });
+  assert.ok(texto.includes("- Cantidad: 1 (no se pregunta"));
+  assert.ok(!texto.includes("Cantidad: (falta)"));
+  const dos = fichaParaModelo({ talla: "M", color: null, direccion: null, nombre: null, celular: null, cantidad: "2" });
+  assert.ok(dos.includes("- Cantidad: 2"));
+});

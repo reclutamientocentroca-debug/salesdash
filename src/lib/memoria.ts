@@ -250,8 +250,11 @@ export function fichaParaModelo(f: FichaDelPedido): string {
   const sabidos = (Object.keys(ETIQUETAS) as CampoDelPedido[]).filter((k) => f[k]);
   if (!sabidos.length) return "";
 
+  // La cantidad nunca «falta»: es 1 salvo que el cliente haya dicho otra.
   const lineas = (Object.keys(ETIQUETAS) as CampoDelPedido[]).map((k) =>
-    f[k] ? `- ${ETIQUETAS[k]}: ${f[k]}` : `- ${ETIQUETAS[k]}: (falta)`,
+    f[k] ? `- ${ETIQUETAS[k]}: ${f[k]}`
+      : k === "cantidad" ? "- Cantidad: 1 (no se pregunta; solo cambia si el cliente dice que quiere más)"
+        : `- ${ETIQUETAS[k]}: (falta)`,
   );
 
   return (
@@ -270,8 +273,8 @@ export function avisoDeClienteQueVuelve(mensajes: MensajeDeMemoria[]): string {
   return (
     "\n\nESTE CLIENTE VUELVE A ESCRIBIR DESPUÉS DE UN TIEMPO: lo de arriba de la conversación es de otro día y de otro pedido. " +
     "Esta es una conversación NUEVA: salúdalo otra vez como la primera vez, con el artículo del anuncio de ahora y su precio, y empieza el pedido desde la talla. " +
-    "Lo que dijo en la conversación anterior NO lo des por hecho ni lo escribas en un pedido: no le llegó ninguna ubicación hoy, y el nombre, el celular y la dirección se vuelven a pedir en su paso. " +
-    "Lo único que puedes aprovechar es preguntarle, cuando toque la dirección, si se lo envía a la misma de la vez anterior."
+    "La talla, el color y la cantidad de la vez anterior NO valen para este pedido: se vuelven a pedir en su paso, y no le llegó ninguna ubicación hoy. " +
+    "El nombre, el celular y la dirección son de la persona y sí valen: si están en la ficha del pedido del final, úsalos tal cual y no los vuelvas a preguntar."
   );
 }
 
