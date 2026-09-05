@@ -2028,8 +2028,8 @@ test("cada pais abre con su saludo, y el prompt lo dice una sola vez", () => {
   // La regla y el ejemplo dicen LA MISMA frase, no dos parecidas.
   assert.equal(
     dominicano.split("¡Hola! Bienvenido(a) a RINCON DCM, le asiste Orlanda. Gracias por escribirnos.").length - 1,
-    2,
-    "una vez en la regla y otra en el ejemplo: ni una copia suelta más",
+    1,
+    "una sola vez, en la regla: el bloque de formato con el ejemplo se borró a petición de la dueña",
   );
 
   /*
