@@ -1096,18 +1096,25 @@ test("Costa Rica y Panamá venden con el mismo comportamiento, y República Domi
   assert.ok(!rd.includes("Reglas que no puedes romper:"), "do: y no la base de los otros dos");
   assert.equal(monedaAjena(rd, "DOP"), null, "do: no puede llevar dentro la moneda de otro país");
 
+  // Las reglas de forma de responder son las que Costa Rica ya no lleva, por
+  // orden de la dueña (2026-09-05): se apartan también, como el trato.
+  const deForma = ["- Trato de", "- Responde corto", "- ESCRIBE LIMPIO", "- UNA SOLA IDEA"];
   const reglas = (prompt: string) =>
     prompt
       .slice(prompt.indexOf("Reglas que no puedes romper:"), prompt.indexOf("CÓMO EMPIEZA UNA CONVERSACIÓN"))
       // El trato es del país: se aparta antes de comparar.
       .split("\n")
-      .filter((l) => !l.startsWith("- Trato de"))
+      .filter((l) => !deForma.some((d) => l.startsWith(d)))
       .join("\n");
 
   const moldes = ["cr", "pa"].map((p) => {
     const prompt = promptDe(p);
     assert.ok(prompt.includes("EL SALUDO VA SOLO"), `${p}: el saludo va aparte`);
-    assert.ok(prompt.includes("UNA SOLA IDEA POR MENSAJE"), `${p}: un dato por mensaje`);
+    assert.equal(
+      prompt.includes("UNA SOLA IDEA POR MENSAJE"),
+      p === "pa",
+      `${p}: un dato por mensaje solo en Panamá; Costa Rica va sin reglas de forma`,
+    );
     assert.ok(prompt.includes("LO QUE EL CLIENTE YA TE DIJO ES TUYO"), `${p}: con memoria`);
     assert.ok(prompt.includes("EL RITMO DEL CIERRE"), `${p}: y el mismo orden de cierre`);
 

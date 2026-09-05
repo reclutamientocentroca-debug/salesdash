@@ -861,6 +861,12 @@ export function armarSistema(
             lineasResumen: lineasDelResumen(datos),
             pieDelResumen: datos.pieDelResumen,
             datosParaCerrar: datos.envio.datosParaCerrar,
+            /*
+             * COSTA RICA SIN REGLAS DE FORMA DE RESPONDER, por orden de la
+             * dueña (2026-09-05): lo mismo que se le quitó al guion de RD.
+             * Panamá sigue con ellas.
+             */
+            sinReglasDeFormato: datos.codigo === "cr",
           }),
       pinDelMapa,
     ]

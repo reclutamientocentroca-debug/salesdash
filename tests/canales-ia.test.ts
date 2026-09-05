@@ -644,3 +644,38 @@ test("el agente de Costa Rica es formal, educado y habla como en Costa Rica", ()
   assert.ok(tico.includes("NO van en una venta formal"), "lo de confianza se nombra para que no se use");
   assert.match(tico, /Hola, le asiste .+ de TELLERIA/, "con el nombre que diga el panel");
 });
+
+/**
+ * COSTA RICA SIN REGLAS DE FORMA DE RESPONDER, por orden de la dueña
+ * (2026-09-05): lo mismo que se le quitó al guion de República Dominicana. Ni
+ * «responde corto», ni la línea en blanco obligatoria, ni «una sola idea por
+ * mensaje», ni la forma exacta de la primera respuesta. Lo que no es forma se
+ * queda: el saludo tal cual y solo la primera vez, el trato de usted y el
+ * orden de cierre. Y Panamá no se entera: sigue con las reglas.
+ */
+test("Costa Rica va sin reglas de forma de responder, y Panamá sigue con ellas", () => {
+  const tico = armarSistema("Tienda", D.obtenerAgente(orgId, cr), [], null);
+  const panameno = armarSistema("Tienda", D.obtenerAgente(orgId, pa), [], null);
+
+  for (const regla of [
+    "Responde corto",
+    "ESCRIBE LIMPIO Y CON AIRE",
+    "UNA SOLA IDEA POR MENSAJE",
+    "Debajo dejas una LÍNEA EN BLANCO",
+    "Tu primera respuesta tiene EXACTAMENTE esta forma",
+    "excepción a lo de escribir corto",
+  ]) {
+    assert.ok(!tico.includes(regla), `cr: sin «${regla}»`);
+    assert.ok(panameno.includes(regla), `pa: sigue con «${regla}»`);
+  }
+
+  // Lo que se queda, en los dos.
+  for (const regla of ["EL SALUDO VA SOLO", "TAL CUAL está escrito aquí", "Solo la primera vez", "Trato de USTED", "EL RITMO DEL CIERRE", "TEXTO PLANO"]) {
+    assert.ok(tico.includes(regla), `cr: conserva «${regla}»`);
+    assert.ok(panameno.includes(regla), `pa: conserva «${regla}»`);
+  }
+
+  // El saludo sale una sola vez en el prompt tico: en la regla, ya sin el ejemplo.
+  const saludo = tico.match(/Hola, le asiste .+ de TELLERIA/g) ?? [];
+  assert.equal(saludo.length, 1, "una vez en la regla y ninguna copia suelta más");
+});
