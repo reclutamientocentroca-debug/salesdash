@@ -63,7 +63,16 @@ function aSegundos(ms: unknown): number {
  * somos nosotros. En Meta los dos lados vienen como `sender`/`recipient` y el
  * único modo de distinguirlos es comparar con el nuestro.
  */
-export function normalizarEvento(cuerpo: unknown, destinoId: string): MensajeMeta[] {
+export function normalizarEvento(
+  cuerpo: unknown,
+  destinoId: string,
+  /**
+   * Por qué se descartó lo que se descartó, para el registro de eventos. Un
+   * comentario que no entra y no dice por qué se ve igual que «Meta no manda
+   * comentarios», y eso es lo que había que dejar de adivinar.
+   */
+  descartes: string[] = [],
+): MensajeMeta[] {
   const evento = objeto(cuerpo) as EventoMeta;
   const salida: MensajeMeta[] = [];
   const esInstagram = evento.object === "instagram";
@@ -78,7 +87,7 @@ export function normalizarEvento(cuerpo: unknown, destinoId: string): MensajeMet
     // ── Comentarios en publicaciones y anuncios ───────────────────────────
     for (const cambio of entrada.changes ?? []) {
       if (cambio.field !== "feed" && cambio.field !== "comments") continue;
-      const c = normalizarComentario(cambio.value, destinoId, esInstagram);
+      const c = normalizarComentario(cambio.value, destinoId, esInstagram, descartes);
       if (c) salida.push(c);
     }
   }
@@ -237,41 +246,80 @@ function normalizarComentario(
   valor: unknown,
   destinoId: string,
   esInstagram: boolean,
+  descartes: string[] = [],
 ): MensajeMeta | null {
   const v = objeto(valor);
-  if (texto(v.item) !== "comment") return null;
 
-  // `add` es un comentario nuevo. Editados y borrados no abren conversación.
-  if (texto(v.verb) && texto(v.verb) !== "add") return null;
+  /*
+   * DOS FORMAS PARA LA MISMA COSA. Facebook manda el comentario en el campo
+   * `feed` con `item: "comment"`, `comment_id` y `message`. Instagram lo
+   * manda en el campo `comments` con `id`, `text` y `media`, sin `item` ni
+   * `verb`. Hasta el 2026-09-05 solo se entendía la primera, y los
+   * comentarios de Instagram entraban y se tiraban sin decir nada.
+   */
+  const deInstagram = esInstagram || (!texto(v.item) && !!texto(v.text) && !!texto(v.id));
+
+  if (!deInstagram) {
+    const item = texto(v.item);
+    if (item !== "comment") {
+      descartes.push(`feed: ${item || "sin item"} (no es un comentario, no abre conversación)`);
+      return null;
+    }
+    // `add` es un comentario nuevo. Editados y borrados no abren conversación.
+    if (texto(v.verb) && texto(v.verb) !== "add") {
+      descartes.push(`comentario ${texto(v.verb) === "remove" ? "borrado" : "editado"}: no abre conversación`);
+      return null;
+    }
+  }
 
   const de = objeto(v.from);
   const autorId = texto(de.id);
-  const comentarioId = texto(v.comment_id);
-  const contenido = texto(v.message);
+  const comentarioId = deInstagram ? texto(v.id) || texto(v.comment_id) : texto(v.comment_id);
+  const contenido = deInstagram ? texto(v.text) || texto(v.message) : texto(v.message);
 
-  if (!autorId || !comentarioId || !contenido) return null;
+  if (!comentarioId) {
+    descartes.push("comentario sin identificador: no se puede guardar ni contestar");
+    return null;
+  }
+  if (!contenido) {
+    descartes.push("comentario sin texto (una foto, un sticker o una mención): no abre conversación");
+    return null;
+  }
 
   // Nuestras propias respuestas a un comentario vuelven por el webhook.
-  const esNuestro = autorId === destinoId;
+  const esNuestro = !!autorId && autorId === destinoId;
+
+  /*
+   * SIN AUTOR, ENTRA IGUAL. Meta omite `from` cuando la app no tiene el
+   * permiso de leer quién comenta (`pages_read_engagement` con acceso
+   * avanzado) o cuando quien comenta no ha autorizado la app. Antes eso
+   * tiraba el comentario en silencio. Contestar no necesita al autor —la
+   * respuesta cuelga del comentario—, así que el hilo se abre a nombre del
+   * propio comentario. Lo que no se sabe se dice: el nombre lo cuenta.
+   */
+  const sinAutor = !autorId;
+  const chatId = sinAutor ? comentarioId : autorId;
+  const nombre = texto(de.name) || texto(de.username) || (sinAutor ? "Comentario sin autor visible" : null);
+  if (sinAutor) descartes.push("comentario sin autor (Meta no mandó «from»): se guardó a nombre del propio comentario");
 
   return {
     id: comentarioId,
     deMi: esNuestro,
-    chatId: autorId,
+    chatId,
     tipo: "texto",
     content: contenido,
     mediaUrl: null,
     cuando: aSegundos(v.created_time ? Number(v.created_time) * 1000 : Date.now()),
-    nombre: texto(de.name) || null,
+    nombre,
     // Un comentario bajo un anuncio ES un lead de anuncio: el `post_id` lo
     // ata a la publicación, y de ahí sale el anuncio si está vinculado.
-    deAnuncio: !!texto(v.post_id),
+    deAnuncio: !!texto(v.post_id) || !!texto(objeto(v.media).id),
     productoAnuncio: null,
     descripcionAnuncio: null,
     // Un comentario no trae creatividad, pero sí la publicación bajo la que
     // se escribió: es de lo que está hablando quien comenta.
     imagenAnuncioUrl: null,
-    postAnuncioId: texto(v.post_id) || null,
+    postAnuncioId: texto(v.post_id) || texto(objeto(v.media).id) || null,
     superficie: "comentario",
     red: esInstagram ? "instagram" : "facebook",
     metaAdId: texto(v.ad_id) || null,

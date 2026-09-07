@@ -115,7 +115,8 @@ export async function POST(req: Request) {
     }
 
     atendido = true;
-    const mensajes = normalizarEvento(cuerpo, destino);
+    const descartes: string[] = [];
+    const mensajes = normalizarEvento(cuerpo, destino, descartes);
 
     /*
      * EL ANUNCIO SE APUNTA EN CUANTO SE VE, pase lo que pase después.
@@ -154,7 +155,13 @@ export async function POST(req: Request) {
     registrarEventoMeta({
       orgId: canal.org_id, canalId: canal.id, objeto, pageId: destino,
       firmaOk: true, procesado: detalle === null, mensajes: procesados,
-      detalle: detalle ?? (mensajes.length === 0 ? "El evento no traía mensajes que guardar" : null),
+      detalle:
+        detalle ??
+        (descartes.length > 0
+          ? descartes.join(" · ")
+          : mensajes.length === 0
+            ? "El evento no traía mensajes que guardar"
+            : null),
       cuerpo: crudo,
     });
   }

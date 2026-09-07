@@ -1416,3 +1416,81 @@ test("los permisos que no se pueden leer no se inventan", async () => {
     restaurar();
   }
 });
+
+/**
+ * «EL COMENTARIO EN MESSENGER, ¿POR QUÉ NO LO RECIBO?» (la dueña, 2026-09-05).
+ * Tres formas de perderlo en silencio, y ninguna se pierde ya: el comentario
+ * de Instagram tiene otra forma, el que viene sin autor entra igual, y lo que
+ * sí se descarta dice por qué.
+ */
+test("un comentario de Instagram entra aunque tenga otra forma que el de Facebook", () => {
+  const evento = {
+    object: "instagram",
+    entry: [
+      {
+        id: IG,
+        changes: [
+          {
+            field: "comments",
+            value: {
+              id: "17890000000000001",
+              text: "¿Tienen en talla M?",
+              from: { id: "6543210", username: "maria.perez" },
+              media: { id: "17990000000000002", media_product_type: "FEED" },
+            },
+          },
+        ],
+      },
+    ],
+  };
+  const descartes: string[] = [];
+  const [m] = normalizarEvento(evento, IG, descartes);
+  assert.ok(m, "el comentario de Instagram entra");
+  assert.equal(m.superficie, "comentario");
+  assert.equal(m.red, "instagram");
+  assert.equal(m.id, "17890000000000001");
+  assert.equal(m.comentarioId, "17890000000000001");
+  assert.equal(m.chatId, "6543210");
+  assert.equal(m.nombre, "maria.perez");
+  assert.equal(m.content, "¿Tienen en talla M?");
+  assert.equal(m.deAnuncio, true);
+  assert.deepEqual(descartes, []);
+});
+
+test("un comentario sin autor entra a nombre del propio comentario, y se dice", () => {
+  const evento = {
+    object: "page",
+    entry: [
+      {
+        id: PAGINA,
+        changes: [
+          {
+            field: "feed",
+            value: { item: "comment", verb: "add", comment_id: "p_1_c_77", post_id: "p_1", message: "Precio?" },
+          },
+        ],
+      },
+    ],
+  };
+  const descartes: string[] = [];
+  const [m] = normalizarEvento(evento, PAGINA, descartes);
+  assert.ok(m, "sin «from» el comentario entra igual: contestar no necesita al autor");
+  assert.equal(m.chatId, "p_1_c_77");
+  assert.equal(m.comentarioId, "p_1_c_77");
+  assert.equal(m.deMi, false);
+  assert.equal(m.nombre, "Comentario sin autor visible");
+  assert.ok(descartes.some((d) => d.includes("sin autor")));
+});
+
+test("lo que se descarta del feed dice por qué", () => {
+  const cambio = (value: Record<string, unknown>) => ({ object: "page", entry: [{ id: PAGINA, changes: [{ field: "feed", value }] }] });
+  const d1: string[] = [];
+  assert.equal(normalizarEvento(cambio({ item: "reaction", verb: "add", post_id: "p_1" }), PAGINA, d1).length, 0);
+  assert.ok(d1[0]?.includes("no es un comentario"));
+  const d2: string[] = [];
+  assert.equal(normalizarEvento(cambio({ item: "comment", verb: "remove", comment_id: "c_1", post_id: "p_1", from: { id: CLIENTE }, message: "x" }), PAGINA, d2).length, 0);
+  assert.ok(d2[0]?.includes("borrado"));
+  const d3: string[] = [];
+  assert.equal(normalizarEvento(cambio({ item: "comment", verb: "add", comment_id: "c_2", post_id: "p_1", from: { id: CLIENTE } }), PAGINA, d3).length, 0);
+  assert.ok(d3[0]?.includes("sin texto"));
+});
