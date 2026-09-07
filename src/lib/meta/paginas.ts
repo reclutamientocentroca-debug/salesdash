@@ -33,6 +33,20 @@ export const CAMPOS_SUSCRIPCION = [
 ] as const;
 
 /**
+ * Los eventos a los que se suscribe la cuenta de Instagram.
+ *
+ * Es una suscripción APARTE de la de la página: aunque los DM y los
+ * comentarios de Instagram lleguen al mismo webhook, Meta no los manda solo
+ * por estar la cuenta enlazada — hay que darla de alta igual que la página, y
+ * con sus propios nombres de campo (`comments`, no `feed`).
+ */
+export const CAMPOS_SUSCRIPCION_INSTAGRAM = [
+  "messages",
+  "messaging_postbacks",
+  "comments",
+] as const;
+
+/**
  * SUSCRIBIR LA PÁGINA NO ES OPCIONAL.
  *
  * Dar de alta el webhook en la app de Meta no basta: cada página tiene que
@@ -100,6 +114,20 @@ export async function suscribirPagina(canal: Canal): Promise<void> {
   });
 }
 
+/**
+ * Suscribe la cuenta de Instagram enlazada, si la página tiene una.
+ *
+ * Se llama con el mismo token de la página: una cuenta de Instagram
+ * profesional enlazada se administra con el token de la página que la
+ * enlaza, no con uno propio.
+ */
+export async function suscribirInstagram(canal: Canal): Promise<void> {
+  if (!canal.meta_ig_id) return;
+  await postGraph(canal, `${canal.meta_ig_id}/subscribed_apps`, {
+    subscribed_fields: CAMPOS_SUSCRIPCION_INSTAGRAM.join(","),
+  });
+}
+
 /** Lo que Meta contesta cuando se le pregunta por una página conectada. */
 export interface RevisionPagina {
   /**
@@ -131,6 +159,24 @@ export interface RevisionPagina {
   permisosFaltan: string[];
   /** Lo que dijo Meta cuando algo falló, con SU texto. */
   error: string | null;
+  /**
+   * Cómo está la suscripción de Instagram, o `null` si esta página no tiene
+   * ninguna cuenta enlazada. Se comprueba con el MISMO botón de «Comprobar»
+   * de la página: Instagram no se conecta por su cuenta, así que tampoco debía
+   * hacer falta un botón aparte para repararlo.
+   */
+  instagram: RevisionInstagram | null;
+}
+
+export interface RevisionInstagram {
+  /** Nuestra app está en la lista de suscritas a esta cuenta de Instagram. */
+  suscrita: boolean;
+  /** De los campos que hace falta, los que no están. */
+  faltan: string[];
+  /** Se intentó suscribir durante esta revisión y Meta aceptó. */
+  reparada: boolean;
+  /** Lo que dijo Meta cuando algo falló, con SU texto. */
+  error: string | null;
 }
 
 /**
@@ -148,9 +194,27 @@ export interface RevisionPagina {
  * «tu página no está suscrita» sin repararlo es dejarlo igual de parado.
  *
  * No le escribe a ningún cliente, así que vive aquí y no en `send.ts`.
+ *
+ * Aquí también se cuela Instagram: páginas conectadas ANTES de que existiera
+ * esa suscripción se quedaron con la cuenta enlazada pero sin darla de alta en
+ * Meta, y sin este empalme la única forma de arreglarlas sería desconectar y
+ * volver a conectar la página entera.
  */
 export async function revisarPagina(canal: Canal): Promise<RevisionPagina> {
-  const vacio: RevisionPagina = {
+  const pagina = await revisarSuscripcionPagina(canal);
+
+  // Solo tiene sentido preguntar por Instagram con un acceso que ya se sabe
+  // válido: sin eso, la pregunta fallaría con el mismo error que la de arriba
+  // y solo repetiría el mismo diagnóstico dos veces.
+  const instagram = pagina.tokenVale && canal.meta_ig_id
+    ? await revisarSuscripcionInstagram(canal)
+    : null;
+
+  return { ...pagina, instagram };
+}
+
+async function revisarSuscripcionPagina(canal: Canal): Promise<Omit<RevisionPagina, "instagram">> {
+  const vacio: Omit<RevisionPagina, "instagram"> = {
     tokenLegible: true, tokenVale: false, suscrita: false, campos: [],
     faltan: [...CAMPOS_SUSCRIPCION], reparada: false,
     permisos: null, permisosFaltan: [], error: null,
@@ -262,6 +326,85 @@ export async function revisarPagina(canal: Canal): Promise<RevisionPagina> {
     reparada: true,
     permisos,
     permisosFaltan,
+    error: null,
+  };
+}
+
+/**
+ * LA MISMA PREGUNTA, PARA LA CUENTA DE INSTAGRAM ENLAZADA.
+ *
+ * Con el token de la página: una cuenta de Instagram profesional enlazada se
+ * administra con el acceso de la página que la enlaza, no con uno propio.
+ */
+async function revisarSuscripcionInstagram(canal: Canal): Promise<RevisionInstagram> {
+  const igId = canal.meta_ig_id!;
+
+  let token: string;
+  try {
+    token = descifrar(canal.token_cifrado);
+  } catch {
+    return {
+      suscrita: false,
+      faltan: [...CAMPOS_SUSCRIPCION_INSTAGRAM],
+      reparada: false,
+      error: "El acceso guardado no se puede descifrar.",
+    };
+  }
+
+  const leerSuscripcion = async (): Promise<string[]> => {
+    const datos = await getGraph(`${igId}/subscribed_apps`, "subscribed_fields", token);
+    const lista = Array.isArray(datos.data) ? datos.data : [];
+
+    const campos = new Set<string>();
+    for (const bruto of lista) {
+      const app = (bruto ?? {}) as { subscribed_fields?: unknown };
+      for (const c of Array.isArray(app.subscribed_fields) ? app.subscribed_fields : []) {
+        if (typeof c === "string") campos.add(c);
+      }
+    }
+    return [...campos];
+  };
+
+  let campos: string[];
+  try {
+    campos = await leerSuscripcion();
+  } catch (e) {
+    return {
+      suscrita: false,
+      faltan: [...CAMPOS_SUSCRIPCION_INSTAGRAM],
+      reparada: false,
+      error: e instanceof Error ? e.message : "Meta no dijo si Instagram está suscrito.",
+    };
+  }
+
+  const faltan = CAMPOS_SUSCRIPCION_INSTAGRAM.filter((c) => !campos.includes(c));
+  if (faltan.length === 0) {
+    return { suscrita: true, faltan: [], reparada: false, error: null };
+  }
+
+  // Falta algo: se suscribe y se vuelve a preguntar, igual que con la página.
+  try {
+    await suscribirInstagram(canal);
+  } catch (e) {
+    return {
+      suscrita: campos.length > 0,
+      faltan,
+      reparada: false,
+      error: e instanceof Error ? e.message : "Meta no aceptó suscribir Instagram.",
+    };
+  }
+
+  let despues: string[];
+  try {
+    despues = await leerSuscripcion();
+  } catch {
+    despues = [...CAMPOS_SUSCRIPCION_INSTAGRAM];
+  }
+
+  return {
+    suscrita: despues.length > 0,
+    faltan: CAMPOS_SUSCRIPCION_INSTAGRAM.filter((c) => !despues.includes(c)),
+    reparada: true,
     error: null,
   };
 }

@@ -16,6 +16,11 @@ export type Superficie = "messenger" | "instagram" | "comentario";
 
 export interface MensajeMeta extends MensajeEntrante {
   superficie: Superficie;
+  /**
+   * De qué app vino: 'facebook' o 'instagram'. No es lo mismo que `superficie`
+   * —un comentario puede ser de cualquiera de las dos— y por eso viaja aparte.
+   */
+  red: "facebook" | "instagram";
   /** El anuncio que trajo al cliente, si el referral venía en este evento. */
   metaAdId: string | null;
   /** Solo en los comentarios: a qué comentario hay que contestar. */
@@ -215,6 +220,7 @@ function normalizarMensaje(
      */
     postAnuncioId: texto(contextoAnuncio.post_id) || null,
     superficie: esInstagram ? "instagram" : "messenger",
+    red: esInstagram ? "instagram" : "facebook",
     metaAdId: adId,
     comentarioId: null,
   };
@@ -267,6 +273,7 @@ function normalizarComentario(
     imagenAnuncioUrl: null,
     postAnuncioId: texto(v.post_id) || null,
     superficie: "comentario",
+    red: esInstagram ? "instagram" : "facebook",
     metaAdId: texto(v.ad_id) || null,
     comentarioId,
   };

@@ -109,6 +109,7 @@ test("un mensaje entrante sale con su id, su cliente y en segundos", () => {
   assert.equal(m.chatId, CLIENTE);
   assert.equal(m.content, "hola, ¿cuánto cuesta?");
   assert.equal(m.superficie, "messenger");
+  assert.equal(m.red, "facebook");
 
   // Meta manda milisegundos y la base guarda segundos. Sin dividir, el hilo se
   // archivaría en el año 57000 y no aparecería en ningún rango del panel.
@@ -262,6 +263,7 @@ test("un mensaje directo de Instagram se distingue del de Messenger", () => {
 
   assert.ok(m);
   assert.equal(m.superficie, "instagram");
+  assert.equal(m.red, "instagram");
 });
 
 test("un comentario entra como conversación, con su id para responderlo", () => {
@@ -296,6 +298,43 @@ test("un comentario entra como conversación, con su id para responderlo", () =>
   assert.equal(m.comentarioId, "c_998877");
   assert.equal(m.nombre, "María Pérez");
   assert.equal(m.deAnuncio, true, "un comentario bajo una publicación es un lead");
+  assert.equal(m.red, "facebook");
+});
+
+/**
+ * Un comentario de Instagram sigue siendo «comentario» en `superficie` —así
+ * decide el agente si contesta en público o por privado—, pero tiene que
+ * quedar marcado como de Instagram en `red`: es lo único que permite a la
+ * bandeja de Instagram separarlo de un comentario de Facebook.
+ */
+test("un comentario de Instagram se marca con su propia red", () => {
+  const evento = {
+    object: "instagram",
+    entry: [
+      {
+        id: IG,
+        changes: [
+          {
+            field: "comments",
+            value: {
+              item: "comment",
+              verb: "add",
+              comment_id: "c_ig_1",
+              post_id: "p_ig_1",
+              from: { id: CLIENTE, name: "María Pérez" },
+              message: "¿tienen talla M?",
+            },
+          },
+        ],
+      },
+    ],
+  };
+
+  const [m] = normalizarEvento(evento, IG);
+
+  assert.ok(m);
+  assert.equal(m.superficie, "comentario");
+  assert.equal(m.red, "instagram");
 });
 
 test("los comentarios editados y borrados no abren conversación", () => {
@@ -345,7 +384,7 @@ test("el destino sale de la página y también de la cuenta de Instagram", () =>
 // La regla del precio y el aislamiento
 // ─────────────────────────────────────────────────────────────────────────────
 
-function cuentaConPagina(nombre: string) {
+function cuentaConPagina(nombre: string, igUserId: string | null = null) {
   const { orgId } = D.crearOrgConDueno({
     negocio: nombre,
     color: "#12876a",
@@ -359,7 +398,7 @@ function cuentaConPagina(nombre: string) {
     nombre: `Página de ${nombre}`,
     tokenCifrado: cifrar("EAAG-token-de-prueba"),
     webhookSecret: secretoAleatorio(),
-    igUserId: null,
+    igUserId,
   });
 
   return { orgId, canalId };
@@ -781,6 +820,101 @@ test("una página sin suscribir se repara durante la revisión", async () => {
     assert.equal(r.suscrita, true);
     assert.deepEqual(r.faltan, [], "y se comprueba DESPUÉS de reparar, no se da por hecho");
     assert.equal(r.error, null);
+  } finally {
+    graph.restaurar();
+  }
+});
+
+/**
+ * UNA PÁGINA CONECTADA ANTES DE QUE EXISTIERA LA SUSCRIPCIÓN DE INSTAGRAM.
+ *
+ * Tiene Instagram enlazado —`meta_ig_id`— pero nunca se dio de alta esa cuenta
+ * ante Meta, porque esa suscripción no existía cuando se conectó. El mismo
+ * botón «Comprobar» tiene que arreglarlo, sin pedir desconectar la página.
+ */
+test("una página con Instagram sin suscribir se repara con el mismo botón", async () => {
+  const { revisarPagina } = await import("../src/lib/meta/paginas");
+  const IG_ID = "ig_de_prueba_123";
+  const { orgId, canalId } = cuentaConPagina("ConInstagram", IG_ID);
+  const canal = D.obtenerCanal(orgId, canalId)!;
+
+  let paginaSuscrita = true; // Messenger ya funciona.
+  let igSuscrita = false; // Instagram, no.
+
+  const graph = fingirGraph((url, metodo) => {
+    if (url.includes(`${IG_ID}/subscribed_apps`)) {
+      if (metodo === "POST") {
+        igSuscrita = true;
+        return { ok: true, datos: { success: true } };
+      }
+      return {
+        ok: true,
+        datos: igSuscrita
+          ? { data: [{ subscribed_fields: ["messages", "messaging_postbacks", "comments"] }] }
+          : { data: [] },
+      };
+    }
+    if (url.includes("/subscribed_apps")) {
+      return {
+        ok: true,
+        datos: paginaSuscrita
+          ? {
+              data: [
+                {
+                  subscribed_fields: [
+                    "messages", "messaging_postbacks", "message_echoes",
+                    "messaging_referrals", "feed",
+                  ],
+                },
+              ],
+            }
+          : { data: [] },
+      };
+    }
+    return { ok: true, datos: { name: "Página de prueba" } };
+  });
+
+  try {
+    const r = await revisarPagina(canal);
+
+    assert.equal(r.suscrita, true, "Messenger ya estaba bien y no se toca");
+    assert.equal(r.reparada, false);
+    assert.ok(r.instagram, "una página con meta_ig_id trae su diagnóstico de Instagram");
+    assert.equal(r.instagram!.suscrita, true, "se reparó en el acto");
+    assert.equal(r.instagram!.reparada, true);
+    assert.deepEqual(r.instagram!.faltan, []);
+  } finally {
+    graph.restaurar();
+  }
+});
+
+test("una página sin Instagram enlazado no trae diagnóstico de Instagram", async () => {
+  const { revisarPagina } = await import("../src/lib/meta/paginas");
+  const { orgId, canalId } = cuentaConPagina("SinInstagram");
+  const canal = D.obtenerCanal(orgId, canalId)!;
+
+  const graph = fingirGraph((url) => {
+    if (url.includes("/subscribed_apps")) {
+      return {
+        ok: true,
+        datos: {
+          data: [
+            {
+              subscribed_fields: [
+                "messages", "messaging_postbacks", "message_echoes",
+                "messaging_referrals", "feed",
+              ],
+            },
+          ],
+        },
+      };
+    }
+    return { ok: true, datos: { name: "Página de prueba" } };
+  });
+
+  try {
+    const r = await revisarPagina(canal);
+    assert.equal(r.instagram, null, "sin cuenta enlazada, no hay nada que preguntarle a Meta");
   } finally {
     graph.restaurar();
   }

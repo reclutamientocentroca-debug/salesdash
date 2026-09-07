@@ -8,7 +8,7 @@
  */
 import { cifrar, secretoAleatorio } from "@/lib/auth";
 import { contarPaginasMeta, crearPaginaMeta, obtenerCanal } from "@/lib/db";
-import { datosDePagina, suscribirPagina } from "./paginas";
+import { datosDePagina, suscribirInstagram, suscribirPagina } from "./paginas";
 
 /** Mismo tope que los números: el panel se diseñó para veinte canales. */
 export const MAX_PAGINAS = 20;
@@ -88,6 +88,32 @@ export async function conectarPagina(
         `${e instanceof Error ? e.message : "error desconocido"}. ` +
         `Revisa que el acceso incluya pages_messaging y pages_manage_metadata.`,
     };
+  }
+
+  /*
+   * SI LA PÁGINA TIENE INSTAGRAM, SE SUSCRIBE APARTE.
+   *
+   * No es opcional por las mismas razones que la página: sin esto, la cuenta
+   * de Instagram queda enlazada en el panel y no llega ni un directo ni un
+   * comentario. Si falla, no se deshace la conexión de la página —Messenger ya
+   * quedó funcionando— pero se avisa, porque es el mismo problema que «lo
+   * conecté y no llega nada», solo que en Instagram.
+   */
+  if (canal && igUserId) {
+    try {
+      await suscribirInstagram(canal);
+    } catch (e) {
+      return {
+        ok: true,
+        id: canalId,
+        nombre,
+        igUserId,
+        aviso:
+          `La página se conectó, pero Meta no aceptó suscribir su cuenta de Instagram: ` +
+          `${e instanceof Error ? e.message : "error desconocido"}. ` +
+          `Revisa que el acceso incluya instagram_manage_messages e instagram_manage_comments.`,
+      };
+    }
   }
 
   return { ok: true, id: canalId, nombre, igUserId };

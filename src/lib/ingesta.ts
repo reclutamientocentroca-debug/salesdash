@@ -86,6 +86,12 @@ export interface MensajeEntrante {
    */
   superficie?: string | null;
   /**
+   * De qué app de Meta vino: 'facebook' o 'instagram'. Nulo en WhatsApp.
+   * No es lo mismo que `superficie`: un comentario puede ser de cualquiera
+   * de las dos apps, y `superficie` para un comentario vale igual en ambas.
+   */
+  red?: string | null;
+  /**
    * El anuncio de Meta que trajo al cliente.
    *
    * Llega SOLO en el primer evento del hilo. Se guarda en la conversación en
@@ -239,6 +245,7 @@ export async function ingerir(
         cuando: m.cuando,
         origen: m.deAnuncio ? "anuncio" : null,
         superficie: m.superficie ?? null,
+        red: m.red ?? null,
         metaAdId: m.metaAdId ?? null,
         productoAnuncio: m.productoAnuncio,
         descripcionAnuncio: m.descripcionAnuncio,

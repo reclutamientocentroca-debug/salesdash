@@ -709,6 +709,20 @@ function migrar(conexion: DB): void {
   }
 
   /*
+   * conversations: por qué RED entró, 'facebook' u 'instagram'.
+   *
+   * No es lo mismo que `superficie`: esa dice si se contesta por privado o
+   * colgado del comentario. Esta dice de qué app vino, y hace falta aparte
+   * porque un comentario no dice a qué red pertenece —`superficie` vale
+   * "comentario" tanto si es de un post de Facebook como de Instagram— y sin
+   * esta columna la bandeja de Instagram no podría separar sus propios
+   * comentarios de los de Facebook.
+   */
+  if (!columnas("conversations").includes("red")) {
+    conexion.exec(`ALTER TABLE conversations ADD COLUMN red TEXT`);
+  }
+
+  /*
    * conversations: la dirección exacta a la que se le contesta al cliente.
    *
    * Queda NULA en los hilos que ya existen y se rellena sola con el siguiente
@@ -1301,6 +1315,8 @@ export interface Conversacion {
   superficie: string | null;
   /** El anuncio de Meta que lo trajo. Se guarda del primer evento y no cambia. */
   meta_ad_id: string | null;
+  /** De qué app de Meta vino: 'facebook' o 'instagram'. Nulo fuera de Meta. */
+  red: string | null;
 }
 
 export interface Mensaje {
@@ -1621,7 +1637,7 @@ export function getOrCreateConversation(
   datos: {
     nombre?: string | null; origen?: string | null;
     productoAnuncio?: string | null; descripcionAnuncio?: string | null; cuando?: number;
-    superficie?: string | null; metaAdId?: string | null;
+    superficie?: string | null; metaAdId?: string | null; red?: string | null;
     /** La dirección exacta a la que se le contesta. Ver `cliente_jid`. */
     jid?: string | null;
   } = {},
@@ -1665,6 +1681,8 @@ export function getOrCreateConversation(
     // La superficie tampoco se pisa: un hilo que empezó como comentario y
     // siguió por privado se cuenta por donde llegó el cliente la primera vez.
     if (datos.superficie && !existente.superficie) anuncio.superficie = datos.superficie;
+    // La red tampoco se pisa, por la misma razón que la superficie.
+    if (datos.red && !existente.red) anuncio.red = datos.red;
     if (datos.metaAdId && !existente.meta_ad_id) anuncio.meta_ad_id = datos.metaAdId;
     if (datos.productoAnuncio && !existente.producto_anuncio) {
       anuncio.producto_anuncio = datos.productoAnuncio;
@@ -1694,13 +1712,13 @@ export function getOrCreateConversation(
   const r = s(
     `INSERT INTO conversations
        (org_id, canal_id, cliente_phone, cliente_jid, cliente_nombre, origen, producto_anuncio, descripcion_anuncio,
-        anuncio_actual_producto, anuncio_actual_descripcion, superficie, meta_ad_id, fecha_inicio, last_message_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        anuncio_actual_producto, anuncio_actual_descripcion, superficie, meta_ad_id, red, fecha_inicio, last_message_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     orgId, canalId, clientePhone, datos.jid ?? null, datos.nombre ?? null,
     datos.origen ?? null, datos.productoAnuncio ?? null, datos.descripcionAnuncio ?? null,
     datos.productoAnuncio ?? null, datos.descripcionAnuncio ?? null,
-    datos.superficie ?? null, datos.metaAdId ?? null, cuando, cuando,
+    datos.superficie ?? null, datos.metaAdId ?? null, datos.red ?? null, cuando, cuando,
   );
 
   return {
@@ -1866,6 +1884,7 @@ export function unificarConversacion(
          cliente_jid = COALESCE(cliente_jid, ?),
          origen = COALESCE(origen, ?),
          superficie = COALESCE(superficie, ?),
+         red = COALESCE(red, ?),
          meta_ad_id = COALESCE(meta_ad_id, ?),
          producto_anuncio = COALESCE(producto_anuncio, ?),
          descripcion_anuncio = COALESCE(descripcion_anuncio, ?),
@@ -1885,6 +1904,7 @@ export function unificarConversacion(
       origen.cliente_jid,
       origen.origen,
       origen.superficie,
+      origen.red,
       origen.meta_ad_id,
       origen.producto_anuncio,
       origen.descripcion_anuncio,
@@ -3642,7 +3662,7 @@ export interface FilaBandejaMeta extends FilaBandeja {
  */
 export function bandejaMeta(
   orgId: number,
-  filtros: { canalId?: number; limite?: number } = {},
+  filtros: { canalId?: number; limite?: number; red?: "facebook" | "instagram" } = {},
 ): FilaBandejaMeta[] {
   const cond = ["c.org_id = ?", "ca.tipo = 'meta'"];
   const val: unknown[] = [orgId];
@@ -3650,6 +3670,20 @@ export function bandejaMeta(
   if (filtros.canalId !== undefined) {
     cond.push("c.canal_id = ?");
     val.push(filtros.canalId);
+  }
+
+  /*
+   * Las conversaciones de antes de que existiera esta columna no tienen `red`.
+   * Se les asigna una por su `superficie`, que sí tenían: las de Instagram se
+   * quedan en Instagram, todo lo demás —Messenger y comentarios viejos, que no
+   * decían de qué red venían— se queda en Facebook, que es donde ya se veían.
+   * Sin este respaldo, un hilo viejo desaparecería de las dos bandejas.
+   */
+  if (filtros.red) {
+    cond.push(
+      "COALESCE(c.red, CASE WHEN c.superficie = 'instagram' THEN 'instagram' ELSE 'facebook' END) = ?",
+    );
+    val.push(filtros.red);
   }
 
   val.push(Math.min(filtros.limite ?? 120, 400));

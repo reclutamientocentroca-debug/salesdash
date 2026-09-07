@@ -140,19 +140,46 @@ export async function POST(_req: NextRequest, { params }: Ctx) {
   }
 
   /*
+   * INSTAGRAM, SI ESTA PÁGINA LO TIENE ENLAZADO.
+   *
+   * Va después de los permisos de la página y antes de mirar si ya llegó
+   * algo: Messenger puede estar perfecto y su Instagram, no —es justo el caso
+   * de una página que se conectó antes de que existiera esta suscripción—, y
+   * este es el mismo botón con el que se repara, sin desconectar nada.
+   */
+  if (r.instagram && r.instagram.faltan.length > 0) {
+    return NextResponse.json({
+      ok: true,
+      reparada: r.reparada || r.instagram.reparada,
+      titulo: r.instagram.reparada
+        ? "Arreglado: tu cuenta de Instagram no estaba suscrita y ya lo está."
+        : "Messenger funciona, pero tu cuenta de Instagram no está recibiendo nada.",
+      detalle: r.instagram.reparada
+        ? null
+        : frase(r.instagram.error ?? "Facebook no dejó completar la suscripción de Instagram.") +
+          " Revisa que el acceso incluya instagram_manage_messages e instagram_manage_comments, " +
+          "o vuelve a conectar la página." +
+          (s.ctx.superadmin ? ` (Faltan: ${r.instagram.faltan.join(", ")}.)` : ""),
+      ultimoEventoAt: canal.ultimo_evento_at,
+    });
+  }
+
+  /*
    * Suscrita y sin un solo evento en la vida. Es el caso que queda cuando todo
    * lo de arriba está bien, y casi siempre es lo mismo: la app sigue en modo
    * Desarrollo, donde el webhook SOLO dispara para quien tiene un rol en ella.
    * Se dice, porque si no la respuesta «todo correcto» y una bandeja vacía se
    * contradicen y no hay nada más que mirar.
    */
+  const conInstagram = r.instagram !== null;
+
   if (canal.ultimo_evento_at === null) {
     return NextResponse.json({
       ok: true,
       reparada: r.reparada,
       titulo: r.reparada
-        ? "Arreglado: la página ya está suscrita a los mensajes."
-        : "La página está conectada y suscrita, pero todavía no ha llegado ningún mensaje.",
+        ? `Arreglado: la página ya está suscrita${conInstagram ? ", con su Instagram," : ""} a los mensajes.`
+        : `La página está conectada y suscrita${conInstagram ? ", con su Instagram," : ""}, pero todavía no ha llegado ningún mensaje.`,
       detalle:
         "Escríbele a la página desde otra cuenta para probarlo. Si la app de Facebook sigue en " +
         "modo Desarrollo, solo llegan los mensajes de quien tenga un rol en ella.",
@@ -165,7 +192,7 @@ export async function POST(_req: NextRequest, { params }: Ctx) {
     reparada: r.reparada,
     titulo: r.reparada
       ? "Arreglado: la página no estaba suscrita y ya lo está."
-      : "Todo correcto: la página está conectada y recibiendo.",
+      : `Todo correcto: la página${conInstagram ? " y su Instagram están" : " está"} conectada y recibiendo.`,
     detalle: null,
     ultimoEventoAt: canal.ultimo_evento_at,
   });

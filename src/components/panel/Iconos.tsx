@@ -57,6 +57,14 @@ export const IconoMessenger = (p: Props) => (
   </Svg>
 );
 
+export const IconoInstagram = (p: Props) => (
+  <Svg {...p}>
+    <rect x="3.5" y="3.5" width="17" height="17" rx="5" />
+    <circle cx="12" cy="12" r="4.2" />
+    <path d="M16.8 7.2h.01" />
+  </Svg>
+);
+
 export const IconoAgente = (p: Props) => (
   <Svg {...p}>
     <rect x="4" y="8" width="16" height="12" rx="3" />
