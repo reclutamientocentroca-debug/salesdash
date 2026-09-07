@@ -6,6 +6,7 @@ import {
   avisoDeClienteQueVuelve,
   campoDeLaPregunta,
   clienteCompartioUbicacion,
+  esAperturaDeSesion,
   esClienteQueVuelve,
   fichaDelPedido,
   fichaParaModelo,
@@ -294,4 +295,57 @@ test("la ficha nunca dice que falta la cantidad: es una unidad salvo que el clie
   assert.ok(!texto.includes("Cantidad: (falta)"));
   const dos = fichaParaModelo({ talla: "M", color: null, direccion: null, nombre: null, celular: null, cantidad: "2" });
   assert.ok(dos.includes("- Cantidad: 2"));
+});
+
+/**
+ * LA CAPTURA DE COSTA RICA (2026-09-05): una persona del equipo preguntó
+ * «¿Me confirma qué talla y color le interesa?», el cliente contestó «Soy
+ * talla 34» / «De pantalón» al día siguiente, y el agente saludó y presentó
+ * el producto TRES veces seguidas sin tomar la talla.
+ */
+test("la apertura es un momento de la sesión, no un estado: se saluda una vez y ya", () => {
+  const ayer = 1_700_000_000;
+  const hoy = ayer + 20 * 3600;
+  const hilo = [
+    { emisor: "cliente", content: "Hola, vi la faja", created_at: ayer },
+    { emisor: "humano", content: "Hola", created_at: ayer + 60 },
+    { emisor: "humano", content: "¿Me confirma qué talla y color le interesa para ese cinturón?", created_at: ayer + 90 },
+    { emisor: "cliente", content: "Soy  talla 34", created_at: hoy },
+    { emisor: "cliente", content: "De pantalón", created_at: hoy + 30 },
+  ];
+  assert.equal(esClienteQueVuelve(hilo), true);
+  assert.equal(esAperturaDeSesion(hilo), true, "nadie de la casa ha contestado en esta sesión");
+  assert.ok(avisoDeClienteQueVuelve(hilo).includes("salúdalo otra vez"));
+
+  const contestado = [...hilo, { emisor: "ia", content: "Hola! Bienvenido(a) a TELLERIA. Gracias por escribirnos.\n🖤 FAJA REVERSIBLE 🖤\n₡9,000\nIndique su dirección exacta de entrega.", created_at: hoy + 60 }, { emisor: "cliente", content: "Me imagino que es la misma talla", created_at: hoy + 120 }];
+  assert.equal(esAperturaDeSesion(contestado), false, "ya se le contestó: el saludo pasó");
+  assert.ok(avisoDeClienteQueVuelve(contestado).includes("no vuelvas a saludar"));
+  assert.ok(!avisoDeClienteQueVuelve(contestado).includes("salúdalo otra vez"));
+
+  // Y una persona del equipo contestando también cierra la apertura.
+  const conHumano = [
+    { emisor: "cliente", content: "Precio", created_at: hoy },
+    { emisor: "humano", content: "Buenas, ¿qué talla?", created_at: hoy + 10 },
+    { emisor: "cliente", content: "M", created_at: hoy + 20 },
+  ];
+  assert.equal(esAperturaDeSesion(conHumano), false);
+});
+
+test("«Soy talla 34» se toma como la talla aunque la pregunta la hiciera una persona del equipo, o nadie", () => {
+  const t = 1_700_000_000;
+  const conPregunta = fichaDelPedido([
+    { emisor: "humano", content: "¿Me confirma qué talla y color le interesa para ese cinturón?", created_at: t },
+    { emisor: "cliente", content: "Soy  talla 34", created_at: t + 60 },
+  ], rd);
+  assert.equal(conPregunta.talla, "34");
+
+  const sinPregunta = fichaDelPedido([
+    { emisor: "cliente", content: "Hola, quiero la faja, uso la 36", created_at: t },
+  ], rd);
+  assert.equal(sinPregunta.talla, "36");
+  assert.equal(fichaDelPedido([{ emisor: "cliente", content: "talla M por favor", created_at: t }], rd).talla, "M");
+  // Una pregunta del cliente sobre tallas no es su talla.
+  assert.equal(fichaDelPedido([{ emisor: "cliente", content: "¿Tienen talla 44?", created_at: t }], rd).talla, null);
+  // Y el cliente que dio la talla no la vuelve a oír.
+  assert.ok(preguntasRepetidas("¿Qué talla le interesa?", conPregunta).length > 0);
 });

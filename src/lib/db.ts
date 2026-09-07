@@ -1170,6 +1170,27 @@ function migrar(conexion: DB): void {
     conexion.exec(`PRAGMA user_version = 8`);
   }
 
+  /*
+   * EL ANUNCIO ACTUAL VUELVE A SER EL QUE TRAJO AL CLIENTE.
+   *
+   * Hasta el 2026-09-05 la vista previa de CUALQUIER enlace pegado en el chat
+   * —también uno que mandara el propio vendedor— entraba como «el anuncio por
+   * el que escribe ahora», y el agente pasaba a vender ese otro artículo. Ya
+   * no entra (ver `esAnuncioDeMeta` en wa.ts), pero lo que se pisó, se pisó:
+   * aquí se devuelve al primer anuncio, que es el que el cliente vio. El
+   * siguiente clic real en un anuncio lo vuelve a poner al día.
+   */
+  if (version < 9) {
+    conexion.prepare(
+      `UPDATE conversations SET anuncio_actual_producto = producto_anuncio,
+                                anuncio_actual_descripcion = descripcion_anuncio
+        WHERE producto_anuncio IS NOT NULL
+          AND (anuncio_actual_producto IS NOT producto_anuncio
+               OR anuncio_actual_descripcion IS NOT descripcion_anuncio)`,
+    ).run();
+    conexion.exec(`PRAGMA user_version = 9`);
+  }
+
   // anomalies: las anomalías de canal no tienen conversación.
   if (!columnas("anomalies").includes("canal_id")) {
     conexion.exec(`

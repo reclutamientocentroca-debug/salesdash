@@ -59,6 +59,10 @@ export const SESION_HORAS = 12;
 /** Una contestación que llega más tarde que esto no contesta a esa pregunta. */
 const RESPUESTA_HORAS = 6;
 
+/** «soy talla 34», «talla M», «la talla es 42», «uso la 40», «calzo 39». */
+const TALLA_DICHA =
+  /(?:\btalla\b\s*(?:es\s+)?(?:la\s+)?|\b(?:uso|calzo|llevo)\s+(?:la\s+)?)(\d{1,2}(?:[.,]5)?|xs|s|m|l|xl|xxl|xxxl|[23]xl)\b(?![\d.,])/i;
+
 const VACIA: FichaDelPedido = { talla: null, color: null, direccion: null, nombre: null, celular: null, cantidad: null };
 
 /** Sin tildes ni mayúsculas, para comparar. */
@@ -94,6 +98,17 @@ export function mensajesDeLaSesion<T extends MensajeDeMemoria>(mensajes: T[], ho
  */
 export function esClienteQueVuelve(mensajes: MensajeDeMemoria[], horas = SESION_HORAS): boolean {
   return inicioDeSesion(mensajes, horas) > 0;
+}
+
+/**
+ * ¿ES LA APERTURA? Nadie de la casa —ni el agente ni una persona— ha escrito
+ * todavía en la sesión actual. El caso real (Costa Rica, 2026-09-05): con
+ * «cliente que vuelve» valiendo para toda la sesión, el agente saludó y
+ * presentó el producto TRES veces seguidas. La apertura es un momento, no un
+ * estado: en cuanto alguien contesta, ya pasó.
+ */
+export function esAperturaDeSesion(mensajes: MensajeDeMemoria[], horas = SESION_HORAS): boolean {
+  return mensajesDeLaSesion(mensajes, horas).every((m) => m.emisor === "cliente");
 }
 
 /**
@@ -199,9 +214,17 @@ function fichaDe(sesion: MensajeDeMemoria[], datos: DatosPais | null): FichaDelP
       // Un número de teléfono suelto es el celular.
       const tel = m.content.match(/(?:\+?\d[\d\s().-]{8,}\d)/);
       if (tel && tel[0].replace(/\D/g, "").length >= 10) ficha.celular = tel[0].replace(/\D/g, "");
+      // «Soy talla 34», «talla M», «uso la 40»: la talla dicha por su cuenta,
+      // aunque nadie la haya preguntado en esta sesión (Costa Rica, 2026-09-05).
+      if (!m.content.includes("?")) {
+        const talla = m.content.match(TALLA_DICHA);
+        if (talla) ficha.talla = talla[1].toUpperCase();
+      }
       continue;
     }
-    if (m.emisor !== "ia") continue;
+    // La pregunta de una persona del equipo también cuenta: el cliente le
+    // contesta igual, y ese dato es del pedido.
+    if (m.emisor !== "ia" && m.emisor !== "humano") continue;
 
     const preguntas = m.content
       .split(/(?<=[?.!\n])/)
@@ -270,6 +293,14 @@ export function fichaParaModelo(f: FichaDelPedido): string {
  */
 export function avisoDeClienteQueVuelve(mensajes: MensajeDeMemoria[]): string {
   if (!esClienteQueVuelve(mensajes)) return "";
+  // Ya se le contestó en esta sesión: el saludo ya pasó, y no se repite.
+  if (!esAperturaDeSesion(mensajes)) {
+    return (
+      "\n\nESTE CLIENTE VOLVIÓ A ESCRIBIR DESPUÉS DE UN TIEMPO y en esta sesión YA se le saludó y se le presentó el artículo: no vuelvas a saludar ni a presentarlo. " +
+      "Lo de arriba de la conversación, antes del silencio, es de otro día: la talla, el color y la cantidad de entonces no valen; el nombre, el celular y la dirección sí, si están en la ficha. " +
+      "Sigue con el paso que toca."
+    );
+  }
   return (
     "\n\nESTE CLIENTE VUELVE A ESCRIBIR DESPUÉS DE UN TIEMPO: lo de arriba de la conversación es de otro día y de otro pedido. " +
     "Esta es una conversación NUEVA: salúdalo otra vez como la primera vez, con el artículo del anuncio de ahora y su precio, y empieza el pedido desde la talla. " +

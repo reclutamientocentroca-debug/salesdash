@@ -50,7 +50,7 @@ import { bloqueHumano } from "./humano";
 import {
   avisoDeClienteQueVuelve,
   clienteCompartioUbicacion,
-  esClienteQueVuelve,
+  esAperturaDeSesion,
   fichaDelHilo,
   fichaParaModelo,
   PIENSA_COMO_VENDEDOR,
@@ -1712,7 +1712,9 @@ export async function atenderConversacion(
     const org = obtenerOrg(orgId);
     const negocio = nombreDelNegocio(agente, canal, org ?? null);
     const cliente = { telefono: conv.cliente_phone, nombre: conv.cliente_nombre };
-    const esApertura = historial.every((m) => m.emisor === "cliente") || esClienteQueVuelve(historial);
+    // Nadie de la casa ha escrito aún en esta sesión. Ver `esAperturaDeSesion`:
+    // con «cliente que vuelve» valiendo toda la sesión, se saludaba tres veces.
+    const esApertura = esAperturaDeSesion(historial);
     const contexto = {
       esApertura,
       datos: datosPais,
@@ -1954,7 +1956,7 @@ export async function atenderConversacion(
       conv.superficie !== "comentario" &&
       // El guion dominicano (2026-09-05) manda el primer mensaje entero, en un solo globo.
       agente.pais !== "do" &&
-      (historial.every((m) => m.emisor === "cliente") || esClienteQueVuelve(historial)),
+      esAperturaDeSesion(historial),
     marcador: marcadorOrg,
   });
 
