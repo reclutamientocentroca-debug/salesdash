@@ -511,3 +511,17 @@ test("la cantidad no se pregunta en ningún país, salvo que el cliente hable de
   const mayoreo = { ...rd, esApertura: false, ultimoDelCliente: "Quiero precio al por mayor" };
   assert.deepEqual(revisarConReglas("De 3 unidades en adelante le sale en RD$1,190 cada uno. ¿Cuántas unidades desea?", mayoreo).filter((f) => f.includes("cantidad")), []);
 });
+
+/** Panamá: talla o color a un artículo que no los lleva se para, igual que en RD y CR. */
+test("en Panamá el revisor para la talla y el color a un artículo que no los lleva", () => {
+  const mochila = {
+    ...pa,
+    anuncio: "Anuncio: MOCHILA ANTIRROBO 45 LITROS US$35.00 · Impermeable · Puerto USB",
+    ficha: { talla: null, color: null, direccion: null, nombre: null, celular: null, cantidad: null },
+    esApertura: false,
+    ultimoDelCliente: "Me interesa",
+  };
+  assert.ok(revisarConReglas("Perfecto. ¿Qué talla necesita?", mochila).some((f) => f.includes("talla")));
+  assert.ok(revisarConReglas("¿En qué color la quiere?", mochila).some((f) => f.includes("color")));
+  assert.deepEqual(revisarConReglas("¿A qué corregimiento se lo enviamos?", mochila), []);
+});

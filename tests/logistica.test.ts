@@ -220,6 +220,20 @@ test("en Panamá no hay impuesto, el envío es a domicilio en todo el país y se
   assert.ok(bloque.includes("US$5.00"));
 });
 
+/**
+ * LA DUEÑA (2026-09-07): «la IA de Panamá, artículo no lleva talla ni color,
+ * solo vende el artículo como los demás». Lo mismo que leen RD y CR.
+ */
+test("en Panamá un artículo sin talla ni color se vende tal cual, sin preguntar nada", () => {
+  const pa = agenteDePais("pa")!;
+  assert.ok(pa.tallas.sinTallaNiColor.includes("Planchas"));
+  assert.ok(pa.tallas.sinTallaNiColor.includes("Mochilas"));
+  assert.equal(pa.tallas.soloRopaYCalzado, true);
+  const bloque = bloqueDelPais(pa, null, "Tienda");
+  assert.ok(bloque.includes("NO llevan talla ni color, y no se preguntan: Cepillos, Blowers, Secadores, Planchas"));
+  assert.ok(bloque.includes("Solo la ropa y el calzado llevan talla"));
+});
+
 /** Lo que el agente dominicano lee: los productos fijos, con sus nombres, no llevan talla ni color. */
 test("el guion dominicano nombra los productos fijos y les prohíbe la talla y el color", () => {
   const rdDatos = agenteDePais("do")!;

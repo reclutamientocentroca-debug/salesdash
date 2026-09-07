@@ -129,9 +129,17 @@ export const PA: DatosPais = {
   tallas: {
     usaTablaBase: true,
     zapatoEn: "numeración europea (de la 39 a la 45)",
-    conTallaYColor: [],
-    sinTallaNiColor: [],
-    soloRopaYCalzado: false,
+    conTallaYColor: ["Correas y cinturones"],
+    // La dueña (2026-09-07): un artículo sin talla ni color se vende tal cual,
+    // como en los otros dos países. Los mismos nombres que en RD y CR.
+    sinTallaNiColor: [
+      "Cepillos", "Blowers", "Secadores", "Planchas", "Combos de cepillo y plancha", "Abejones",
+      "Electrodomésticos", "Artículos del hogar", "Perfumes", "Relojes",
+      "Mochilas", "Bolsos", "Carteras", "Gorras", "Accesorios",
+    ],
+    // Solo la ropa y el calzado llevan talla; lo demás se ofrece y se vende
+    // sin preguntar nada: del precio a «¿A qué corregimiento se lo enviamos?».
+    soloRopaYCalzado: true,
     notas: [],
   },
 

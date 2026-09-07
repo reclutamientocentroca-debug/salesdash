@@ -259,3 +259,13 @@ test("la apertura saluda, contesta lo que preguntó el cliente y pregunta la tal
   const precio = aperturaSegura(rd, zapatos, "Hola! Bienvenido(a) a RINCON DCM. Gracias por escribirnos.", "¿Cuánto cuestan?")!;
   assert.equal(precio.split("\n").length, 4);
 });
+
+/** Panamá, artículo sin talla ni color: del precio al corregimiento, sin talla, color ni cantidad. */
+test("en Panamá una mochila se vende sin preguntar talla, color ni cantidad", () => {
+  const vacia = { talla: null, color: null, direccion: null, nombre: null, celular: null, cantidad: null };
+  const mochila = { producto_anuncio: "Tienda", descripcion_anuncio: "MOCHILA ANTIRROBO 45 LITROS US$35.00 · Impermeable · Puerto USB · Envío a domicilio en todo el país" };
+  assert.equal(primeraPregunta(mochila.descripcion_anuncio, pa), "¿A qué corregimiento se lo enviamos?");
+  assert.equal(respuestaMinima(pa, vacia, mochila), "¿A qué corregimiento se lo enviamos?");
+  const texto = aperturaSegura(pa, mochila, "¡Hola! Bienvenido(a).")!;
+  assert.equal(/talla|color|cu[aá]nt/i.test(texto), false, texto);
+});
