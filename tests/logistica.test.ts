@@ -397,3 +397,35 @@ test("el guion dominicano manda la foto con el color, nunca en el primer mensaje
   const sinFoto = armarSistema("RINCON DCM", agente, [], polos, "Resumen:", null, null, false, null);
   assert.equal(sinFoto.includes("[ENVIAR_FOTO]"), false);
 });
+
+/**
+ * EL ENVÍO NO SE GENERALIZA: el bloque del país lo dice donde hay dos tarifas.
+ *
+ * La dueña (RD, 2026-09-08): «no debe de generalizarlo a todo el país, debe de
+ * saber la dirección para darle el monto que corresponda». Donde la tarifa es
+ * una sola —Costa Rica, Panamá— decir «a todo el país» es lo correcto, así que
+ * ahí esta línea no entra.
+ */
+test("con dos tarifas, el prompt prohíbe dar una sola cifra sin saber la zona", () => {
+  const rd = agenteDePais("do")!;
+
+  const sinZona = bloqueDelPais(rd, null, "RINCON DCM");
+  assert.ok(sinZona.includes("AQUÍ NO HAY UNA TARIFA PARA TODO EL PAÍS"));
+  assert.ok(sinZona.includes("Dile que depende de la zona"));
+  assert.ok(sinZona.includes("pregúntale la provincia o el sector"));
+
+  // Con la zona ya sabida no hace falta el aviso: se le dice la suya y ya.
+  const conZona = bloqueDelPais(rd, "Santiago", "RINCON DCM");
+  assert.equal(conZona.includes("AQUÍ NO HAY UNA TARIFA PARA TODO EL PAÍS"), false);
+  assert.ok(conZona.includes("A ESTE CLIENTE le corresponde"));
+
+  // Y donde la tarifa es una para todos, ni con zona ni sin ella.
+  for (const pais of ["cr", "pa"]) {
+    const d = agenteDePais(pais)!;
+    assert.equal(
+      bloqueDelPais(d, null, "Tienda").includes("AQUÍ NO HAY UNA TARIFA PARA TODO EL PAÍS"),
+      false,
+      `${pais} tiene una sola tarifa: decir «a todo el país» es lo correcto`,
+    );
+  }
+});

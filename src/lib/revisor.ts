@@ -867,7 +867,51 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
        * que diga el resto del hilo—, y si no, la del cliente.
        */
       const tarifa = zonaDe(frase) ?? tarifaSuya;
-      if (tarifa === null) continue;
+
+      /*
+       * NO SE SABE A DÓNDE VA Y AQUÍ HAY DOS TARIFAS: no se cotiza el envío.
+       *
+       * El caso de la dueña (República Dominicana, 2026-09-08): «¿Cuánto cuesta
+       * el envío?» → «El envío a todo el país es de RD$290.». En RD hay dos
+       * —RD$250 en el Gran Santo Domingo y RD$290 al resto—, así que esa frase
+       * le cobra de más a media clientela y da por buena una zona que nadie ha
+       * dicho. Primero se sabe a dónde va y después se le dice la suya.
+       *
+       * Donde la tarifa es una sola para todos —Costa Rica, Panamá— decir «a
+       * todo el país» es lo correcto, y por eso esto solo mira los países con
+       * más de una. Y decirle las DOS, con su zona al lado, tampoco es
+       * generalizar: eso es contarle las tarifas, y pasa.
+       */
+      if (tarifa === null) {
+        if (costos.size < 2 || contieneMarcador(texto, ctx.marcador ?? MARCADOR_POR_DEFECTO)) continue;
+        const dichas = [...new Set(importes(frase, d.moneda.simbolo).filter((n) => costos.has(n)))];
+        if (!dichas.length || [...costos].every((c) => dichas.some((n) => igual(n, c)))) continue;
+
+        const todas = [...costos].map((c) => `${d.moneda.simbolo}${c}`).join(" y ");
+
+        if (TODO_EL_PAIS.test(frase)) {
+          fallas.push(
+            `dice que el envío «a todo el país» es ${d.moneda.simbolo}${dichas[0]}, y aquí hay dos tarifas (${todas}): ` +
+              "pregúntale a qué provincia o sector se lo enviamos y dile la que le toca a él",
+          );
+          break;
+        }
+
+        /*
+         * Con la dirección ya dada no se para: el cliente dijo a dónde va
+         * aunque su pueblo no esté en ninguna de las listas —«Guayacánal»— y
+         * ahí la tarifa del resto del país es la que le toca. El pin del mapa
+         * cuenta igual: ESA es su dirección. Lo que no puede pasar es
+         * cotizarle antes de que diga nada.
+         */
+        if (ctx.lugarDelCliente?.trim() || ctx.ficha?.direccion?.trim() || ctx.clienteCompartioUbicacion) continue;
+
+        fallas.push(
+          `cotiza el envío en ${d.moneda.simbolo}${dichas[0]} y todavía no sabes a dónde va, con dos tarifas distintas (${todas}): ` +
+            "pregúntale la provincia o el sector, y con eso le dices la suya",
+        );
+        break;
+      }
       // Una frase que lista las dos tarifas informa, no cotiza mal: solo se para la que da UNA y no es la de esa zona.
       const enLaFrase = [...new Set(importes(frase, d.moneda.simbolo).filter((n) => costos.has(n)))];
       const otra = enLaFrase.length === 1 && enLaFrase[0] !== tarifa ? enLaFrase[0] : undefined;
@@ -1020,6 +1064,9 @@ const PIDE_CONFIRMAR_EL_PEDIDO =
  * Con eso no se sabe qué quiere, y lo único que va es preguntárselo. Se
  * escriben estiradas —«hooola», «hlola»— porque así llegan.
  */
+/** Cómo suena meter todo el país en la misma tarifa. */
+const TODO_EL_PAIS = /\b(a|en|para|hacia)\s+(todo|toda)\s+(el|la)\s+(pa[ií]s|rep[uú]blica|isla)\b|\bpa[ií]s entero\b|\ben cualquier (parte|lugar|zona) del pa[ií]s\b/i;
+
 const SOLO_SALUDA =
   /^[\s¡!¿?.,·-]*(h+o+l+a+|h+l+o+l+a+|ho+la+s|buen[oa]s?|buenos d[ií]as|buenas (tardes|noches)|saludos|hey|ep[ae]|qu[eé] tal|info|informaci[oó]n|m[aá]s informaci[oó]n|quiero (m[aá]s )?(info|informaci[oó]n)|me interesa|precio|precios|cu[aá]nto (cuesta|vale)|disponible|disponibilidad|buenas)[\s¡!¿?.,·-]*$/i;
 

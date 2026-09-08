@@ -615,6 +615,60 @@ test("un dato que el cliente no dio no se da por recibido", () => {
 });
 
 /**
+ * EL ENVÍO NO SE GENERALIZA (la dueña, RD, 2026-09-08).
+ *
+ * «¿Cuánto cuesta el envío?» → «El envío a todo el país es de RD$290.». En
+ * República Dominicana hay DOS tarifas —RD$250 en el Gran Santo Domingo y
+ * RD$290 al resto—, así que esa frase le cobra de más a media clientela y da
+ * por buena una zona que nadie ha dicho. Primero se sabe a dónde va.
+ */
+test("con dos tarifas, el envío no se cotiza sin saber a dónde va", () => {
+  const preguntaElEnvio = { ...rd, ultimoDelCliente: "¿Cuánto cuesta el envío?" };
+
+  // El caso real, tal cual salió.
+  assert.ok(
+    revisarConReglas("El envío a todo el país es de RD$290.\n\n¿Me facilita su dirección exacta para el pedido?", preguntaElEnvio)
+      .some((f) => f.includes("«a todo el país»")),
+  );
+  // Y una sola cifra, aunque no diga «todo el país».
+  assert.ok(
+    revisarConReglas("El envío le sale en RD$250.", preguntaElEnvio)
+      .some((f) => f.includes("todavía no sabes a dónde va")),
+  );
+
+  // Lo que sí toca: decir que depende de la zona y preguntarla.
+  assert.deepEqual(
+    revisarConReglas("El envío depende de la zona. ¿A qué provincia o sector se lo enviamos?", preguntaElEnvio),
+    [],
+  );
+  // Contarle las DOS con su zona al lado no es generalizar: informa.
+  assert.deepEqual(
+    revisarConReglas("El envío es RD$250 en el Gran Santo Domingo y RD$290 al resto del país. ¿A qué provincia se lo enviamos?", preguntaElEnvio),
+    [],
+  );
+  // Con la zona ya sabida, su tarifa sale como siempre.
+  assert.deepEqual(
+    revisarConReglas("Perfecto, hasta Santiago el envío le sale en RD$290.", { ...preguntaElEnvio, lugarDelCliente: "Santiago" }),
+    [],
+  );
+  // Y con la dirección dada, aunque su pueblo no esté en ninguna lista.
+  assert.deepEqual(
+    revisarConReglas("Perfecto, hasta Guayacánal el envío le sale en RD$290.", {
+      ...preguntaElEnvio,
+      ficha: { talla: null, color: null, direccion: "Guayacánal, Pueblo Viejo", nombre: null, celular: null, cantidad: null },
+    }),
+    [],
+  );
+
+  /*
+   * Donde la tarifa es UNA para todo el país, decirlo así es lo correcto: esto
+   * no puede tocar a Costa Rica ni a Panamá.
+   */
+  assert.deepEqual(revisarConReglas("El envío son ₡3.500 a todo el país.", { ...cr, ultimoDelCliente: "¿cuánto es el envío?" }), []);
+  assert.deepEqual(revisarConReglas("El envío es US$5.00 a todo el país.", { ...pa, ultimoDelCliente: "¿cuánto es el envío?" }), []);
+});
+
+/**
  * EL CASO DE LA DUEÑA (RD, 2026-09-08): el cliente mandó su dirección en una
  * nota de voz, el agente se la confirmó con el envío y el total, y cuatro
  * mensajes después volvió a abrir el mismo paso —«Perfecto, hasta Guayacánal

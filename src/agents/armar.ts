@@ -184,6 +184,27 @@ function bloqueDeEnvio(d: DatosPais, donde: string | null): string {
     );
   }
 
+  /*
+   * Y CON DOS TARIFAS, EL ENVÍO NO SE GENERALIZA (la dueña, RD, 2026-09-08).
+   *
+   * «¿Cuánto cuesta el envío?» → «El envío a todo el país es de RD$290.», y en
+   * este país hay dos: le cobra de más a media clientela y da por buena una
+   * zona que nadie ha dicho. Donde la tarifa es una sola para todos —Costa Rica
+   * y Panamá— decirlo así es lo correcto, y por eso esto solo entra cuando hay
+   * más de una.
+   */
+  const tarifas = new Set([resto.costo, ...d.envio.zonas.map((z) => z.costo)]);
+  if (tarifas.size > 1 && !zona) {
+    lineas.push(
+      "AQUÍ NO HAY UNA TARIFA PARA TODO EL PAÍS, HAY " + tarifas.size + ", y todavía no sabes a dónde va " +
+        "este pedido: si te pregunta cuánto es el envío, NO le des una sola cifra ni digas «el envío a " +
+        "todo el país es " + importe(d, resto.costo) + "» —a la mitad de los clientes le estarías " +
+        "cobrando de más o de menos—. Dile que depende de la zona, pregúntale la provincia o el sector " +
+        "en esa misma línea, y en cuanto te conteste le dices la suya. Si prefieres, puedes decirle las " +
+        `${tarifas.size} tarifas con su zona al lado; lo que no vale es una sola para todos.`,
+    );
+  }
+
   return lineas.join("\n");
 }
 
