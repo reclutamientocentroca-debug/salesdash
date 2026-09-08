@@ -107,11 +107,28 @@ export function llevaTalla(descripcion: string): boolean {
   return ROPA.test(descripcion) || CALZADO.test(descripcion);
 }
 
-/** El artículo lleva color solo si es elegible y la descripción ofrece varios. */
-export function llevaColor(descripcion: string): boolean {
+/**
+ * ¿SE LE PREGUNTA EL COLOR?
+ *
+ * Solo a lo que se elige —ropa y calzado— y solo si hay colores que ofrecer.
+ * Que los haya se sabe de dos formas:
+ *
+ *  - La descripción los nombra, o dice que hay varios. Es lo de siempre.
+ *  - HAY FOTO QUE MANDARLE. Lo pidió la dueña (2026-09-08): después de la talla
+ *    se le enseña el producto y se le pregunta cuál color quiere. Media
+ *    publicidad de Facebook no escribe los colores en el texto —están a la
+ *    vista en la imagen—, y con esos anuncios el paso del color no existía: el
+ *    cliente daba su talla y lo siguiente que leía era «Indique su dirección».
+ *    Con la foto delante, preguntarle cuál prefiere no inventa nada: elige
+ *    entre lo que está viendo.
+ */
+export function llevaColor(descripcion: string, conFoto = false): boolean {
   if (!(ROPA.test(descripcion) || CALZADO.test(descripcion))) return false;
   const colores = new Set((descripcion.match(COLORES) ?? []).map((color) => color.toLowerCase()));
-  return colores.size >= 2 || /\b(varios|diferentes)\s+colores?\b|\bcolores?\s+disponibles\b/i.test(descripcion);
+  if (colores.size >= 2 || /\b(varios|diferentes)\s+colores?\b|\bcolores?\s+disponibles\b/i.test(descripcion)) {
+    return true;
+  }
+  return conFoto;
 }
 
 /** Primer mensaje cuando todavía no existe un producto identificado. */

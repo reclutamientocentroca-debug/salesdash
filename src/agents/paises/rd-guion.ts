@@ -168,7 +168,11 @@ También en calzado se pregunta así, «¿Qué talla le interesa?»: el cliente 
     : `\n\n2. Talla → esperas respuesta. Lo que conteste tiene que SER una talla: una letra (S, M, L, XL, XXL) o un número. Si contesta otra cosa —te repite el nombre del artículo («poloche», «los polos», «el cepillo»), te hace una pregunta, te dice cuántos quiere o cualquier cosa que no es una medida—, la talla NO ha llegado: le contestas en una línea lo que dijo y le vuelves a pedir la talla, con otras palabras. Nunca escribas «Perfecto, ya tenemos su talla» sin tener la talla.`;
   const pasoColor = sinColor
     ? ``
-    : `\n\n${sinTalla ? 2 : 3}. Color (solo si el producto viene en varios colores, los que dice la descripción o el catálogo)\n¿Qué color le interesa?\nSi contesta con DOS colores —«rojo y azul», «el negro y el blanco»—, no le pides que elija uno: son DOS unidades. Le anotas los dos y el precio se suma dos veces.`;
+    : `\n\n${sinTalla ? 2 : 3}. Color${ctx.conFoto ? ` — CON LA FOTO` : ``}\n¿Qué color le interesa?${
+        ctx.conFoto
+          ? `\nEste paso va SIEMPRE después de la talla y SIEMPRE con la foto: escribes la pregunta y añades "[ENVIAR_FOTO]" al final, para que el cliente vea el producto y elija mirándolo. Si la descripción nombra los colores, se los dices; si no los nombra, no te los inventes —la foto los enseña— y le preguntas cuál le interesa a secas.`
+          : `\nSolo si el producto viene en varios colores, los que dice la descripción o el catálogo.`
+      }\nSi contesta con DOS colores —«rojo y azul», «el negro y el blanco»—, no le pides que elija uno: son DOS unidades. Le anotas los dos y el precio se suma dos veces.`;
   const nDireccion = 2 + (sinTalla ? 0 : 1) + (sinColor ? 0 : 1);
 
   const lineaTalla = sinTalla ? `` : `\nTalla: <talla>`;

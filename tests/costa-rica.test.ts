@@ -181,3 +181,61 @@ test("el revisor de Costa Rica para lo que está grabado y nada más", () => {
       .join("\n") + "\n",
   );
 });
+
+/**
+ * PREGUNTAR POR LA TIENDA ENTERA NO ES ELEGIR UN ARTÍCULO.
+ *
+ * El caso de la dueña (Costa Rica, 2026-09-08): «¿Cuál es el precio de la
+ * ropa?» y la respuesta fue «Indique su dirección exacta de entrega.». «La
+ * ropa» no es un artículo —esta tienda vende veinte— y sin artículo no hay
+ * dirección que pedir: lo que toca es saludar y preguntarle cuál le interesa.
+ */
+test("a una pregunta por «la ropa», Costa Rica saluda y pregunta el artículo", () => {
+  const d = agenteDePais("cr")!;
+  const porLaRopa: ContextoRevision = {
+    datos: d,
+    nombresDeLaCasa: [d.nombreAgente ?? "", d.tienda].filter(Boolean),
+    catalogo: "Catálogo:\n- Camisa de lino (S, M, L) — 25000\n- Polo Brox — 12000",
+    anuncio: null,
+    bloqueDelPais: bloqueDelPais(d, null, "Tienda Tica"),
+    ficha: { talla: null, color: null, direccion: null, nombre: null, celular: null, cantidad: null },
+    textosDelCliente: ["¿Cuál es el precio de la ropa?"],
+    ultimoDelCliente: "¿Cuál es el precio de la ropa?",
+  };
+
+  // Lo que salió y no puede volver a salir.
+  assert.ok(
+    revisarConReglas("Indique su dirección exacta de entrega.", porLaRopa)
+      .some((f) => f.includes("todavía no sabes qué artículo quiere")),
+  );
+
+  // Y lo que sí toca: saludar y preguntarle cuál. Esto lo paraba la regla del
+  // precio por no llevar cifra, y es justo la respuesta correcta.
+  assert.deepEqual(
+    revisarConReglas("Hola, le asiste Mildred, un gusto. ¿Cuál es el artículo de su interés?", porLaRopa),
+    [],
+  );
+  assert.deepEqual(
+    revisarConReglas(
+      "Hola, le asiste Mildred, un gusto. Tenemos camisa de lino y Polo Brox. ¿Cuál artículo le interesa?",
+      porLaRopa,
+    ),
+    [],
+  );
+
+  /*
+   * Pero si el cliente SÍ dijo qué quiere, aunque la casa no conozca esa
+   * palabra, no se le para nada por esto: «poloche» es el polo, como se dice
+   * allá, y perder la venta por no conocer el idioma sería peor.
+   */
+  const conArticulo = {
+    ...porLaRopa,
+    textosDelCliente: ["Quiero el poloche"],
+    ultimoDelCliente: "Quiero el poloche",
+  };
+  assert.equal(
+    revisarConReglas("¿Qué talla le interesa?", conArticulo)
+      .some((f) => f.includes("todavía no sabes qué artículo quiere")),
+    false,
+  );
+});

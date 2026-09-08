@@ -1048,6 +1048,12 @@ test("una publicación sin texto no se vuelve a pedir", () => {
     enlace: "https://facebook.com/123/posts/456",
   });
 
+  // Antes de marcar la foto sigue pendiente: en la misma pasada se le pide a
+  // Meta el texto Y la imagen grande, y hasta que las dos estén intentadas el
+  // anuncio no está terminado. Ver `completarAnunciosPendientes`.
+  assert.equal(D.anunciosPorCompletar(orgId).length, 1);
+  D.guardarImagenGrandeAnuncio(orgId, "ad_solo_foto", null);
+
   assert.equal(D.anunciosPorCompletar(orgId).length, 0);
   assert.equal(D.anuncioMetaPorAdId(orgId, "ad_solo_foto")?.texto, null);
 });

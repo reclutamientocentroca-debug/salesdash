@@ -594,6 +594,15 @@ function migrar(conexion: DB): void {
    */
   agregarColumna("catalogo", "canal_id", "INTEGER NOT NULL DEFAULT 0");
 
+  /*
+   * La imagen del anuncio, en grande. El referral solo trae la MINIATURA que
+   * Meta usa de vista previa, y esa es la que se le mandaba al cliente: borrosa
+   * al abrirla en el móvil. La grande vive en la publicación y hay que ir a
+   * buscarla. Esta marca dice si ya se intentó, para no pedirla en cada mensaje
+   * ni dejar fuera a los anuncios que ya estaban guardados.
+   */
+  agregarColumna("anuncios_meta", "imagen_hd", "INTEGER NOT NULL DEFAULT 0");
+
   if (!columnas("canales").includes("negocio")) {
     conexion.exec(`ALTER TABLE canales ADD COLUMN negocio TEXT`);
   }
@@ -3486,9 +3495,31 @@ export function guardarPublicacionAnuncio(
 export function anunciosPorCompletar(orgId: number, limite = 3) {
   return s(
     `SELECT ad_id, post_id FROM anuncios_meta
-      WHERE org_id = ? AND post_id IS NOT NULL AND enlace IS NULL
+      WHERE org_id = ? AND post_id IS NOT NULL AND (enlace IS NULL OR imagen_hd = 0)
       ORDER BY created_at DESC LIMIT ?`,
   ).all(orgId, limite) as { ad_id: string; post_id: string }[];
+}
+
+/**
+ * LA IMAGEN DEL ANUNCIO, EN GRANDE, SUSTITUYENDO A LA MINIATURA.
+ *
+ * Aquí SÍ se pisa lo que había —al revés que en `registrarAnuncioVisto`, que
+ * nunca sobrescribe—, porque lo que había es peor: la vista previa del referral,
+ * que al cliente le llega borrosa. Y se borra el `attachment_id`, que es la
+ * copia que Meta ya tiene de la miniatura: sin eso se seguiría mandando la
+ * antigua para siempre, que es justo lo que se quería arreglar.
+ *
+ * `imagen_hd` se marca aunque no se consiga ninguna: es la diferencia entre
+ * «no lo hemos intentado» y «no la hay», y sin esa marca cada mensaje que
+ * entrara volvería a pedírsela a Meta.
+ */
+export function guardarImagenGrandeAnuncio(orgId: number, adId: string, imagen: string | null): void {
+  if (imagen) {
+    s(`UPDATE anuncios_meta SET imagen = ?, attachment_id = NULL, imagen_hd = 1 WHERE org_id = ? AND ad_id = ?`)
+      .run(imagen, orgId, adId);
+    return;
+  }
+  s(`UPDATE anuncios_meta SET imagen_hd = 1 WHERE org_id = ? AND ad_id = ?`).run(orgId, adId);
 }
 
 /**

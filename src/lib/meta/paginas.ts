@@ -8,9 +8,11 @@
 import { descifrar } from "@/lib/auth";
 import {
   anunciosPorCompletar,
+  guardarImagenGrandeAnuncio,
   guardarPublicacionAnuncio,
   type Canal,
 } from "@/lib/db";
+import { descargarImagen, guardar as guardarArchivo } from "@/lib/media";
 import { getGraph, postGraph, versionGraph } from "./graph";
 
 /**
@@ -453,13 +455,38 @@ export async function datosDePagina(
 export async function publicacionDelAnuncio(
   canal: Canal,
   postId: string,
-): Promise<{ texto: string | null; enlace: string | null }> {
-  const datos = await getGraph(postId, "message,permalink_url", descifrar(canal.token_cifrado));
+): Promise<{ texto: string | null; enlace: string | null; imagen: string | null }> {
+  /*
+   * Y LA FOTO EN GRANDE, que es la que se le manda al cliente.
+   *
+   * El referral solo trae `photo_url`, que es la MINIATURA de vista previa: al
+   * cliente le llegaba borrosa en cuanto la abría. La buena está en la
+   * publicación. Se piden las dos formas en que Meta la devuelve —el adjunto
+   * lleva la de mayor resolución; `full_picture` es el respaldo— y se coge la
+   * primera que venga.
+   */
+  const datos = await getGraph(
+    postId,
+    "message,permalink_url,full_picture,attachments{media{image{src}}}",
+    descifrar(canal.token_cifrado),
+  );
 
   const texto = typeof datos.message === "string" ? datos.message.trim() : "";
   const enlace = typeof datos.permalink_url === "string" ? datos.permalink_url : "";
 
-  return { texto: texto || null, enlace: enlace || null };
+  return { texto: texto || null, enlace: enlace || null, imagen: imagenDelPost(datos) };
+}
+
+/** La URL de la foto más grande que devuelva la publicación, o null. */
+function imagenDelPost(datos: Record<string, unknown>): string | null {
+  const adjuntos = (datos.attachments ?? {}) as { data?: unknown };
+  for (const bruto of Array.isArray(adjuntos.data) ? adjuntos.data : []) {
+    const medio = ((bruto ?? {}) as { media?: { image?: { src?: unknown } } }).media;
+    const src = medio?.image?.src;
+    if (typeof src === "string" && /^https:\/\//i.test(src)) return src;
+  }
+  const full = datos.full_picture;
+  return typeof full === "string" && /^https:\/\//i.test(full) ? full : null;
 }
 
 /**
@@ -479,6 +506,19 @@ export async function completarAnunciosPendientes(canal: Canal, limite = 2): Pro
     try {
       const p = await publicacionDelAnuncio(canal, a.post_id);
       guardarPublicacionAnuncio(canal.org_id, a.ad_id, p);
+
+      /*
+       * La foto grande se descarga y sustituye a la miniatura. Si no se puede,
+       * se marca igual: se sigue con la que hay, que es peor pero sirve, y no
+       * se vuelve a pedir con cada cliente.
+       */
+      const bytes = p.imagen ? await descargarImagen(p.imagen, 8_000) : null;
+      guardarImagenGrandeAnuncio(
+        canal.org_id,
+        a.ad_id,
+        bytes ? guardarArchivo(canal.org_id, `anuncio-hd:${a.ad_id}`, "imagen", bytes) : null,
+      );
+
       if (p.texto) hechos++;
     } catch (e) {
       /*
@@ -492,6 +532,7 @@ export async function completarAnunciosPendientes(canal: Canal, limite = 2): Pro
        */
       console.error(`[anuncio] no se pudo leer la publicación ${a.post_id}`, e);
       guardarPublicacionAnuncio(canal.org_id, a.ad_id, { texto: null, enlace: "(no se pudo leer)" });
+      guardarImagenGrandeAnuncio(canal.org_id, a.ad_id, null);
     }
   }
 

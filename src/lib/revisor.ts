@@ -665,15 +665,25 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
      * el polo. Enseñarle las opciones del catálogo sin pedirle nada sigue
      * valiendo, que es justo cómo se le pregunta cuál quiere.
      */
+    /*
+     * Y PREGUNTAR POR EL CONJUNTO TAMPOCO ES ELEGIR (la dueña, Costa Rica,
+     * 2026-09-08): «¿Cuál es el precio de la ropa?» y la respuesta fue «Indique
+     * su dirección exacta de entrega.». «La ropa» no es un artículo —esta
+     * tienda vende veinte— y sin artículo no hay dirección que pedir.
+     *
+     * Se mira que la pregunta sea POR EL CONJUNTO y que no nombre nada: con
+     * «¿cuánto cuesta el poloche?» el cliente sí eligió, aunque esa palabra no
+     * esté en ninguna lista nuestra, y ahí no se le para nada.
+     */
     if (
       dichoPorElCliente.length > 0 &&
-      dichoPorElCliente.every((t) => SOLO_SALUDA.test(t)) &&
+      dichoPorElCliente.every((t) => SOLO_SALUDA.test(t) || preguntaPorElConjunto(t)) &&
       !ctx.anuncio &&
       !enMarcha &&
       PIDE_UN_DATO_DEL_PEDIDO.test(texto)
     ) {
       fallas.push(
-        "el cliente solo ha saludado, no hay anuncio y todavía no sabes qué artículo quiere: la respuesta ya le pide un dato del pedido. El artículo lo elige él, no lo saques del catálogo. Salúdalo si toca y pregúntale «¿Cuál es el artículo de su interés?», y espera a que conteste",
+        "el cliente solo ha saludado o ha preguntado por lo que vendes en general, no hay anuncio y todavía no sabes qué artículo quiere: la respuesta ya le pide un dato del pedido. El artículo lo elige él, no lo saques del catálogo. Salúdalo si toca y pregúntale «¿Cuál es el artículo de su interés?», y espera a que conteste",
       );
     }
   }
@@ -720,8 +730,18 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
    * precio escrito —ni en el anuncio, ni en el catálogo—, no se inventa: eso sí
    * es motivo de transferencia, y por eso la frase de transferir vale.
    */
+  /*
+   * SALVO CUANDO NO SE SABE DE QUÉ ARTÍCULO PREGUNTA (la dueña, Costa Rica,
+   * 2026-09-08). «¿Cuál es el precio de la ropa?» sin anuncio delante no tiene
+   * una cifra que contestar: la tienda vende veinte cosas a veinte precios. Lo
+   * que toca es saludar y preguntarle cuál le interesa, y esa respuesta —la
+   * correcta— la paraba esta misma regla por no llevar número.
+   */
+  const preguntaQueArticulo = !ctx.anuncio && PREGUNTA_QUE_ARTICULO.test(texto);
+
   if (
     pregunta === "precio" &&
+    !preguntaQueArticulo &&
     importes(texto, d.moneda.simbolo).length === 0 &&
     !HABLA_DE_TRANSFERIR.test(texto) &&
     !contieneMarcador(texto, ctx.marcador ?? MARCADOR_POR_DEFECTO)
@@ -1003,6 +1023,24 @@ const PIDE_CONFIRMAR_EL_PEDIDO =
 const SOLO_SALUDA =
   /^[\s¡!¿?.,·-]*(h+o+l+a+|h+l+o+l+a+|ho+la+s|buen[oa]s?|buenos d[ií]as|buenas (tardes|noches)|saludos|hey|ep[ae]|qu[eé] tal|info|informaci[oó]n|m[aá]s informaci[oó]n|quiero (m[aá]s )?(info|informaci[oó]n)|me interesa|precio|precios|cu[aá]nto (cuesta|vale)|disponible|disponibilidad|buenas)[\s¡!¿?.,·-]*$/i;
 
+/**
+ * PREGUNTAR POR EL CONJUNTO: «¿cuál es el precio de la ropa?», «¿qué precios
+ * tienen?», «¿qué productos venden?». Nombra la tienda entera, no un artículo,
+ * y por eso no cuenta como haber elegido. Si de paso nombra algo concreto —«¿el
+ * precio de la camisa?»— ya no es por el conjunto: ahí sí eligió.
+ */
+function preguntaPorElConjunto(texto: string): boolean {
+  return (
+    /[¿?]|precio|cuanto|cuánto/i.test(texto) &&
+    /\b(ropa|prendas?|art[ií]culos?|productos?|mercanc[ií]a|cat[aá]logo|precios|ofertas?|promociones?)\b/i.test(texto) &&
+    !nombraUnArticulo(texto)
+  );
+}
+
+/** Cómo suena preguntarle al cliente QUÉ quiere. Sin artículo no hay precio que dar. */
+const PREGUNTA_QUE_ARTICULO =
+  /[¿?][^?¿]*\b(qu[eé]|cu[aá]l|cu[aá]les)\b[^?¿]*\b(art[ií]culo|art[ií]culos|producto|productos|modelo|le interesa|te interesa|busca|buscas|desea|deseas)\b[^?¿]*\?/i;
+
 const PIDE_UN_DATO_DEL_PEDIDO =
   /[¿?][^?¿]*\b(talla|tallas|n[uú]mero|numeraci[oó]n|size|color|colores|direcci[oó]n|sector|provincia|cant[oó]n|corregimiento|tel[eé]fono|celular|whatsapp|nombre|a nombre de|d[oó]nde (se lo|lo|le))\b[^?¿]*\?|\bindique su direcci[oó]n\b|\bme (facilita|regala|confirma) su\b/i;
 
@@ -1045,7 +1083,11 @@ export function preguntaDeVarianteSinVariante(borrador: string, ctx: ContextoRev
 
   const coloresDisponibles = new Set(fuentes.match(COLORES_NOMBRADOS) ?? []);
   const llevaColor = esRopaOCalzado && (coloresDisponibles.size >= 2 || /\b(varios|diferentes)\s+colores?\b|\bcolores?\s+disponibles\b/i.test(fuentes));
-  if (PREGUNTA_COLOR.test(b) && !llevaColor) {
+  /*
+   * Con la foto delante sí se pregunta el color aunque el texto del anuncio no
+   * nombre ninguno: el cliente elige entre los que está viendo. Ver `llevaColor`.
+   */
+  if (PREGUNTA_COLOR.test(b) && !llevaColor && !ctx.conFoto) {
     fallas.push(
       "pregunta el color, y ni la descripción del anuncio ni el catálogo dicen que este artículo venga en varios colores: no se pregunta",
     );
