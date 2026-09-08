@@ -912,6 +912,42 @@ test("a un cepillo, un blower o una plancha no se les pregunta talla ni color, s
     "sin talla ni color se pasa a la provincia",
   );
 
+  /*
+   * Y LA FOTO NO LO CONVIERTE EN ELEGIBLE. Desde que el color se pregunta con
+   * la foto delante —para la ropa y el calzado, cuyos colores están en la
+   * imagen y no en el texto—, ese permiso se le colaba también al combo: salía
+   * precioso en la foto y el agente le preguntaba el color. La dueña lo avisó
+   * (2026-09-08). Lo que se vende fijo se vende fijo, se vea como se vea.
+   */
+  for (const anuncio of [
+    "Anuncio: COMBO 2 EN 1 — RD$1,690. Cepillo secador + plancha alisadora.",
+    "Anuncio: ABEJÓN recargable — RD$950.",
+    "Anuncio: Plancha alisadora profesional — RD$1,400.",
+  ]) {
+    const conFoto = { ...combo, anuncio, conFoto: true };
+    assert.ok(
+      revisarConReglas("¿Qué color le interesa?", conFoto).some((f) => f.includes("pregunta el color")),
+      `${anuncio} no lleva color ni con la foto delante`,
+    );
+    assert.ok(
+      revisarConReglas("¿Qué talla le interesa?", conFoto).some((f) => f.includes("talla")),
+      `${anuncio} tampoco lleva talla`,
+    );
+  }
+
+  // A lo que SÍ se elige —zapato, camisa, pantalón— la foto sí le abre el color.
+  for (const anuncio of [
+    "Anuncio: Zapatos de cuero, size 39 al 45 — RD$2,500.",
+    "Anuncio: Camisa manga larga — RD$1,100.",
+    "Anuncio: Pantalón cargo — RD$1,290.",
+  ]) {
+    const conFoto = { ...combo, anuncio, conFoto: true };
+    assert.ok(
+      !revisarConReglas("¿Qué color le interesa?", conFoto).some((f) => f.includes("pregunta el color")),
+      `${anuncio} sí elige color viendo la foto`,
+    );
+  }
+
   const blower = { ...rd, anuncio: "Anuncio: BLOWER PROFESIONAL 2000W, RD$2,500. Secado rápido.", ultimoDelCliente: "Hola" };
   assert.ok(revisarConReglas("¿Qué talla le interesa?", blower).some((f) => f.includes("talla")));
 });

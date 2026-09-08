@@ -1086,8 +1086,14 @@ export function preguntaDeVarianteSinVariante(borrador: string, ctx: ContextoRev
   /*
    * Con la foto delante sí se pregunta el color aunque el texto del anuncio no
    * nombre ninguno: el cliente elige entre los que está viendo. Ver `llevaColor`.
+   *
+   * PERO SOLO A LO QUE SE ELIGE. La foto no convierte en elegible lo que se
+   * vende fijo: un combo de cepillo y plancha, un abejón o una alisadora no
+   * llevan color aunque salgan preciosos en la imagen, y la dueña lo ha pedido
+   * más de una vez. Sin la mitad de `esRopaOCalzado`, este permiso se lo daba
+   * también a ellos.
    */
-  if (PREGUNTA_COLOR.test(b) && !llevaColor && !ctx.conFoto) {
+  if (PREGUNTA_COLOR.test(b) && !llevaColor && !(esRopaOCalzado && ctx.conFoto)) {
     fallas.push(
       "pregunta el color, y ni la descripción del anuncio ni el catálogo dicen que este artículo venga en varios colores: no se pregunta",
     );
