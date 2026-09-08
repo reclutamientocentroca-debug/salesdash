@@ -827,6 +827,49 @@ test("si el cliente pregunta el precio, se le dice antes de seguir", () => {
   );
 });
 
+/**
+ * AQUÍ NO SE RESERVA NADA, Y OFRECERLO ES PEOR QUE PROMETERLO.
+ *
+ * La dueña lo pilló en Costa Rica (2026-09-08): «¿Me confirma si desea que le
+ * reserve una?». El guion lo prohíbe en los tres países, pero el freno miraba
+ * seis frases sueltas —«se lo aparto», «lo reservo»…— y esa forma del verbo no
+ * estaba. Y no era una promesa: era un OFRECIMIENTO, que es peor, porque el
+ * cliente dice que sí y entonces ya hay algo que incumplir.
+ */
+test("reservar, apartar, guardar o separar no sale, se diga como se diga", () => {
+  for (const frase of [
+    "¿Me confirma si desea que le reserve una?",
+    "¿Desea que le reservemos una?",
+    "Se la reservo hasta mañana.",
+    "Con gusto se lo aparto.",
+    "¿Quiere que se la guarde?",
+    "Le puedo apartar una.",
+    "Puedo reservarle una.",
+    "Se la aparto para la quincena.",
+    "Su pedido queda reservado.",
+    "Se lo dejo separado.",
+  ]) {
+    assert.ok(
+      revisarConReglas(frase, cr).some((f) => f.includes("reserva mercancía")),
+      `«${frase}» no puede salir`,
+    );
+  }
+
+  // Y lo que se le parece pero no lo es sigue pasando: parar una respuesta
+  // buena también cuesta la venta.
+  for (const frase of [
+    "Le llega entre 24 y 48 horas.",
+    "Guarde el comprobante, por favor.",
+    "Le hacemos envío y paga al recibir.",
+    "Le anoto la talla M.",
+  ]) {
+    assert.ok(
+      !revisarConReglas(frase, cr).some((f) => f.includes("reserva mercancía")),
+      `«${frase}» sí puede salir`,
+    );
+  }
+});
+
 test("Costa Rica transfiere un artículo desconocido sin anuncio", () => {
   const ctx = { ...cr, anuncio: null, catalogo: "Catálogo:\n- Camisa de lino — ₡15.000", ultimoDelCliente: "Quiero una nevera" };
   assert.equal(

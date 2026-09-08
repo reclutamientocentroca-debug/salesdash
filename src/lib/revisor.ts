@@ -136,7 +136,20 @@ const PROMESAS_PROHIBIDAS: { re: RegExp; falla: string }[] = [
   { re: /env[ií]o gratis|gratis el env[ií]o|sin costo de env[ií]o/i, falla: "ofrece envío gratis" },
   { re: /\bdescuento|\brebaja|\bpromoci[oó]n\b|precio especial|te lo dejo en|se lo dejo en/i, falla: "ofrece un descuento o precio especial" },
   { re: /(le|te) llega (hoy|mañana|pasado mañana|el (lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo))|\bel (lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo) (le|te) (llega|lo recibe|lo tiene)|(le|te) (llega|lo entregamos|lo recibe|lo tiene) (el )?(lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)\b/i, falla: "promete un día de entrega" },
-  { re: /se lo aparto|se lo guardo|te lo aparto|te lo guardo|lo reservo|se lo reservo/i, falla: "reserva mercancía" },
+  /*
+   * RESERVAR, APARTAR, GUARDAR O SEPARAR, EN CUALQUIERA DE SUS FORMAS.
+   *
+   * Aquí había seis frases sueltas —«se lo aparto», «lo reservo»…— y la dueña
+   * pilló la que faltaba en Costa Rica: «¿Me confirma si desea que le RESERVE
+   * una?». Ni siquiera era una promesa: era OFRECERLO, que es peor, porque el
+   * cliente dice que sí y entonces ya hay algo que incumplir. Se cogen los
+   * cuatro verbos con sus terminaciones y con el pronombre delante o pegado
+   * —«se la aparto», «reservarle», «guardársela»—, que es como se dice esto.
+   */
+  {
+    re: /\b(?:le|les|lo|la|los|las|se|te)\b[^.!?¿\n]{0,20}\b(?:reserv|apart|guard|separ)(?:o|a|e|as|es|an|en|amos|emos|ar|ar[eé]|ar[ií]a)\b|\b(?:reservar|apartar|guardar|separar)(?:se)?l[eoa]s?\b|\b(?:reservad|apartad|separad)[oa]s?\b/i,
+    falla: "reserva mercancía",
+  },
   { re: /mand(ar|o)(le|te)? (dos|2) (tallas|modelos|unidades) para (probar|medir)/i, falla: "ofrece mandar dos para probar" },
 ];
 
