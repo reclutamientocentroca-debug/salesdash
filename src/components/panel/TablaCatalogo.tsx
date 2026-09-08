@@ -6,21 +6,66 @@ import { Vacio, dinero } from "./Piezas";
 
 export interface ProductoVista {
   id: number;
+  /** De qué número es. 0 = de toda la cuenta. Ver `listarCatalogo`. */
+  canal_id: number;
   nombre: string;
   variantes: string | null;
   precio: number | null;
   activo: number;
 }
 
+/** Los números conectados, para poder decir de cuál es cada producto. */
+export interface CanalVista {
+  id: number;
+  nombre: string;
+  /** El país en el que vende ese número, si tiene uno puesto. */
+  pais: string | null;
+}
+
 /**
  * El catálogo es lo que el agente vendedor da por cierto. Lo que no esté aquí,
  * no lo promete.
  */
-export default function TablaCatalogo({ productos }: { productos: ProductoVista[] }) {
+export default function TablaCatalogo({
+  productos,
+  canales = [],
+}: {
+  productos: ProductoVista[];
+  canales?: CanalVista[];
+}) {
   const router = useRouter();
-  const [nuevo, setNuevo] = useState({ nombre: "", variantes: "", precio: "" });
+  const [nuevo, setNuevo] = useState({ nombre: "", variantes: "", precio: "", canalId: 0 });
   const [ocupado, setOcupado] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  /*
+   * EL REPARTO SOLO SE ENSEÑA CUANDO HACE FALTA.
+   *
+   * Con un número, «de toda la cuenta» y «de este número» son lo mismo y la
+   * columna sobra. Con varios países empieza a importar de verdad: el precio se
+   * guarda sin moneda, así que un producto de 1690 pesos puesto en la lista de
+   * todos le llega al agente tico como 1.690 colones.
+   */
+  const reparte = canales.length > 1;
+  const paises = new Set(canales.map((c) => c.pais).filter(Boolean));
+  const variosPaises = paises.size > 1;
+  const sueltos = productos.filter((p) => p.canal_id === 0).length;
+
+  const comoSeLlama = (id: number) => {
+    if (id === 0) return "Toda la cuenta";
+    const c = canales.find((x) => x.id === id);
+    if (!c) return "Toda la cuenta";
+    return c.pais ? `${c.nombre} · ${c.pais}` : c.nombre;
+  };
+
+  async function mover(id: number, canalId: number) {
+    await fetch("/api/catalogo", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id, canalId }),
+    });
+    router.refresh();
+  }
 
   async function agregar() {
     if (nuevo.nombre.trim().length < 1) return;
@@ -34,6 +79,7 @@ export default function TablaCatalogo({ productos }: { productos: ProductoVista[
         nombre: nuevo.nombre.trim(),
         variantes: nuevo.variantes.trim() || null,
         precio: nuevo.precio.trim() ? Number(nuevo.precio) : null,
+        canalId: nuevo.canalId,
       }),
     });
     const datos = await r.json();
@@ -43,7 +89,7 @@ export default function TablaCatalogo({ productos }: { productos: ProductoVista[
       setError(datos.error ?? "No se pudo guardar el producto.");
       return;
     }
-    setNuevo({ nombre: "", variantes: "", precio: "" });
+    setNuevo({ nombre: "", variantes: "", precio: "", canalId: nuevo.canalId });
     router.refresh();
   }
 
@@ -89,6 +135,21 @@ export default function TablaCatalogo({ productos }: { productos: ProductoVista[
               value={nuevo.precio} onChange={(e) => setNuevo({ ...nuevo, precio: e.target.value })}
             />
           </div>
+          {reparte && (
+            <div style={{ flex: 1, minWidth: 170 }}>
+              <label className="etiqueta-campo" htmlFor="p-canal">¿De qué número es?</label>
+              <select
+                id="p-canal" className="campo"
+                value={nuevo.canalId}
+                onChange={(e) => setNuevo({ ...nuevo, canalId: Number(e.target.value) })}
+              >
+                <option value={0}>Toda la cuenta</option>
+                {canales.map((c) => (
+                  <option key={c.id} value={c.id}>{comoSeLlama(c.id)}</option>
+                ))}
+              </select>
+            </div>
+          )}
           <button type="button" className="btn btn-primario" onClick={agregar} disabled={ocupado}>
             Agregar
           </button>
@@ -100,6 +161,14 @@ export default function TablaCatalogo({ productos }: { productos: ProductoVista[
           </div>
         )}
       </section>
+
+      {variosPaises && sueltos > 0 && (
+        <div className="aviso" role="status" style={{ marginBottom: 14 }}>
+          Vendes en {paises.size} países y {sueltos === 1 ? "hay 1 producto" : `hay ${sueltos} productos`}{" "}
+          en «Toda la cuenta»: los agentes de los {paises.size} los leen como suyos, con el precio en
+          la moneda de cada uno. Dile a cada producto de qué número es.
+        </div>
+      )}
 
       <section className="tarjeta" style={{ padding: 0, overflow: "hidden" }}>
         {productos.length === 0 ? (
@@ -114,6 +183,7 @@ export default function TablaCatalogo({ productos }: { productos: ProductoVista[
                 <tr>
                   <th style={{ paddingLeft: 17 }}>Producto</th>
                   <th>Variantes</th>
+                  {reparte && <th>Número</th>}
                   <th style={{ textAlign: "right" }}>Precio</th>
                   <th style={{ textAlign: "right", paddingRight: 17 }}>Estado</th>
                 </tr>
@@ -123,6 +193,22 @@ export default function TablaCatalogo({ productos }: { productos: ProductoVista[
                   <tr key={p.id} style={{ opacity: p.activo ? 1 : 0.5 }}>
                     <td style={{ paddingLeft: 17, fontWeight: 600 }}>{p.nombre}</td>
                     <td style={{ color: "var(--ink-2)" }}>{p.variantes ?? "—"}</td>
+                    {reparte && (
+                      <td>
+                        <select
+                          className="campo"
+                          style={{ padding: "4px 8px", fontSize: 12 }}
+                          value={p.canal_id}
+                          onChange={(e) => mover(p.id, Number(e.target.value))}
+                          aria-label={`De qué número es ${p.nombre}`}
+                        >
+                          <option value={0}>Toda la cuenta</option>
+                          {canales.map((c) => (
+                            <option key={c.id} value={c.id}>{comoSeLlama(c.id)}</option>
+                          ))}
+                        </select>
+                      </td>
+                    )}
                     <td style={{ textAlign: "right" }}>{dinero(p.precio)}</td>
                     <td style={{ textAlign: "right", paddingRight: 17 }}>
                       <button

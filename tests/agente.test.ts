@@ -141,6 +141,21 @@ test("Costa Rica sin anuncio saluda y ofrece el catálogo antes de pedir direcci
   assert.match(respuesta.texto, /Camisa de lino/);
   assert.match(respuesta.texto, /Cuál artículo le interesa/);
   assert.doesNotMatch(respuesta.texto, /direcci[oó]n/i);
+
+  /*
+   * Y con el catálogo apagado no se enseña ninguno. Esta bienvenida escribe los
+   * precios en colones, así que un producto que no sea de este número —de otro
+   * país, con otra moneda— sale con el precio mal dicho al cliente.
+   */
+  D.actualizarAgente(costaRicaOrg, { usar_catalogo: 0 }, costaRicaCanal);
+  const sinCatalogo = await generarRespuesta(
+    costaRicaOrg,
+    costaRicaCanal,
+    hiloFalso([{ emisor: "cliente", content: "Hola" }]),
+  );
+  assert.match(sinCatalogo.texto, /Cuál artículo le interesa/);
+  assert.doesNotMatch(sinCatalogo.texto, /Camisa de lino|₡/);
+  D.actualizarAgente(costaRicaOrg, { usar_catalogo: 1 }, costaRicaCanal);
 });
 
 // ── Funciones puras ─────────────────────────────────────────────────────────

@@ -520,7 +520,7 @@ export function revisarAgente(orgId: number, canalId: number): RevisionAgente {
    * precio responde que lo confirma con el equipo. Es la avería más silenciosa
    * de todas, porque el agente parece estar funcionando.
    */
-  const sinCatalogo = agente.usar_catalogo !== 1 || listarCatalogo(orgId, true).length === 0;
+  const sinCatalogo = agente.usar_catalogo !== 1 || listarCatalogo(orgId, true, canalId).length === 0;
   if (sinCatalogo && !agente.conocimiento.trim()) {
     avisos.push(
       "Este número no tiene de dónde sacar precios: ni catálogo ni artículos escritos. El agente " +
@@ -748,6 +748,14 @@ export function textoDeLoQueVende(
   );
 }
 
+/**
+ * La bienvenida tica cuando el cliente escribe sin anuncio: saludo y lo que hay.
+ *
+ * El catálogo que llega aquí es SOLO el de este número —ver `listarCatalogo`—,
+ * y si el dueño lo tiene apagado no se enseña ninguno: esta pantalla escribe
+ * los precios en colones, y un producto de otro país en esa lista es un precio
+ * mal dicho al cliente.
+ */
 function bienvenidaSinAnuncioCR(saludo: string, catalogo: Producto[]): string {
   const activos = catalogo
     .map((p) => {
@@ -1208,7 +1216,7 @@ export async function generarRespuesta(
 ): Promise<RespuestaGenerada> {
   const org = obtenerOrg(orgId);
   const agente = obtenerAgente(orgId, canalId);
-  const catalogo = listarCatalogo(orgId, true);
+  const catalogo = listarCatalogo(orgId, true, canalId);
 
   /*
    * CON QUÉ NOMBRE SE PRESENTA, y de dónde sale.
@@ -1244,7 +1252,10 @@ export async function generarRespuesta(
   if (datosPais && (datosPais.codigo === "do" || datosPais.codigo === "cr") && esPrimeraRespuesta) {
     if (datosPais.codigo === "cr" && !anuncio && !mensajes.some((m) => m.emisor === "ia")) {
       return {
-        texto: bienvenidaSinAnuncioCR(saludoDe(datosPais, agente.nombre, negocio), catalogo),
+        texto: bienvenidaSinAnuncioCR(
+          saludoDe(datosPais, agente.nombre, negocio),
+          agente.usar_catalogo === 0 ? [] : catalogo,
+        ),
         pideAsesor: false,
         // Sin anuncio no hay foto que enseñar: todavía no se sabe qué quiere.
         pideFoto: false,
@@ -2076,7 +2087,7 @@ async function atenderTurno(
       datos: datosPais,
       marcador: org?.marcador_cierre ?? MARCADOR_POR_DEFECTO,
       nombresDeLaCasa: [agente.nombre, agente.negocio, datosPais.nombreAgente ?? "", datosPais.tienda].filter(Boolean),
-      catalogo: textoDeLoQueVende(agente, listarCatalogo(orgId, true)),
+      catalogo: textoDeLoQueVende(agente, listarCatalogo(orgId, true, canalId)),
       anuncio: [anuncioParaModelo(anuncioVigente(conv), datosPais.moneda.simbolo), reglaPrecio].filter(Boolean).join("\n\n") || null,
       ficha: fichaDelHilo(memoriaMensajes, agente.pais),
       clienteCompartioUbicacion: clienteCompartioUbicacion(historial),
@@ -2761,7 +2772,7 @@ export async function enviarSeguimiento(
         datos: datosPais,
         marcador: org?.marcador_cierre ?? MARCADOR_POR_DEFECTO,
         nombresDeLaCasa: [agente.nombre, negocio, datosPais.nombreAgente ?? "", datosPais.tienda].filter(Boolean),
-        catalogo: textoDeLoQueVende(agente, listarCatalogo(orgId, true)),
+        catalogo: textoDeLoQueVende(agente, listarCatalogo(orgId, true, canal.id)),
         anuncio: anuncioParaModelo(anuncioVigente(conv)) || null,
         ficha: fichaDelHilo(historial, agente.pais),
         textosDelCliente: textosDelClienteEnSesion(historial),

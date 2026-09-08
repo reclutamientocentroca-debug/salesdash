@@ -356,6 +356,13 @@ CREATE TABLE IF NOT EXISTS seguimientos (
 CREATE TABLE IF NOT EXISTS catalogo (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   org_id INTEGER NOT NULL REFERENCES orgs(id),
+  /* DE QUE NUMERO ES ESTE PRODUCTO. 0 = de toda la cuenta, que es como nacio
+     el catalogo y lo que sigue valiendo para quien vende en un solo pais.
+     Una cuenta con tres paises tiene tres monedas y tres listas de precios, y
+     con el catalogo colgado de la cuenta el agente de Costa Rica leia el combo
+     dominicano de 1690 como 1690 COLONES y se lo ofrecia. Un producto es de un
+     numero o es de todos, y eso lo dice esta columna. */
+  canal_id INTEGER NOT NULL DEFAULT 0,
   nombre TEXT NOT NULL,
   variantes TEXT,
   precio REAL,
@@ -580,6 +587,13 @@ function migrar(conexion: DB): void {
   }
 
   // canales: el nombre del negocio tal y como lo ve el cliente.
+  /*
+   * El catálogo pasa a ser de un número. Lo que ya está se queda «de toda la
+   * cuenta» (0): en una cuenta de un solo país eso es exactamente lo de antes,
+   * y en una de varios la dueña reparte los productos desde Productos.
+   */
+  agregarColumna("catalogo", "canal_id", "INTEGER NOT NULL DEFAULT 0");
+
   if (!columnas("canales").includes("negocio")) {
     conexion.exec(`ALTER TABLE canales ADD COLUMN negocio TEXT`);
   }
@@ -1378,7 +1392,10 @@ export interface Agente {
 }
 
 export interface Producto {
-  id: number; org_id: number; nombre: string;
+  id: number; org_id: number;
+  /** De qué número es. 0 = de toda la cuenta, que es lo que vale para todos. */
+  canal_id: number;
+  nombre: string;
   variantes: string | null; precio: number | null; activo: number;
 }
 
@@ -2774,24 +2791,39 @@ export function registrarSeguimiento(
   return r.changes > 0;
 }
 
-export function listarCatalogo(orgId: number, soloActivos = false): Producto[] {
+/**
+ * EL CATÁLOGO, Y DE QUIÉN ES.
+ *
+ * Sin `canalId` sale entero: es la pantalla de Productos, donde la dueña ve y
+ * reparte todo lo que vende. Con `canalId` sale lo de ESE número más lo que es
+ * de toda la cuenta, y eso es lo único que puede leer su agente.
+ *
+ * Esa segunda forma existe por una fuga real: con el catálogo colgado de la
+ * cuenta, el agente de Costa Rica leía los productos dominicanos y panameños
+ * —y sus precios, que no llevan moneda escrita— como si fueran suyos, en
+ * colones. Un combo de RD$1,690 le salía al cliente tico como ₡1.690.
+ */
+export function listarCatalogo(orgId: number, soloActivos = false, canalId?: number): Producto[] {
+  const suyos = canalId === undefined ? "" : "AND (canal_id = 0 OR canal_id = ?)";
   return s(
-    `SELECT * FROM catalogo WHERE org_id = ? ${soloActivos ? "AND activo = 1" : ""}
+    `SELECT * FROM catalogo WHERE org_id = ? ${soloActivos ? "AND activo = 1" : ""} ${suyos}
       ORDER BY nombre ASC`,
-  ).all(orgId) as Producto[];
+  ).all(...(canalId === undefined ? [orgId] : [orgId, canalId])) as Producto[];
 }
 
 export function crearProducto(orgId: number, datos: {
   nombre: string; variantes: string | null; precio: number | null;
+  /** De qué número es. Sin decir nada, de toda la cuenta. */
+  canalId?: number;
 }): number {
   const r = s(
-    `INSERT INTO catalogo (org_id, nombre, variantes, precio) VALUES (?, ?, ?, ?)`,
-  ).run(orgId, datos.nombre, datos.variantes, datos.precio);
+    `INSERT INTO catalogo (org_id, canal_id, nombre, variantes, precio) VALUES (?, ?, ?, ?, ?)`,
+  ).run(orgId, datos.canalId ?? 0, datos.nombre, datos.variantes, datos.precio);
   return Number(r.lastInsertRowid);
 }
 
 export function actualizarProducto(orgId: number, id: number, campos: Partial<Producto>): void {
-  const { sql, valores } = armarSet(campos, ["nombre", "variantes", "precio", "activo"]);
+  const { sql, valores } = armarSet(campos, ["nombre", "variantes", "precio", "activo", "canal_id"]);
   if (!sql) return;
   s(`UPDATE catalogo SET ${sql} WHERE org_id = ? AND id = ?`).run(...valores, orgId, id);
 }
@@ -3553,10 +3585,26 @@ export function fijarProductoDeLaFoto(
 ): number {
   const nombre = datos.nombre.trim();
 
+  /*
+   * Y NACE EN EL NÚMERO DE ESA CONVERSACIÓN, no en toda la cuenta.
+   *
+   * El monto que se escribe aquí está en la moneda de ese país. Colgado de la
+   * cuenta, un «Pantalón cargo — 1690» puesto desde República Dominicana le
+   * llegaba al agente tico como 1.690 colones, y además pisaba el pantalón
+   * tico que se llamara igual. Por eso también el duplicado se busca solo
+   * entre lo suyo y lo que es de todos.
+   */
+  const canalId =
+    datos.conversationId === null
+      ? 0
+      : ((s(`SELECT canal_id FROM conversations WHERE org_id = ? AND id = ?`)
+          .get(orgId, datos.conversationId) as { canal_id: number } | undefined)?.canal_id ?? 0);
+
   const tx = db.transaction(() => {
     const existente = s(
-      `SELECT id FROM catalogo WHERE org_id = ? AND lower(trim(nombre)) = lower(?)`,
-    ).get(orgId, nombre) as { id: number } | undefined;
+      `SELECT id FROM catalogo
+        WHERE org_id = ? AND lower(trim(nombre)) = lower(?) AND (canal_id = 0 OR canal_id = ?)`,
+    ).get(orgId, nombre, canalId) as { id: number } | undefined;
 
     let productoId: number;
     if (existente) {
@@ -3565,8 +3613,8 @@ export function fijarProductoDeLaFoto(
       productoId = existente.id;
     } else {
       productoId = Number(
-        s(`INSERT INTO catalogo (org_id, nombre, variantes, precio) VALUES (?, ?, NULL, ?)`)
-          .run(orgId, nombre, datos.precio).lastInsertRowid,
+        s(`INSERT INTO catalogo (org_id, canal_id, nombre, variantes, precio) VALUES (?, ?, ?, NULL, ?)`)
+          .run(orgId, canalId, nombre, datos.precio).lastInsertRowid,
       );
     }
 

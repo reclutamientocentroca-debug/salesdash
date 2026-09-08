@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { actualizarProducto, crearProducto, eliminarProducto, listarCatalogo } from "@/lib/db";
+import { actualizarProducto, crearProducto, eliminarProducto, listarCatalogo, obtenerCanal } from "@/lib/db";
 import { sesionApi } from "@/lib/tenant";
 
 export const runtime = "nodejs";
@@ -16,6 +16,8 @@ const Nuevo = z.object({
   nombre: z.string().trim().min(1, "Ponle nombre al producto").max(120),
   variantes: z.string().trim().max(300).nullable().optional(),
   precio: z.number().nonnegative().nullable().optional(),
+  /** De qué número es. 0 —o nada— es de toda la cuenta. Ver `listarCatalogo`. */
+  canalId: z.number().int().nonnegative().optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -31,6 +33,7 @@ export async function POST(req: NextRequest) {
     nombre: datos.data.nombre,
     variantes: datos.data.variantes ?? null,
     precio: datos.data.precio ?? null,
+    canalId: deLaCuenta(s.ctx.orgId, datos.data.canalId),
   });
 
   return NextResponse.json({ id });
@@ -42,7 +45,20 @@ const Cambio = z.object({
   variantes: z.string().trim().max(300).nullable().optional(),
   precio: z.number().nonnegative().nullable().optional(),
   activo: z.boolean().optional(),
+  canalId: z.number().int().nonnegative().optional(),
 });
+
+/**
+ * El número tiene que ser de ESTA cuenta.
+ *
+ * Sin comprobarlo, un `canalId` escrito a mano en la petición colgaría un
+ * producto del número de otra organización. Lo que no sea suyo —o el 0— se
+ * queda en «de toda la cuenta», que es lo de siempre.
+ */
+function deLaCuenta(orgId: number, canalId: number | undefined): number {
+  if (!canalId) return 0;
+  return obtenerCanal(orgId, canalId) ? canalId : 0;
+}
 
 export async function PATCH(req: NextRequest) {
   const s = await sesionApi();
@@ -51,10 +67,11 @@ export async function PATCH(req: NextRequest) {
   const datos = Cambio.safeParse(await req.json().catch(() => null));
   if (!datos.success) return NextResponse.json({ error: "Revisa los datos" }, { status: 400 });
 
-  const { id, activo, ...resto } = datos.data;
+  const { id, activo, canalId, ...resto } = datos.data;
   actualizarProducto(s.ctx.orgId, id, {
     ...resto,
     activo: activo === undefined ? undefined : activo ? 1 : 0,
+    canal_id: canalId === undefined ? undefined : deLaCuenta(s.ctx.orgId, canalId),
   });
 
   return NextResponse.json({ ok: true });

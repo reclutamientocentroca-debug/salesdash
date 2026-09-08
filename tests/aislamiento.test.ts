@@ -123,6 +123,48 @@ test("A no ve los canales, el catálogo ni las anomalías de B", () => {
   assert.equal(anomalias[0]!.detalle, "AlfaTienda");
 });
 
+/**
+ * Y DENTRO DE UNA CUENTA, CADA PAÍS CON LO SUYO.
+ *
+ * La fuga que la dueña olió (2026-09-08): una cuenta que vende en tres países
+ * tiene tres monedas y tres listas de precios, y el precio se guarda sin moneda.
+ * Con el catálogo colgado de la cuenta, el agente de Costa Rica leía el combo
+ * dominicano de 1690 como suyo —1.690 colones— y se lo ofrecía al cliente tico.
+ * Un producto es de un número, o es de todos, y eso lo dice `canal_id`.
+ */
+test("el catálogo de un país no lo lee el agente de otro", () => {
+  const org = D.crearOrgConDueno({
+    negocio: "Tres países", color: "#111111", nombre: "Dueña",
+    email: `paises-${Date.now()}@p.local`, passwordHash: "x",
+  });
+  const canal = (nombre: string) =>
+    D.crearCanal(org.orgId, {
+      nombre, phone: `1809${Math.random().toString().slice(2, 9)}`,
+      tokenCifrado: "x", webhookSecret: "s", whapiChannelId: null, estado: "conectado",
+    });
+
+  const cr = canal("Costa Rica");
+  const rd = canal("República Dominicana");
+
+  D.crearProducto(org.orgId, { nombre: "Camisa de lino", variantes: "S, M, L", precio: 25000, canalId: cr });
+  D.crearProducto(org.orgId, { nombre: "Combo 2 en 1", variantes: null, precio: 1690, canalId: rd });
+  D.crearProducto(org.orgId, { nombre: "Bolsa de regalo", variantes: null, precio: 500 });
+
+  const nombres = (canalId?: number) =>
+    D.listarCatalogo(org.orgId, true, canalId).map((p) => p.nombre).sort();
+
+  assert.deepEqual(nombres(cr), ["Bolsa de regalo", "Camisa de lino"], "lo suyo y lo de todos");
+  assert.deepEqual(nombres(rd), ["Bolsa de regalo", "Combo 2 en 1"]);
+  // Y la pantalla de Productos sí lo ve todo: es donde la dueña lo reparte.
+  assert.deepEqual(nombres(), ["Bolsa de regalo", "Camisa de lino", "Combo 2 en 1"]);
+
+  // Mover un producto de número lo saca del otro en el acto.
+  const combo = D.listarCatalogo(org.orgId).find((p) => p.nombre === "Combo 2 en 1")!;
+  D.actualizarProducto(org.orgId, combo.id, { canal_id: cr });
+  assert.ok(nombres(cr).includes("Combo 2 en 1"));
+  assert.ok(!nombres(rd).includes("Combo 2 en 1"));
+});
+
 test("A no puede escribir en los datos de B", () => {
   D.actualizarConversacion(A.orgId, B.conversacionId, { total: 999_999 });
   assert.equal(D.getConversation(B.orgId, B.conversacionId)!.total, 1000);

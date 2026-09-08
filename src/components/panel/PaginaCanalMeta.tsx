@@ -82,6 +82,8 @@ export default async function PaginaCanalMeta({ red }: { red: "facebook" | "inst
     enlace: a.enlace && a.enlace.startsWith("http") ? a.enlace : null,
   }));
 
+  // Aquí la dueña vincula anuncios a mano y ve todo lo suyo: el reparto por
+  // número solo acota lo que puede LEER el agente. Ver `listarCatalogo`.
   const productos = listarCatalogo(orgId, true).map((p) => ({ id: p.id, nombre: p.nombre }));
 
   const sinResponder = filas.filter((f) => f.ultimoEmisor === "cliente").length;
