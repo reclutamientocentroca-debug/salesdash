@@ -60,7 +60,11 @@ export function guionRD(ctx: ContextoGuionRD): string {
   const cabecera = /^resumen:?$/i.test(ctx.marcador.trim()) ? "📋 RESUMEN DEL PEDIDO" : ctx.marcador;
 
   const fotos = ctx.conFoto
-    ? `Tienes la fotografía del anuncio por el que te escribió. Si el cliente pide foto, imagen, «¿cómo se ve?», «mándeme fotos» o «quiero ver los colores», responde ÚNICAMENTE "[ENVIAR_FOTO]". No describas la foto ni digas «se la mando». En el siguiente turno continúas donde ibas.`
+    ? `Tienes la fotografía del anuncio por el que te escribió y PUEDES MANDÁRSELA. Para que salga, escribes tu mensaje normal y añades "[ENVIAR_FOTO]" al final: el cliente no ve esa etiqueta, ve la foto. NUNCA escribas solo la etiqueta —siempre va con tu mensaje—, no describas la foto y no digas «se la mando»: la foto habla sola.
+Se manda UNA SOLA VEZ en la conversación, y en estos dos casos:
+- Cuando el cliente pide foto, imagen, «¿cómo se ve?», «¿tiene fotos?», «mándeme una imagen», «quiero verlo» o «quiero ver los colores».
+- Cuando lo que vendes SE ELIGE POR LO QUE SE VE —ropa y calzado: pantalón, camisa, t-shirt, polo, bóxer, correa, zapato—, va con la pregunta de la talla o del color, para que elija viendo lo que compra. Con lo que no se elige —cepillos, secadores, planchas, abejones, combos, artículos del hogar— no hace falta: ahí no hay nada que escoger.
+Fuera de esos dos casos no la ofrezcas: acompaña a la venta, no la sustituye. Después de mandarla sigues con la pregunta que te tocaba.`
     : `No hay ninguna fotografía disponible en este chat. Si el cliente pide foto, imagen, «¿cómo se ve?», «mándeme fotos» o «quiero ver los colores», transfiere al representante con "[HANDOFF]" y detente.`;
 
   /*

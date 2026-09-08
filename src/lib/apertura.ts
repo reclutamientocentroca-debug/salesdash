@@ -170,6 +170,22 @@ export function articuloDeLaDescripcion(descripcion: string, simbolo: string): s
   return articulo;
 }
 
+/**
+ * ¿LA FOTO LE AYUDA A ELEGIR?
+ *
+ * Lo pidió la dueña (2026-09-08): en un pantalón, una camisa o un zapato el
+ * cliente no elige solo una medida —elige el modelo y el color que ve—, y
+ * pedirle la talla de algo que no ha visto es pedirle que compre a ciegas. Con
+ * un cepillo o una plancha no hace falta: no hay nada que escoger.
+ *
+ * Es la misma frontera que decide si se pregunta la talla, y a propósito: lo
+ * que se elige, se enseña.
+ */
+export function laFotoAyudaAElegir(descripcion: string | null | undefined): boolean {
+  const t = descripcion ?? "";
+  return ROPA.test(t) || CALZADO.test(t);
+}
+
 /** La primera pregunta del orden de venta, según lo que sea el artículo. */
 export function primeraPregunta(descripcion: string, d: DatosPais): string {
   const texto = descripcion;

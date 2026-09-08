@@ -19,6 +19,7 @@ import {
   ahora,
   contarRespuestasIa,
   crearAnomalia,
+  guardarAdjuntoAnuncio,
   getConversation,
   hayAnomaliaAbierta,
   huboHumanoReciente,
@@ -41,8 +42,9 @@ import {
   type TipoSeguimiento,
 } from "./db";
 import { descifrar } from "./auth";
+import { leer as leerArchivo } from "./media";
 import { anuncioParaModelo, anuncioVigente, type DatosAnuncio } from "./anuncio";
-import { aperturaSegura, clienteAplazaCompra, fraseDeTransferencia, llevaColor, llevaTalla, nombraUnArticulo, respuestaMinima } from "./apertura";
+import { aperturaSegura, clienteAplazaCompra, fraseDeTransferencia, laFotoAyudaAElegir, llevaColor, llevaTalla, nombraUnArticulo, respuestaMinima } from "./apertura";
 import { esMensajeDeSistema } from "./sistema";
 import { contieneMarcador, MARCADOR_POR_DEFECTO, registrarCierre } from "./cierre";
 import { completar, ErrorIA, hoyISO } from "./ia";
@@ -157,6 +159,12 @@ function pareceDireccionEscrita(texto: string): boolean {
 async function enviarTexto(canalId: number, para: string, texto: string): Promise<string> {
   const { enviarTexto: enviar } = await import("./wa");
   return enviar(canalId, para, texto);
+}
+
+/** Y la imagen, por el mismo camino y con la misma regla: solo este archivo. */
+async function enviarImagenWa(canalId: number, para: string, datos: Buffer): Promise<string> {
+  const { enviarImagen } = await import("./wa");
+  return enviarImagen(canalId, para, datos);
 }
 
 /**
@@ -1134,6 +1142,8 @@ export interface RespuestaGenerada {
   texto: string;
   /** El agente pidió que siga una persona. Ver `PIDE_ASESOR`. */
   pideAsesor: boolean;
+  /** El agente pidió que salga la foto del anuncio. Ver `PIDE_FOTO`. */
+  pideFoto: boolean;
   modelo: string;
   fueRespaldo: boolean;
 }
@@ -1168,6 +1178,11 @@ export async function generarRespuesta(
   memoriaMensajes: Mensaje[] = mensajes,
   /** Zona resuelta desde una dirección escrita, si el geocodificador la encontró. */
   lugarResuelto: string | null = null,
+  /**
+   * ¿Hay una foto del anuncio guardada que se le pueda mandar? Sin esto la
+   * regla de «[ENVIAR_FOTO]» no entra en el prompt: ver `armarSistema`.
+   */
+  conFoto: boolean = false,
 ): Promise<RespuestaGenerada> {
   const org = obtenerOrg(orgId);
   const agente = obtenerAgente(orgId, canalId);
@@ -1209,6 +1224,8 @@ export async function generarRespuesta(
       return {
         texto: bienvenidaSinAnuncioCR(saludoDe(datosPais, agente.nombre, negocio), catalogo),
         pideAsesor: false,
+        // Sin anuncio no hay foto que enseñar: todavía no se sabe qué quiere.
+        pideFoto: false,
         modelo: agente.modelo,
         fueRespaldo: false,
       };
@@ -1224,6 +1241,13 @@ export async function generarRespuesta(
       return {
         texto: apertura,
         pideAsesor: false,
+        /*
+         * Y CON LA FOTO, si lo que se vende se elige. La dueña (2026-09-08):
+         * un pantalón, una camisa o un zapato el cliente los elige por lo que
+         * ve, y este primer mensaje es justo el que le pide la talla. La foto
+         * sale delante y la pregunta detrás, como la enseñaría un vendedor.
+         */
+        pideFoto: conFoto && laFotoAyudaAElegir(anuncio?.descripcion_anuncio),
         modelo: agente.modelo,
         fueRespaldo: false,
       };
@@ -1306,7 +1330,7 @@ export async function generarRespuesta(
             org?.marcador_cierre ?? MARCADOR_POR_DEFECTO,
             cliente,
             ubicacion,
-            false,
+            conFoto,
             // La zona que el cliente escribió EN ESTA SESIÓN, para decirle SU tarifa.
             lugarResuelto ?? lugarEscritoPorElCliente(agenteDePais(agente.pais), mensajesDeLaSesion(mensajes)),
           ) + (reglaPrecio ? `\n\n${reglaPrecio}` : "") + memoria + ficha,
@@ -1327,9 +1351,16 @@ export async function generarRespuesta(
 
   // Los modelos a veces envuelven la respuesta en comillas pese a pedirlo.
   const limpio = r.texto.trim().replace(/^["“](.*)["”]$/s, "$1").trim();
-  const { texto, pideAsesor } = leerEtiquetaDeAsesor(limpio);
+  const { texto: sinAsesor, pideAsesor } = leerEtiquetaDeAsesor(limpio);
+  /*
+   * Y la de la foto, que hasta ahora se leía en ninguna parte: el guion le
+   * pedía al agente escribir «[ENVIAR_FOTO]» y esa etiqueta le llegaba al
+   * cliente tal cual, sin foto detrás. Se quita aquí, como la del asesor, y
+   * quien envía es `atenderTurno`.
+   */
+  const { texto, pideFoto } = leerEtiquetaDeFoto(sinAsesor);
 
-  return { texto, pideAsesor, modelo: r.modelo, fueRespaldo: r.fueRespaldo };
+  return { texto, pideAsesor, pideFoto, modelo: r.modelo, fueRespaldo: r.fueRespaldo };
 }
 
 /**
@@ -1911,6 +1942,20 @@ async function atenderTurno(
    */
   const reglaPrecio = await reglaDePrecio(orgId, conv);
 
+  /*
+   * LA FOTO DEL ANUNCIO, si se guardó cuando entró el lead.
+   *
+   * Solo con ella entra en el prompt la regla de «[ENVIAR_FOTO]»: prometerle
+   * una foto que no existe es peor que no ofrecerla —el cliente dice que sí,
+   * no le llega nada, y el agente queda contestando a una promesa que no puede
+   * cumplir—. Y va UNA vez por sesión: quien ya la vio no la necesita otra vez.
+   */
+  const { fotoDelHilo } = await import("@/lib/meta/contexto-anuncio");
+  const foto = fotoDelHilo(orgId, conv);
+  const fotoYaEnviada = mensajesDeLaSesion(historial).some(
+    (m) => m.emisor === "ia" && m.tipo === "imagen",
+  );
+
   let respuesta: RespuestaGenerada;
   try {
     // `conv` lleva el anuncio que abrió el hilo: producto y promesa. Es lo que
@@ -1924,6 +1969,8 @@ async function atenderTurno(
       { telefono: conv.cliente_phone, nombre: conv.cliente_nombre },
       ubicacion,
       memoriaMensajes,
+      lugarResuelto,
+      !!foto && !fotoYaEnviada,
     );
   } catch (e) {
     /*
@@ -2025,6 +2072,7 @@ async function atenderTurno(
           ubicacion,
           memoriaMensajes,
           lugarResuelto,
+          !!foto && !fotoYaEnviada,
         );
         if (segunda.texto) {
           candidata = segunda.texto;
@@ -2221,6 +2269,42 @@ async function atenderTurno(
   };
 
   /*
+   * LA FOTO DEL ANUNCIO, POR EL CAMINO DE CADA CANAL.
+   *
+   * En Meta viaja un identificador y en WhatsApp viajan bytes: por el socket no
+   * hay URLs que mandar. Y en Meta la primera subida deja un `attachment_id`
+   * que se guarda, porque un anuncio que funciona trae cientos de clientes y la
+   * foto es la misma para todos.
+   *
+   * Devuelve el id del mensaje enviado, o null si no había nada que mandar.
+   */
+  const mandarFoto = async (f: { adId: string; imagen: string; attachmentId: string | null }) => {
+    // En un comentario público no se cuelga una foto: la conversación es el privado.
+    if (conv.superficie === "comentario") return null;
+
+    if (canal.tipo === "meta") {
+      const { enviarImagenMeta } = await import("@/lib/meta/send");
+
+      if (f.attachmentId) {
+        const r = await enviarImagenMeta(canal, conv.cliente_phone, { attachmentId: f.attachmentId });
+        return r.messageId;
+      }
+
+      const archivo = leerArchivo(orgId, f.imagen);
+      if (!archivo) return null;
+
+      const r = await enviarImagenMeta(canal, conv.cliente_phone, { datos: archivo.datos, mime: archivo.mime });
+      // Subida una vez, y ya no se vuelve a subir para nadie más.
+      if (r.attachmentId) guardarAdjuntoAnuncio(orgId, f.adId, r.attachmentId);
+      return r.messageId;
+    }
+
+    const archivo = leerArchivo(orgId, f.imagen);
+    if (!archivo) return null;
+    return enviarImagenWa(canal.id, conv.cliente_jid ?? conv.cliente_phone, archivo.datos);
+  };
+
+  /*
    * EL SALUDO, APARTE — ver `partirEnMensajes`.
    *
    * En la apertura del hilo esta respuesta sale en DOS mensajes: el «hola,
@@ -2331,6 +2415,43 @@ async function atenderTurno(
   }
 
   const enviados: string[] = [];
+
+  /*
+   * LA FOTO VA DELANTE DEL TEXTO.
+   *
+   * Es como la enseña un vendedor: primero lo que se ve y detrás la pregunta
+   * —«¿Qué talla le interesa?»—. Lo pidió la dueña (2026-09-08): un pantalón,
+   * una camisa o un zapato el cliente los elige por la foto, y pedirle la talla
+   * de algo que no ha visto es pedirle que compre a ciegas.
+   *
+   * Que falle la foto NO puede callar la respuesta: se apunta y el texto sale
+   * igual. Un cliente sin foto sigue comprando; uno sin respuesta, no.
+   */
+  if (respuesta.pideFoto && foto && !fotoYaEnviada) {
+    try {
+      const idFoto = await mandarFoto(foto);
+      if (idFoto) {
+        registrarAiSent(orgId, idFoto);
+        insertMessage(orgId, {
+          conversationId,
+          whapiMessageId: idFoto,
+          emisor: "ia",
+          tipo: "imagen",
+          content: "[imagen] Foto del anuncio",
+          mediaUrl: foto.imagen,
+          createdAt: ahora(),
+        });
+      }
+    } catch (e) {
+      console.error(`[agente] no se pudo enviar la foto del anuncio en ${conversationId}`, e);
+      crearAnomalia(orgId, {
+        conversationId,
+        tipo: "envio_fallido",
+        severidad: "media",
+        detalle: "No se pudo enviar la foto del anuncio. La respuesta salió sin ella.",
+      });
+    }
+  }
 
   for (const [i, parte] of partes.entries()) {
     if (i > 0) {

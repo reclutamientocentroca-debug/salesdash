@@ -11,7 +11,7 @@
  * leyó: no hay forma de desdecirlo sin quedar mal. Callar y pasar el hilo es
  * peor experiencia y mejor negocio.
  */
-import { anuncioMetaPorAdId, productoPorId, registrarAnuncioVisto, type Conversacion, type Mensaje } from "@/lib/db";
+import { anuncioMetaPorAdId, fotoDelAnuncio, productoPorId, registrarAnuncioVisto, type Conversacion, type Mensaje } from "@/lib/db";
 import { descripcionUtil, llegoPorAnuncio } from "@/lib/anuncio";
 import { familiasNombradas } from "@/lib/apertura";
 
@@ -337,4 +337,25 @@ export function productoDeLaFotoParaPrompt(orgId: number, conv: Conversacion): s
     "ESE es el artículo por el que preguntó en esta conversación: véndeselo con ese nombre y ese precio, aunque llegara por otro anuncio. Ya no transfieres por esa foto ni le dices que no lo tienes.",
     "Si sigue interesado en el del anuncio, también se lo vendes: el que él diga. Y si te enseña un TERCER artículo del que aquí no hay nombre ni precio, ese sí: dile que un representante le pasa la información y escribe \"[HANDOFF]\".",
   ].join("\n");
+}
+
+/**
+ * LA FOTO DEL ANUNCIO POR EL QUE ESCRIBIÓ ESTE CLIENTE, LISTA PARA MANDAR.
+ *
+ * Es la imagen que se descargó y se guardó cuando entró el lead —ver la entrada
+ * en `ingesta.ts`—, no la URL de Meta, que caduca. Devuelve null cuando el hilo
+ * no viene de un anuncio o cuando esa imagen no llegó a guardarse: prometerle
+ * una foto que no existe es peor que no ofrecerla.
+ *
+ * `attachmentId` es el identificador de Meta si ya se subió alguna vez; con él
+ * la misma foto no se vuelve a subir aunque la pidan cien clientes.
+ */
+export function fotoDelHilo(
+  orgId: number,
+  conv: Conversacion,
+): { adId: string; imagen: string; attachmentId: string | null } | null {
+  if (!conv.meta_ad_id) return null;
+  const foto = fotoDelAnuncio(orgId, conv.meta_ad_id);
+  if (!foto?.imagen) return null;
+  return { adId: conv.meta_ad_id, imagen: foto.imagen, attachmentId: foto.attachment_id };
 }
