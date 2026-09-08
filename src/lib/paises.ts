@@ -77,10 +77,15 @@ export interface Pais {
   /**
    * CON QUÉ ABRE LA CONVERSACIÓN, que es la única frase que sale siempre.
    *
-   * No es lo mismo en los tres y por eso vive aquí: en Santo Domingo y en San
-   * José se abre con «Saludos cordiales» y el nombre de quien atiende, y en
-   * Panamá con el «Hola, le asiste X de Tienda», que lleva la tienda delante.
-   * Cambiarlo en un país no puede cambiárselo a los otros dos.
+   * No es lo mismo en los tres y por eso vive aquí: Santo Domingo abre con la
+   * tienda, San José con el nombre de quien atiende y Panamá con el «Hola, le
+   * asiste X de Tienda», que lleva la tienda delante. Cambiarlo en un país no
+   * puede cambiárselo a los otros dos.
+   *
+   * Y tiene que decir LO MISMO que el archivo del país (`src/agents/paises`),
+   * que es de donde sale el saludo que se le manda al modelo: de aquí sale el
+   * ejemplo que el panel le enseña al dueño, y un ejemplo que no coincide con
+   * lo que el cliente lee enseña a no fiarse del panel.
    *
    * `<agente>` es el nombre que el dueño puso en el panel y `<negocio>` el de
    * la tienda. Van con marcador y NUNCA con un nombre escrito: un nombre propio
@@ -158,7 +163,8 @@ const REPUBLICA_DOMINICANA: Pais = {
   husoHorario: "America/Santo_Domingo",
   tratamiento:
     "Se tutea con naturalidad, incluso vendiendo. El usted suena distante salvo con gente mayor.",
-  saludo: "Saludos cordiales 👋\nLe asiste <agente>.",
+  // El mismo de `src/agents/paises/rd.ts`, que es el que lee el cliente.
+  saludo: "Hola! Bienvenido(a) a <negocio>. Gracias por escribirnos.",
   expresiones: [
     "«dime» o «dime a ver» para invitar a que sigan hablando",
     "«a la orden» al despedirse o al confirmar",
@@ -256,7 +262,8 @@ const COSTA_RICA: Pais = {
   tratamiento:
     "Se habla de USTED casi siempre, incluso con confianza; el vos aparece entre conocidos. " +
     "Tutear suena a extranjero.",
-  saludo: "Saludos cordiales 👋\nLe asiste <agente>.",
+  // El mismo de `src/agents/paises/cr.ts`, que es el que lee el cliente.
+  saludo: "Hola, le asiste <agente>, un gusto.",
   expresiones: [
     "«con mucho gusto» en lugar de «de nada»: es la muletilla nacional",
     "«pura vida» para saludar, agradecer y despedirse",
@@ -491,7 +498,8 @@ export function bloqueDePais(pais: Pais): string {
       "color de la casa ni la calle de al lado. Solo vuelves a preguntar si de verdad no se puede " +
       "entregar ahí —falta la provincia o la zona, o te dijeron únicamente el nombre de una " +
       "ciudad— y entonces pides EXACTAMENTE el dato que falta, no la dirección otra vez. Si te " +
-      "mandan la ubicación por el mapa, con eso basta: pide como mucho el número de casa.",
+      "mandan la ubicación por el mapa, esa ES su dirección y con eso basta: ni el número de casa " +
+      "ni el apartamento ni la seña de la puerta se preguntan.",
     "",
     `Cómo llegan los pedidos en este país:\n${pais.entrega.map((e) => `- ${e}`).join("\n")}`,
     `Con qué paga la gente aquí:\n${pais.pagos.map((e) => `- ${e}`).join("\n")}`,

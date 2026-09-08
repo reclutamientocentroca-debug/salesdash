@@ -228,25 +228,32 @@ export function ubicacionParaModelo(u: UbicacionValidada, nombrePais: string | n
   }
 
   /*
-   * CONFIRMAR LO QUE YA SE SABE Y PEDIR SOLO LO QUE FALTA.
+   * EL PIN ES LA DIRECCIÓN, Y NO SE LE PIDE NADA MÁS.
    *
    * Esta es la diferencia entre una conversación de un mensaje y una de cinco.
-   * El cliente cree que mandando el pin ya dio su dirección —y casi la dio—;
-   * volver a pedirsela entera le dice que no sirvió de nada.
+   * El cliente cree que mandando el pin ya dio su dirección —y la dio—; volver
+   * a pedirle un dato más le dice que no sirvió de nada.
    *
-   * Lo que un pin NUNCA trae es el número de casa, el apartamento y la seña con
-   * la que el mensajero reconoce la puerta. Eso sí hay que pedirlo, y es lo
-   * único.
+   * Aquí se pedía «lo que un mapa no puede dar»: el número de casa, el
+   * apartamento y la seña de la puerta. Sonaba razonable y costaba ventas: la
+   * dueña de República Dominicana lo paró con un caso delante —«Perfecto, Los
+   * Coquitos. ¿Me puede decir el número de casa o apartamento y alguna seña
+   * para reconocer la puerta?»— y es lo que los tres países ya decían en su
+   * bloque: se da por buena, se dice el envío y se sigue. Lo caro no es una
+   * dirección con menos detalle: es la venta que se pierde pidiéndolo, y el
+   * mensajero llama por teléfono, que sí se pide.
    */
   const sitio = d?.barrio ?? d?.distrito ?? u.zona?.nombre ?? null;
 
   lineas.push(
     (sitio
-      ? `Confírmale la zona con naturalidad —algo como «perfecto, ${sitio}»— y NO le vuelvas a preguntar dónde vive ni le pidas la dirección entera: ya te la dio. `
-      : "No le vuelvas a preguntar la dirección entera: el pin ya sitúa la zona. ") +
-      "Lo único que te falta es lo que un mapa no puede darte: el número de casa o de apartamento y " +
-      "una seña para reconocer la puerta —el color, un negocio al lado, algo que se vea—. Pídeselo " +
-      "en una sola pregunta.",
+      ? `Confírmale la zona con naturalidad —algo como «perfecto, ${sitio}»—. `
+      : "") +
+      "ESA ES SU DIRECCIÓN: la das por buena y NO le pides ni un dato más de ella. Nada de " +
+      "preguntarle el número de casa, el apartamento, el piso, una seña para reconocer la puerta, " +
+      "el color de la casa ni un punto de referencia, y nada de pedirle que la confirme o que la " +
+      "repita escrita. Le dices de una vez cuánto le sale el envío a esa zona y sigues con el dato " +
+      "que falte del pedido.",
   );
 
   return lineas.join("\n");

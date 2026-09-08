@@ -16,10 +16,14 @@ export const CR: DatosPais = {
 
   // ── Identidad ──────────────────────────────────────────────────────────
   tienda: "TELLERIA",
-  // El nombre de quien atiende es el que diga el panel («Nombre del agente»).
-  nombreAgente: null,
-  // El de la dueña (2026-09-05), primera línea de su guion (`cr-guion.ts`).
-  saludo: "Hola! Bienvenido(a) a <negocio>. Gracias por escribirnos.",
+  // Quien atiende en Costa Rica, y va en el saludo: con el nombre aquí, lo que
+  // diga «Nombre del agente» en el panel ya no cambia la primera línea.
+  nombreAgente: "Mildred",
+  // La dueña (2026-09-07). Antes abría con la tienda —«Bienvenido(a) a
+  // TELLERIA»—, y en un canal sin país puesto salía el saludo neutro con el
+  // nombre del perfil de la página detrás: «le asiste Asistent de Roplis cr.
+  // Telleria Pal.». Se presenta la persona, y punto.
+  saludo: "Hola, le asiste <agente>, un gusto.",
   trato: "usted",
 
   // ── Moneda ─────────────────────────────────────────────────────────────
@@ -213,7 +217,7 @@ export const CR: DatosPais = {
     zapatoEn: "numeración europea (de la 39 a la 45)",
     conTallaYColor: [],
     // Cepillos y abejones: la dueña (2026-09-05), «sin talla ni color, no las preguntes».
-    sinTallaNiColor: ["Cepillos", "Abejones", "Planchas", "Mochilas", "Bolsos", "Carteras", "Gorras", "Relojes", "Accesorios"],
+    sinTallaNiColor: ["Cepillos", "Abejones", "Planchas", "Fajas", "Mochilas", "Bolsos", "Carteras", "Gorras", "Relojes", "Accesorios"],
     // Una plancha, un electrodoméstico o cualquier cosa que no sea ropa ni
     // calzado: no se pide talla ni color, solo se ofrece y se vende.
     soloRopaYCalzado: true,

@@ -32,6 +32,9 @@
  * leído se convierte en un paquete a la casa equivocada.
  */
 import { agenteDePais, zonaDelCliente, type DatosPais } from "@/agents";
+import { reColores } from "@/agents/base-comportamiento";
+import { nombraUnArticulo } from "./apertura";
+import { nombresDeLugar } from "./envio";
 import { esUbicacion } from "./ubicacion";
 
 export interface FichaDelPedido {
@@ -82,9 +85,50 @@ export function inicioDeSesion(mensajes: MensajeDeMemoria[], horas = SESION_HORA
     const previo = mensajes[i - 1]!;
     if (m.emisor !== "cliente") continue;
     if (m.created_at === undefined || previo.created_at === undefined) continue;
-    if (m.created_at - previo.created_at > horas * 3600) inicio = i;
+    // Un cliente que CONTESTA lo que se le preguntó no vuelve: termina de
+    // contestar. Ver `contestaLaPreguntaPendiente`.
+    if (m.created_at - previo.created_at > horas * 3600 && !contestaLaPreguntaPendiente(previo, m)) inicio = i;
   }
   return inicio;
+}
+
+/** La última pregunta de un mensaje del agente. Null si no preguntó nada. */
+function ultimaPregunta(contenido: string): string | null {
+  const preguntas = contenido
+    .split(/(?<=[?.!\n])/)
+    .map((f) => f.trim())
+    // Una petición en imperativo («Indique su dirección exacta de entrega.») también pregunta.
+    .filter((f) => (f.endsWith("?") || /^(indique|ind[ií]queme|me indica|d[ií]game|escr[ií]bame)\b/i.test(f)) && f.length >= 6);
+  return preguntas[preguntas.length - 1] ?? null;
+}
+
+/**
+ * QUÉ DATO DEJÓ PEDIDO EL AGENTE EN SU ÚLTIMO MENSAJE. Null si no pidió
+ * ninguno —o si el mensaje anterior no es suyo—. Lo que el cliente escriba
+ * debajo contesta a ESE dato: ver `fichaDe`.
+ */
+function campoPendiente(previo: MensajeDeMemoria | undefined): CampoDelPedido | null {
+  if (!previo || previo.emisor !== "ia") return null;
+  const pregunta = ultimaPregunta(previo.content);
+  return pregunta ? campoDeLaPregunta(pregunta) : null;
+}
+
+/**
+ * ¿ESTE MENSAJE CONTESTA LA PREGUNTA QUE EL AGENTE DEJÓ ABIERTA?
+ *
+ * El caso real de República Dominicana: al cliente se le preguntó la talla,
+ * contestó «XXL» al día siguiente, y como habían pasado más de doce horas el
+ * hilo empezó de cero: se perdió la talla y le salió el saludo entero por
+ * segunda vez, palabra por palabra. Un «XXL» a las catorce horas no es un
+ * cliente que vuelve a escribir: es el que termina de contestar, y la venta
+ * sigue donde estaba.
+ */
+export function contestaLaPreguntaPendiente(previo: MensajeDeMemoria, mensaje: MensajeDeMemoria): boolean {
+  if (previo.emisor !== "ia" || mensaje.emisor !== "cliente") return false;
+  const pregunta = ultimaPregunta(previo.content);
+  if (!pregunta) return false;
+  const campo = campoDeLaPregunta(pregunta);
+  return !!campo && contestaDeVerdad(campo, mensaje.content);
 }
 
 /** Los mensajes de la sesión actual. Ver `inicioDeSesion`. */
@@ -135,10 +179,178 @@ export function campoDeLaPregunta(pregunta: string): CampoDelPedido | null {
 const APERTURA =
   /\b(informaci[oó]n|\binfo\b|quiero saber|me interesa|disponible|precio|cu[aá]nto (cuesta|vale|es)|hola|buenas|buenos d[ií]as|buenas tardes|buenas noches|negocio|anuncio|catalogo|cat[aá]logo|gracias)\b/i;
 
+/**
+ * LO QUE NO ESCRIBIÓ EL CLIENTE. Una foto, una nota de voz o un audio que no
+ * se entendió llegan al hilo como un marcador entre corchetes —«[imagen]»,
+ * «[nota de voz]», «[audio ininteligible]»—. El caso real: se le preguntó la
+ * talla, mandó una nota de voz que no se entendía, y «[audio ininteligible]»
+ * se guardó en la ficha COMO SU TALLA. El agente leyó la ficha y le contestó
+ * «Perfecto, ya me llegó su talla. ¿Qué color prefiere?». Eso no es un dato:
+ * es el hueco que dejó algo que no se pudo leer.
+ */
+const MARCADOR_SIN_PALABRAS = /^\[[^\]]*\]$/;
+
+/**
+ * ¿ESTO PARECE UNA DIRECCIÓN? El caso real, y el más caro de todos: a
+ * «Indique su dirección exacta de entrega.» el cliente contestó «Si yo.le
+ * escomprado», y eso se guardó como su dirección y salió en el resumen del
+ * pedido, con su envío y su total. Un paquete a una casa que no existe.
+ *
+ * Vale como dirección un sitio del país, algo con un número —«Calle 3 #12»— o
+ * una seña de las que se dan por aquí. Lo que no, se vuelve a preguntar: una
+ * pregunta de más no cuesta nada; un envío perdido, sí.
+ */
+const SEÑAS_DE_DIRECCION = new RegExp(
+  "\\b(calle|call?e?j[oó]n|avenida|av|ave|carretera|autopista|km|kil[oó]metro|sector|barrio|residencial|" +
+    "urbanizaci[oó]n|condominio|edificio|apto|apartamento|torre|manzana|mz|solar|casa|villa|reparto|ensanche|" +
+    "proyecto|frente a|al lado de|detr[aá]s de|esquina|entrada|pr[oó]ximo a|cerca de|iglesia|colmado|parque|" +
+    "plaza|escuela|liceo|hospital|banco|supermercado|" +
+    /*
+     * Y LAS SEÑAS DE COSTA RICA, donde no hay calle ni número: la dirección se
+     * da desde un punto conocido —«200 metros norte de la pulpería, portón
+     * verde»— y sin estas palabras esa dirección no se reconocía como tal, así
+     * que se le volvía a pedir a un cliente que ya la había dado.
+     */
+    "pulper[ií]a|abastecedor|gasolinera|bomba|ferreter[ií]a|panader[ií]a|soda|cl[ií]nica|ebais|sal[oó]n comunal|" +
+    "cancha|r[oó]tulo|port[oó]n|tapia|sem[aá]foro|contiguo|diagonal|costado|metros? (al )?(norte|sur|este|oeste)|" +
+    "cuadras?)\\b",
+  "i",
+);
+
+export function pareceDireccion(texto: string, datos: DatosPais | null = null): boolean {
+  const t = texto.trim();
+  if (t.length < 6) return false;
+  // Un sitio del país es dirección aunque venga solo: «Los Alcarrizos».
+  if (datos && zonaDelCliente(datos, t) !== null) return true;
+  if (SEÑAS_DE_DIRECCION.test(t)) return true;
+  // «Calle 3 #12» sin la palabra «calle»: un número y algo más.
+  return /\d/.test(t) && t.split(/\s+/).length >= 2;
+}
+
+/** ¿Esto parece un color? Uno de los que la casa reconoce, y no una frase. */
+export function pareceColor(texto: string): boolean {
+  return reColores().test(texto.trim());
+}
+
+/**
+ * ¿ESTO PARECE UNA TALLA? Que lleve una talla dentro: una letra de las de la
+ * tabla o un número de los que se calzan o se visten. El cliente contesta
+ * «la 42», «talla M» o «XXL» en una nota de voz, y todo eso es su talla;
+ * «Para cuando» no lo es, y hasta ahora se guardaba igual.
+ */
+export function pareceTalla(texto: string): boolean {
+  const t = llano(texto).replace(/\(nota de voz\)/g, " ").trim();
+  if (!t || t.length > 25) return false;
+  const letra = /(^|[^\p{L}\p{N}])(x{0,3}s|m|l|x{1,3}l|unica)([^\p{L}\p{N}]|$)/u;
+  const numero = /(^|\D)\d{1,2}(\.5)?(\D|$)/;
+  return letra.test(t) || numero.test(t);
+}
+
+/**
+ * ¿ESTO ES EL NOMBRE DE UNA PERSONA?
+ *
+ * El nombre del pedido es el que el cliente DA, no lo que escriba mientras se
+ * lo preguntan. En la línea «Nombre:» va la persona que recibe el paquete y
+ * firma: si ahí acaba una frase suya, un lugar, un color o el propio artículo,
+ * el mensajero llega con un paquete a nombre de nadie.
+ *
+ * Se lee como lo leería una persona: son una a cuatro palabras de letras, no
+ * son palabras corrientes del idioma, no son un sitio del país, ni un color,
+ * ni lo que se vende. Lo que no lo parece se vuelve a preguntar.
+ */
+const PALABRA_QUE_NO_ES_NOMBRE =
+  /^(s[ií]|no|ok|okey|okay|vale|claro|dale|listo|perfecto|gracias|hola|buenas|buenos|d[ií]as?|tardes?|noches?|favor|por|para|con|sin|que|qu[eé]|cual|cu[aá]l|cuando|cu[aá]ndo|cuanto|cu[aá]nto|como|c[oó]mo|donde|d[oó]nde|porque|pero|yo|me|mi|tu|su|el|la|lo|los|las|un|una|unos|unas|del|de|y|o|es|soy|era|esta|est[aá]|estoy|ya|eso|esa|ese|esta|aqui|aqu[ií]|alli|all[ií]|ahora|luego|hoy|ma[ñn]ana|ayer|bien|mal|mas|m[aá]s|menos|todo|nada|algo|alguien|quiero|puedo|tengo|necesito|env[ií]o|envio|precio|talla|color|numero|n[uú]mero|direccion|direcci[oó]n|pedido|producto|articulo|art[ií]culo|pago|pagar|efectivo|dinero|cuenta|whatsapp|telefono|tel[eé]fono|celular|casa|calle|sector|provincia|zona|dios|amen|am[eé]n|se[ñn]or|se[ñn]ora|don|do[ñn]a|mismo|misma|igual|igualmente|tambien|tambi[eé]n|solo|s[oó]lo|correcto|exacto|saludos|bendiciones|abrazo|abrazos|enviar|env[ií]elo|mande|m[aá]ndelo|espere|esperando)$/i;
+
+/**
+ * LO QUE SE DICE AQUÍ Y NO ES UN NOMBRE.
+ *
+ * EL CASO REAL DE COSTA RICA: «¿A nombre de quién sale el pedido?» → «Pura
+ * vida», y el pedido salió a nombre de Pura vida. Aquí «pura vida» es hola,
+ * gracias y adiós a la vez, así que un cliente la escribe en cualquier turno,
+ * también cuando le preguntan cómo se llama. Y con ella «mae», «diay»,
+ * «tuanis», «a la orden», «ahorita», «xopá».
+ *
+ * No hace falta una lista nueva: cada país ya trae las suyas escritas entre
+ * comillas en su archivo (`habla.expresiones`), que es donde el dueño las
+ * edita. Si mañana añade una, deja de ser un nombre el mismo día.
+ */
+function expresionesDelPais(datos: DatosPais | null): string[] {
+  return (datos?.habla?.expresiones ?? []).flatMap((e) =>
+    [...e.matchAll(/«([^»]+)»/g)].map((m) => llano(m[1]!).trim()),
+  );
+}
+
+/**
+ * ¿ESTE TEXTO ES, ENTERO, UN SITIO DEL PAÍS?
+ *
+ * EL CASO REAL DE COSTA RICA, y el que le quitó la memoria al agente: «¿A
+ * nombre de quién sale el pedido?» → «María Jiménez», y el nombre se tiraba a
+ * la basura porque Jiménez es un cantón de Cartago. Con él se caían Acosta,
+ * Mora, Alvarado, Flores, Osa, Corredores, Grecia y media guía telefónica del
+ * país: el cliente daba su nombre, la ficha lo rechazaba, y el agente se lo
+ * volvía a preguntar en el siguiente mensaje, y en el siguiente. Lo mismo en
+ * República Dominicana con Duarte y con Santiago.
+ *
+ * Un apellido que además es un cantón no convierte a una persona en un lugar.
+ * Lo que no es un nombre es el texto que ES el lugar y nada más —«Villa
+ * Mella», «Los Alcarrizos»—, así que aquí se compara el texto ENTERO con los
+ * nombres de sitio del país, no se busca uno dentro.
+ */
+function esLugarEntero(datos: DatosPais, texto: string): boolean {
+  const t = llano(texto).replace(/\s+/g, " ").trim();
+  if (!t) return false;
+  const entradas = [
+    ...datos.envio.zonas.flatMap((z) => [z.nombre, ...z.lugares]),
+    ...(datos.envio.restoDelPais.lugares ?? []),
+    ...datos.mapa.regiones.flatMap((r) => r.lugares),
+  ];
+  return entradas.flatMap(nombresDeLugar).some((l) => llano(l).replace(/\s+/g, " ").trim() === t);
+}
+
+/** Lo que el cliente pone delante de su nombre: «me llamo…», «soy…». */
+const ANTES_DEL_NOMBRE = /^(me llamo|mi nombre es|el nombre es|a nombre de|es de|soy|es)\s+/i;
+
+/** Lo que une un nombre y no cuenta como palabra: «María del Carmen». */
+const PARTICULA = /^(de|del|la|las|los|y|e|da|das|di|do|dos|van|von|mac|mc|san|santa|santo)$/i;
+
+export function pareceNombreDePersona(texto: string, datos: DatosPais | null = null): boolean {
+  const t = texto.trim().replace(ANTES_DEL_NOMBRE, "").trim();
+  if (!t) return false;
+  const palabras = t.split(/\s+/);
+  const utiles = palabras.filter((p) => !PARTICULA.test(p));
+  // Un nombre son de una a cuatro palabras de letras: ni frases, ni números, ni signos.
+  if (!utiles.length || utiles.length > 4 || !/^[\p{L}][\p{L}'’.\- ]*$/u.test(t)) return false;
+  // Y no empieza por una partícula: «Los Alcarrizos» es un sitio, no una persona.
+  if (PARTICULA.test(palabras[0]!)) return false;
+  /*
+   * Ni un saludo ni el artículo que se está vendiendo. Un color NO descalifica:
+   * Rosa, Violeta y Perla son nombres de aquí antes que colores, y rechazarlos
+   * sería volver a preguntarle el nombre a alguien que ya lo dio.
+   */
+  if (APERTURA.test(t) || nombraUnArticulo(t)) return false;
+  // Ni una expresión de las de aquí: «Pura vida» es un saludo, no una persona.
+  if (expresionesDelPais(datos).includes(llano(t))) return false;
+  /*
+   * Ni un sitio del país, y solo cuando el texto ENTERO es ese sitio: «Los
+   * Alcarrizos» y «Villa Mella» son sitios y no personas, pero «María
+   * Jiménez», «Carlos Acosta» o «Juan Duarte» son personas aunque su apellido
+   * sea además un cantón o una provincia. Ver `esLugarEntero`.
+   */
+  if (datos && palabras.length >= 2 && esLugarEntero(datos, t)) return false;
+  return utiles.every((p) => !PALABRA_QUE_NO_ES_NOMBRE.test(p));
+}
+
+/** El nombre que se guarda de una contestación: sin el «me llamo» de delante. */
+function nombreDe(texto: string): string | null {
+  const t = texto.trim().replace(ANTES_DEL_NOMBRE, "").trim();
+  return t || null;
+}
+
 /** ¿Esto parece una contestación a ESE dato, y no otra cosa? */
-function contestaDeVerdad(campo: CampoDelPedido, texto: string): boolean {
+function contestaDeVerdad(campo: CampoDelPedido, texto: string, datos: DatosPais | null = null): boolean {
   const t = texto.trim();
   if (!t || t.includes("?")) return false;
+  if (MARCADOR_SIN_PALABRAS.test(t)) return false;
   const l = llano(t);
   if (campo === "celular") return true;
   if (/^(ok|okey|vale|si|s[ií]|no|hola|gracias|listo|perfecto|bien|claro)\b[.!]*$/.test(l)) return false;
@@ -147,16 +359,15 @@ function contestaDeVerdad(campo: CampoDelPedido, texto: string): boolean {
   const palabras = t.split(/\s+/).length;
   switch (campo) {
     case "nombre":
-      // Un nombre son de una a cuatro palabras de letras: ni frases ni números.
-      return palabras <= 4 && /^[\p{L}][\p{L}'’.\- ]*$/u.test(t);
+      return pareceNombreDePersona(t, datos);
     case "talla":
-      return t.length <= 25;
+      return pareceTalla(t);
     case "color":
-      return t.length <= 40;
+      return pareceColor(t);
     case "cantidad":
       return /\d|\b(un[oa]?|dos|tres|cuatro|cinco|seis|par|pares)\b/i.test(t);
     case "direccion":
-      return palabras >= 2 || t.length >= 8;
+      return pareceDireccion(t, datos);
   }
 }
 
@@ -206,9 +417,27 @@ function fichaDe(sesion: MensajeDeMemoria[], datos: DatosPais | null): FichaDelP
 
   for (const [i, m] of sesion.entries()) {
     if (m.emisor === "cliente") {
+      /*
+       * LO QUE CONTESTA UNA PREGUNTA ES DE ESA PREGUNTA, Y DE NINGUNA OTRA.
+       *
+       * EL CASO REAL DE COSTA RICA: a «¿A nombre de quién sale el pedido?» el
+       * cliente contestó «María Jiménez», y ese nombre se guardó COMO SU
+       * DIRECCIÓN —Jiménez es un cantón de Cartago—, pisando la dirección que
+       * ya había dado. Aquí solo se leen los datos que el cliente ADELANTA sin
+       * que se los pidan; lo que contesta a una pregunta lo empareja la
+       * lectura de más abajo, que sí sabe de qué dato se trata.
+       */
+      const abierta = campoPendiente(sesion[i - 1]);
+
       // Un sitio del país escrito por él es su dirección hasta que dé otra.
       // «¿Envían a Las Matas de Farfán?» es una pregunta, no su dirección.
-      if (datos && !APERTURA.test(m.content) && !m.content.includes("?") && zonaDelCliente(datos, m.content) !== null) {
+      if (
+        datos &&
+        (abierta === null || abierta === "direccion") &&
+        !APERTURA.test(m.content) &&
+        !m.content.includes("?") &&
+        zonaDelCliente(datos, m.content) !== null
+      ) {
         ficha.direccion = m.content.trim().slice(0, 160);
       }
       // Un número de teléfono suelto es el celular.
@@ -226,31 +455,31 @@ function fichaDe(sesion: MensajeDeMemoria[], datos: DatosPais | null): FichaDelP
     // contesta igual, y ese dato es del pedido.
     if (m.emisor !== "ia" && m.emisor !== "humano") continue;
 
-    const preguntas = m.content
-      .split(/(?<=[?.!\n])/)
-      .map((f) => f.trim())
-      // Una petición en imperativo («Indique su dirección exacta de entrega.») también pregunta.
-      .filter((f) => (f.endsWith("?") || /^(indique|ind[ií]queme|me indica|d[ií]game|escr[ií]bame)\b/i.test(f)) && f.length >= 6);
-    if (!preguntas.length) continue;
+    const pregunta = ultimaPregunta(m.content);
+    if (!pregunta) continue;
 
     const contesto = sesion.slice(i + 1).find((x) => x.emisor === "cliente");
     if (!contesto) continue;
-    if (
+    const tarde =
       contesto.created_at !== undefined &&
       m.created_at !== undefined &&
-      contesto.created_at - m.created_at > RESPUESTA_HORAS * 3600
-    ) {
-      continue;
-    }
+      contesto.created_at - m.created_at > RESPUESTA_HORAS * 3600;
+    // Una contestación que tarda solo vale si es lo SIGUIENTE que se escribió
+    // en el hilo: «XXL» al día siguiente sigue siendo la talla que se le pidió,
+    // pero un mensaje de días después con otras cosas en medio, no.
+    if (tarde && sesion[i + 1] !== contesto) continue;
     const respuesta = contesto.content.trim();
 
     // Si el agente hizo varias preguntas, la contestación es de la última.
-    const campo = campoDeLaPregunta(preguntas[preguntas.length - 1]!);
-    if (!campo || !contestaDeVerdad(campo, respuesta)) continue;
+    const campo = campoDeLaPregunta(pregunta);
+    if (!campo || !contestaDeVerdad(campo, respuesta, datos)) continue;
 
     if (campo === "celular") {
       const c = celularDe(respuesta);
       if (c) ficha.celular = c;
+    } else if (campo === "nombre") {
+      const n = nombreDe(respuesta);
+      if (n) ficha.nombre = n.slice(0, 60);
     } else {
       ficha[campo] = respuesta.slice(0, campo === "direccion" ? 160 : 60);
     }
@@ -268,15 +497,40 @@ const ETIQUETAS: Record<CampoDelPedido, string> = {
   cantidad: "Cantidad",
 };
 
+/**
+ * CUÁNTAS UNIDADES PIDIÓ AL NOMBRAR COLORES. Dos colores son dos artículos,
+ * no uno de dos colores (la dueña, RD, 2026-09-07): el cliente que contesta
+ * «rojo y azul» ya dijo la cantidad, y el resumen que salió decía «Cantidad: 1»
+ * con el precio de uno solo. Se miran el color Y la talla porque ahí es donde
+ * el modelo acaba metiendo los colores («Talla: Rojo y azul XL»).
+ */
+export function unidadesPorColores(f: FichaDelPedido): number {
+  const dichos = new Set<string>();
+  for (const campo of [f.color, f.talla]) {
+    for (const c of llano(campo ?? "").match(reColores("gi")) ?? []) {
+      // «negro» y «negra» son el mismo color, no dos.
+      dichos.add(c.replace(/[oa]$/, ""));
+    }
+  }
+  return dichos.size;
+}
+
 /** La ficha, escrita para el modelo. Vacía si todavía no se sabe nada. */
-export function fichaParaModelo(f: FichaDelPedido): string {
+export function fichaParaModelo(f: FichaDelPedido, pais?: string | null): string {
   const sabidos = (Object.keys(ETIQUETAS) as CampoDelPedido[]).filter((k) => f[k]);
   if (!sabidos.length) return "";
 
-  // La cantidad nunca «falta»: es 1 salvo que el cliente haya dicho otra.
+  // La cantidad nunca «falta»: es 1 salvo que el cliente haya dicho otra, y
+  // nombrar dos colores ES decir otra.
+  const porColores = pais === "do" ? unidadesPorColores(f) : 0;
+  const cantidad =
+    porColores >= 2
+      ? `- Cantidad: ${porColores} (el cliente nombró ${porColores} colores: son ${porColores} unidades, ` +
+        `y el total es el precio × ${porColores} más el envío, que va una sola vez)`
+      : "- Cantidad: 1 (no se pregunta; solo cambia si el cliente dice que quiere más)";
   const lineas = (Object.keys(ETIQUETAS) as CampoDelPedido[]).map((k) =>
     f[k] ? `- ${ETIQUETAS[k]}: ${f[k]}`
-      : k === "cantidad" ? "- Cantidad: 1 (no se pregunta; solo cambia si el cliente dice que quiere más)"
+      : k === "cantidad" ? cantidad
         : `- ${ETIQUETAS[k]}: (falta)`,
   );
 
@@ -301,10 +555,11 @@ export function avisoDeClienteQueVuelve(mensajes: MensajeDeMemoria[]): string {
       "Sigue con el paso que toca."
     );
   }
+  // Y si nadie de la casa ha escrito todavía hoy, esta sesión empieza por el saludo.
   return (
     "\n\nESTE CLIENTE VUELVE A ESCRIBIR DESPUÉS DE UN TIEMPO: lo de arriba de la conversación es de otro día y de otro pedido. " +
-    "Esta es una conversación NUEVA: salúdalo otra vez como la primera vez, con el artículo del anuncio de ahora y su precio, y empieza el pedido desde la talla. " +
-    "La talla, el color y la cantidad de la vez anterior NO valen para este pedido: se vuelven a pedir en su paso, y no le llegó ninguna ubicación hoy. " +
+    "Esta es una conversación NUEVA: salúdalo otra vez como la primera vez, con el artículo del anuncio de ahora y su precio, y empieza el pedido desde el primer paso que ese artículo lleve: la talla solo si la lleva, y si no, la dirección. " +
+    "La talla, el color y la cantidad de la vez anterior NO valen para este pedido: se vuelven a pedir en su paso —los que el artículo lleve—, y no le llegó ninguna ubicación hoy. " +
     "El nombre, el celular y la dirección son de la persona y sí valen: si están en la ficha del pedido del final, úsalos tal cual y no los vuelvas a preguntar."
   );
 }
@@ -362,6 +617,7 @@ export const PIENSA_COMO_VENDEDOR =
   "\n\nANTES DE ESCRIBIR, LEE LO ÚLTIMO QUE DIJO EL CLIENTE Y DECIDE QUÉ ES:\n" +
   "- Si CONTESTA lo que le preguntaste —aunque sea con una palabra o un número: «39» después de «¿qué número calza?» ES el número que calza, «negro» después de «¿en qué color?» ES el color—, lo tomas como bueno y pasas al siguiente dato. No lo vuelvas a preguntar ni lo pongas en duda.\n" +
   "- Si te PREGUNTA algo —dónde están, cuánto es el envío, cómo se paga, cuánto tarda, si hay otro color—, se lo contestas PRIMERO, en una línea y con lo que sabes, y después sigues con el dato que falta. Nunca ignores una pregunta del cliente para repetir la tuya.\n" +
+  "- DESPUÉS DE CONTESTAR, NO TE DETENGAS: revisa la ficha, elige el siguiente dato que falte en el orden del cierre y pregúntalo. Haz lo mismo en cada turno hasta tener todos los datos; entonces manda directamente el resumen y cierra. No esperes un «sí» adicional ni vuelvas al saludo.\n" +
   "- Si dice algo que no es ni respuesta ni pregunta —un comentario, una broma, un lugar que no existe—, lo atiendes con naturalidad en una frase corta y retomas la venta donde iba.\n" +
   "- Si pregunta QUÉ TALLAS o tamaños hay, díselas primero —las de la descripción del anuncio o las de la tabla de tallas— y después pregúntale cuál quiere. Contestar «¿qué talla necesita?» a «¿qué tallas hay?» es no haber leído.\n" +
   "- NUNCA mandes dos veces seguidas el mismo mensaje ni la misma pregunta con las mismas palabras. Si no te contestó, pregúntalo de otra forma o sigue con otro dato y vuelve después.\n" +

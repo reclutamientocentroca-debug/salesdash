@@ -72,6 +72,7 @@ export default function BarraSuperior() {
   const ruta = usePathname();
   const router = useRouter();
   const params = useSearchParams();
+  const superficie = params.get("surface");
   const buscador = useRef<HTMLInputElement>(null);
 
   const rangoActual = params.get("rango") ?? "7d";
@@ -79,7 +80,8 @@ export default function BarraSuperior() {
   const hastaParam = params.get("hasta");
   const personalizado = Boolean(desdeParam && hastaParam);
 
-  const titulo = TITULOS.find(([prefijo]) => ruta === prefijo || ruta.startsWith(prefijo))?.[1] ?? "SalesDash";
+  const tituloBase = TITULOS.find(([prefijo]) => ruta === prefijo || ruta.startsWith(prefijo))?.[1] ?? "SalesDash";
+  const titulo = ruta.startsWith("/canales/meta") && superficie === "instagram" ? "Instagram" : tituloBase;
   const periodo = personalizado
     ? `del ${fechaCorta(aIso(desdeParam))} al ${fechaCorta(aIso(hastaParam))}`
     : ([...RANGOS, ...RANGOS_MAS].find((r) => r.clave === rangoActual)?.largo ?? "últimos 7 días");

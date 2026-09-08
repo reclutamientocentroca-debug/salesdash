@@ -98,9 +98,11 @@ function sinResponder(f: FilaMeta): boolean {
 export default function BandejaMeta({
   filas,
   paginas,
+  superficie = "messenger",
 }: {
   filas: FilaMeta[];
   paginas: { id: number; nombre: string }[];
+  superficie?: "messenger" | "instagram";
 }) {
   const router = useRouter();
 
@@ -116,7 +118,11 @@ export default function BandejaMeta({
 
   const finDelHilo = useRef<HTMLDivElement>(null);
 
-  const visibles = filas.filter((f) => {
+  const filasDeSuperficie = filas.filter((f) => superficie === "instagram"
+    ? f.superficie === "instagram"
+    : f.superficie !== "instagram");
+
+  const visibles = filasDeSuperficie.filter((f) => {
     if (pagina !== "todas" && f.canalId !== pagina) return false;
     if (filtro === "comentarios") return f.superficie === "comentario";
     if (filtro === "mensajes") return f.superficie !== "comentario";

@@ -5,6 +5,7 @@ import * as D from "../src/lib/db";
 import {
   armarSistema,
   atenderConversacion,
+  generarRespuesta,
   monedaAjena,
   dentroDeHorario,
   esperaDeCortesia,
@@ -107,6 +108,37 @@ function hiloFalso(turnos: { emisor: D.Emisor; content: string }[]): D.Mensaje[]
     transcripcion: null, media_url: null, content: t.content, created_at: 1_700_000_000 + i,
   }));
 }
+
+test("Costa Rica sin anuncio saluda y ofrece el catálogo antes de pedir dirección", async () => {
+  const { orgId: costaRicaOrg } = D.crearOrgConDueno({
+    negocio: "Telleria",
+    color: "#12876a",
+    nombre: "Dueña",
+    email: `cr-sin-anuncio-${Date.now()}@prueba.com`,
+    passwordHash: "hash",
+  });
+  const costaRicaCanal = D.crearCanal(costaRicaOrg, {
+    nombre: "Costa Rica",
+    phone: `506${Date.now().toString().slice(-8)}`,
+    tokenCifrado: "x",
+    webhookSecret: "s",
+    whapiChannelId: null,
+    estado: "conectado",
+  });
+  D.actualizarAgente(costaRicaOrg, { pais: "cr" }, costaRicaCanal);
+  D.crearProducto(costaRicaOrg, { nombre: "Camisa de lino", variantes: "S, M, L", precio: 25000 });
+
+  const respuesta = await generarRespuesta(
+    costaRicaOrg,
+    costaRicaCanal,
+    hiloFalso([{ emisor: "cliente", content: "Hola" }]),
+  );
+
+  assert.match(respuesta.texto, /Hola, le asiste Mildred/);
+  assert.match(respuesta.texto, /Camisa de lino/);
+  assert.match(respuesta.texto, /Cuál artículo le interesa/);
+  assert.doesNotMatch(respuesta.texto, /direcci[oó]n/i);
+});
 
 // ── Funciones puras ─────────────────────────────────────────────────────────
 
@@ -427,6 +459,55 @@ test("el prompt del agente lleva el producto del anuncio y lo que prometía", ()
   );
 });
 
+test("la primera respuesta de un combo usa la apertura configurada y no la IA libre", async () => {
+  const prueba = D.crearOrgConDueno({
+    negocio: "Cuenta de prueba",
+    color: "#12876a",
+    nombre: "Dueño",
+    email: `apertura-${Date.now()}@local`,
+    passwordHash: "hash",
+  });
+  const canal = D.crearCanal(prueba.orgId, {
+    nombre: "Ventas",
+    phone: `1809${Date.now().toString().slice(-7)}`,
+    tokenCifrado: "x",
+    webhookSecret: "s",
+    whapiChannelId: null,
+    estado: "conectado",
+  });
+  D.actualizarAgente(prueba.orgId, { pais: "do", nombre: "Ana", negocio: "RINCON DCM" }, canal);
+
+  const respuesta = await generarRespuesta(
+    prueba.orgId,
+    canal,
+    [{
+      id: 1,
+      org_id: prueba.orgId,
+      conversation_id: 1,
+      whapi_message_id: null,
+      emisor: "cliente",
+      tipo: "texto",
+      descripcion_imagen: null,
+      categoria_imagen: null,
+      transcripcion: null,
+      media_url: null,
+      content: "Hola, quiero más información",
+      created_at: D.ahora(),
+    }],
+    {
+      origen: "anuncio",
+      producto_anuncio: "Combo 2 en 1",
+      descripcion_anuncio: "🔥 ¡COMPRA SEGURO! 🔥 COMBO 2 EN 1 — SOLO RD$1,690 ✨ Cepillo secador + plancha alisadora.",
+    },
+  );
+
+  assert.match(respuesta.texto, /Hola! Bienvenido\(a\) a RINCON DCM/);
+  assert.match(respuesta.texto, /Combo 2 En 1/);
+  assert.match(respuesta.texto, /RD\$1,690/);
+  assert.match(respuesta.texto, /Indique su dirección exacta de entrega\./);
+  assert.doesNotMatch(respuesta.texto, /talla|color|¿le interesa\?/i);
+});
+
 /**
  * Un anuncio sin título sigue siendo el anuncio que lo trajo. Meta no siempre
  * manda `title`, y ese cliente no puede quedarse sin contexto.
@@ -603,6 +684,31 @@ test("un mensaje del cliente nunca cierra una venta", () => {
     "el cliente puede escribir lo que quiera: la venta la cierra el negocio",
   );
   assert.equal(D.getConversation(orgId, id)!.cerrado_por, "abierta");
+});
+
+test("después de cerrar una venta, el siguiente mensaje pasa al representante", async () => {
+  encender(true);
+  const id = conversacionCon([
+    { emisor: "cliente", content: "ya recibí el pedido", t: 8_000 },
+    { emisor: "ia", content: "Resumen: faja, ₡9.000", t: 8_100 },
+  ]);
+  assert.equal(registrarCierre(orgId, id, { emisor: "ia", content: "Resumen: faja, ₡9.000", cuando: 8_100 }), true);
+
+  D.insertMessage(orgId, {
+    conversationId: id,
+    whapiMessageId: `cierre-posterior-${id}`,
+    emisor: "cliente",
+    tipo: "texto",
+    content: "Ya fue entregado, muchas gracias.",
+    createdAt: 8_200,
+  });
+
+  assert.equal(motivoDe(await atenderConversacion(orgId, canalId, id)), "pasado_a_asesor");
+  assert.equal(D.getConversation(orgId, id)?.atiende, "humano");
+  assert.equal(
+    D.listarAnomalias(orgId).some((a) => a.conversation_id === id && a.tipo === "handoff_agente"),
+    true,
+  );
 });
 
 /**
@@ -1276,14 +1382,14 @@ test("el prompt pide mensajes limpios y no inventa variantes", () => {
   assert.ok(prompt.includes("NADA DE FRASES DE FORMULARIO"), "ni «estamos para servirle»");
   assert.ok(prompt.includes("PREGUNTA SOLO LO QUE ESTE PEDIDO NECESITA"));
   assert.ok(
-    prompt.includes("es un artículo que no los lleva y NO se preguntan"),
-    "si no sale ninguna talla ni ningún color, no se pregunta ninguno",
+    prompt.includes("La clasificación manda: solo llevan talla"),
+    "la clasificación de talla y color es explícita",
   );
   assert.ok(
-    prompt.includes("lo que se lee en su imagen"),
-    "y de dónde se saca: del anuncio, el catálogo y las instrucciones",
+    prompt.includes("la descripción del anuncio, el catálogo o lo que escribió el negocio"),
+    "y de dónde se saca el artículo",
   );
-  assert.ok(prompt.includes("La ropa y el calzado"), "con su excepción, que siempre lleva talla");
+  assert.ok(prompt.includes("Solo llevan talla"), "la lista de familias con talla queda explícita");
 
   // El ejemplo del saludo pregunta la talla porque es lo primero del orden,
   // y dice al lado que solo si el artículo la lleva: la dirección nunca abre.
@@ -2082,16 +2188,16 @@ test("cada pais abre con su saludo, y el prompt lo dice una sola vez", () => {
   );
 
   /*
-   * EL TICO SE PRESENTA COMO LA TIENDA, sin nombre de persona y de tú. Y al
-   * panameño, que todavía no tiene tienda escrita en su archivo, le vale lo
-   * que diga el panel. Cambiarle el saludo a uno no se lo cambia a los otros.
+   * EL TICO SE PRESENTA POR SU NOMBRE. Y al panameño, que todavía no tiene
+   * tienda escrita en su archivo, le vale lo que diga el panel. Cambiarle el
+   * saludo a uno no se lo cambia a los otros.
    */
   D.actualizarAgente(orgId, { pais: "cr" }, canalId);
   const tico = armarSistema("Rincon", D.obtenerAgente(orgId, canalId), [], null);
-  // El saludo del guion de la dueña (2026-09-05): la tienda, sin nombre de persona.
-  assert.ok(tico.includes("Hola! Bienvenido(a) a TELLERIA. Gracias por escribirnos."), "el tico abre con la tienda, como lo escribió la dueña");
+  // El saludo de la dueña (2026-09-07): quien atiende, y nada más.
+  assert.ok(tico.includes("Hola, le asiste Mildred, un gusto."), "el tico se presenta por su nombre");
+  assert.equal(tico.includes("Bienvenido(a) a TELLERIA"), false, "cr: el saludo viejo ya no sale");
   assert.equal(tico.includes("Orlanda"), false, "cr: nada del dominicano");
-  assert.equal(tico.includes("le asiste Mildred"), false, "cr: el saludo no lleva nombre de persona");
   assert.ok(tico.includes("Tratas al cliente de USTED siempre"), "cr: de usted en todo el hilo");
 
   D.actualizarAgente(orgId, { pais: "pa" }, canalId);

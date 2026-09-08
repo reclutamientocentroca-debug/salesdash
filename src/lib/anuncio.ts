@@ -15,6 +15,8 @@
  *      producto, y el analista no sabe atribuirle la venta a nada.
  */
 
+import { articuloDeLaDescripcion } from "./apertura";
+
 /**
  * Lo que queda escrito cuando la imagen de un anuncio no se pudo mirar.
  *
@@ -79,7 +81,11 @@ export function llegoPorAnuncio(c: DatosAnuncio): boolean {
  * hacen falta: «Nevera 12 pies» no explica por qué el cliente escribe
  * preguntando por cuotas, y «0 % de interés a 6 meses» sí.
  */
-export function anuncioParaModelo(c: DatosAnuncio): string | null {
+export function anuncioParaModelo(
+  c: DatosAnuncio,
+  /** El símbolo de la moneda del país: sin él no se puede recortar el nombre del artículo. */
+  simbolo: string | null = null,
+): string | null {
   if (!llegoPorAnuncio(c)) return null;
 
   const producto = c.producto_anuncio?.trim();
@@ -88,6 +94,21 @@ export function anuncioParaModelo(c: DatosAnuncio): string | null {
   const lineas = ["Este cliente llegó por un anuncio:"];
   lineas.push(`- Producto anunciado: ${producto || "(el anuncio no traía título)"}`);
   if (descripcion) lineas.push(`- Lo que promete el anuncio: ${descripcion}`);
+
+  /*
+   * CÓMO SE LLAMA, EN CORTO. Un anuncio abre con su reclamo —«¡COMPRA SEGURO!
+   * ORDENA, RECIBE Y LUEGO PAGA!!»— y el modelo copiaba eso como el nombre del
+   * artículo: al cliente le llegó un resumen con «Producto: ORDENA, RECIBE Y
+   * LUEGO PAGA!!». Aquí se le da el nombre ya limpio, sacado de esa misma
+   * descripción, para que sea el que escriba en el pedido.
+   */
+  const nombre = descripcion && simbolo ? articuloDeLaDescripcion(descripcion, simbolo) : null;
+  if (nombre) {
+    lineas.push(
+      `- Se llama, en corto: ${nombre}. Ese es el nombre que usas al hablarle y el que va en la línea «Producto:» del resumen. ` +
+        "Nunca pongas ahí el reclamo del anuncio («ORDENA», «COMPRA SEGURO», «PAGA AL RECIBIR»): eso no dice qué se vende.",
+    );
+  }
 
   /*
    * EL ARTÍCULO ES EL DE LA DESCRIPCIÓN, Y NO HAY OTRO.

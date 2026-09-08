@@ -111,14 +111,19 @@ test("el prompt del agente lleva la tarifa del cliente cuando la escribió, y el
   assert.ok(pos("3. Color") < pos("4. Dirección"));
   assert.ok(pos("4. Dirección") < pos("5. Costo de envío + teléfono"));
   assert.ok(pos("5. Costo de envío + teléfono") < pos("6. Nombre real"));
-  assert.ok(pos("6. Nombre real") < pos("7. Confirmación en un solo mensaje"));
-  assert.ok(pos("7. Confirmación en un solo mensaje") < pos("8. Resumen final"));
+  /*
+   * Y DEL NOMBRE SE PASA AL RESUMEN, sin un paso de confirmación en medio (la
+   * dueña, 2026-09-08): el cliente que ya dio dirección, teléfono y nombre no
+   * tiene que decir «sí» otra vez, y cada «¿se lo despacho hoy mismo?» era una
+   * venta esperando una respuesta que muchas veces no llegaba.
+   */
+  assert.ok(pos("6. Nombre real") < pos("7. Resumen final"));
   assert.ok(ritmo.includes("Indique su dirección exacta de entrega."));
   assert.ok(ritmo.includes("Perfecto, hasta <zona> el envío le sale en RD$<250 o 290>."), "el envío y el teléfono en el mismo mensaje");
   assert.ok(ritmo.includes("¿Me facilita su número de teléfono para el pedido?"));
   assert.ok(ritmo.includes("Nunca tomas el nombre de ninguna fuente que no sea la boca del cliente"));
   assert.ok(ritmo.includes("San Antonio de Guerra): RD$250"), "las zonas de la ciudad, con sus nombres");
-  assert.ok(ritmo.includes("¿Se lo despacho hoy mismo?"), "la confirmación, con las palabras de la dueña");
+  assert.ok(ritmo.includes("EL PEDIDO NO SE CONFIRMA DOS VECES"), "el resumen no espera un «sí» de más");
   assert.ok(ritmo.includes("✅ PEDIDO REGISTRADO"), "el resumen cierra como lo escribió la dueña");
   assert.ok(ritmo.includes("Permítame un momento, le transfiero con un representante."));
   assert.ok(ritmo.includes("[HANDOFF]"));
@@ -142,6 +147,111 @@ test("el prompt del agente lleva la tarifa del cliente cuando la escribió, y el
   assert.ok(conAnuncio.includes("El precio que te llega en la descripción del producto es el precio principal"));
   assert.ok(conAnuncio.includes("Nunca lo inventas ni lo cambias"));
   assert.ok(conAnuncio.includes("De 3 unidades en adelante"), "el precio por mayor, si la descripción lo trae");
+});
+
+/**
+ * EL CEPILLO SECADOR NO LLEVA COLOR NI TALLA (la dueña, 2026-09-07).
+ *
+ * El guion venía escrito con la talla en el primer mensaje, en el paso 2, en
+ * la tabla de tallas y en el ejemplo del mayoreo, y al lado un «sáltala si el
+ * producto no la lleva». Lo que está escrito cuatro veces se acaba
+ * preguntando: la dueña vio «¿Qué talla le interesa?» debajo del precio de un
+ * combo de cepillo y plancha. Cuando el anuncio ya dice qué se vende, el paso
+ * no se omite: no se escribe, y la numeración se cierra sobre él.
+ */
+test("con un cepillo secador el guion dominicano sale sin talla y sin color", () => {
+  const { orgId } = D.crearOrgConDueno({
+    negocio: "RINCON DCM", color: "#12876a", nombre: "Dueña",
+    email: `cepillo-${Date.now()}@prueba.local`, passwordHash: "x",
+  });
+  const canalId = D.crearCanal(orgId, {
+    nombre: "RD", phone: "18095550300", tokenCifrado: "x",
+    webhookSecret: "s", whapiChannelId: null, estado: "conectado",
+  });
+  D.actualizarAgente(orgId, { pais: "do" }, canalId);
+  const agente = D.obtenerAgente(orgId, canalId);
+  const delCombo = {
+    origen: "anuncio",
+    producto_anuncio: "Rincondcm",
+    descripcion_anuncio: "🔥 COMBO 2 EN 1 — SOLO RD$1,690 ✨ Cepillo secador + plancha alisadora. Seca rápido.",
+  };
+
+  const combo = armarSistema("RINCON DCM", agente, [], delCombo, "Resumen:", null, null, false, null);
+  // Ni una sola pregunta de talla o color escrita para copiar. Lo único que se
+  // nombra son las líneas que las prohíben, y esas van en minúscula.
+  for (const pregunta of ["¿Qué talla le interesa?", "¿Qué talla usa?", "¿Qué talla necesita?", "¿Qué color le interesa?"]) {
+    assert.equal(combo.includes(pregunta), false, `«${pregunta}» no puede estar escrita en el guion de un cepillo`);
+  }
+  assert.ok(combo.includes("CLASIFICACIÓN DEL PRODUCTO, YA HECHA"), "la clasificación va hecha, no la rehace el modelo");
+  assert.ok(combo.includes("NO LLEVA TALLA"));
+  assert.ok(combo.includes("NO LLEVA COLOR"));
+  assert.ok(combo.includes("Con este artículo vas de precio → dirección."));
+
+  // El primer mensaje cierra con la dirección, y los pasos se renumeran.
+  const flujo = combo.slice(combo.indexOf("1. Primer mensaje"));
+  const pasos = [...flujo.matchAll(/^\d\. [^\n]+/gm)].map((m) => m[0]);
+  assert.equal(pasos.some((p) => /Talla|Color/i.test(p)), false, `los pasos de talla y color no existen: ${pasos.join(" | ")}`);
+  assert.deepEqual(
+    pasos.slice(0, 5).map((p) => p.slice(0, p.indexOf(" ") + 1) + p.slice(p.indexOf(" ") + 1).split(/[ (,]/)[0]),
+    ["1. Primer", "2. Dirección", "3. Costo", "4. Nombre", "5. Resumen"],
+    "sin talla ni color la numeración se cierra: no queda un número saltado",
+  );
+
+  // Ni el resumen las lleva, ni la tabla de tallas se le pone delante.
+  assert.equal(combo.includes("Talla: <talla>"), false, "el resumen no trae la línea de talla");
+  assert.equal(combo.includes("Color: <color>"), false);
+  assert.equal(combo.includes("Zapato: 39 a 45"), false, "una tabla de tallas delante es una invitación a preguntarla");
+  assert.ok(combo.includes("se vende fijo, sin talla y sin color"));
+
+  // Y con ropa, el guion sigue siendo el de siempre: talla, color y su tabla.
+  const zapatos = armarSistema("RINCON DCM", agente, [], {
+    origen: "anuncio",
+    producto_anuncio: "Zapatos DCM",
+    descripcion_anuncio: "Zapatos de cuero a RD$2,500, disponibles en negro y marrón.",
+  }, "Resumen:", null, null, false, null);
+  assert.ok(zapatos.includes("2. Talla"));
+  assert.ok(zapatos.includes("3. Color"));
+  assert.ok(zapatos.includes("Zapato: 39 a 45"));
+  assert.ok(zapatos.includes("Talla: <talla>"), "y el resumen sí lleva su línea");
+});
+
+/**
+ * DOS COLORES SON DOS UNIDADES (la dueña, RD, 2026-09-07).
+ *
+ * La captura: «Talla: Rojo y azul XL», «Cantidad: 1» y el total con el precio
+ * de un solo polo. Quien contesta «rojo y azul» está pidiendo dos, y el precio
+ * se suma dos veces. De tres en adelante entra el por mayor —el que traiga la
+ * descripción—, y el por mayor NO se ofrece: solo aparece si el cliente pide
+ * tres o más.
+ */
+test("en República Dominicana dos colores son dos unidades, y el por mayor no se ofrece", () => {
+  const { orgId } = D.crearOrgConDueno({
+    negocio: "RINCON DCM", color: "#12876a", nombre: "Dueña",
+    email: `colores-${Date.now()}@prueba.local`, passwordHash: "x",
+  });
+  const canalId = D.crearCanal(orgId, {
+    nombre: "RD", phone: "18095550400", tokenCifrado: "x",
+    webhookSecret: "s", whapiChannelId: null, estado: "conectado",
+  });
+  D.actualizarAgente(orgId, { pais: "do" }, canalId);
+  const agente = D.obtenerAgente(orgId, canalId);
+  const prompt = armarSistema("RINCON DCM", agente, [], {
+    origen: "anuncio",
+    producto_anuncio: "Polos Bronx",
+    descripcion_anuncio: "POLOS BRONX ORIGINALES a RD$1,400. Colores: rojo, azul, negro. Por docena RD$1,100 cada uno.",
+  }, "Resumen:", null, null, false, null);
+
+  assert.ok(prompt.includes("DOS COLORES SON DOS UNIDADES, Y EL PRECIO SE SUMA"));
+  assert.ok(prompt.includes("la cantidad es 2, y el precio de uno SE SUMA DOS VECES"));
+  assert.ok(prompt.includes("El envío es uno solo: no se duplica."));
+  assert.ok(prompt.includes("son DOS unidades. Le anotas los dos"), "en el paso del color, donde el cliente los dice");
+
+  // El por mayor: de 3 en adelante, con el precio de la descripción, y nunca ofrecido.
+  assert.ok(prompt.includes("EL POR MAYOR NO SE OFRECE NUNCA"));
+  assert.ok(prompt.includes("por docena le sale mejor"), "ni siquiera se le insinúa");
+  assert.ok(prompt.includes("De 3 unidades en adelante"));
+  assert.ok(prompt.includes("el precio por mayor o por docena que traiga la descripción del producto"));
+  assert.ok(prompt.includes("Por llevar dos no hay rebaja"), "dos no es mayoreo: es el precio de uno, dos veces");
 });
 
 /**

@@ -2,7 +2,7 @@ import "./entorno";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { agenteDePais } from "../src/agents";
-import { aperturaSegura, articuloDeLaDescripcion, precioDeLaDescripcion, preguntaDelCliente, primeraPregunta, respuestaDirecta, respuestaMinima, resumenMecanico, tallasDisponibles } from "../src/lib/apertura";
+import { aperturaSegura, articuloDeLaDescripcion, clienteAplazaCompra, llevaColor, mensajeSinProducto, precioDeLaDescripcion, preguntaDelCliente, primeraPregunta, respuestaDirecta, respuestaMinima, resumenMecanico, tallasDisponibles } from "../src/lib/apertura";
 import { contieneMarcador } from "../src/lib/cierre";
 
 /**
@@ -30,6 +30,18 @@ test("el precio y el artículo salen tal cual de la descripción", () => {
   assert.equal(precioDeLaDescripcion(zapatos, "RD$"), "RD$1,990");
   assert.equal(articuloDeLaDescripcion(zapatos, "RD$"), "ZAPATOS DCM ESTILO Elegancia que deja huella", "tal cual lo escribió el negocio");
 
+  /*
+   * EL CASO REAL: al cliente le llegó «🖤 ORDENA, RECIBE Y LUEGO PAGA!! Luce un
+   * estilo exclusivo con zapatos de… 🖤» como nombre del artículo. Cuando
+   * delante del producto solo hay reclamo, el nombre empieza donde el anuncio
+   * dice QUÉ vende.
+   */
+  const eslogan = "Compra seguro! ORDENA, RECIBE Y LUEGO PAGA!! Luce un estilo exclusivo con zapatos de acabado premium, diseñados para hombres que valoran la elegancia y la calidad. 💰 Precio: RD$2,500 ✅ Acabado de lujo";
+  assert.equal(articuloDeLaDescripcion(eslogan, "RD$"), "Zapatos de acabado premium");
+  assert.equal(precioDeLaDescripcion(eslogan, "RD$"), "RD$2,500");
+  // Pero un adjetivo delante del producto sí es parte del nombre.
+  assert.equal(articuloDeLaDescripcion("Elegantes zapatos de cuero RD$2,500", "RD$"), "Elegantes zapatos de cuero");
+
   // Sin precio escrito no hay nada seguro que cotizar.
   assert.equal(precioDeLaDescripcion("Camisas de lino, consulte precio", "RD$"), null);
 });
@@ -42,6 +54,124 @@ test("la primera pregunta es la del orden de venta según el artículo", () => {
   assert.equal(primeraPregunta("Plancha alisadora ₡18.000", cr), "Indique su dirección exacta de entrega.");
   assert.equal(primeraPregunta("Cepillo secador US$35", pa), "¿A qué corregimiento se lo enviamos?");
   assert.equal(primeraPregunta("Camisa de lino ₡25.000", cr), "¿Qué talla le interesa?");
+});
+
+/**
+ * EL CASO REAL (2026-09-07): «Tiene otro combo de mas alto precio que sea de
+ * más calidad» → «Combo 2 En 1 está en RD$1,690. Indique su dirección exacta
+ * de entrega.». Le contestamos el precio de lo que ya tenía delante, y encima
+ * le pedimos la dirección de un pedido que no ha aceptado. Pedir OTRO artículo
+ * es de los casos en los que el guion manda pasar el chat a un representante.
+ */
+test("pedir otro artículo no es preguntar el precio de este: pasa a un representante", () => {
+  const combo = { descripcion_anuncio: "COMBO 2 EN 1 cepillo secador + plancha RD$1,690" };
+  const vacia = { talla: null, color: null, direccion: null, nombre: null, celular: null, cantidad: null };
+  const pide = "Tiene otro combo de mas alto precio que sea de más calidad";
+
+  assert.equal(preguntaDelCliente(pide), "otro_articulo");
+  assert.equal(preguntaDelCliente("¿Tienen otro modelo?"), "otro_articulo");
+  assert.equal(preguntaDelCliente("tienen algo mas barato?"), "otro_articulo");
+  assert.equal(
+    respuestaMinima(rd, vacia, combo, { ultimoDelCliente: pide }),
+    "Permítame un momento, le transfiero con un representante.",
+    "y sin pedirle detrás la dirección de un pedido que no ha aceptado",
+  );
+
+  // Otra talla, otro color o el precio por docena son de ESTE artículo: la venta sigue.
+  assert.equal(preguntaDelCliente("¿Tienen otro color?"), null);
+  assert.equal(preguntaDelCliente("¿hay otra talla?"), "tallas");
+  assert.equal(preguntaDelCliente("¿me sale más barato si llevo 3?"), null);
+  assert.equal(preguntaDelCliente("cuanto cuesta?"), "precio");
+  assert.equal(respuestaMinima(rd, vacia, combo, { ultimoDelCliente: "¿Tienen otro color?" }), "Indique su dirección exacta de entrega.");
+});
+
+test("«para cuando» es una pregunta del cliente, no el color de su pedido", () => {
+  assert.equal(preguntaDelCliente("Para cuando"), "tiempo");
+  assert.equal(preguntaDelCliente("pa cuando lo tengo"), "tiempo");
+  assert.equal(respuestaDirecta(rd, "Para cuando", null), "Entre 24 y 48 horas.");
+});
+
+test("clasifica talla y color solo en las familias permitidas", () => {
+  /*
+   * Los polos llevan talla: lo dice la tabla de tallas de la propia tienda
+   * («Camisas, t-shirts, polos y boxers: de la S a la XXL»). El caso real: a
+   * un anuncio de «POLOS BRONX» no se le preguntaba la talla, y el «XXL» que
+   * contestó el cliente no valía para nada.
+   */
+  const polos = "🖤 POLOS BRONX ORIGINALES 🖤 Moderno, Fresco y duradero RD$1,400";
+  assert.equal(primeraPregunta(polos, rd), "¿Qué talla le interesa?");
+  assert.equal(tallasDisponibles(polos, rd), "de la S a la XXL");
+  assert.equal(primeraPregunta("Bóxers Bronx RD$900", rd), "¿Qué talla le interesa?");
+
+  assert.equal(primeraPregunta("Faja reversible RD$1,500", rd), "Indique su dirección exacta de entrega.");
+  assert.equal(primeraPregunta("Correa de cuero RD$1,500", rd), "¿Qué talla le interesa?");
+  assert.equal(primeraPregunta("Cinturón reversible ₡9.000", cr), "¿Qué talla le interesa?");
+  assert.equal(primeraPregunta("Vestido de dama RD$1,500", rd), "Indique su dirección exacta de entrega.");
+  assert.equal(primeraPregunta("Combo cepillo secador y plancha RD$1,690", rd), "Indique su dirección exacta de entrega.");
+  assert.equal(llevaColor("Camisa de lino RD$1,500 en blanco, azul y negro"), true);
+  assert.equal(llevaColor("Combo cepillo secador y plancha RD$1,690 en negro y rosa"), false);
+  const camisa = { descripcion_anuncio: "Camisa de lino RD$1,500 en blanco, azul y negro" };
+  const ficha = { talla: "M", color: null, direccion: null, nombre: null, celular: null, cantidad: null };
+  assert.equal(respuestaMinima(rd, ficha, camisa), "¿Qué color le interesa?");
+});
+
+test("en Costa Rica una faja abre con dirección y no con talla", () => {
+  const faja = { descripcion_anuncio: "FAJA REVERSIBLE PARA HOMBRE ₡9.000" };
+  assert.equal(primeraPregunta(faja.descripcion_anuncio, cr), "Indique su dirección exacta de entrega.");
+  const texto = aperturaSegura(cr, faja, "Hola! Bienvenido(a) a TELLERIA. Gracias por escribirnos.")!;
+  assert.match(texto, /FAJA REVERSIBLE PARA HOMBRE/i);
+  assert.ok(texto.endsWith("Indique su dirección exacta de entrega."));
+  assert.equal(texto.includes("¿Qué talla"), false);
+});
+
+test("una compra aplazada no repite la pregunta del pedido", () => {
+  const combo = { descripcion_anuncio: "Combo cepillo secador y plancha RD$1,690" };
+  const ficha = { talla: null, color: null, direccion: null, nombre: null, celular: null, cantidad: null };
+  assert.equal(clienteAplazaCompra("Ahora no querida"), true);
+  assert.equal(clienteAplazaCompra("No tengo recursos en este momento"), true);
+  assert.equal(
+    respuestaMinima(rd, ficha, combo, { ultimoDelCliente: "Ahora no querida" }),
+    "Entiendo, no hay problema. Cuando esté listo para ordenar, escríbanos y con gusto le atendemos.",
+  );
+});
+
+/**
+ * «EL LUNES LE LLAMO» ES UN «AHORA NO» CON FECHA (RD, 2026-09-07).
+ *
+ * El caso real: se le pidió la dirección, contestó «El lunes le llamo» y el
+ * agente siguió como si nada —«Perfecto, hasta esa fecha. ¿Me facilita su
+ * número de teléfono para el pedido?»— y horas después le salió encima el
+ * recordatorio de «se quedó en visto». Aquí casi nadie dice «no puedo ahora»:
+ * dice cuándo vuelve.
+ */
+test("el cliente que dice cuándo vuelve se despide, no se le sigue pidiendo el pedido", () => {
+  const combo = { descripcion_anuncio: "Combo cepillo secador y plancha RD$1,690" };
+  const ficha = { talla: null, color: null, direccion: null, nombre: null, celular: null, cantidad: null };
+
+  for (const aplaza of [
+    "El lunes le llamo", "el lunes le escribo", "Mañana le aviso", "Le escribo luego",
+    "cuando cobre le escribo", "El viernes lo ordeno", "en la quincena hago el pedido",
+    "Ya le aviso", "más adelante compro",
+  ]) {
+    assert.equal(clienteAplazaCompra(aplaza), true, `«${aplaza}» aplaza la compra`);
+  }
+
+  // Y lo que NO aplaza sigue siendo la venta de ahora: una pregunta por el
+  // envío lleva las mismas palabras y no despide a nadie.
+  for (const sigue of [
+    "¿Me llega mañana?", "¿El lunes me lo traen?", "Mándemelo mañana",
+    "Santiago, calle Duarte 45", "8095551234", "la 42 en negro",
+  ]) {
+    assert.equal(clienteAplazaCompra(sigue), false, `«${sigue}» no aplaza nada`);
+  }
+
+  assert.equal(
+    respuestaMinima(rd, ficha, combo, {
+      ultimoDelCliente: "El lunes le llamo",
+      ultimoDelAgente: "Gracias. Indique su dirección exacta de entrega.",
+    }),
+    "Entiendo, no hay problema. Cuando esté listo para ordenar, escríbanos y con gusto le atendemos.",
+  );
 });
 
 test("la apertura segura lleva saludo, artículo, precio y pregunta, y nada inventado", () => {
@@ -59,6 +189,20 @@ test("la apertura segura lleva saludo, artículo, precio y pregunta, y nada inve
   // Sin descripción con precio, no hay apertura segura: toca transferir.
   assert.equal(aperturaSegura(rd, { producto_anuncio: "Rincondcm", descripcion_anuncio: "Escríbenos" }, saludo), null);
   assert.equal(aperturaSegura(rd, null, saludo), null);
+});
+
+test("sin producto en contexto, la respuesta mínima solo pregunta el artículo", () => {
+  const vacia = { talla: null, color: null, direccion: null, nombre: null, celular: null, cantidad: null };
+  assert.equal(
+    respuestaMinima(rd, vacia, null),
+    "Hola, le asiste Orlanda de RINCON DCM. ¿Cuál es el artículo de su interés?",
+  );
+});
+
+test("cada agente pregunta primero por el artículo sin contexto de producto", () => {
+  assert.equal(mensajeSinProducto(rd), "Hola, le asiste Orlanda de RINCON DCM. ¿Cuál es el artículo de su interés?");
+  assert.equal(mensajeSinProducto(cr), "Hola, le asiste Mildred, un gusto. ¿Cuál es el artículo de su interés?");
+  assert.equal(mensajeSinProducto(pa), "Hola, le asiste un asesor de ventas de la tienda. ¿Cuál es el artículo de su interés?");
 });
 
 /**
@@ -79,7 +223,9 @@ test("la respuesta mínima es la siguiente pregunta del pedido, nunca una transf
     "con la dirección, el envío y el teléfono en el mismo mensaje",
   );
   assert.equal(respuestaMinima(rd, { ...vacia, cantidad: "1", direccion: "Los Alcarrizos, calle 3", celular: "8095551234" }, combo), "¿A nombre de quién sale el pedido?", "después del teléfono, el nombre");
-  assert.match(respuestaMinima(rd, { ...vacia, cantidad: "1", direccion: "Los Alcarrizos, calle 3", nombre: "Ana Pérez", celular: "8095551234" }, combo), /^Le confirmo: .*¿Se lo despacho hoy mismo\?$/s);
+  const cierreDirecto = respuestaMinima(rd, { ...vacia, cantidad: "1", direccion: "Los Alcarrizos, calle 3", nombre: "Ana Pérez", celular: "8095551234" }, combo);
+  assert.ok(contieneMarcador(cierreDirecto, "Resumen:"));
+  assert.equal(cierreDirecto.includes("¿Se lo despacho"), false);
   for (const f of [vacia, { ...vacia, direccion: "x", nombre: "y" }]) {
     assert.equal(respuestaMinima(rd, f, combo).includes("representante"), false);
   }
@@ -126,7 +272,7 @@ test("la respuesta mínima contesta la pregunta del cliente y no se repite", () 
 
 /** «¿Cuáles son los tamaños disponibles?» se contesta con las tallas de la tabla, antes de preguntar cuál. */
 test("las tallas disponibles se contestan con la tabla de tallas", () => {
-  const faja = { descripcion_anuncio: "FAJA REVERSIBLE PARA HOMBRE, cuero de primera, ₡9.000" };
+  const faja = { descripcion_anuncio: "CORREA REVERSIBLE PARA HOMBRE, cuero de primera, ₡9.000" };
   assert.equal(preguntaDelCliente("¿Cuáles son los tamaños disponibles?"), "tallas");
   assert.equal(preguntaDelCliente("¿qué tallas hay?"), "tallas");
   assert.equal(preguntaDelCliente("¿tienen la 42?"), null, "pedir una talla no es preguntar cuáles hay");
@@ -141,13 +287,8 @@ test("las tallas disponibles se contestan con la tabla de tallas", () => {
   assert.ok(r.endsWith("¿Qué talla le interesa?"), "y después pregunta cuál, de usted");
 });
 
-/**
- * EL CIERRE SALE SÍ O SÍ. Con todos los datos se pregunta «¿Se lo facturamos
- * y se lo enviamos?», y cuando el cliente dice que sí, el resumen se manda en
- * ese mismo mensaje, armado con lo que él escribió: nunca más «ya le preparo
- * el resumen» sin resumen.
- */
-test("con los datos se pide la confirmación, y con el sí sale el resumen armado con lo del cliente", () => {
+/** Con todos los datos, el resumen sale directamente y lleva la transferencia. */
+test("con todos los datos sale directamente el resumen del pedido", () => {
   const combo = { descripcion_anuncio: "🔥 ¡COMPRA SEGURO! 🔥 ❤️ COMBO 2 EN 1 — SOLO RD$1,690 ✨ Cepillo secador + plancha alisadora.", producto_anuncio: "Combo 2 en 1" };
   const ficha = { talla: null, color: null, direccion: "Calle 3 #12, Los Mina, Santo Domingo Este", nombre: "Ana Pérez", celular: "8095551234", cantidad: "1" };
 
@@ -157,17 +298,10 @@ test("con los datos se pide la confirmación, y con el sí sale el resumen armad
   const interior = respuestaMinima(rd, { ...ficha, direccion: "Estoy en Santiago", nombre: null, celular: null }, combo, { ultimoDelCliente: "Estoy en Santiago", ultimoDelAgente: "Indique su dirección exacta de entrega." });
   assert.ok(interior.startsWith("Perfecto, hasta Santiago el envío le sale en RD$290."), interior);
 
-  // Con todos los datos: «Le confirmo: …», con el total y la pregunta de si se lo enviamos hoy.
-  const pregunta = respuestaMinima(rd, ficha, combo, { ultimoDelCliente: "Ana Pérez", ultimoDelAgente: "¿A nombre de quién sale el pedido?" });
-  assert.equal(
-    pregunta,
-    "Le confirmo: Combo 2 En 1, a nombre de Ana Pérez, entrega en Calle 3 #12, Los Mina, Santo Domingo Este.\n" +
-      "Son RD$1,690 más RD$250 de envío, total RD$1,940, y se paga al recibir.\n¿Se lo despacho hoy mismo?",
-  );
-
-  // Y con el «okey» del cliente, el resumen con el formato de la dueña.
-  const resumen = respuestaMinima(rd, ficha, combo, { ultimoDelCliente: "Okey lo espero gracias", ultimoDelAgente: pregunta, telefonoDelChat: "18095550000" });
+  const resumen = respuestaMinima(rd, ficha, combo, { ultimoDelCliente: "Ana Pérez", ultimoDelAgente: "¿A nombre de quién sale el pedido?", telefonoDelChat: "18095550000" });
   assert.ok(contieneMarcador(resumen, "Resumen:"), "lleva la cabecera que registra la venta");
+  assert.equal(resumen.includes("¿Se lo facturamos"), false);
+  assert.equal(resumen.includes("¿Se lo despacho"), false);
   assert.equal(
     resumen,
     "📋 RESUMEN DEL PEDIDO\nNombre: Ana Pérez\nTelefono: 8095551234\nDireccion: Calle 3 #12, Los Mina, Santo Domingo Este\nProducto: Combo 2 En 1\nCantidad: 1\nEnvio: RD$250\nTOTAL A PAGAR: RD$1,940\nForma de pago: contra entrega\n✅ PEDIDO REGISTRADO\nPermítame un momento, le transfiero con un representante.",
@@ -207,7 +341,7 @@ test("con los datos se pide la confirmación, y con el sí sale el resumen armad
  */
 test("en Costa Rica el envío y el teléfono van juntos tras la dirección, y el cierre despacha", () => {
   const faja = { descripcion_anuncio: "FAJA REVERSIBLE PARA HOMBRE ₡9.000" };
-  const base = { talla: "34", color: null, direccion: null, nombre: null, celular: null, cantidad: null };
+  const base = { talla: null, color: null, direccion: null, nombre: null, celular: null, cantidad: null };
 
   const pideDireccion = respuestaMinima(cr, base, faja, {});
   assert.equal(pideDireccion, "Indique su dirección exacta de entrega.");
@@ -225,14 +359,9 @@ test("en Costa Rica el envío y el teléfono van juntos tras la dirección, y el
   assert.equal(respuestaMinima(cr, conTelefono, faja, {}), "¿A nombre de quién sale el pedido?");
 
   const completo = { ...conTelefono, nombre: "Cliente" };
-  const confirmacion = respuestaMinima(cr, completo, faja, {});
-  assert.ok(confirmacion.startsWith("Le confirmo: Faja Reversible Para Hombre, talla 34, a nombre de Cliente, entrega en Escazú centro"), confirmacion);
-  assert.ok(confirmacion.includes("Son ₡9.000 más ₡3.500 de envío, total ₡12.500, se paga al recibir."));
-  assert.ok(confirmacion.endsWith("¿Se lo despacho hoy mismo?"));
-
-  // Y cuando dice que sí, el resumen sale en ese mismo mensaje.
-  const resumen = respuestaMinima(cr, completo, faja, { ultimoDelAgente: confirmacion, ultimoDelCliente: "Sí" });
+  const resumen = respuestaMinima(cr, completo, faja, {});
   assert.ok(resumen.startsWith("📋 RESUMEN DEL PEDIDO"), resumen);
+  assert.equal(resumen.includes("¿Se lo despacho"), false);
 });
 
 /**

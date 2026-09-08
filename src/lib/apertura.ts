@@ -20,7 +20,7 @@
  */
 import type { DatosPais } from "@/agents";
 import { importe, zonaDelCliente } from "@/agents/armar";
-import { TALLAS_BASE } from "@/agents/base-comportamiento";
+import { reColores, TALLAS_BASE } from "@/agents/base-comportamiento";
 import { FRASE_DE_TRANSFERENCIA } from "@/agents/paises/rd-guion";
 import { FRASE_DE_CIERRE_CR } from "@/agents/paises/cr-guion";
 import { MARCADOR_POR_DEFECTO } from "./cierre";
@@ -38,9 +38,85 @@ const EMOJIS = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}\u
 /** Palabras de relleno con las que abren los anuncios y que no nombran nada. */
 const RELLENO = /^(¡?compra seguro!?|solo|oferta|promoci[oó]n|nuevo|nueva|disponible|¡?atenci[oó]n!?|hoy)\s*[:!.-]*\s*/i;
 
-/** Ropa y calzado: la primera pregunta es la talla o el número. */
-const ROPA = /\b(camisa|camisas|pantal[oó]n|pantalones|jean|jeans|short|shorts|vestido|blusa|polo|t-?shirt|franela|chacabana|chaqueta|abrigo|su[eé]ter|sudadera|conjunto|falda|bermuda|correa|correas|cintur[oó]n|cinturones|faja|fajas|boxer|boxers|b[oó]xer|underwear|ropa interior|polos|blusas|vestidos|franelas|chacabanas|bermudas)\b/i;
-const CALZADO = /\b(zapato|zapatos|tenis|bota|botas|mocas[ií]n|mocasines|sandalia|sandalias|calzado|zapatilla|zapatillas|chancleta|chancletas)\b/i;
+/**
+ * CÓMO NOMBRA UN ANUNCIO LO QUE VENDE. Las palabras con las que la tienda
+ * llama a sus artículos, para no venderle al cliente el reclamo en lugar del
+ * producto. El caso real: «🖤 ORDENA, RECIBE Y LUEGO PAGA!! Luce un estilo
+ * exclusivo con zapatos de… 🖤» como nombre del artículo, porque delante del
+ * producto el anuncio traía dos frases de eslogan.
+ */
+const FAMILIAS: { familia: string; palabras: string }[] = [
+  { familia: "calzado", palabras: "zapatos?|zapatillas?|tenis|botas?|mocas[ií]n|mocasines|sandalias?|chancletas?|calzado" },
+  { familia: "camisas y polos", palabras: "camisas?|polos?|t-?shirts?|franelas?|blusas?|chacabanas?" },
+  { familia: "pantalones", palabras: "pantal[oó]n|pantalones|jeans?|shorts?|bermudas?" },
+  { familia: "ropa de vestir", palabras: "vestidos?|faldas?|conjuntos?|chaquetas?|abrigos?|su[eé]teres?|sudaderas?" },
+  { familia: "ropa interior", palabras: "b[oó]xers?|underwear" },
+  { familia: "correas y fajas", palabras: "correas?|cintur[oó]n|cinturones|fajas?" },
+  { familia: "bolsos y carteras", palabras: "carteras?|bolsos?|mochilas?|morrales?|bultos?|billeteras?|maletas?|loncheras?" },
+  { familia: "gorras y lentes", palabras: "gorras?|lentes|gafas" },
+  { familia: "relojes y joyería", palabras: "reloj|relojes|collares?|pulseras?|aretes|anillos?" },
+  { familia: "perfumes y cremas", palabras: "perfumes?|colonias?|cremas?|serum|maquillaje" },
+  { familia: "aparatos del pelo", palabras: "cepillos?|secadoras?|secadores?|blowers?|planchas?|planchitas?|alisadoras?|rizadoras?|tenazas?|abej[oó]n|abejones" },
+  { familia: "cosas de la casa", palabras: "licuadoras?|freidoras?|audifonos?|bocinas?|cargadores?|l[aá]mparas?|termos?|botellas?|ollas?|sartenes?|ventiladores?|masajeadores?|rasuradoras?|afeitadoras?" },
+  { familia: "combos y sets", palabras: "combos?|sets?|kits?" },
+];
+
+const NOMBRA_EL_ARTICULO = new RegExp(`\\b(${FAMILIAS.map((f) => f.palabras).join("|")})\\b`, "i");
+
+/**
+ * QUÉ ARTÍCULOS NOMBRA UN TEXTO, por familias. Sirve para comparar lo que el
+ * agente escribe con lo que la tienda vende en ESTE chat: el caso real fue
+ * «Perfecto, le añado un pantalón polo color negro talla 32» en un hilo abierto
+ * por un anuncio de zapatos, y ese pantalón no existía en ninguna parte.
+ */
+export function familiasNombradas(texto: string): { familia: string; palabra: string }[] {
+  const salida: { familia: string; palabra: string }[] = [];
+  for (const f of FAMILIAS) {
+    const m = texto.match(new RegExp(`\\b(${f.palabras})\\b`, "i"));
+    if (m) salida.push({ familia: f.familia, palabra: m[0] });
+  }
+  return salida;
+}
+
+/**
+ * Familias que llevan talla: las MISMAS que enseña la tabla de tallas de la
+ * tienda (`TALLAS_BASE`), en singular y en plural. El caso real: un anuncio de
+ * «POLOS BRONX» al que no se le preguntaba la talla —y un «XXL» del cliente
+ * que se tiraba a la basura— porque «polo» no estaba aquí, aunque la tabla de
+ * la tienda diga «Camisas, t-shirts, polos y boxers: de la S a la XXL».
+ */
+const ROPA = /\b(camisas?|pantal[oó]n|pantalones|t-?shirts?|polos?|b[oó]xers?|correas?|cintur[oó]n|cinturones)\b/i;
+const CALZADO = /\b(zapato|zapatos|calzado|tenis|bota|botas|mocas[ií]n|mocasines|sandalia|sandalias|zapatilla|zapatillas|chancleta|chancletas)\b/i;
+const COLORES = reColores("gi");
+
+/**
+ * El artículo lleva talla solo si es ropa o calzado. Todo lo demás —el cepillo
+ * secador, la plancha, el combo, el abejón— se vende fijo, en una sola medida.
+ */
+export function llevaTalla(descripcion: string): boolean {
+  return ROPA.test(descripcion) || CALZADO.test(descripcion);
+}
+
+/** El artículo lleva color solo si es elegible y la descripción ofrece varios. */
+export function llevaColor(descripcion: string): boolean {
+  if (!(ROPA.test(descripcion) || CALZADO.test(descripcion))) return false;
+  const colores = new Set((descripcion.match(COLORES) ?? []).map((color) => color.toLowerCase()));
+  return colores.size >= 2 || /\b(varios|diferentes)\s+colores?\b|\bcolores?\s+disponibles\b/i.test(descripcion);
+}
+
+/** Primer mensaje cuando todavía no existe un producto identificado. */
+export function mensajeSinProducto(d: DatosPais): string {
+  if (d.codigo === "do") return "Hola, le asiste Orlanda de RINCON DCM. ¿Cuál es el artículo de su interés?";
+  if (d.codigo === "cr") return "Hola, le asiste Mildred, un gusto. ¿Cuál es el artículo de su interés?";
+  const agente = d.nombreAgente ?? "un asesor de ventas";
+  const negocio = d.tienda || "la tienda";
+  return `Hola, le asiste ${agente} de ${negocio}. ¿Cuál es el artículo de su interés?`;
+}
+
+/** ¿Este texto dice QUÉ se vende, con el nombre de un artículo? */
+export function nombraUnArticulo(texto: string): boolean {
+  return NOMBRA_EL_ARTICULO.test(texto);
+}
 
 /** El primer importe con el símbolo del país, tal cual está escrito. */
 export function precioDeLaDescripcion(descripcion: string, simbolo: string): string | null {
@@ -68,6 +144,21 @@ export function articuloDeLaDescripcion(descripcion: string, simbolo: string): s
   }
   articulo = articulo.split(/[.?\n]/)[0] ?? "";
   articulo = articulo.replace(/[\s!¡.:,;—–-]+$/, "").trim();
+
+  /*
+   * Y SI DELANTE DEL PRODUCTO SOLO HAY ESLOGAN, el artículo empieza donde el
+   * anuncio lo nombra. Lo que el cliente tiene que leer es QUÉ se vende, no el
+   * reclamo con el que se lo vendieron. Solo cuando el reclamo es largo: un
+   * «Elegantes zapatos de cuero» se queda entero, que ahí «Elegantes» es parte
+   * del nombre.
+   */
+  const nombra = articulo.match(NOMBRA_EL_ARTICULO);
+  if (nombra?.index !== undefined && nombra.index > 20) {
+    // Del nombre en adelante, y hasta la coma: lo de detrás es la explicación.
+    const desde = articulo.slice(nombra.index).split(",")[0]!.trim();
+    if (desde.length >= 3) articulo = desde.charAt(0).toUpperCase() + desde.slice(1);
+  }
+
   if (articulo.length < 3) return null;
   if (articulo.length > 70) articulo = `${articulo.slice(0, 69).trimEnd()}…`;
   // «ZAPATOS DCM ESTILO» se lee mejor como «Zapatos DCM Estilo» que a gritos.
@@ -113,8 +204,11 @@ export function aperturaSegura(
    * una línea justo después del saludo, y se sigue con el producto y la
    * pregunta que toca. El precio no se contesta aparte: ya va en el mensaje.
    */
+  // El precio ya va en el mensaje; y pedir otro artículo, en el primer mensaje,
+  // es pedir el de este anuncio: todavía no se le ha enseñado ninguno.
   const tipo = preguntaDelCliente(ultimoDelCliente);
-  const directa = tipo && tipo !== "precio" ? respuestaDirecta(d, ultimoDelCliente, anuncio, null) : null;
+  const directa =
+    tipo && tipo !== "precio" && tipo !== "otro_articulo" ? respuestaDirecta(d, ultimoDelCliente, anuncio, null) : null;
   const contestacion = directa ? `${directa}\n` : "";
 
   // Costa Rica y República Dominicana: el primer mensaje de los guiones de la dueña, en un solo globo.
@@ -156,37 +250,46 @@ export function respuestaMinima(
   } = {},
 ): string {
   const descripcion = anuncio?.descripcion_anuncio ?? "";
-  const llevaTalla = ROPA.test(descripcion) || CALZADO.test(descripcion);
+  if (!descripcion.trim() && !opciones.productoAnuncio?.trim()) {
+    return mensajeSinProducto(d);
+  }
+
+  /*
+   * SI PIDE OTRO ARTÍCULO, EL CHAT PASA A UNA PERSONA, y no se sigue con el
+   * pedido detrás. El caso real: «Tiene otro combo de más alto precio que sea
+   * de más calidad» → «Combo 2 En 1 está en RD$1,690. Indique su dirección
+   * exacta de entrega.». Eso no contesta lo que preguntó y encima le pide la
+   * dirección de un pedido que él no ha aceptado.
+   */
+  if (preguntaDelCliente(opciones.ultimoDelCliente) === "otro_articulo") {
+    return fraseDeTransferencia(d);
+  }
+  if (clienteAplazaCompra(opciones.ultimoDelCliente)) {
+    return "Entiendo, no hay problema. Cuando esté listo para ordenar, escríbanos y con gusto le atendemos.";
+  }
+  const pideTalla = llevaTalla(descripcion);
+  const llevaColorEnDescripcion = llevaColor(descripcion);
 
   // El orden de los guiones de la dueña (2026-09-05): talla si la lleva,
   // dirección, teléfono con el costo de envío, nombre y el cierre. La cantidad
   // no es un paso: se asume una unidad salvo que el cliente diga otra.
   const paso: PasoDelPedido =
-    llevaTalla && !ficha.talla ? "talla"
+    pideTalla && !ficha.talla ? "talla"
+      : llevaColorEnDescripcion && !ficha.color ? "color"
       : !ficha.direccion ? "direccion"
         : (d.codigo === "cr" || d.codigo === "do") && !ficha.celular ? "celular"
           : !ficha.nombre ? "nombre"
             : "resumen";
 
-  /*
-   * EL CIERRE. Con todos los datos, primero se pregunta si se le factura; y
-   * cuando el cliente ya dijo que sí, el resumen sale AQUÍ MISMO, armado con
-   * lo que él escribió y con el precio de la descripción. El caso real: el
-   * agente decía «ya le preparo el resumen» y el resumen nunca llegaba.
-   */
+  /* Con todos los datos, el cierre es directamente el resumen del pedido. */
   if (paso === "resumen") {
-    const yaPregunto = !!opciones.ultimoDelAgente && PIDE_CONFIRMACION.test(opciones.ultimoDelAgente);
-    if (yaPregunto && CONFIRMA.test(opciones.ultimoDelCliente ?? "")) {
-      const resumen = resumenMecanico(d, ficha, anuncio, opciones);
-      if (resumen) return resumen;
-      // Sin zona conocida no hay envío ni total: se pide la provincia.
-      return otraFormaDePreguntar(d, "direccion", descripcion);
-    }
+    const resumen = resumenMecanico(d, ficha, anuncio, opciones);
+    if (resumen) return resumen;
+    // Sin zona conocida no hay envío ni total: se pide la provincia.
+    return otraFormaDePreguntar(d, "direccion", descripcion);
   }
 
-  // En el paso final, la confirmación va con el pedido escrito: «Le confirmo: …».
   let pregunta =
-    (paso === "resumen" ? confirmacionMecanica(d, ficha, anuncio, opciones) : null) ??
     preguntaDelPaso(d, paso, descripcion);
 
   /*
@@ -237,7 +340,7 @@ export function respuestaMinima(
   return directa ? `${directa}\n\n${pregunta}` : pregunta;
 }
 
-type PasoDelPedido = "talla" | "direccion" | "nombre" | "celular" | "resumen";
+type PasoDelPedido = "talla" | "color" | "direccion" | "nombre" | "celular" | "resumen";
 
 /** La pregunta de cada paso del pedido, en el orden de venta. */
 function preguntaDelPaso(d: DatosPais, paso: PasoDelPedido, descripcion: string): string {
@@ -245,6 +348,8 @@ function preguntaDelPaso(d: DatosPais, paso: PasoDelPedido, descripcion: string)
   switch (paso) {
     case "talla":
       return primeraPregunta(descripcion, d);
+    case "color":
+      return tu ? "¿Qué color te interesa?" : "¿Qué color le interesa?";
     case "direccion":
       switch (d.codigo) {
         case "do":
@@ -259,17 +364,9 @@ function preguntaDelPaso(d: DatosPais, paso: PasoDelPedido, descripcion: string)
     case "celular":
       return "¿Me facilita su número de teléfono para el pedido?";
     case "resumen":
-      return tu
-        ? "Ya tengo tus datos. ¿Te lo facturamos y te lo enviamos?"
-        : "Ya tengo sus datos. ¿Se lo facturamos y se lo enviamos?";
+      return "";
   }
 }
-
-/** Cómo suena la pregunta de confirmación, para saber que ya se hizo. */
-const PIDE_CONFIRMACION = /factur|le confirmo|confirma (su|tu|el) pedido|se lo enviamos|te lo enviamos|enviamos hoy mismo|despacho hoy mismo/i;
-
-/** Un «sí» del cliente, en cualquiera de sus formas. */
-const CONFIRMA = /^[^\p{L}\p{N}]*(s[ií]|dale|claro|confirmo|confirmado|confirmar|ok|okey|okay|listo|perfecto|de acuerdo|correcto|adelante|vale|va|hagale|h[aá]gale|por supuesto|as[ií] es|exacto|me lo llevo|lo quiero|f[aá]ctureme|fact[uú]relo|env[ií]emelo|lo espero|est[aá] bien|de una|m[aá]ndelo|as[ií] mismo|env[ií]elo)(?![\p{L}])/iu;
 
 /** «1», «2 pares», «dos» → cuántos lleva. Sin nada, uno. */
 function cantidadDe(texto: string | null): number {
@@ -313,7 +410,9 @@ export function resumenMecanico(
 
   const cantidad = cantidadDe(ficha.cantidad);
   const total = precio * cantidad + envio;
-  const variante = [ficha.talla, ficha.color].filter(Boolean).join(", ");
+  const tallaValida = llevaTalla(descripcion) ? ficha.talla : null;
+  const colorValido = llevaColor(descripcion) ? ficha.color : null;
+  const variante = [tallaValida, colorValido].filter(Boolean).join(", ");
   const marcador = opciones.marcador ?? MARCADOR_POR_DEFECTO;
   const cabecera = /^resumen:?$/i.test(marcador.trim()) ? "Resumen de su pedido:" : marcador;
   const celular = ficha.celular && ficha.celular !== "este mismo número" ? ficha.celular : (opciones.telefonoDelChat ?? "");
@@ -325,8 +424,8 @@ export function resumenMecanico(
     if (celular) lineas.push(`Telefono: ${celular}`);
     lineas.push(`Direccion: ${ficha.direccion}`);
     lineas.push(`Producto: ${articulo}`);
-    if (ficha.talla) lineas.push(`Talla: ${ficha.talla}`);
-    if (ficha.color) lineas.push(`Color: ${ficha.color}`);
+    if (tallaValida) lineas.push(`Talla: ${tallaValida}`);
+    if (colorValido) lineas.push(`Color: ${colorValido}`);
     lineas.push(`Cantidad: ${cantidad}`);
     lineas.push(`Envio: ${importe(d, envio)}`);
     lineas.push(`TOTAL A PAGAR: ${importe(d, total)}`);
@@ -344,8 +443,8 @@ export function resumenMecanico(
     if (celular) lineas.push(`Telefono: ${celular}`);
     lineas.push(`Direccion: ${ficha.direccion}`);
     lineas.push(`Producto: ${articulo}`);
-    if (ficha.talla) lineas.push(`Talla: ${ficha.talla}`);
-    if (ficha.color) lineas.push(`Color: ${ficha.color}`);
+    if (tallaValida) lineas.push(`Talla: ${tallaValida}`);
+    if (colorValido) lineas.push(`Color: ${colorValido}`);
     lineas.push(`Cantidad: ${cantidad}`);
     lineas.push(`Envio: ${importe(d, envio)}`);
     lineas.push(`TOTAL A PAGAR: ${importe(d, total)}`);
@@ -393,55 +492,11 @@ function nombreDeLaZona(d: DatosPais, direccion: string, lugar?: string | null):
   return "Interior";
 }
 
-/**
- * «Le confirmo: …» — el pedido leído en una línea antes de cerrarlo, con el
- * total y la pregunta de si se lo enviamos hoy mismo. Es la confirmación que
- * pidió la dueña para República Dominicana; en los demás países, la pregunta
- * corta de siempre. Null si falta el precio o la zona.
- */
-export function confirmacionMecanica(
-  d: DatosPais,
-  ficha: FichaDelPedido,
-  anuncio: { descripcion_anuncio?: string | null; producto_anuncio?: string | null } | null,
-  opciones: { lugar?: string | null; productoAnuncio?: string | null } = {},
-): string | null {
-  if ((d.codigo !== "do" && d.codigo !== "cr") || !ficha.nombre || !ficha.direccion) return null;
-  const descripcion = anuncio?.descripcion_anuncio ?? "";
-  const precio = leerImporte(precioDeLaDescripcion(descripcion, d.moneda.simbolo));
-  if (precio === null) return null;
-  const zona = zonaDelCliente(d, ficha.direccion) ?? zonaDelCliente(d, opciones.lugar);
-  if (zona === null) return null;
-  const envio = zona === "resto" ? d.envio.restoDelPais.costo : zona.costo;
-  const articulo =
-    articuloDeLaDescripcion(descripcion, d.moneda.simbolo) ??
-    opciones.productoAnuncio?.trim() ??
-    anuncio?.producto_anuncio?.trim() ??
-    null;
-  if (!articulo) return null;
-  const cantidad = cantidadDe(ficha.cantidad);
-  const total = precio * cantidad + envio;
-
-  const partes = [articulo];
-  if (cantidad > 1) partes.push(`${cantidad} unidades`);
-  if (ficha.talla) partes.push(`talla ${ficha.talla}`);
-  if (ficha.color) partes.push(`color ${ficha.color}`);
-  partes.push(`a nombre de ${ficha.nombre}`, `entrega en ${ficha.direccion}`);
-
-  if (d.codigo === "cr") {
-    // El guion de la dueña (2026-09-05): el pago según la zona, y «¿Se lo despacho hoy mismo?».
-    const pago = zona === "resto" ? "se paga por adelantado por SINPE o transferencia" : "se paga al recibir";
-    return (
-      `Le confirmo: ${partes.join(", ")}.\n` +
-      `Son ${importe(d, precio * cantidad)} más ${importe(d, envio)} de envío, total ${importe(d, total)}, ${pago}.\n` +
-      "¿Se lo despacho hoy mismo?"
-    );
-  }
-
-  return (
-    `Le confirmo: ${partes.join(", ")}.\n` +
-    `Son ${importe(d, precio * cantidad)} más ${importe(d, envio)} de envío, total ${importe(d, total)}, y se paga al recibir.\n` +
-    "¿Se lo despacho hoy mismo?"
-  );
+/** Cómo avisa cada país de que el chat pasa a una persona. */
+export function fraseDeTransferencia(d: DatosPais): string {
+  if (d.codigo === "do") return FRASE_DE_TRANSFERENCIA;
+  if (d.codigo === "cr") return FRASE_DE_CIERRE_CR;
+  return "Permítame un momento, le paso con un representante.";
 }
 
 /** La misma pregunta con otras palabras, para cuando la anterior quedó sin contestar. */
@@ -453,6 +508,8 @@ function otraFormaDePreguntar(d: DatosPais, paso: PasoDelPedido, descripcion: st
         return d.codigo === "do" ? "¿Cuál talla le interesa? Van de la 39 a la 45." : tu ? "Para enviártelo necesito tu número de calzado. ¿Cuál es?" : "Para enviárselo necesito el número que calza. ¿Cuál es?";
       }
       return tu ? "Para enviártelo necesito tu talla. ¿Cuál te interesa?" : "Para enviárselo necesito su talla. ¿Cuál le interesa?";
+    case "color":
+      return tu ? "¿Qué color te interesa?" : "¿Qué color le interesa?";
     case "direccion":
       switch (d.codigo) {
         case "do":
@@ -472,7 +529,69 @@ function otraFormaDePreguntar(d: DatosPais, paso: PasoDelPedido, descripcion: st
 }
 
 /** De qué va la pregunta del cliente, si es una de las que se contestan solas. */
-export type PreguntaDelCliente = "ubicacion" | "envio" | "pago" | "precio" | "tallas" | "tiempo";
+export type PreguntaDelCliente = "ubicacion" | "envio" | "pago" | "precio" | "tallas" | "tiempo" | "otro_articulo";
+
+/**
+ * EL CLIENTE PIDE OTRA COSA, NO ESTA. El caso real: «Tiene otro combo de más
+ * alto precio que sea de más calidad» —y le contestamos «Combo 2 En 1 está en
+ * RD$1,690», que es el precio de lo que ya tenía delante y no lo que preguntó.
+ * Pedir otro artículo no es preguntar el precio de este: es de los pocos casos
+ * en los que el guion manda pasar el chat a un representante.
+ */
+/**
+ * Otra TALLA, otro COLOR o el precio de una docena no son otro artículo: son
+ * este mismo. Se contestan aquí y la venta sigue, sin pasar a nadie.
+ */
+const OTRA_COSA_DEL_MISMO = /\b(color|colores|talla|tallas|n[uú]mero|numeros|n[uú]meros|tama[ñn]o|medida|mayor|mayoreo|docena|docenas|unidades|llevo|llevando|llevar)\b/i;
+
+const PIDE_OTRO_ARTICULO =
+  /\b(tiene|tienen|hay|manejan|venden|tendr[aá]n?|queda|quedan)\b[^.?!\n]{0,30}\b(otro|otra|otros|otras)\b|\b(otro|otra|otros|otras)\b[^.?!\n]{0,30}\b(modelo|marca|combo|producto|art[ií]culo|opci[oó]n|calidad|version|versi[oó]n)\b|\bde (mejor|m[aá]s) calidad\b|\bm[aá]s (caro|cara|barato|barata|econ[oó]mico|econ[oó]mica)\b|\bcat[aá]logo completo\b|\bqu[eé] m[aá]s (tienen|venden|manejan)\b/i;
+
+/**
+ * CUÁNDO DICE QUE VUELVE: un día de la semana, un rato, la quincena. No basta
+ * por sí solo —«¿me llega mañana?» habla del envío, no de aplazar—: acompaña a
+ * una de las dos formas de abajo.
+ */
+const CUANDO_VUELVE =
+  /\b(lunes|martes|miercoles|jueves|viernes|sabado|domingo|manana|pasado manana|luego|despues|mas tarde|mas adelante|otro dia|la semana que viene|la otra semana|la proxima|proxima semana|el fin de semana|la quincena|quincena|fin de mes|dia de pago|cuando (cobre|me paguen|pueda|tenga|reciba))\b/;
+
+/** Que él vuelve a escribir, y ahí sobra el cuándo: «ya le aviso», «me comunico». */
+const VUELVE_SIN_FECHA =
+  /\b(ya le (digo|aviso|escribo|llamo|confirmo)|me comunico|nos hablamos|cualquier cosa le (aviso|escribo|llamo))\b/;
+
+/** Que el que vuelve es ÉL, y dice qué día: «el lunes le llamo». */
+const VUELVE_EL_CLIENTE =
+  /\b(le|les|te|lo)\s+(llamo|llamare|escribo|escribire|aviso|avisare|confirmo|confirmare|hablo|busco|contacto|mando)\b/;
+
+/** Y que lo que hará ese día es comprar: «el viernes lo ordeno». */
+const COMPRA_ESE_DIA =
+  /\b(ordeno|ordenare|compro|comprare|lo (compro|pido|ordeno|llevo|tomo)|la (compro|pido|ordeno|llevo)|hago el pedido|hago la orden|le hago el pedido)\b/;
+
+/**
+ * EL CLIENTE NO ESTÁ LISTO PARA COMPRAR: no se le insiste con el pedido.
+ *
+ * EL CASO REAL DE REPÚBLICA DOMINICANA: se le pidió la dirección, contestó «El
+ * lunes le llamo» —que es un «ahora no» con fecha— y el agente siguió como si
+ * nada: «Perfecto, hasta esa fecha. ¿Me facilita su número de teléfono para el
+ * pedido?». Aquí casi nadie dice «no puedo ahora»: dice cuándo vuelve.
+ */
+export function clienteAplazaCompra(texto: string | null | undefined): boolean {
+  const t = llano(texto ?? "").trim();
+  if (!t) return false;
+  // Una pregunta no aplaza nada: «¿me llega mañana?» pregunta por el envío.
+  if (t.includes("?")) return false;
+  if (
+    /\b(ahora no|por ahora no|no puedo ahora|no tengo (dinero|recursos)|sin recursos|mas adelante|mas tarde|despues compro|cuando tenga|cuando cobre|cuando me paguen|lo voy a pensar|dejeme pensarlo|lo pienso|todavia no|no estoy listo|no estoy lista)\b/.test(t)
+  ) {
+    return true;
+  }
+  // «Ya le aviso», «me comunico»: dice que vuelve él, y no hace falta el día.
+  if (VUELVE_SIN_FECHA.test(t)) return true;
+  // «El lunes le llamo», «mañana le aviso», «le escribo luego».
+  if (VUELVE_EL_CLIENTE.test(t) && CUANDO_VUELVE.test(t)) return true;
+  // «El viernes lo ordeno», «en la quincena hago el pedido».
+  return CUANDO_VUELVE.test(t) && COMPRA_ESE_DIA.test(t);
+}
 
 /**
  * LAS TALLAS QUE HAY para el artículo del anuncio, según la tabla base:
@@ -483,9 +602,9 @@ export function tallasDisponibles(descripcion: string, d: DatosPais): string | n
   if (!d.tallas.usaTablaBase) return null;
   const fila = (articulo: string) => TALLAS_BASE.find((f) => f.articulo === articulo)?.tallas ?? null;
   if (CALZADO.test(descripcion)) return d.tallas.zapatoEn || fila("Zapatos");
-  if (/\b(correa|correas|cintur[oó]n|cinturones|faja|fajas)\b/i.test(descripcion)) return fila("Correas y cinturones");
+  if (/\b(correa|correas|cintur[oó]n|cinturones)\b/i.test(descripcion)) return fila("Correas y cinturones");
   if (/\b(pantal[oó]n|pantalones|jean|jeans|short|shorts|bermuda)\b/i.test(descripcion)) return fila("Pantalones");
-  if (/\b(camisa|camisas|polo|t-?shirt|franela|blusa|chacabana|su[eé]ter|sudadera|chaqueta|abrigo|boxer|boxers|b[oó]xer|underwear)\b/i.test(descripcion)) return fila("Camisas, t-shirts, polos y boxers");
+  if (/\b(camisas?|polos?|t-?shirts?|franelas?|blusas?|chacabanas?|su[eé]ter|sudadera|chaqueta|abrigo|b[oó]xers?|underwear)\b/i.test(descripcion)) return fila("Camisas, t-shirts, polos y boxers");
   return null;
 }
 
@@ -497,9 +616,14 @@ export function tallasDisponibles(descripcion: string, d: DatosPais): string | n
 export function preguntaDelCliente(texto: string | null | undefined): PreguntaDelCliente | null {
   const t = llano(texto ?? "").trim();
   if (!t) return null;
+  // Lo primero: si pide OTRO artículo, ninguna de las respuestas de abajo
+  // contesta lo que preguntó, por más que nombre el precio o el envío.
+  if (PIDE_OTRO_ARTICULO.test(texto ?? "") && !OTRA_COSA_DEL_MISMO.test(texto ?? "")) return "otro_articulo";
   // «¿Cuáles son los tamaños disponibles?», «¿qué tallas hay?»: se contestan con las tallas, no con otra pregunta.
   if (/\b(tallas?|tamanos?|medidas?|numeros?)\b/.test(t) && /\b(disponible|disponibles|hay|tienen|tiene|cuales|cual|que|manejan|maneja|vienen|viene)\b/.test(t) && /\?|cuales|que|hay|tienen/.test(t)) return "tallas";
-  if (/\b(cuanto (tarda|demora|se demora|dura)|cuando (llega|me llega|lo recibo)|en cuanto tiempo|cuantos dias)\b/.test(t)) return "tiempo";
+  // «Para cuando» a secas, sin signos, también pregunta cuándo llega: fue lo
+  // que el cliente contestó cuando se le pidió el color, y se guardó de color.
+  if (/\b(cuanto (tarda|demora|se demora|dura)|cuando (llega|me llega|lo recibo)|en cuanto tiempo|cuantos dias|p[ae]ra? cuando|cuando lo (tengo|recibo|mandan|env[ií]an)|cuando me lo (mandan|env[ií]an|entregan))\b/.test(t)) return "tiempo";
   if (/\b(donde (estan|esta|queda|quedan|tuta|ta|se ubican|se encuentran|es la tienda|estan ubicados|los encuentro|puedo ir)|ubicad[oa]s?|tienda fisica|local fisico|direccion de la tienda)\b/.test(t)) return "ubicacion";
   if (/\b(envio|envios|envian|delivery|entregan|mandan)\b/.test(t) && /\?|cuanto|como|hacen|tienen|hay/.test(t)) return "envio";
   if (/\b(pago|pagar|pagos|se paga|forma de pago|contra entrega|transferencia|tarjeta|es seguro|es confiable|confiable)\b/.test(t)) return "pago";
@@ -521,6 +645,10 @@ export function respuestaDirecta(
   if (!tipo) return null;
 
   switch (tipo) {
+    case "otro_articulo":
+      // Lo que se vende en este chat es lo del anuncio. Los demás artículos los
+      // cotiza un representante: es lo que manda el guion de la dueña.
+      return fraseDeTransferencia(d);
     case "ubicacion":
       return d.ubicacion.tiendaFisica;
     case "pago":

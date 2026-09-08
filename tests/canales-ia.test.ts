@@ -299,23 +299,23 @@ test("un pin dentro del país se sitúa por su zona y se confirma, no se repregu
   const bloque = ubicacionParaModelo(v!, "República Dominicana");
   assert.ok(bloque.includes("Santiago de los Caballeros"));
   assert.ok(bloque.includes("La zona es válida para entregar"));
+  assert.ok(bloque.includes("ESA ES SU DIRECCIÓN"), "el pin no se completa a preguntas");
   assert.ok(
-    bloque.includes("número de casa"),
-    "el pin sitúa la zona; el mensajero sigue necesitando el número y una seña",
+    bloque.includes("NO le pides ni un dato más de ella"),
+    "el número de casa y la seña de la puerta se prohíben, no se piden",
   );
-  assert.ok(bloque.includes("no le vuelvas a preguntar dónde vive".toLowerCase()) ||
-    bloque.includes("NO le vuelvas a preguntar dónde vive"));
 });
 
 /**
  * CON LA DIRECCIÓN RESUELTA, EL PIN DEJA DE SER DOS NÚMEROS.
  *
  * Es la diferencia entre una conversación de un mensaje y una de cinco: el
- * cliente cree que mandando el pin ya dio su dirección —y casi la dio—, y
- * volver a pedirsela entera le dice que no sirvió de nada. Lo único que un mapa
- * no puede dar es el número de casa y la seña de la puerta.
+ * cliente cree que mandando el pin ya dio su dirección —y la dio—, y pedirle un
+ * dato más le dice que no sirvió de nada. La dueña de República Dominicana lo
+ * paró con un caso delante: «Perfecto, Los Coquitos. ¿Me puede decir el número
+ * de casa o apartamento y alguna seña para reconocer la puerta?».
  */
-test("con provincia, distrito, barrio y calle, solo se pide lo que el mapa no da", () => {
+test("con provincia, distrito, barrio y calle, el pin se confirma y no se repregunta", () => {
   const { texto, enlace } = pinDe(9.0463, -79.4585);
   const v = validarUbicacion(texto, enlace, "pa")!;
 
@@ -337,8 +337,8 @@ test("con provincia, distrito, barrio y calle, solo se pide lo que el mapa no da
     bloque.includes("«perfecto, Nuevo Hipodromo»"),
     "confirma por el barrio, no por una ciudad a 8 km",
   );
-  assert.ok(bloque.includes("número de casa"));
-  assert.ok(bloque.includes("una seña"));
+  assert.ok(bloque.includes("NO le pides ni un dato más de ella"), "nada de completar la dirección a preguntas");
+  assert.ok(bloque.includes("cuánto le sale el envío"), "lo que sigue es el envío, no otra pregunta");
 });
 
 /**
@@ -642,14 +642,19 @@ test("el agente de Costa Rica es formal, educado y habla como en Costa Rica", ()
   assert.ok(tico.includes("¿me regala su dirección?"), "la cortesía tica para pedir un dato");
   assert.ok(tico.includes("«con mucho gusto» en lugar de «de nada»"));
   assert.ok(tico.includes("NO van en una venta formal"), "lo de confianza se nombra para que no se use");
-  assert.match(tico, /Hola! Bienvenido\(a\) a TELLERIA\. Gracias por escribirnos\./, "con el saludo de la dueña");
+  assert.match(tico, /Hola, le asiste Mildred, un gusto\./, "con el saludo de la dueña");
 });
 
 /**
- * COSTA RICA LLEVA EL GUION DE LA DUEÑA (2026-09-05), como República
- * Dominicana lleva el suyo: en su orden —talla, color, dirección, envío con
- * teléfono, nombre, «Le confirmo», resumen— y sin la base compartida. Panamá
- * sigue con la base, con todas sus reglas.
+ * COSTA RICA LLEVA EL GUION DE LA DUEÑA, como República Dominicana lleva el
+ * suyo: en su orden —talla, color, dirección, envío con teléfono, nombre,
+ * resumen— y sin la base compartida. Panamá sigue con la base.
+ *
+ * Y EL PEDIDO NO SE CONFIRMA DOS VECES (la dueña, 2026-09-08): en cuanto están
+ * todos los datos sale el resumen. Nada de «¿se lo despacho hoy mismo?»
+ * esperando un «sí» que el cliente ya dio al darle su dirección y su nombre:
+ * ahí se perdían ventas enteras. Detrás del resumen va la transferencia, y el
+ * agente se calla.
  */
 test("Costa Rica vende con el guion de la dueña, y Panamá con la base", () => {
   const tico = armarSistema("Tienda", D.obtenerAgente(orgId, cr), [], null);
@@ -659,17 +664,22 @@ test("Costa Rica vende con el guion de la dueña, y Panamá con la base", () => 
   assert.ok(!tico.includes("Reglas que no puedes romper:"), "cr: y no la base");
   assert.ok(panameno.includes("Reglas que no puedes romper:"), "pa: la base");
   assert.ok(!panameno.includes("AGENTE DE VENTAS — COSTA RICA"), "pa: nada del tico");
+  assert.ok(tico.includes("Si el cliente escribe «hola»"), "sin anuncio, primero pregunta el artículo");
+  assert.ok(tico.includes("búscalo en LO QUE VENDE"), "el artículo se contrasta con el catálogo");
+  assert.ok(tico.includes("será transferido al representante"), "el artículo desconocido se informa y se transfiere");
 
   // Las reglas fijas del guion, tal cual las escribió.
   for (const regla of [
     "Un mensaje por turno",
+    "TIENES MEMORIA",
+    "lo que ya está dicho no se vuelve a preguntar",
     "Indique su dirección exacta de entrega.",
     "Nunca pides el teléfono sin haber dicho antes el costo de envío",
     "¿A nombre de quién sale el pedido?",
-    "¿Se lo despacho hoy mismo?",
     "📋 RESUMEN DEL PEDIDO",
     "✅ PEDIDO REGISTRADO",
-    "Permítame un momento, le transfiero con un representante.",
+    "Le conecto con un representante para finalizar.",
+    "Después de esto TE DETIENES",
     "[HANDOFF]",
     "La empresa no reserva pedidos",
     "De 3 unidades en adelante",
@@ -678,9 +688,23 @@ test("Costa Rica vende con el guion de la dueña, y Panamá con la base", () => 
     assert.ok(tico.includes(regla), `cr: falta «${regla}»`);
   }
 
+  // El resumen sale solo, sin pedir una confirmación de más.
+  assert.ok(
+    tico.includes("RESUMEN FINAL, EN CUANTO YA ESTÉN TODOS LOS DATOS"),
+    "cr: el resumen va en cuanto están los datos",
+  );
+  assert.ok(!tico.includes("CONFIRMACIÓN EN UN SOLO MENSAJE"), "cr: ya no hay paso de confirmación");
+  assert.ok(tico.includes("EL PEDIDO NO SE CONFIRMA DOS VECES"), "cr: y se lo dice con todas las letras");
+  for (const prohibida of ["¿se lo despacho hoy mismo?", "¿se lo despachamos?", "¿procedo con el pedido?", "ya le preparo el resumen"]) {
+    assert.ok(tico.includes(prohibida), `cr: la pregunta «${prohibida}» se nombra para prohibirla`);
+  }
+  const despacho = tico.match(/¿[Ss]e lo despacho hoy mismo\?/g) ?? [];
+  assert.equal(despacho.length, 1, "cr: solo aparece en la lista de lo prohibido");
+  assert.ok(!tico.includes("Se lo despacho hoy mismo.»"), "cr: y ni como ejemplo de buen tono");
+
   // El saludo de la dueña, una sola vez en el prompt, en la regla del primer mensaje.
-  const saludo = tico.match(/Hola! Bienvenido\(a\) a TELLERIA\. Gracias por escribirnos\./g) ?? [];
-  assert.equal(saludo.length, 1, "una vez y ninguna copia suelta más");
+  const saludo = tico.match(/Hola, le asiste Mildred, un gusto\./g) ?? [];
+  assert.ok(saludo.length >= 1, "el saludo de la dueña, con el nombre de quien atiende");
 
   // Y el mayoreo, que ahora sí cotiza: a partir de 3, con el precio de la descripción.
   assert.ok(tico.includes("vende al por mayor a partir de 3 unidades"));

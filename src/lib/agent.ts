@@ -42,7 +42,7 @@ import {
 } from "./db";
 import { descifrar } from "./auth";
 import { anuncioParaModelo, anuncioVigente, type DatosAnuncio } from "./anuncio";
-import { aperturaSegura, respuestaMinima } from "./apertura";
+import { aperturaSegura, clienteAplazaCompra, fraseDeTransferencia, llevaColor, llevaTalla, nombraUnArticulo, respuestaMinima } from "./apertura";
 import { esMensajeDeSistema } from "./sistema";
 import { contieneMarcador, MARCADOR_POR_DEFECTO, registrarCierre } from "./cierre";
 import { completar, ErrorIA, hoyISO } from "./ia";
@@ -73,6 +73,11 @@ import { bloqueDePais, obtenerPais, saludoDelPais, type Pais } from "./paises";
 import { bloqueDeEnvio } from "./envio";
 import { conLoVistoYOido, modelosDePercepcion, percibir } from "./percepcion";
 import { ubicacionParaModelo, validarUbicacion, type UbicacionValidada } from "./ubicacion";
+
+/** Un texto sin tildes, sin mayúsculas y en una sola línea, para comparar dos mensajes. */
+function llanoDeUnaLinea(t: string): string {
+  return t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+}
 
 /** Ventana en la que un mensaje de vendedor silencia al agente. */
 const SILENCIO_TRAS_HUMANO = 2 * 60 * 60;
@@ -122,6 +127,15 @@ const SE_REPITE = 3;
  * cliente repita su dirección dos veces es la venta.
  */
 const MAX_MENSAJES_CONTEXTO = 40;
+
+function pareceDireccionEscrita(texto: string): boolean {
+  return (
+    texto.trim().length >= 10 &&
+    !texto.trim().startsWith("[") &&
+    !texto.includes("?") &&
+    (/\d/.test(texto) || /\b(calle|avenida|av\.?|sector|barrio|residencial|urbanizaci[oó]n|provincia|municipio|ciudad|km|carretera)\b/i.test(texto))
+  );
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Envío — privado
@@ -652,7 +666,9 @@ export type MotivoSilencio =
    */
   | "resumen_repetido"
   /** Lo último del hilo es un aviso interno de WhatsApp, no un mensaje del cliente. */
-  | "mensaje_de_sistema";
+  | "mensaje_de_sistema"
+  /** Mientras se pensaba esta respuesta ya salió otra: llega tarde y de sobra. */
+  | "ya_contestado";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Generación
@@ -719,6 +735,21 @@ export function textoDeLoQueVende(
   );
 }
 
+function bienvenidaSinAnuncioCR(saludo: string, catalogo: Producto[]): string {
+  const activos = catalogo
+    .map((p) => {
+      const precio = p.precio === null ? "precio por confirmar" : `₡${p.precio.toLocaleString("es-CR")}`;
+      return `${p.nombre}${p.precio === null ? "" : ` (${precio})`}`;
+    })
+    .slice(0, 8);
+
+  const promociones = activos.length
+    ? `Opciones y promociones activas: ${activos.join(", ")}.`
+    : "Tenemos varias opciones y promociones activas para usted.";
+
+  return `${saludo} ${promociones} ¿Cuál artículo le interesa?`;
+}
+
 export function armarSistema(
   negocio: string,
   agente: Agente,
@@ -765,7 +796,25 @@ export function armarSistema(
    * SABER de qué se habla; el catálogo sigue mandando en precios y condiciones,
    * y eso lo dicen las reglas de la base.
    */
-  const deAnuncio = anuncio ? anuncioParaModelo(anuncio) : null;
+  const deAnuncio = anuncio ? anuncioParaModelo(anuncio, agenteDePais(agente.pais)?.moneda.simbolo ?? null) : null;
+
+  /*
+   * ¿ESTE ARTÍCULO LLEVA TALLA Y COLOR? Se decide aquí, una vez, con lo que
+   * dice el anuncio, y el guion sale escrito en consecuencia. La dueña
+   * (2026-09-07): el cepillo secador no lleva ni talla ni color. Es la MISMA
+   * cuenta que hace la respuesta mecánica de `apertura.ts`, para que el guion
+   * que lee el modelo y lo que el sistema escribe solo digan una cosa.
+   *
+   * Null cuando el anuncio no nombra ningún artículo —o no hay anuncio—: ahí
+   * no se sabe qué se vende, y el guion sale con la clasificación por hacer.
+   */
+  const descripcionDelAnuncio = anuncio?.descripcion_anuncio?.trim() ?? "";
+  const textoDelArticulo = nombraUnArticulo(descripcionDelAnuncio)
+    ? descripcionDelAnuncio
+    : anuncio?.producto_anuncio?.trim() ?? "";
+  const articuloConocido = nombraUnArticulo(textoDelArticulo);
+  const conTalla = articuloConocido ? llevaTalla(textoDelArticulo) : null;
+  const conColor = articuloConocido ? llevaColor(textoDelArticulo) : null;
 
   /*
    * EL PAÍS DEL CANAL, en sus dos mitades.
@@ -852,10 +901,13 @@ export function armarSistema(
             lineasResumen: lineasDelResumen(datos),
             pieDelResumen: datos.pieDelResumen,
             datosParaCerrar: datos.envio.datosParaCerrar,
+            llevaTalla: conTalla,
+            llevaColor: conColor,
           })
         : datos.codigo === "cr"
         ? guionCR({
             saludo: saludoDe(datos, agente.nombre, negocio),
+            nombreAgente: datos.nombreAgente ?? agente.nombre,
             marcador,
             conAnuncio: deAnuncio !== null,
             conFoto,
@@ -1082,6 +1134,10 @@ export async function generarRespuesta(
   cliente: { telefono: string; nombre: string | null } | null = null,
   /** El pin que acaba de mandar el cliente, ya comprobado contra el país. */
   ubicacion: UbicacionValidada | null = null,
+  /** Historial completo para reconstruir memoria sin ampliar los tokens del modelo. */
+  memoriaMensajes: Mensaje[] = mensajes,
+  /** Zona resuelta desde una dirección escrita, si el geocodificador la encontró. */
+  lugarResuelto: string | null = null,
 ): Promise<RespuestaGenerada> {
   const org = obtenerOrg(orgId);
   const agente = obtenerAgente(orgId, canalId);
@@ -1107,6 +1163,44 @@ export async function generarRespuesta(
   );
 
   /*
+   * La primera respuesta de un anuncio no necesita interpretación: el precio,
+   * el producto y el siguiente paso salen de datos estructurados. Dejar que el
+   * modelo la redacte aquí era lo que permitía que copiara el eslogan del
+   * anuncio, inventara una variante o preguntara por talla a un combo. La
+   * apertura mecánica también evita que una respuesta rechazada y otra llamada
+   * concurrente produzcan dos aperturas distintas para el mismo cliente.
+   */
+  const datosPais = agenteDePais(agente.pais);
+  const sesion = mensajesDeLaSesion(mensajes);
+  const esPrimeraRespuesta = !sesion.some((m) => m.emisor === "ia");
+  const ultimo = mensajes[mensajes.length - 1];
+  if (datosPais && (datosPais.codigo === "do" || datosPais.codigo === "cr") && esPrimeraRespuesta) {
+    if (datosPais.codigo === "cr" && !anuncio && !mensajes.some((m) => m.emisor === "ia")) {
+      return {
+        texto: bienvenidaSinAnuncioCR(saludoDe(datosPais, agente.nombre, negocio), catalogo),
+        pideAsesor: false,
+        modelo: agente.modelo,
+        fueRespaldo: false,
+      };
+    }
+
+    const apertura = aperturaSegura(
+      datosPais,
+      anuncio,
+      saludoDe(datosPais, agente.nombre, negocio),
+      ultimo.content,
+    );
+    if (apertura) {
+      return {
+        texto: apertura,
+        pideAsesor: false,
+        modelo: agente.modelo,
+        fueRespaldo: false,
+      };
+    }
+  }
+
+  /*
    * LA CONVERSACIÓN TIENE QUE ACABAR EN EL CLIENTE.
    *
    * No es un capricho nuestro: los modelos actuales rechazan con un 400 una
@@ -1118,7 +1212,6 @@ export async function generarRespuesta(
    *
    * Se corta aquí, con el motivo escrito, en vez de gastar la llamada.
    */
-  const ultimo = mensajes[mensajes.length - 1];
   if (!ultimo || ultimo.emisor !== "cliente") {
     throw new ErrorIA(
       "No hay nada que contestar: la conversación no termina en un mensaje del cliente",
@@ -1134,7 +1227,7 @@ export async function generarRespuesta(
    * para ESTA respuesta: no vuelvas a preguntar lo que está en esta lista. Ver
    * `preguntasYaHechas`.
    */
-  const yaPregunto = loYaPreguntado(mensajes);
+  const yaPregunto = loYaPreguntado(memoriaMensajes);
 
   const memoria = yaPregunto.length
     ? "\n\nESTO YA SE LO PREGUNTASTE, Y ESTO TE CONTESTÓ:\n" +
@@ -1159,7 +1252,12 @@ export async function generarRespuesta(
    * una pregunta repetida.
    */
   const ficha =
-    fichaParaModelo(fichaDelHilo(mensajes, agente.pais)) + avisoDeClienteQueVuelve(mensajes) + PIENSA_COMO_VENDEDOR;
+    fichaParaModelo(fichaDelHilo(memoriaMensajes, agente.pais), agente.pais) +
+    avisoDeClienteQueVuelve(memoriaMensajes) +
+    (agente.pais === "do"
+      ? "\n\nREGLA DE DIRECCIÓN DE REPÚBLICA DOMINICANA: la dirección se da una sola vez. Si el cliente ya la escribió, acéptala completa, úsala para ubicar la zona y calcular el envío, y no le pidas que la repita, la corrija ni que añada número de casa o referencias. Si el mapa no logra identificar la zona, pregunta únicamente la provincia; nunca vuelvas a pedir toda la dirección."
+      : "") +
+    PIENSA_COMO_VENDEDOR;
 
   const r = await completar({
     orgId,
@@ -1180,7 +1278,7 @@ export async function generarRespuesta(
             ubicacion,
             false,
             // La zona que el cliente escribió EN ESTA SESIÓN, para decirle SU tarifa.
-            lugarEscritoPorElCliente(agenteDePais(agente.pais), mensajesDeLaSesion(mensajes)),
+            lugarResuelto ?? lugarEscritoPorElCliente(agenteDePais(agente.pais), mensajesDeLaSesion(mensajes)),
           ) + (reglaPrecio ? `\n\n${reglaPrecio}` : "") + memoria + ficha,
       },
       ...aHistorial(mensajes),
@@ -1220,17 +1318,17 @@ export async function generarRespuesta(
 const PIDE_ASESOR = /\[?\bHANDOFF\b\]?/gi;
 
 /**
- * `[FOTO]` — la etiqueta con la que el agente pide que salga la imagen.
+ * `[ENVIAR_FOTO]` — la etiqueta con la que el agente pide que salga la imagen.
  *
  * Misma mecánica que `[HANDOFF]` y por la misma razón: el modelo solo sabe
  * escribir texto, así que la única forma de que pida algo que no es texto es
  * que lo diga escribiéndolo. El cliente NO tiene que verla, y sin quitarla le
- * llegaría un «[FOTO]» pegado al final del mensaje.
+ * llegaría un «[ENVIAR_FOTO]» pegado al final del mensaje.
  *
  * Se reconoce con y sin corchetes y en cualquier caja, igual que la otra: el
  * modelo la escribe de las dos formas por más que se le pida una.
  */
-const PIDE_FOTO = /\[?\bFOTO\b\]?/gi;
+const PIDE_FOTO = /\[?\bENVIAR_FOTO\b\]?/gi;
 
 export function leerEtiquetaDeFoto(texto: string): { texto: string; pideFoto: boolean } {
   PIDE_FOTO.lastIndex = 0;
@@ -1433,10 +1531,47 @@ export type Resultado =
   | { atendida: true; messageId: string; modelo: string };
 
 /**
+ * UN TURNO CADA VEZ POR CONVERSACIÓN.
+ *
+ * El caso real de República Dominicana: el cliente mandó «¡Hola! Quiero más
+ * información» y, dos segundos después, una nota de voz. Cada mensaje abrió su
+ * turno, los dos leyeron un hilo en el que el agente todavía no había hablado
+ * —pensar una respuesta y esperar por cortesía lleva sus segundos— y los dos
+ * mandaron la bienvenida. El cliente vio el saludo dos veces seguidas, con el
+ * producto y el precio repetidos.
+ *
+ * Aquí se ponen en fila: el segundo turno no empieza hasta que el primero ha
+ * terminado, y entonces lee el hilo ya con la respuesta del primero dentro. No
+ * se descarta ningún mensaje del cliente; se contestan en orden, que es como
+ * contesta una persona.
+ */
+const turnos = new Map<string, Promise<void>>();
+
+export function atenderConversacion(orgId: number, canalId: number, conversationId: number): Promise<Resultado> {
+  const clave = `${orgId}:${conversationId}`;
+  const anterior = turnos.get(clave) ?? Promise.resolve();
+  // Que el turno anterior fallara no puede dejar la conversación sin atender.
+  const turno = anterior.then(
+    () => atenderTurno(orgId, canalId, conversationId),
+    () => atenderTurno(orgId, canalId, conversationId),
+  );
+  const marca = turno.then(
+    () => undefined,
+    () => undefined,
+  );
+  turnos.set(clave, marca);
+  // Y la fila no crece: cuando este es el último turno, se borra la entrada.
+  void marca.then(() => {
+    if (turnos.get(clave) === marca) turnos.delete(clave);
+  });
+  return turno;
+}
+
+/**
  * Punto de entrada desde el webhook. Es la ÚNICA ruta por la que sale un
  * mensaje de SalesDash.
  */
-export async function atenderConversacion(
+async function atenderTurno(
   orgId: number,
   canalId: number,
   conversationId: number,
@@ -1477,6 +1612,29 @@ export async function atenderConversacion(
   // Un «[protocolMessage]» que entró antes de filtrarse no es del cliente.
   if (esMensajeDeSistema(ultimo.content)) {
     return { atendida: false, motivo: "mensaje_de_sistema" };
+  }
+  const memoriaMensajes = listarMensajes(orgId, conversationId);
+
+  /*
+   * ── UNA VENTA CERRADA PASA AL REPRESENTANTE ─────────────────────────────
+   *
+   * Después del resumen no se abre otra venta ni se responde con preguntas de
+   * dirección, factura o entrega. El cliente puede escribir «bien», mandar
+   * una imagen o avisar que ya recibió el pedido: desde aquí el hilo es del
+   * representante. Esta guarda va antes de percepción y del modelo para que
+   * ningún camino genere una respuesta adicional.
+   */
+  if (conv.fecha_cierre !== null) {
+    if (!hayAnomaliaAbierta(orgId, conversationId, "handoff_agente")) {
+      ponerAtiende(orgId, conversationId, "humano");
+      crearAnomalia(orgId, {
+        conversationId,
+        tipo: "handoff_agente",
+        severidad: "media",
+        detalle: "La venta ya estaba cerrada. El cliente escribió después del cierre y el hilo pasó al representante.",
+      });
+    }
+    return { atendida: false, motivo: "pasado_a_asesor" };
   }
 
   /*
@@ -1614,13 +1772,14 @@ export async function atenderConversacion(
     agente.validar_mapa === 1
       ? validarUbicacion(ultimoFresco.content, ultimoFresco.media_url, agente.pais || null)
       : null;
+  let lugarResuelto: string | null = null;
 
   /*
    * DE UNAS COORDENADAS A UNA DIRECCIÓN: provincia, distrito, barrio y calle.
    *
-   * Con esto el agente confirma la zona y pide SOLO lo que un mapa no puede
-   * darle —el número de casa y una seña— en vez de la dirección entera. Y la
-   * dirección queda escrita en el hilo, que es donde la lee quien despacha.
+   * Con esto el agente confirma la zona por su nombre y cotiza el envío sin
+   * preguntar nada más: el pin ES la dirección. Y la dirección queda escrita
+   * en el hilo, que es donde la lee quien despacha.
    *
    * Con reloj y sin ruido: es una llamada a un servicio de fuera, y si no
    * contesta a tiempo el agente responde igual, situando la zona por la ciudad
@@ -1647,6 +1806,28 @@ export async function atenderConversacion(
     }
   }
 
+  // Una dirección escrita también se resuelve antes de elegir la tarifa.
+  if (!ubicacion && agente.pais === "do") {
+    const paisDelAgente = agenteDePais(agente.pais);
+    const candidato = [...historial]
+      .reverse()
+      .find((m) => m.emisor === "cliente" && pareceDireccionEscrita(m.content));
+
+    if (candidato) {
+      try {
+        const { geocodificarDireccion } = await import("./geocodificacion");
+        const direccion = await geocodificarDireccion(candidato.content, agente.pais, { timeoutMs: 4_000 });
+        if (direccion) lugarResuelto = direccion.texto;
+      } catch (e) {
+        console.error(`[agente] no se pudo buscar la dirección de ${conversationId}`, e);
+      }
+    }
+
+    if (!lugarResuelto && !candidato) {
+      lugarResuelto = lugarEscritoPorElCliente(paisDelAgente, historial);
+    }
+  }
+
   // ── Generar ─────────────────────────────────────────────────────────────
   /*
    * LO QUE DIJO EL ANUNCIO —texto, precio, lo leído en su imagen— se calcula
@@ -1668,6 +1849,7 @@ export async function atenderConversacion(
       reglaPrecio,
       { telefono: conv.cliente_phone, nombre: conv.cliente_nombre },
       ubicacion,
+      memoriaMensajes,
     );
   } catch (e) {
     /*
@@ -1707,28 +1889,33 @@ export async function atenderConversacion(
    * Solo en canales con archivo de país: el revisor juzga contra ese archivo.
    */
   const datosPais = agenteDePais(agente.pais);
+  /*
+   * ¿ESTO ES LA APERTURA? Solo si el agente todavía no ha escrito en esta
+   * sesión. Ver `esAperturaDeSesion`: antes bastaba con que el cliente
+   * volviera, y entonces TODO ese día era «apertura» —el saludo entero salía
+   * otra vez a mitad de pedido.
+   */
+  const esApertura = esAperturaDeSesion(historial);
   if (datosPais) {
     const { correccionParaElAgente, revisarBorrador, transferenciaPermitida } = await import("./revisor");
     const org = obtenerOrg(orgId);
     const negocio = nombreDelNegocio(agente, canal, org ?? null);
     const cliente = { telefono: conv.cliente_phone, nombre: conv.cliente_nombre };
-    // Nadie de la casa ha escrito aún en esta sesión. Ver `esAperturaDeSesion`:
-    // con «cliente que vuelve» valiendo toda la sesión, se saludaba tres veces.
-    const esApertura = esAperturaDeSesion(historial);
     const contexto = {
       esApertura,
       datos: datosPais,
       marcador: org?.marcador_cierre ?? MARCADOR_POR_DEFECTO,
       nombresDeLaCasa: [agente.nombre, agente.negocio, datosPais.nombreAgente ?? "", datosPais.tienda].filter(Boolean),
       catalogo: textoDeLoQueVende(agente, listarCatalogo(orgId, true)),
-      anuncio: [anuncioParaModelo(anuncioVigente(conv)), reglaPrecio].filter(Boolean).join("\n\n") || null,
-      ficha: fichaDelHilo(historial, agente.pais),
+      anuncio: [anuncioParaModelo(anuncioVigente(conv), datosPais.moneda.simbolo), reglaPrecio].filter(Boolean).join("\n\n") || null,
+      ficha: fichaDelHilo(memoriaMensajes, agente.pais),
       clienteCompartioUbicacion: clienteCompartioUbicacion(historial),
       textosDelCliente: textosDelClienteEnSesion(historial),
       telefonoDelChat: conv.cliente_phone,
       lugarDelCliente:
         ubicacion?.direccion?.provincia ??
         ubicacion?.zona?.nombre ??
+        lugarResuelto ??
         lugarEscritoPorElCliente(datosPais, mensajesDeLaSesion(historial)),
       nombreDeCuenta: conv.cliente_nombre,
       ultimoDelCliente: ultimo.content,
@@ -1763,6 +1950,8 @@ export async function atenderConversacion(
           [reglaPrecio, correccionParaElAgente(veredicto)].filter(Boolean).join("\n\n"),
           cliente,
           ubicacion,
+          memoriaMensajes,
+          lugarResuelto,
         );
         if (segunda.texto) {
           candidata = segunda.texto;
@@ -1803,7 +1992,19 @@ export async function atenderConversacion(
         ? aperturaSegura(datosPais, anuncioVigente(conv), saludoDe(datosPais, agente.nombre, negocio), ultimo.content)
         : null;
 
-      if (apertura) {
+      /*
+       * Y NUNCA DOS VECES LO MISMO. El caso real de República Dominicana: al
+       * cliente le llegó otra vez el saludo entero, con el producto, el precio
+       * y la misma pregunta debajo. Si el respaldo es algo que el agente YA
+       * mandó en esta sesión —aunque en medio haya ido una foto—, no es un
+       * respaldo: se sigue con la pregunta que toca del pedido.
+       */
+      const yaDicho = mensajesDeLaSesion(historial)
+        .filter((m) => m.emisor !== "cliente")
+        .map((m) => llanoDeUnaLinea(m.content));
+      const repetida = !!apertura && yaDicho.includes(llanoDeUnaLinea(apertura));
+
+      if (apertura && !repetida) {
         crearAnomalia(orgId, {
           conversationId,
           tipo: "respuesta_rechazada",
@@ -1840,8 +2041,16 @@ export async function atenderConversacion(
             `El revisor paró la respuesta del agente (${quien}): ${motivo}. ` +
             `Al cliente se le mandó la siguiente pregunta del pedido («${minima}») y la venta sigue con el agente.`,
         });
-        // Si lo que salió fue el resumen del pedido, la transferencia va pegada, como siempre.
-        respuesta = { ...respuesta, texto: minima, pideAsesor: contieneMarcador(minima, contexto.marcador) };
+        /*
+         * Si lo que salió fue el resumen del pedido, la transferencia va
+         * pegada, como siempre. Y si el cliente pedía OTRO artículo, lo que
+         * salió es el aviso de que le pasa un representante: ahí también hay
+         * que avisar al equipo, o el cliente se queda esperando a alguien que
+         * no sabe que tiene que entrar.
+         */
+        const pasaAUnaPersona =
+          contieneMarcador(minima, contexto.marcador) || minima.trim() === fraseDeTransferencia(datosPais);
+        respuesta = { ...respuesta, texto: minima, pideAsesor: pasaAUnaPersona };
       }
     }
 
@@ -1954,9 +2163,12 @@ export async function atenderConversacion(
   const partes = partirEnMensajes(respuesta.texto, {
     saludoAparte:
       conv.superficie !== "comentario" &&
-      // El guion dominicano (2026-09-05) manda el primer mensaje entero, en un solo globo.
+      // Los guiones de la dueña —el dominicano (2026-09-05) y el tico
+      // (2026-09-05)— mandan el primer mensaje entero, en un solo globo: «Un
+      // mensaje por turno. Nunca mandas dos mensajes seguidos».
       agente.pais !== "do" &&
-      esAperturaDeSesion(historial),
+      agente.pais !== "cr" &&
+      esApertura,
     marcador: marcadorOrg,
   });
 
@@ -1993,6 +2205,37 @@ export async function atenderConversacion(
       await marcarEscribiendo(canal.id, conv.cliente_jid ?? conv.cliente_phone, true);
     }
     await esperar(espera * 1000);
+  }
+
+  /*
+   * ÚLTIMA MIRADA ANTES DE ABRIR LA BOCA. Entre que se leyó el hilo y ahora han
+   * pasado la llamada al modelo, la del revisor y la espera de cortesía. Si en
+   * ese hueco YA salió una respuesta a este mismo mensaje, esta llega tarde y
+   * de sobra: es lo que le repitió el saludo al cliente. La fila de turnos lo
+   * evita dentro de este proceso; esto lo evita también fuera.
+   */
+  if (ultimosMensajes(orgId, conversationId, 5).some((m) => m.emisor === "ia" && m.created_at >= ultimo.created_at)) {
+    return { atendida: false, motivo: "ya_contestado" };
+  }
+
+  /*
+   * DOS MENSAJES DEL CLIENTE NO JUSTIFICAN DOS RESPUESTAS IGUALES.
+   * El segundo turno puede haber generado la misma apertura antes de que el
+   * primer turno quedara registrado. Se compara el mensaje completo y se
+   * descarta solo si ya salió idéntico en esta conversación; una respuesta
+   * distinta a una pregunta nueva sigue pasando.
+   */
+  const textoNuevo = llanoDeUnaLinea(respuesta.texto);
+  const yaSalioIgual = listarMensajes(orgId, conversationId)
+    .some((m) => m.emisor === "ia" && llanoDeUnaLinea(m.content) === textoNuevo);
+  if (yaSalioIgual) {
+    crearAnomalia(orgId, {
+      conversationId,
+      tipo: "respuesta_repetida",
+      severidad: "media",
+      detalle: "Se evitó enviar dos veces la misma respuesta de la IA ante mensajes consecutivos del cliente.",
+    });
+    return { atendida: false, motivo: "ya_contestado" };
   }
 
   const enviados: string[] = [];
@@ -2193,6 +2436,16 @@ export async function enviarSeguimiento(
      */
     const historial = ultimosMensajes(orgId, conversationId, MAX_MENSAJES_CONTEXTO);
     if (historial.length === 0) return false;
+
+    /*
+     * AL QUE DIJO CUÁNDO VUELVE NO SE LE RECUERDA NADA. El caso real de
+     * República Dominicana: «El lunes le llamo», y horas después le salió el
+     * recordatorio de «se quedó en visto» pidiéndole el teléfono. Ese chat no
+     * está en visto: está esperando al lunes, y escribirle antes es lo que
+     * hace que el lunes no escriba.
+     */
+    const ultimoDelCliente = [...historial].reverse().find((m) => m.emisor === "cliente")?.content ?? null;
+    if (clienteAplazaCompra(ultimoDelCliente)) return false;
 
     let generada: RespuestaGenerada;
     try {

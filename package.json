@@ -18,6 +18,7 @@
     "verificar-ia": "tsx tests/real-ia.ts",
     "verificar-vision": "tsx tests/real-vision.ts",
     "diagnostico": "tsx scripts/diagnostico.ts",
+    "ver-prompt": "tsx scripts/ver-prompt.ts",
     "conteo": "tsx scripts/conteo.ts",
     "verificar-audio": "tsx tests/real-audio.ts",
     "probar-agente": "tsx tests/real-agente.ts"

@@ -2,7 +2,7 @@ import "./entorno";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { agenteDePais, bloqueDelPais } from "../src/agents";
-import { correccionParaElAgente, revisarBorrador, revisarConReglas, type ContextoRevision } from "../src/lib/revisor";
+import { correccionParaElAgente, revisarBorrador, revisarConReglas, transferenciaPermitida, type ContextoRevision } from "../src/lib/revisor";
 
 /**
  * EL REVISOR PARA LO QUE CUESTA DINERO, y no lo demás.
@@ -207,6 +207,48 @@ Total a pagar: RD$2,750`;
   assert.ok(revisarConReglas(pedido("Yamil Peña", "8094353930"), otraDireccion).some((f) => f.includes("dirección del resumen")));
 });
 
+/**
+ * DOS COLORES SON DOS UNIDADES (la dueña, RD, 2026-09-07).
+ *
+ * El resumen que salió: «Talla: Rojo y azul XL», «Cantidad: 1» y el total con
+ * el precio de un solo polo. El cliente pidió dos, y se cobró uno.
+ */
+test("un resumen dominicano con dos colores y una sola unidad no sale", () => {
+  const pedido = (variante: string, cantidad: string, total: string) =>
+    `Resumen:
+
+Nombre: Manuel Peña
+Telefono: 8098503819
+Direccion: Pantoja, Santo Domingo
+Producto: Polos Bronx Originales
+${variante}
+Cantidad: ${cantidad}
+Envio: RD$250
+TOTAL A PAGAR: ${total}`;
+  const ctx = {
+    ...rd,
+    anuncio: "Anuncio: POLOS BRONX ORIGINALES a RD$1,400. Colores: rojo, azul, negro.",
+    textosDelCliente: ["Rojo y azul XL", "Manuel Peña", "Pantoja, Santo Domingo", "8098503819"],
+    telefonoDelChat: "18098503819",
+  };
+
+  // El caso real: dos colores cobrados como uno.
+  const falla = revisarConReglas(pedido("Talla: Rojo y azul XL", "1", "RD$1,650"), ctx);
+  assert.ok(falla.some((f) => f.includes("2 colores") && f.includes("Cantidad: 2")), falla.join(" | "));
+  // También cuando los colores van en su línea.
+  assert.ok(
+    revisarConReglas(pedido("Color: rojo y azul\nTalla: XL", "1", "RD$1,650"), ctx).some((f) => f.includes("2 colores")),
+  );
+
+  // Con la cantidad y el total puestos, el mismo resumen sale.
+  assert.deepEqual(revisarConReglas(pedido("Color: rojo y azul\nTalla: XL", "2", "RD$3,050"), ctx), []);
+  // Y un color solo sigue siendo una unidad.
+  assert.deepEqual(
+    revisarConReglas(pedido("Color: rojo\nTalla: XL", "1", "RD$1,650"), { ...ctx, textosDelCliente: ["Rojo XL", "Manuel Peña", "Pantoja, Santo Domingo", "8098503819"] }),
+    [],
+  );
+});
+
 /** El caso de Costa Rica: ofrecía sábanas que nadie vende. Ni de un ejemplo ni de «La Sabana». */
 test("un artículo que no está en el anuncio ni en el catálogo no se ofrece", () => {
   assert.ok(revisarConReglas("Tenemos el set de sábanas en microfibra. ¿Qué medida necesita?", cr).some((f) => f.includes("sábanas") || f.includes("sabanas")));
@@ -290,6 +332,44 @@ test("pedir la ubicación por el mapa, o insistir con ella, no sale", () => {
 });
 
 /**
+ * EL CASO DE LA DUEÑA (2026-09-07): el cliente mandó su dirección y la IA
+ * contestó «Perfecto, Los Coquitos. ¿Me puede decir el número de casa o
+ * apartamento y alguna seña para reconocer la puerta?». Con la dirección
+ * delante ya se despacha, y para lo demás el mensajero llama al teléfono.
+ */
+test("con la dirección ya dada, no se pide el número de casa ni la seña de la puerta", () => {
+  const conDireccion = {
+    ...rd,
+    ficha: { talla: null, color: null, direccion: "Los Coquitos, Santo Domingo Este", nombre: null, celular: null, cantidad: null },
+  };
+  const conPin = { ...rd, clienteCompartioUbicacion: true };
+
+  for (const ctx of [conDireccion, conPin]) {
+    assert.ok(
+      revisarConReglas("Perfecto, Los Coquitos. ¿Me puede decir el número de casa o apartamento y alguna seña para reconocer la puerta?", ctx)
+        .some((f) => f.includes("un dato más de la dirección")),
+    );
+    assert.ok(
+      revisarConReglas("¿Tiene algún punto de referencia para llegar?", ctx)
+        .some((f) => f.includes("un dato más de la dirección")),
+    );
+  }
+
+  // Lo que sí toca: la zona, su envío y el dato que falta.
+  assert.deepEqual(
+    revisarConReglas("Perfecto, hasta Los Coquitos el envío le sale en RD$250.\n\n¿Me facilita su número de teléfono para el pedido?", conDireccion),
+    [],
+  );
+  // Y el resumen con el apartamento que dio el cliente no es una repregunta.
+  assert.deepEqual(
+    revisarConReglas("Direccion: calle 3, apartamento 2B, Los Coquitos, Santo Domingo Este", conDireccion),
+    [],
+  );
+  // Sin dirección todavía, preguntar por dónde vive sigue siendo el paso.
+  assert.deepEqual(revisarConReglas("Indique su dirección exacta de entrega.", rd), []);
+});
+
+/**
  * EL CASO REAL: «en un momento será transferido a un representante» a todo el
  * mundo. Solo con el resumen, por una foto, por mayoreo o si pide persona.
  */
@@ -310,6 +390,14 @@ test("una transferencia sin motivo no sale; con motivo, sí", () => {
   const resumen = "Resumen de su pedido:\n\nNombre: Ana Pérez\nCel: 8095551234\nProducto: Mocasines\nCantidad: 1\nDirección: Calle 1 #2, Los Prados, Santo Domingo\nCosto de envío: RD$250\nTotal a pagar: RD$2,750\n\nSu pedido ha sido confirmado exitosamente.\n" + frase;
   const cierre = { ...rd, ultimoDelCliente: "sí, confirmo", textosDelCliente: ["Ana Pérez", "Calle 1 #2, Los Prados, Santo Domingo", "8095551234"], telefonoDelChat: "18095551234" };
   assert.deepEqual(revisarConReglas(resumen, cierre), []);
+});
+
+test("Costa Rica transfiere un artículo desconocido sin anuncio", () => {
+  const ctx = { ...cr, anuncio: null, catalogo: "Catálogo:\n- Camisa de lino — ₡15.000", ultimoDelCliente: "Quiero una nevera" };
+  assert.equal(
+    transferenciaPermitida("Permítame un momento, le transfiero con un representante. [HANDOFF]", ctx),
+    true,
+  );
 });
 
 /** El saludo va una sola vez: fuera de la apertura, presentarse otra vez no sale. */
@@ -370,6 +458,52 @@ test("la tarifa de la zona que nombra el propio texto manda", () => {
   assert.ok(revisarConReglas("A Santiago el envío son RD$250.", rd).some((f) => f.includes("RD$290")));
   assert.deepEqual(revisarConReglas("El envío a Santo Domingo Este le sale en RD$250.", rd), []);
   assert.deepEqual(revisarConReglas("El envío a Santiago son RD$290.", rd), []);
+});
+
+/**
+ * «EL LUNES LE LLAMO» Y EL AGENTE SIGUIÓ PIDIENDO DATOS (RD, 2026-09-07).
+ *
+ * La captura: se le pidió la dirección, el cliente contestó «El lunes le
+ * llamo» y le llegó «Perfecto, hasta esa fecha. ¿Me facilita su número de
+ * teléfono para el pedido?». Insistirle a alguien que ya se despidió es lo
+ * que hace que el lunes no escriba.
+ */
+test("al cliente que dice cuándo vuelve no se le siguen pidiendo datos del pedido", () => {
+  const aplaza = {
+    ...rd,
+    anuncio: "Anuncio: 🔥 COMBO 2 EN 1 — SOLO RD$1,690 ✨ Cepillo secador + plancha alisadora.",
+    ultimoDelCliente: "El lunes le llamo",
+  };
+  for (const insiste of [
+    "Perfecto, hasta esa fecha. ¿Me facilita su número de teléfono para el pedido?",
+    "¿A qué número le llama el mensajero, a este mismo?",
+    "Indique su dirección exacta de entrega.",
+    "Claro que sí. ¿A nombre de quién sale el pedido?",
+  ]) {
+    assert.ok(
+      revisarConReglas(insiste, aplaza).some((f) => f.includes("vuelve más adelante")),
+      `«${insiste}» a alguien que dijo que llama el lunes no sale`,
+    );
+  }
+
+  // Ni el resumen: un pedido que no aceptó no se levanta.
+  assert.ok(
+    revisarConReglas(
+      "Resumen:\n\nNombre: Juan Pérez\nCel: 8095551234\nProducto: Combo 2 en 1\nDirección: Villa Mella, calle 8\nTotal a pagar: RD$1,940",
+      aplaza,
+    ).some((f) => f.includes("vuelve más adelante")),
+  );
+
+  // Despedirse sí sale, y la venta normal no se toca.
+  assert.deepEqual(
+    revisarConReglas("Entiendo, no hay problema. Cuando esté listo para ordenar, escríbanos y con gusto le atendemos.", aplaza),
+    [],
+  );
+  assert.deepEqual(
+    revisarConReglas("Indique su dirección exacta de entrega.", { ...aplaza, ultimoDelCliente: "Quiero el combo" }),
+    [],
+    "al que sigue comprando se le pide lo que falta",
+  );
 });
 
 /**
@@ -450,32 +584,134 @@ test("un combo no lleva talla aunque el catálogo hable de tallas, y un color qu
 });
 
 /**
- * LA CAPTURA DE LA DUEÑA (2026-09-05): «Le confirmo: Polo Bronx Originales,
+ * LA CAPTURA DE LA DUEÑA (2026-09-05): «Le confirmo: Camisa Bronx Original,
  * RD$1,400 cada uno. ¿A qué provincia se lo enviamos?» como primer mensaje a
  * un «Precio». Sin saludo, sin talla y con un «Le confirmo» sin datos.
  */
-test("a unos polos se les pregunta la talla antes que la provincia, y «Le confirmo» espera a tener los datos", () => {
-  const polos = {
+test("a una camisa se le pregunta la talla antes que la provincia, y «Le confirmo» espera a tener los datos", () => {
+  const camisa = {
     ...rd,
-    anuncio: "Anuncio: 🔥 POLOS BRONX ORIGINALES 🔥 Moderno, Fresco y duradero 👕 RD$1,400 C/U RD$1,190 al por mayor 📦 ENVÍO A TODO EL PAÍS y PAGA AL MOMENTO DE RECIBIR",
+    anuncio: "Anuncio: 🔥 CAMISA BRONX ORIGINAL 🔥 Moderna, fresca y duradera 👕 RD$1,400 C/U RD$1,190 al por mayor 📦 ENVÍO A TODO EL PAÍS y PAGA AL MOMENTO DE RECIBIR",
     ficha: { talla: null, color: null, direccion: null, nombre: null, celular: null, cantidad: null },
     esApertura: true,
     ultimoDelCliente: "Precio",
   };
-  const fallas = revisarConReglas("Le confirmo: Polo Bronx Originales, RD$1,400 cada uno.\n¿A qué provincia se lo enviamos?", polos);
+  const fallas = revisarConReglas("Le confirmo: Camisa Bronx Original, RD$1,400 cada uno.\n¿A qué provincia se lo enviamos?", camisa);
   assert.ok(fallas.some((f) => f.includes("antes de la talla")), "la talla va antes que la provincia");
   assert.ok(fallas.some((f) => f.includes("«Le confirmo» sin tener")), "la confirmación espera a los datos");
   assert.ok(fallas.some((f) => f.includes("empieza con «Hola! Bienvenido(a)")), "y el primer mensaje saluda");
 
-  const bien = "Hola! Bienvenido(a) a RINCON DCM. Gracias por escribirnos.\n🖤 POLOS BRONX ORIGINALES 🖤\nRD$1,400\n¿Qué talla le interesa?";
-  assert.deepEqual(revisarConReglas(bien, polos), []);
+  const bien = "Hola! Bienvenido(a) a RINCON DCM. Gracias por escribirnos.\n🖤 CAMISA BRONX ORIGINAL 🖤\nRD$1,400\n¿Qué talla le interesa?";
+  assert.deepEqual(revisarConReglas(bien, camisa), []);
 
   // Con la talla ya dada, pedir la dirección es lo que toca.
-  const conTalla = { ...polos, esApertura: false, ficha: { ...polos.ficha, talla: "M" }, ultimoDelCliente: "M" };
+  const conTalla = { ...camisa, esApertura: false, ficha: { ...camisa.ficha, talla: "M" }, ultimoDelCliente: "M" };
   assert.deepEqual(revisarConReglas("Indique su dirección exacta de entrega.", conTalla), []);
   // Y el «Le confirmo» con todo, también.
   const completo = { ...conTalla, ficha: { ...conTalla.ficha, direccion: "Calle 3, Los Mina, Santo Domingo Este", nombre: "Pedro Sabater" }, textosDelCliente: ["M", "Calle 3, Los Mina, Santo Domingo Este", "Pedro Sabater"], ultimoDelCliente: "Pedro Sabater" };
   assert.deepEqual(revisarConReglas("Le confirmo: Polos Bronx Originales, talla M, a nombre de Pedro Sabater, entrega en Calle 3, Los Mina, Santo Domingo Este.\nSon RD$1,400 más RD$250 de envío, total RD$1,650, y se paga al recibir.\n¿Se lo despacho hoy mismo?", completo), []);
+});
+
+/**
+ * EL PEDIDO QUE SE REGISTRÓ Y NO ERA EL DEL CLIENTE (2026-09-07). El resumen
+ * salió entero, con «Direccion: Si yo.le escomprado», «Color: Para cuando» y
+ * «Producto: ORDENA, RECIBE Y LUEGO PAGA!!», y ni el revisor ni el supervisor
+ * le pusieron una pega.
+ */
+test("un resumen con una frase por dirección, un color que no es color y el reclamo por producto no sale", () => {
+  const zapatos = {
+    ...rd,
+    anuncio: "Anuncio: Compra seguro! ORDENA, RECIBE Y LUEGO PAGA!! Luce un estilo exclusivo con zapatos de acabado premium. Precio: RD$2,500",
+    textosDelCliente: ["39", "Para cuando", "Si yo.le escomprado", "Cecilio Tavare", "8295193109"],
+    telefonoDelChat: "8295193109",
+    ficha: { talla: "39", color: null, direccion: null, nombre: "Cecilio Tavare", celular: "8295193109", cantidad: null },
+  };
+  const resumen = (cambios: Record<string, string> = {}) => {
+    const l = {
+      Direccion: "Si yo.le escomprado",
+      Producto: "ORDENA, RECIBE Y LUEGO PAGA!!",
+      Talla: "39",
+      Color: "Para cuando",
+      ...cambios,
+    };
+    return `📋 RESUMEN DEL PEDIDO\nNombre: Cecilio Tavare\nTelefono: 8295193109\nDireccion: ${l.Direccion}\nProducto: ${l.Producto}\nTalla: ${l.Talla}\nColor: ${l.Color}\nCantidad: 1\nEnvio: RD$290\nTOTAL A PAGAR: RD$2,790\nForma de pago: contra entrega\n✅ PEDIDO REGISTRADO`;
+  };
+
+  const fallas = revisarConReglas(resumen(), zapatos);
+  assert.ok(fallas.some((f) => f.includes("no es una dirección")), "«Si yo.le escomprado» no es una casa");
+  assert.ok(fallas.some((f) => f.includes("como color y eso no es un color")), "«Para cuando» no es un color");
+  assert.ok(fallas.some((f) => f.includes("no dice qué se vende")), "el producto no puede ser el reclamo del anuncio");
+
+  // Y una talla que el cliente nunca dijo tampoco pasa.
+  assert.ok(
+    revisarConReglas(resumen({ Talla: "32" }), zapatos).some((f) => f.includes("no la escribió")),
+    "una talla inventada no entra en el pedido",
+  );
+
+  // El mismo pedido, bien —y sin línea de color, que este artículo no lo lleva—: sale sin una pega.
+  const direccion = "Calle 5 #12, Villa Progreso, Higüey";
+  const bueno = { ...zapatos, textosDelCliente: [...zapatos.textosDelCliente, direccion] };
+  const pedidoBueno = `📋 RESUMEN DEL PEDIDO\nNombre: Cecilio Tavare\nTelefono: 8295193109\nDireccion: ${direccion}\nProducto: Zapatos de acabado premium\nTalla: 39\nCantidad: 1\nEnvio: RD$290\nTOTAL A PAGAR: RD$2,790\nForma de pago: contra entrega\n✅ PEDIDO REGISTRADO`;
+  assert.deepEqual(revisarConReglas(pedidoBueno, bueno), []);
+});
+
+/**
+ * «Perfecto, le añado un pantalón polo color negro talla 32. ¿Desea algo más?»
+ * en un hilo abierto por un anuncio de zapatos: un artículo que no existe,
+ * metido a mitad del pedido, y la pregunta que vuelve a abrir la venta.
+ */
+test("no se añade al pedido un artículo de otra familia, ni se pregunta si desea algo más", () => {
+  const zapatos = { ...rd, anuncio: "Anuncio: zapatos de acabado premium RD$2,500" };
+  const fallas = revisarConReglas("Perfecto, le añado un pantalón polo talla 32. ¿Desea algo más?", zapatos);
+  assert.ok(fallas.some((f) => f.includes("al pedido")), "el pedido no cambia de artículo a mitad");
+  assert.ok(fallas.some((f) => f.includes("algo más")), "esa pregunta vuelve a abrir la venta");
+
+  // Cambiar de artículo cuando el cliente lo pide sigue estando permitido.
+  assert.deepEqual(revisarConReglas("Los zapatos están en RD$2,500. ¿Qué talla le interesa?", zapatos), []);
+});
+
+/**
+ * EL CASO REAL DE REPÚBLICA DOMINICANA: un anuncio de POLOS, el cliente
+ * contesta «XXL» y le vuelve a llegar el saludo entero, palabra por palabra,
+ * con la misma pregunta de la talla debajo.
+ */
+test("a unos polos se les pregunta la talla, y el saludo no sale por segunda vez", () => {
+  const polos = {
+    ...rd,
+    anuncio: "Anuncio: 🖤 POLOS BRONX ORIGINALES 🖤 Moderno, Fresco y duradero RD$1,400",
+    ficha: { talla: null, color: null, direccion: null, nombre: null, celular: null, cantidad: null },
+    esApertura: true,
+    ultimoDelCliente: "Hola, quiero información",
+  };
+  const apertura = "Hola! Bienvenido(a) a RINCON DCM. Gracias por escribirnos.\n🖤 POLOS BRONX ORIGINALES 🖤\nRD$1,400\n¿Qué talla le interesa?";
+  assert.deepEqual(revisarConReglas(apertura, polos), [], "un polo lleva talla, como dice la tabla de la tienda");
+
+  // Y con el «XXL» contestado, esa misma apertura ya no sale: ni la pregunta ni el saludo.
+  const conTalla = {
+    ...polos,
+    esApertura: false,
+    ficha: { ...polos.ficha, talla: "XXL" },
+    ultimoDelCliente: "XXL",
+    ultimoDelAgente: apertura,
+    textosDelCliente: ["Hola, quiero información", "XXL"],
+  };
+  const fallas = revisarConReglas(apertura, conTalla);
+  assert.ok(fallas.some((f) => f.includes("vuelve a preguntar talla")), "la talla ya la dio");
+  assert.ok(fallas.some((f) => f.includes("exactamente lo mismo")), "y el mensaje es el mismo de antes");
+  assert.ok(fallas.some((f) => f.includes("vuelve a saludar")), "el saludo va una sola vez");
+  assert.deepEqual(revisarConReglas("Indique su dirección exacta de entrega.", conTalla), []);
+
+  /*
+   * Y con una FOTO en medio tampoco. El segundo caso real: el agente mandó la
+   * imagen del anuncio, el cliente contestó los colores que quería y le llegó
+   * otra vez la bienvenida entera. Con la foto de por medio, el saludo ya no
+   * es lo último que mandó el agente, pero sigue estando dicho.
+   */
+  const trasLaFoto = { ...conTalla, ultimoDelCliente: "Azul claro y oscuro", ultimoDelAgente: "[imagen]" };
+  assert.ok(
+    revisarConReglas(apertura, trasLaFoto).some((f) => f.includes("vuelve a saludar")),
+    "el saludo no vuelve aunque en medio haya ido una foto",
+  );
 });
 
 /**
@@ -512,16 +748,87 @@ test("la cantidad no se pregunta en ningún país, salvo que el cliente hable de
   assert.deepEqual(revisarConReglas("De 3 unidades en adelante le sale en RD$1,190 cada uno. ¿Cuántas unidades desea?", mayoreo).filter((f) => f.includes("cantidad")), []);
 });
 
-/** Panamá: talla o color a un artículo que no los lleva se para, igual que en RD y CR. */
-test("en Panamá el revisor para la talla y el color a un artículo que no los lleva", () => {
-  const mochila = {
-    ...pa,
-    anuncio: "Anuncio: MOCHILA ANTIRROBO 45 LITROS US$35.00 · Impermeable · Puerto USB",
+/**
+ * EL TELÉFONO VA CON EL COSTO DE ENVÍO, Y EL COSTO NO SE SABE SIN LA DIRECCIÓN.
+ *
+ * Es regla fija de los dos guiones de la dueña, el dominicano y el tico:
+ * «Nunca pides el teléfono sin haber dicho antes el costo de envío». En Costa
+ * Rica pesa igual o más, porque el cantón no decide el precio del envío pero sí
+ * decide cómo llega el paquete y cuándo se paga: pedir el teléfono antes es
+ * quedarse sin poder decirle ninguna de las dos cosas.
+ */
+test("en Costa Rica el teléfono no se pide antes de la dirección", () => {
+  const sinDireccion = {
+    ...cr,
     ficha: { talla: null, color: null, direccion: null, nombre: null, celular: null, cantidad: null },
-    esApertura: false,
-    ultimoDelCliente: "Me interesa",
   };
-  assert.ok(revisarConReglas("Perfecto. ¿Qué talla necesita?", mochila).some((f) => f.includes("talla")));
-  assert.ok(revisarConReglas("¿En qué color la quiere?", mochila).some((f) => f.includes("color")));
-  assert.deepEqual(revisarConReglas("¿A qué corregimiento se lo enviamos?", mochila), []);
+  const fallas = revisarConReglas("¿Me facilita su número de teléfono para el pedido?", sinDireccion);
+  assert.ok(fallas.some((f) => f.includes("pide el teléfono antes de la dirección")));
+
+  // Con la dirección delante, el teléfono se pide junto al costo del envío.
+  const conDireccion = {
+    ...cr,
+    ficha: { ...sinDireccion.ficha, direccion: "Alajuela, 200 metros norte de la iglesia" },
+    lugarDelCliente: "Alajuela",
+  };
+  assert.deepEqual(
+    revisarConReglas(
+      "Perfecto, hasta Alajuela se lo llevamos a domicilio. El envío es ₡3.500 y paga al recibir.\n¿Me facilita su número de teléfono para el pedido?",
+      conDireccion,
+    ),
+    [],
+  );
+});
+
+/**
+ * CON TODOS LOS DATOS SALE EL RESUMEN, NO UNA PREGUNTA MÁS.
+ *
+ * La dueña, 2026-09-08: «que no pregunte si se lo despachamos, que envíe su
+ * resumen, transfiera a un representante y deje de responder». El cliente que
+ * ya dio dirección, teléfono y nombre ya dijo que sí; el «¿se lo despacho hoy
+ * mismo?» solo añadía un mensaje más en el que la venta se podía caer.
+ */
+test("con el pedido completo, pedir una confirmación de más no sale", () => {
+  const completa = {
+    ...cr,
+    // El catálogo de este contexto vende mocasines, así que la talla es dato de cierre.
+    ficha: {
+      talla: "42",
+      color: null,
+      direccion: "Alajuela, 200 metros norte de la iglesia",
+      nombre: "María Jiménez",
+      celular: "88888888",
+      cantidad: null,
+    },
+    lugarDelCliente: "Alajuela",
+  };
+
+  for (const borrador of [
+    "Le confirmo: cepillo secador a nombre de María Jiménez. ¿Se lo despacho hoy mismo?",
+    "Ya tengo sus datos. ¿Procedo con el pedido?",
+    "¿Le confirmo el pedido entonces?",
+  ]) {
+    assert.ok(
+      revisarConReglas(borrador, completa).some((f) => f.includes("confirmación de más")),
+      `debería pararse: «${borrador}»`,
+    );
+  }
+
+  // El resumen sí sale, con su marcador y su transferencia pegada.
+  const resumen =
+    "📋 RESUMEN DEL PEDIDO\nNombre: María Jiménez\nTelefono: 88888888\n" +
+    "Direccion: Alajuela, 200 metros norte de la iglesia\nProducto: Cepillo secador\nCantidad: 1\n" +
+    "Envio: ₡3.500\nTOTAL A PAGAR: ₡16.000\nForma de pago: contra entrega\n✅ PEDIDO REGISTRADO\n" +
+    "Le conecto con un representante para finalizar. Aguarde un momento.\n[HANDOFF]";
+  assert.ok(!revisarConReglas(resumen, completa).some((f) => f.includes("confirmación de más")));
+
+  // Y mientras falte un dato, esta regla no es la que manda: lo que toca es
+  // preguntar lo que falta, y de eso se ocupan las demás.
+  for (const incompleta of [
+    { ...completa, ficha: { ...completa.ficha, nombre: null } },
+    { ...completa, ficha: { ...completa.ficha, celular: null } },
+    { ...completa, ficha: { ...completa.ficha, talla: null } },
+  ]) {
+    assert.ok(!revisarConReglas("¿Se lo despacho hoy mismo?", incompleta).some((f) => f.includes("confirmación de más")));
+  }
 });

@@ -252,18 +252,20 @@ export const RD: DatosPais = {
       "Se da por calle y número, con EL SECTOR detrás y LA PROVINCIA al final: «calle Duarte #45, " +
       "Los Prados, Santo Domingo, Distrito Nacional». Los dos datos que sitúan un pedido son la " +
       "PROVINCIA —de ella depende el costo del envío— y el SECTOR, porque sin él dos calles con el " +
-      "mismo nombre están a media hora una de otra. En los edificios hace falta el nombre y el " +
-      "apartamento. Con calle, sector y provincia ya se despacha: lo demás —punto de referencia, " +
-      "color de la casa— ayuda, pero no se exige. Se pide UNA VEZ, y se toma lo que el cliente " +
-      "diga: si escribe su provincia, su sector o su ciudad, con eso ya sabes dónde está y cuánto " +
-      "le sale el envío. NUNCA le pidas que comparta su ubicación por el mapa ni insistas con la " +
+      "mismo nombre están a media hora una de otra. Si el cliente nombra su edificio y su " +
+      "apartamento, se anotan; no se le exigen. Con lo que él escriba ya se despacha, y LO QUE " +
+      "FALTE NO SE PREGUNTA: ni el número de casa, ni el apartamento, ni el piso, ni una seña " +
+      "para reconocer la puerta, ni el color de la casa, ni un punto de referencia. El mensajero " +
+      "llama al teléfono, que sí se pide. Se pide UNA VEZ, y se toma lo que el cliente diga: si " +
+      "escribe su provincia, su sector o su ciudad, con eso ya sabes dónde está y cuánto le sale " +
+      "el envío. NUNCA le pidas que comparta su ubicación por el mapa ni insistas con la " +
       "dirección: si él la manda por su cuenta, se usa; si no, se sigue con lo que escribió.",
     datosParaCerrar: [
       "El nombre con el que recibe el pedido, tal cual lo escribió el cliente",
       "El celular al que llama el mensajero",
       "La dirección con calle y número, EL SECTOR y LA PROVINCIA: sin sector, dos calles con el " +
         "mismo nombre están a media hora una de otra",
-      "En un edificio, además el nombre del edificio y el apartamento",
+      "El edificio y el apartamento SOLO si el cliente los dijo por su cuenta: no se preguntan",
     ],
   },
 

@@ -31,13 +31,14 @@
  * lo garantiza.
  */
 import type { DatosPais } from "@/agents";
+import { reColores } from "@/agents/base-comportamiento";
 import { fallasDelResumen, leerResumen } from "./supervisor";
 import { contieneMarcador, MARCADOR_POR_DEFECTO } from "./cierre";
 import { completarJson, ErrorIA } from "./ia";
 import { MODELO_ANALISIS, type Mensaje } from "./db";
 import { conLoVistoYOido } from "./percepcion";
-import { preguntasRepetidas, type FichaDelPedido } from "./memoria";
-import { preguntaDelCliente } from "./apertura";
+import { pareceColor, pareceTalla, preguntasRepetidas, unidadesPorColores, type FichaDelPedido } from "./memoria";
+import { clienteAplazaCompra, familiasNombradas, nombraUnArticulo, preguntaDelCliente } from "./apertura";
 import { zonaDelCliente } from "@/agents";
 import { contieneLugar } from "./envio";
 import { obtenerPais } from "./paises";
@@ -231,7 +232,7 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
   const marcador = ctx.marcador ?? MARCADOR_POR_DEFECTO;
   if (contieneMarcador(texto, marcador)) {
     const leido = leerResumen(texto, marcador);
-    for (const f of fallasDelResumen(leido, ctx.nombresDeLaCasa)) {
+    for (const f of fallasDelResumen(leido, ctx.nombresDeLaCasa, d)) {
       fallas.push(`manda el resumen y ${f}: no se manda hasta tener ese dato`);
     }
     // El envío del resumen tiene que ser uno de los del país.
@@ -305,6 +306,34 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
     }
   }
 
+  /*
+   * 8b-bis. Y TAMPOCO UN ARTÍCULO DE OTRA FAMILIA. El caso real: «Perfecto, le
+   * añado un pantalón polo color negro talla 32. ¿Desea algo más?» en un hilo
+   * abierto por un anuncio de zapatos. El pedido no cambia de artículo a mitad:
+   * se vende lo que está escrito arriba, y lo demás se transfiere.
+   */
+  if (AÑADE_AL_PEDIDO.test(texto)) {
+    const fuentes = ctx.anuncio ? ctx.anuncio : ctx.catalogo;
+    const enEsteChat = new Set(familiasNombradas(fuentes ?? "").map((f) => f.familia));
+    if (enEsteChat.size) {
+      const ajena = familiasNombradas(texto).find((f) => !enEsteChat.has(f.familia));
+      if (ajena) {
+        fallas.push(
+          `añade «${ajena.palabra}» al pedido y en este chat se vende lo del anuncio, que es otra cosa: el pedido no cambia de artículo a mitad; si el cliente quiere otro artículo, se transfiere`,
+        );
+      }
+    }
+  }
+
+  /*
+   * 8m. «¿DESEA ALGO MÁS?» NO SE PREGUNTA. Vuelve a abrir la venta que se
+   * acababa de cerrar y de paso invita a añadir cosas que no se vendieron: el
+   * caso real acabó con un artículo añadido que no estaba ni en el resumen.
+   */
+  if (/[¿?][^?¿]*\b(algo m[aá]s|alguna otra cosa|algo adicional)\b[^?¿]*\?/i.test(texto)) {
+    fallas.push("pregunta si desea algo más: eso vuelve a abrir la venta que acabas de cerrar; sigue con el paso que toca o cierra");
+  }
+
   // 8c. UNA TALLA, UN NÚMERO O UN COLOR A UN ARTÍCULO QUE NO LOS LLEVA.
   //
   // El caso real: «¿Qué talla necesita?» a un combo de cepillo secador y
@@ -373,15 +402,65 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
     }
   }
 
-  // 8k. EL TELÉFONO VA CON EL COSTO DE ENVÍO, DESPUÉS DE LA DIRECCIÓN (RD). El
-  // caso real: «¿Me facilita su número de teléfono?» sin tener la dirección.
+  /*
+   * 8n. CON TODOS LOS DATOS, LO QUE SALE ES EL RESUMEN, NO OTRA PREGUNTA.
+   *
+   * La dueña, 2026-09-08: «que no pregunte si se lo despachamos, que envíe su
+   * resumen, transfiera a un representante y deje de responder». El pedido no
+   * se confirma dos veces: quien ya dio su dirección, su teléfono y su nombre
+   * ya dijo que sí, y cada «¿se lo despacho hoy mismo?» era una venta parada
+   * esperando un mensaje más que muchas veces no llegaba.
+   */
+  {
+    const f = ctx.ficha;
+    const fuentes = llano(ctx.anuncio ? ctx.anuncio : ctx.catalogo);
+    const faltaTalla = CON_TALLA_SIEMPRE.test(fuentes) && !SIN_VARIANTES.test(fuentes) && !f?.talla;
+    // El celular es dato de cierre en los guiones de la dueña; en Panamá no.
+    const faltaCelular = (d.codigo === "do" || d.codigo === "cr") && !f?.celular;
+    const completa = !!f?.nombre && !!f?.direccion && !faltaTalla && !faltaCelular;
+    if (
+      completa &&
+      !contieneMarcador(texto, ctx.marcador ?? MARCADOR_POR_DEFECTO) &&
+      PIDE_CONFIRMAR_EL_PEDIDO.test(texto)
+    ) {
+      fallas.push(
+        "ya tiene todos los datos del pedido y en vez del resumen pide una confirmación de más: el pedido no se confirma dos veces — manda directamente el resumen, con la línea de la transferencia pegada, y no vuelvas a escribir",
+      );
+    }
+  }
+
+  // 8k. EL TELÉFONO VA CON EL COSTO DE ENVÍO, DESPUÉS DE LA DIRECCIÓN. El caso
+  // real: «¿Me facilita su número de teléfono?» sin tener la dirección. Es
+  // regla fija de los dos guiones de la dueña, el dominicano y el tico: «Nunca
+  // pides el teléfono sin haber dicho antes el costo de envío», y el costo no
+  // se sabe hasta tener la dirección.
   if (
-    d.codigo === "do" &&
+    (d.codigo === "do" || d.codigo === "cr") &&
     ctx.ficha &&
     !ctx.ficha.direccion &&
     /[¿?][^?¿]*(tel[eé]fono|celular|n[uú]mero de contacto|n[uú]mero le llama)[^?¿]*\?/i.test(texto)
   ) {
     fallas.push("pide el teléfono antes de la dirección: primero «Indique su dirección exacta de entrega.», y el teléfono va en el mismo mensaje que el costo de envío");
+  }
+
+  /*
+   * 8l. EL QUE DIJO CUÁNDO VUELVE NO SE VA CON UN FORMULARIO DETRÁS.
+   *
+   * El caso real de República Dominicana: se le pidió la dirección, contestó
+   * «El lunes le llamo» —que aquí es el «ahora no» de todo el mundo— y el
+   * agente siguió como si nada: «Perfecto, hasta esa fecha. ¿Me facilita su
+   * número de teléfono para el pedido?». Insistirle a alguien que ya se
+   * despidió es lo que hace que el lunes no escriba.
+   */
+  if (clienteAplazaCompra(ctx.ultimoDelCliente)) {
+    if (PIDE_UN_DATO_DEL_PEDIDO.test(texto)) {
+      fallas.push(
+        "el cliente dijo que vuelve más adelante y la respuesta le sigue pidiendo datos del pedido: se le contesta «Entiendo, no hay problema. Cuando esté listo para ordenar, escríbanos y con gusto le atendemos.» y nada más",
+      );
+    }
+    if (contieneMarcador(texto, ctx.marcador ?? MARCADOR_POR_DEFECTO)) {
+      fallas.push("el cliente dijo que vuelve más adelante y esto le manda el resumen: un pedido que él no ha aceptado no se levanta");
+    }
   }
 
   // 8d. LA UBICACIÓN NO SE PIDE POR EL MAPA, Y NO SE INSISTE.
@@ -395,6 +474,25 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
     } else {
       fallas.push("le pide que comparta su ubicación por el mapa: no se pide; se le pregunta en qué provincia o sector está");
     }
+  }
+
+  /*
+   * 8m. LA DIRECCIÓN QUE YA DIO NO SE COMPLETA A PREGUNTAS.
+   *
+   * El caso que paró la dueña de República Dominicana: el cliente mandó su
+   * dirección y el agente contestó «Perfecto, Los Coquitos. ¿Me puede decir el
+   * número de casa o apartamento y alguna seña para reconocer la puerta?».
+   * Con lo que el cliente escribió ya se despacha, y para lo demás el mensajero
+   * llama al teléfono —que sí se pide—. Cada repregunta por la puerta es una
+   * conversación más larga y una venta menos.
+   */
+  if (
+    (ctx.ficha?.direccion || ctx.clienteCompartioUbicacion) &&
+    PIDE_MAS_DETALLE_DE_LA_DIRECCION.test(llano(texto))
+  ) {
+    fallas.push(
+      "le pide un dato más de la dirección —el número de casa, el apartamento, una seña, un punto de referencia— y el cliente ya se la dio: se da por buena, se le dice el costo del envío y se sigue con lo que falte",
+    );
   }
 
   // 7b. EL MISMO MENSAJE DOS VECES SEGUIDAS NO SALE.
@@ -521,6 +619,63 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
       }
     }
 
+    /*
+     * 12b. LA TALLA Y EL COLOR DEL RESUMEN SON LOS QUE DIO EL CLIENTE.
+     *
+     * El caso real: «Talla: 39 / Color: Para cuando», y el color era un trozo
+     * de una frase suya que se coló en la ficha. Un dato del pedido tiene que
+     * ser dos cosas a la vez: dicho por el cliente Y parecerse a ese dato.
+     */
+    if (leido.talla) {
+      if (!escrito.includes(llano(leido.talla.trim()))) {
+        fallas.push(`el resumen dice talla «${leido.talla}» y el cliente no la escribió en esta conversación: pregúntasela`);
+      } else if (!pareceTalla(leido.talla)) {
+        fallas.push(`el resumen pone «${leido.talla}» como talla y eso no es una talla: pregúntasela otra vez`);
+      }
+    }
+    if (leido.color) {
+      if (!escrito.includes(llano(leido.color.trim()))) {
+        fallas.push(`el resumen dice color «${leido.color}» y el cliente no lo escribió en esta conversación: pregúntaselo`);
+      } else if (!pareceColor(leido.color)) {
+        fallas.push(`el resumen pone «${leido.color}» como color y eso no es un color: pregúntaselo otra vez`);
+      }
+    }
+
+    /*
+     * 12c. Y EL PRODUCTO DICE QUÉ SE VENDE. El caso real: «Producto: ORDENA,
+     * RECIBE Y LUEGO PAGA!!», que es el reclamo del anuncio. En el papel del
+     * pedido tiene que ir el artículo, con su nombre.
+     */
+    {
+      const fuentes = ctx.anuncio ? ctx.anuncio : ctx.catalogo;
+      if (leido.producto && fuentes && nombraUnArticulo(fuentes) && !nombraUnArticulo(leido.producto)) {
+        fallas.push(
+          `el producto del resumen es «${leido.producto}» y eso no dice qué se vende: escribe el artículo del anuncio, con su nombre`,
+        );
+      }
+    }
+
+    /*
+     * 12d. DOS COLORES SON DOS UNIDADES (la dueña, RD, 2026-09-07).
+     *
+     * La captura: «Talla: Rojo y azul XL», «Cantidad: 1» y el total con el
+     * precio de un solo polo. Quien nombra dos colores está pidiendo dos
+     * artículos: la cantidad es dos y el precio se suma dos veces. El envío
+     * no: ese va una sola vez.
+     */
+    if (d.codigo === "do") {
+      const colores = unidadesPorColores({
+        talla: leido.talla, color: leido.color, direccion: null, nombre: null, celular: null, cantidad: null,
+      });
+      const dice = leido.cantidad && /\d/.test(leido.cantidad) ? Number(leido.cantidad.replace(/\D/g, "")) : 1;
+      if (colores >= 2 && dice < colores) {
+        fallas.push(
+          `el cliente pidió ${colores} colores y el resumen dice «Cantidad: ${dice}»: son ${colores} unidades — ` +
+            `escribe «Cantidad: ${colores}» y multiplica el precio por ${colores} antes de sumarle el envío, que va una sola vez`,
+        );
+      }
+    }
+
     if (leido.direccion) {
       const palabras = llano(leido.direccion).split(/[^\p{L}\p{N}]+/u).filter((p) => p.length >= 4);
       const coinciden = palabras.filter((p) => escrito.includes(p)).length;
@@ -539,13 +694,20 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
   return [...new Set(fallas)];
 }
 
+/** Cómo suena meter algo más en el pedido: «Perfecto, le añado un pantalón…». */
+const AÑADE_AL_PEDIDO = /\b(le |se lo |te |se te )?(a[ñn]ado|agrego|incluyo|sumo|pongo|añadimos|agregamos|incluimos)\b/i;
+
 /** Artículos que se venden sin talla, número ni color, salvo que el anuncio diga lo contrario. */
 const SIN_VARIANTES =
-  /\b(cepillo|cepillos|secador|secadora|secadores|blower|blowers|plancha|planchas|planchita|alisadora|alisador|rizador|rizadora|tenaza|tenazas|difusor|onduladora|abejon|abejones|perfume|colonia|reloj|relojes|cartera|carteras|bolso|bolsos|mochila|mochilas|morral|bulto|bultos|riñonera|rinonera|billetera|maleta|maletas|lonchera|estuche|bolsa|gorra|gorras|lentes|gafas|collar|pulsera|aretes|anillo|paraguas|sombrilla|toalla|kit|combo|set|crema|serum|maquillaje|licuadora|freidora|audifono|audifonos|bocina|cargador|lampara|termo|botella|juguete|sartén|sarten|olla|ventilador|extension|masajeador|rasuradora|afeitadora|barbera|maquina|máquina)\b/i;
+  /\b(cepillo|cepillos|secador|secadora|secadores|blower|blowers|plancha|planchas|planchita|alisadora|alisador|rizador|rizadora|tenaza|tenazas|difusor|onduladora|abejon|abejones|faja|fajas|perfume|colonia|reloj|relojes|cartera|carteras|bolso|bolsos|mochila|mochilas|morral|bulto|bultos|riñonera|rinonera|billetera|maleta|maletas|lonchera|estuche|bolsa|gorra|gorras|lentes|gafas|collar|pulsera|aretes|anillo|paraguas|sombrilla|toalla|kit|combo|set|crema|serum|maquillaje|licuadora|freidora|audifono|audifonos|bocina|cargador|lampara|termo|botella|juguete|sartén|sarten|olla|ventilador|extension|masajeador|rasuradora|afeitadora|barbera|maquina|máquina)\b/i;
 
-/** Ropa y calzado llevan talla aunque el anuncio no la escriba. */
+/**
+ * Solo estas familias llevan talla aunque el anuncio no la escriba: las de la
+ * tabla de tallas de la tienda (`TALLAS_BASE`), en singular y en plural. Ver
+ * el mismo `ROPA` de `apertura.ts`: las dos listas dicen lo mismo a propósito.
+ */
 const CON_TALLA_SIEMPRE =
-  /\b(camisa|camisas|pantalon|pantalones|jean|jeans|short|shorts|vestido|vestidos|blusa|blusas|polo|polos|t-?shirts?|franela|franelas|chacabana|chacabanas|chaqueta|abrigo|sueter|sudadera|conjunto|falda|zapato|zapatos|tenis|bota|botas|mocasin|mocasines|sandalia|sandalias|calzado|correa|correas|cinturon|cinturones|bermuda|bermudas|boxer|boxers|ropa)\b/i;
+  /\b(camisas?|pantalon|pantalones|t-?shirts?|polos?|boxers?|zapatos?|tenis|botas?|mocasin|mocasines|sandalias?|calzado|correas?|cinturon|cinturones)\b/i;
 
 /** Lo que en un anuncio o catálogo dice CON PALABRAS que hay tallas o números. */
 const HAY_TALLAS_EXPLICITAS = /\btallas?\b|\bsize\b|numeraci[oó]n|\bx?xl\b|\bs\s*[,\/-]\s*m\b|\bde la s a la\b/i;
@@ -557,11 +719,24 @@ const HAY_TALLAS_EXPLICITAS = /\btallas?\b|\bsize\b|numeraci[oó]n|\bx?xl\b|\bs\
 const NUMEROS_DE_TALLA = /\b(3[4-9]|4[0-6])\b(?!\s*(?:l\b|lt|litros?|cm|mm|kg|g\b|gr|pulg|"|x\s*\d|%))/i;
 
 /** Lo que en un anuncio o catálogo dice que hay colores. */
-const HAY_COLORES = /\bcolor(es)?\b|\b(negro|negra|blanco|blanca|azul|rojo|roja|marr[oó]n|beige|gris|verde|rosado|rosa|dorado|plateado|caf[eé]|vino|crema|amarillo|naranja|morado|celeste|turquesa|chocolate|camel|nude|fucsia)\b/i;
+const HAY_COLORES = new RegExp(`\\bcolor(es)?\\b|${reColores().source}`, "i");
 
 // Cualquier forma de preguntar la talla: «¿qué talla?», «¿me indica su talla?», «¿qué número calza?».
 const PREGUNTA_TALLA = /[¿?][^?¿]*\b(talla|tallas|numeracion|size)\b[^?¿]*\?|[¿?][^?¿]*\b(que|cual|de que)\b[^?¿]*\b(numero|medida)\b[^?¿]*\?/i;
 const PREGUNTA_COLOR = /[¿?][^?¿]*\bcolor(es)?\b[^?¿]*\?/i;
+
+/**
+ * CÓMO SUENA PEDIR UNA CONFIRMACIÓN DEL PEDIDO ENTERO: «¿se lo despacho hoy
+ * mismo?», «¿procedo con la orden?», «¿le confirmo el pedido?». No es la
+ * cortesía tica de cerrar un dato —«¿me confirma su talla?»—: es el paso de
+ * más que la dueña quitó de los dos guiones.
+ */
+const PIDE_CONFIRMAR_EL_PEDIDO =
+  /[¿?][^?¿]*\b(se lo despacho|lo despacho|se lo despachamos|se lo env[ií]o (ya|hoy)|procedo|proceso (el|su) pedido|registro (el|su) pedido|realizo (el|su) pedido|cierro (el|su) pedido|levanto (el|su) pedido|(le )?confirmo (el|su) pedido|me confirma (el|su) (pedido|orden)|confirma (el|su) pedido|lo dejamos as[ií]|est[aá] (todo )?correcto|est[aá] de acuerdo|le parece bien|desea que (lo|le|se lo) (registre|procese|env[ií]e|despache))\b[^?¿]*\?/i;
+
+/** Cualquier pregunta por un dato del pedido: talla, color, dirección, teléfono, nombre. */
+const PIDE_UN_DATO_DEL_PEDIDO =
+  /[¿?][^?¿]*\b(talla|tallas|n[uú]mero|numeraci[oó]n|size|color|colores|direcci[oó]n|sector|provincia|cant[oó]n|corregimiento|tel[eé]fono|celular|whatsapp|nombre|a nombre de|d[oó]nde (se lo|lo|le))\b[^?¿]*\?|\bindique su direcci[oó]n\b|\bme (facilita|regala|confirma) su\b/i;
 
 /**
  * Pregunta talla, número o color y las fuentes no dicen que el artículo los
@@ -600,7 +775,9 @@ export function preguntaDeVarianteSinVariante(borrador: string, ctx: ContextoRev
     );
   }
 
-  if (PREGUNTA_COLOR.test(b) && !HAY_COLORES.test(fuentes)) {
+  const coloresDisponibles = new Set(fuentes.match(COLORES_NOMBRADOS) ?? []);
+  const llevaColor = esRopaOCalzado && (coloresDisponibles.size >= 2 || /\b(varios|diferentes)\s+colores?\b|\bcolores?\s+disponibles\b/i.test(fuentes));
+  if (PREGUNTA_COLOR.test(b) && !llevaColor) {
     fallas.push(
       "pregunta el color, y ni la descripción del anuncio ni el catálogo dicen que este artículo venga en varios colores: no se pregunta",
     );
@@ -610,7 +787,7 @@ export function preguntaDeVarianteSinVariante(borrador: string, ctx: ContextoRev
 }
 
 /** Los colores que se pueden nombrar, ya sin tildes: para pillar uno que no está escrito en ningún sitio. */
-const COLORES_NOMBRADOS = /\b(negro|negra|blanco|blanca|azul|rojo|roja|marron|beige|gris|verde|rosado|rosa|dorado|plateado|amarillo|naranja|morado|celeste|turquesa|fucsia)\b/g;
+const COLORES_NOMBRADOS = reColores("g");
 
 /** Algo que suene a una talla: una letra, un número de talla o un rango. */
 const TIENE_TALLAS = /\b(xs|s|m|l|xl|xxl|xxxl)\b|\b(2[6-9]|3\d|4[0-8])\b|talla [uú]nica|de la \w+ a la \w+/i;
@@ -642,6 +819,14 @@ export function transferenciaPermitida(borrador: string, ctx: ContextoRevision):
   if (contieneMarcador(borrador, ctx.marcador ?? MARCADOR_POR_DEFECTO)) return true;
   const pide = ctx.ultimoDelCliente ?? "";
   if (CLIENTE_PIDE_FOTO.test(pide) || CLIENTE_PIDE_MAYOREO.test(pide) || CLIENTE_PIDE_PERSONA.test(pide)) return true;
+  // «¿Tiene otro combo de más calidad?»: los demás artículos los cotiza un
+  // representante, y eso también lo manda el guion.
+  if (preguntaDelCliente(pide) === "otro_articulo") return true;
+  if (
+    ctx.datos.codigo === "cr" &&
+    !ctx.anuncio &&
+    /(?:transfier|representante|asesor|confirmo con el equipo|no (?:lo|la) (?:vendemos|manejamos)|no aparece en (?:el )?cat[aá]logo)/i.test(borrador)
+  ) return true;
   // Sin ningún precio escrito en ningún sitio, no se puede vender: ahí sí.
   return cifrasConocidas(ctx).length === 0;
 }
@@ -649,6 +834,15 @@ export function transferenciaPermitida(borrador: string, ctx: ContextoRevision):
 /** Cómo suena pedirle al cliente la ubicación por el mapa, o que la repita. */
 const PIDE_UBICACION =
   /(compart(a|e|ir|irme|anos|ame)|env[ií](e|eme|ame|ar)|mand(e|eme|ame|ar)|pas(e|eme|ame|ar))[^.?!\n]{0,25}\b(su|tu|la) ubicaci[oó]n|ubicaci[oó]n (por el mapa|en tiempo real|actual)|confirm(a|e|ar)[^.?!\n]{0,15}\b(su|tu|la) (ubicaci[oó]n|direcci[oó]n)|repit(a|e|ir)[^.?!\n]{0,15}\b(su|tu|la) (ubicaci[oó]n|direcci[oó]n)/i;
+
+/**
+ * Cómo suena pedir UN DATO MÁS de una dirección que el cliente ya dio: el
+ * número de casa, el apartamento, la seña de la puerta, el punto de referencia.
+ * Solo cuenta dentro de una pregunta: «Direccion: calle X, apto 3» en el
+ * resumen es el dato del cliente, no una repregunta.
+ */
+const PIDE_MAS_DETALLE_DE_LA_DIRECCION =
+  /[¿?][^?¿]*(numero de (?:la |su )?(?:casa|vivienda|puerta|apartamento|apto)|apartamento|apto\b|se[nñ]a|punto de referencia|alguna referencia|referencia para|color de (?:la|su) casa|en que piso|nombre del edificio)[^?¿]*\?/i;
 
 /** Cómo suena tutear a un cliente. «Dime» y «mándame» no van: son expresiones del país. */
 const TUTEO = /\b(quieres|tienes|puedes|necesitas|prefieres|deseas|sabes|vives|est[aá]s|te preparo|te env[ií]o|te llega|te lo|te la|te mando|te dejo|tu pedido|tu direcci[oó]n|tu nombre|tu n[uú]mero|tu talla|tu celular)\b/i;
@@ -661,7 +855,7 @@ interface SalidaRevisor {
   fallas?: string[];
 }
 
-function promptRevisor(ctx: ContextoRevision): string {
+export function promptRevisor(ctx: ContextoRevision): string {
   return `Eres el REVISOR de una vendedora por WhatsApp. No hablas con el cliente: lees el borrador de la respuesta que ella va a mandar y decides si puede salir. Tu criterio son los datos de abajo y nada más. Eres estricto con el dinero y con los datos del pedido, y permisivo con el estilo.
 
 ${ctx.bloqueDelPais}
@@ -675,6 +869,7 @@ RECHAZA el borrador si ocurre CUALQUIERA de estas cosas:
 - Cotiza un costo de envío que no es el de la zona del cliente según el bloque del país, o dice que «el representante confirma el envío» teniendo la tarifa delante.
 - Promete una forma de pago, un plazo de entrega, un descuento, envío gratis, apartar mercancía o mandar dos para probar.
 - Pregunta una talla o un color a un artículo que no los lleva, o vuelve a preguntar algo que el cliente ya contestó en la conversación.
+- Con la dirección del cliente ya escrita en la conversación, le pide un dato más de ella —el número de casa, el apartamento, el piso, una seña para reconocer la puerta, el color de la casa, un punto de referencia— o le pide que la confirme o la repita. Esa dirección se da por buena.
 - Manda el resumen del pedido sin que el cliente haya dado nombre y dirección completa (y la variante, si el artículo la lleva), o con algún dato inventado que no aparece en la conversación. El teléfono puede ser el del chat.
 - Llama al cliente por un nombre que él no escribió en la conversación.
 - Manda un segundo resumen cuando ya había uno.

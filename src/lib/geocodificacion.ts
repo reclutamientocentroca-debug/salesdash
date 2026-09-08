@@ -69,6 +69,7 @@ const TIMEOUT_MS = 4_000;
 const DECIMALES = 4;
 
 const cache = new Map<string, DireccionAproximada | null>();
+const cacheBusqueda = new Map<string, DireccionAproximada | null>();
 /** Tope de la caché. Es de proceso y no puede crecer sin fin. */
 const MAX_CACHE = 500;
 
@@ -106,6 +107,17 @@ interface RespuestaNominatim {
     state?: string;
     country_code?: string;
   };
+}
+
+interface ResultadoBusquedaNominatim {
+  lat?: string;
+  lon?: string;
+  address?: RespuestaNominatim["address"];
+}
+
+function urlDeBusqueda(): string {
+  if (process.env.GEOCODIFICADOR_BUSQUEDA_URL) return process.env.GEOCODIFICADOR_BUSQUEDA_URL;
+  return URL_BASE.replace(/\/reverse\/?$/, "/search");
 }
 
 /**
@@ -188,7 +200,56 @@ export async function describirPunto(
   }
 }
 
+/**
+ * Busca una dirección escrita por el cliente y devuelve su zona administrativa.
+ * Se usa para cotizar el envío cuando no llegó un pin de WhatsApp.
+ */
+export async function geocodificarDireccion(
+  texto: string,
+  codigoPais: string | null = null,
+  opciones: { timeoutMs?: number } = {},
+): Promise<DireccionAproximada | null> {
+  const limpio = texto.trim().replace(/\s+/g, " ");
+  if (limpio.length < 8) return null;
+
+  const claveBusqueda = `${codigoPais ?? ""}|${limpio.toLowerCase()}`;
+  if (cacheBusqueda.has(claveBusqueda)) return cacheBusqueda.get(claveBusqueda)!;
+
+  const params = new URLSearchParams({
+    q: limpio,
+    format: "jsonv2",
+    addressdetails: "1",
+    limit: "1",
+    "accept-language": "es",
+  });
+  if (codigoPais) params.set("countrycodes", codigoPais);
+
+  try {
+    const direccion = await enCola(async () => {
+      const r = await fetch(`${urlDeBusqueda()}?${params}`, {
+        headers: { "User-Agent": AGENTE, accept: "application/json" },
+        signal: AbortSignal.timeout(opciones.timeoutMs ?? TIMEOUT_MS),
+        cache: "no-store",
+      });
+      if (!r.ok) throw new Error(`el geocodificador respondió ${r.status}`);
+      const resultados = (await r.json()) as ResultadoBusquedaNominatim[];
+      return ordenar(resultados[0]?.address);
+    });
+
+    if (cacheBusqueda.size >= MAX_CACHE) cacheBusqueda.clear();
+    cacheBusqueda.set(claveBusqueda, direccion);
+    return direccion;
+  } catch (e) {
+    console.error(
+      `[mapa] no se pudo buscar la dirección «${limpio.slice(0, 80)}»:`,
+      e instanceof Error ? e.message : e,
+    );
+    return null;
+  }
+}
+
 /** Para las pruebas. */
 export function _vaciarCache(): void {
   cache.clear();
+  cacheBusqueda.clear();
 }

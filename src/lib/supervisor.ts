@@ -36,7 +36,8 @@
  * una firma humana. Lo que nunca hace es sellar una venta que no estaba, ni
  * tocar una corrección manual.
  */
-import { agenteDePais } from "@/agents";
+import { agenteDePais, type DatosPais } from "@/agents";
+import { pareceDireccion, pareceNombreDePersona } from "./memoria";
 import { analizarConversacion } from "./analyzer";
 import { barrerAnomalias } from "./anomalies";
 import { contieneMarcador, MARCADOR_POR_DEFECTO, sellarCierresPendientes } from "./cierre";
@@ -84,6 +85,12 @@ export interface ResumenLeido {
   cel: string | null;
   direccion: string | null;
   total: string | null;
+  /** Qué se vende. El caso real: «ORDENA, RECIBE Y LUEGO PAGA!!» en esa línea. */
+  producto: string | null;
+  talla: string | null;
+  color: string | null;
+  /** Cuántas unidades dice el resumen. Con dos colores tiene que decir dos. */
+  cantidad: string | null;
 }
 
 /** Sin tildes, en minúsculas y con un solo espacio. Para comparar, no para enseñar. */
@@ -114,7 +121,7 @@ export function leerResumen(texto: string, marcador: string = MARCADOR_POR_DEFEC
   let inicio = lineas.findIndex((l) => llano(l).startsWith(raiz) || llano(l).includes(`${raiz} `));
   if (inicio < 0) inicio = 0;
 
-  const salida: ResumenLeido = { nombre: null, cel: null, direccion: null, total: null };
+  const salida: ResumenLeido = { nombre: null, cel: null, direccion: null, total: null, producto: null, talla: null, color: null, cantidad: null };
 
   const campo = (linea: string, etiqueta: RegExp): string | null => {
     const m = linea.match(etiqueta);
@@ -134,6 +141,14 @@ export function leerResumen(texto: string, marcador: string = MARCADOR_POR_DEFEC
       salida.direccion = campo(l, /^[^:]*:\s*(.*)$/);
     } else if (salida.total === null && /^total\b/.test(plano)) {
       salida.total = campo(l, /^[^:]*:\s*(.*)$/);
+    } else if (salida.producto === null && /^(producto|art[ií]culo)\b/.test(plano)) {
+      salida.producto = campo(l, /^[^:]*:\s*(.*)$/);
+    } else if (salida.talla === null && /^(talla|n[uú]mero)\b/.test(plano)) {
+      salida.talla = campo(l, /^[^:]*:\s*(.*)$/);
+    } else if (salida.color === null && /^color\b/.test(plano)) {
+      salida.color = campo(l, /^[^:]*:\s*(.*)$/);
+    } else if (salida.cantidad === null && /^cantidad\b/.test(plano)) {
+      salida.cantidad = campo(l, /^[^:]*:\s*(.*)$/);
     }
   }
 
@@ -158,7 +173,12 @@ function esHueco(valor: string | null): boolean {
  * copiando su propio ejemplo, y es exactamente el fallo que hace que media
  * bandeja salga a nombre de la misma desconocida.
  */
-export function fallasDelResumen(r: ResumenLeido, nombresDeLaCasa: string[] = []): string[] {
+export function fallasDelResumen(
+  r: ResumenLeido,
+  nombresDeLaCasa: string[] = [],
+  /** El país, si se sabe: con él, un sector conocido ya es una dirección. */
+  datos: DatosPais | null = null,
+): string[] {
   const fallas: string[] = [];
 
   if (esHueco(r.nombre)) fallas.push("no dice a nombre de quién va");
@@ -166,12 +186,11 @@ export function fallasDelResumen(r: ResumenLeido, nombresDeLaCasa: string[] = []
     fallas.push(`va a nombre de «${r.nombre}», que es el nombre de la casa, no el de un cliente`);
   } else if (/\bcliente\b/i.test(r.nombre!) && llano(r.nombre!).split(" ").length <= 3) {
     fallas.push(`el nombre es «${r.nombre}», que no es un nombre`);
-  } else if (
-    r.nombre!.trim().split(/\s+/).length > 4 ||
-    /\d/.test(r.nombre!) ||
-    /\b(informaci[oó]n|quiero|negocio|hola|buenas|precio|gracias|anuncio|disponible)\b/i.test(r.nombre!)
-  ) {
-    fallas.push(`el nombre es «${r.nombre}», que es una frase y no un nombre`);
+  } else if (!pareceNombreDePersona(r.nombre!, datos)) {
+    // Una frase suya, un sitio, un color o el propio artículo no son la
+    // persona que recibe el paquete. El caso real: «Nombre: Quiero más
+    // información sobre el negocio.».
+    fallas.push(`el nombre es «${r.nombre}», que no es el nombre de una persona`);
   }
 
   if (esHueco(r.cel) || (r.cel!.replace(/\D/g, "").length < 7)) {
@@ -181,6 +200,9 @@ export function fallasDelResumen(r: ResumenLeido, nombresDeLaCasa: string[] = []
   if (esHueco(r.direccion)) fallas.push("no lleva dirección");
   else if (/ubicaci[oó]n compartida/i.test(r.direccion!)) {
     fallas.push("en la dirección dice «ubicación compartida» en vez de la dirección");
+  } else if (!pareceDireccion(r.direccion!, datos)) {
+    // El caso real: «Direccion: Si yo.le escomprado». Eso no es una casa.
+    fallas.push(`en la dirección dice «${r.direccion}», que no es una dirección`);
   }
 
   if (esHueco(r.total) || !/\d/.test(r.total!)) fallas.push("el total no es una cifra");
@@ -205,10 +227,13 @@ interface CierreLeido {
 }
 
 /** Los nombres que en este canal nunca son de un cliente. */
-function nombresDeLaCasa(orgId: number, canalId: number): string[] {
+function nombresDeLaCasa(orgId: number, canalId: number): { nombres: string[]; datos: DatosPais | null } {
   const agente = obtenerAgente(orgId, canalId);
   const datos = agenteDePais(agente.pais);
-  return [agente.nombre, agente.negocio, datos?.nombreAgente ?? "", datos?.tienda ?? ""].filter(Boolean);
+  return {
+    nombres: [agente.nombre, agente.negocio, datos?.nombreAgente ?? "", datos?.tienda ?? ""].filter(Boolean),
+    datos: datos ?? null,
+  };
 }
 
 /**
@@ -256,7 +281,7 @@ export function revisarCierres(orgId: number, t: number = ahora()): RevisionDeCi
     }
   }
 
-  const casa = new Map<number, string[]>();
+  const casa = new Map<number, { nombres: string[]; datos: DatosPais | null }>();
 
   for (const l of leidos) {
     // Solo se juzgan las que todavía cuentan como venta de la IA.
@@ -264,7 +289,8 @@ export function revisarCierres(orgId: number, t: number = ahora()): RevisionDeCi
     salida.revisadas++;
 
     if (!casa.has(l.conv.canal_id)) casa.set(l.conv.canal_id, nombresDeLaCasa(orgId, l.conv.canal_id));
-    const fallas = fallasDelResumen(l.resumen, casa.get(l.conv.canal_id));
+    const suya = casa.get(l.conv.canal_id)!;
+    const fallas = fallasDelResumen(l.resumen, suya.nombres, suya.datos);
 
     if (l.nombreLlano) {
       const n = porNombre.get(`${l.conv.canal_id}|${l.nombreLlano}`)?.size ?? 0;
