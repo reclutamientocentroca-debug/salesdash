@@ -196,6 +196,24 @@ export function laFotoAyudaAElegir(descripcion: string | null | undefined): bool
   return ROPA.test(t) || CALZADO.test(t);
 }
 
+/** Cualquier forma de preguntar el color. La leen el revisor y el agente. */
+export const PREGUNTA_COLOR = /[¿?][^?¿]*\bcolor(es)?\b[^?¿]*\?/i;
+
+/**
+ * ¿ESTA RESPUESTA LLEVA LA FOTO DEL ANUNCIO, aunque el modelo no la pidiera?
+ *
+ * En República Dominicana sí, cuando lo que pregunta es el COLOR: lo pidió la
+ * dueña (2026-09-08) —la foto no al principio, sino cuando el cliente ya dio su
+ * talla y toca elegir color, porque el color se elige viendo—. Al guion se le
+ * pide y casi siempre lo hace; esto lo asegura.
+ *
+ * Los otros dos países la mandan con la primera respuesta, que es su regla: ver
+ * `laFotoAyudaAElegir`.
+ */
+export function laFotoVaConEstaRespuesta(codigoPais: string | null | undefined, texto: string): boolean {
+  return codigoPais === "do" && PREGUNTA_COLOR.test(texto);
+}
+
 /** La primera pregunta del orden de venta, según lo que sea el artículo. */
 export function primeraPregunta(descripcion: string, d: DatosPais): string {
   const texto = descripcion;
@@ -550,7 +568,17 @@ function otraFormaDePreguntar(d: DatosPais, paso: PasoDelPedido, descripcion: st
     case "nombre":
       return tu ? "¿Con qué nombre lo dejamos?" : "¿Con qué nombre lo dejamos?";
     case "celular":
-      return "¿A qué número le llama el mensajero, a este mismo?";
+      /*
+       * SE PIDE EL NÚMERO, NO SE PIDE QUE CONFIRME EL QUE YA SE TIENE.
+       *
+       * La dueña (2026-09-08). «¿A qué número le llama el mensajero, a este
+       * mismo?» no pregunta: propone. El cliente contesta «sí» y el pedido se
+       * queda con un número que él nunca escribió. Aquí toca decirlo con otras
+       * palabras que en el paso normal —esta función existe para eso—, pero
+       * pidiéndolo igual. Lo que NO cambia es cómo se acepta la respuesta: si
+       * él dice por su cuenta que es este mismo, vale el de este WhatsApp.
+       */
+      return tu ? "¿A qué número te llama el mensajero?" : "¿A qué número le llama el mensajero?";
     case "resumen":
       return preguntaDelPaso(d, paso, descripcion);
   }

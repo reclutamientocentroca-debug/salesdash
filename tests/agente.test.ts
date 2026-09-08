@@ -23,7 +23,7 @@ import { contieneMarcador, duenoDelCierre, registrarCierre } from "../src/lib/ci
 import { leerEtiquetaDeAsesor } from "../src/lib/agent";
 import { ingerir } from "../src/lib/ingesta";
 import { direccionDelChat, jidDeDestino } from "../src/lib/telefono";
-import { laFotoAyudaAElegir } from "../src/lib/apertura";
+import { laFotoAyudaAElegir, laFotoVaConEstaRespuesta } from "../src/lib/apertura";
 import type { Resultado } from "../src/lib/agent";
 
 /** Estrecha la unión: si el agente respondió, la prueba debe fallar aquí. */
@@ -635,15 +635,16 @@ test("el prompt ofrece la foto solo cuando la hay, y si no, transfiere", () => {
 });
 
 /**
- * LA FOTO DEL ANUNCIO, CON LA PREGUNTA DE LA TALLA.
+ * LA FOTO DEL ANUNCIO: EN RD NO VA AL PRINCIPIO.
  *
- * Lo pidió la dueña (2026-09-08): en un pantalón, una camisa o un zapato el
- * cliente elige por lo que ve, y pedirle la talla de algo que no ha visto es
- * pedirle que compre a ciegas. Con un combo de cepillo y plancha no: ahí no hay
- * nada que escoger. La imagen ya se guardaba al entrar el lead; lo que faltaba
- * era mandársela.
+ * En un pantalón, una camisa o un zapato el cliente elige por lo que ve, así
+ * que la foto acompaña a la venta. Dónde, lo dijo la dueña en dos pasos: iba
+ * con la primera respuesta —la de la talla— y el 2026-09-08 pidió moverla en
+ * REPÚBLICA DOMINICANA a la pregunta del color, con la talla ya dada. Los otros
+ * dos países se quedan como estaban. Con un combo de cepillo y plancha no va
+ * nunca: ahí no hay nada que escoger.
  */
-test("con ropa o calzado, la primera respuesta pide la foto; con un combo, no", async () => {
+test("en RD la primera respuesta no lleva foto; en Costa Rica sí, y un combo no", async () => {
   const prueba = D.crearOrgConDueno({
     negocio: "Cuenta de la foto",
     color: "#12876a",
@@ -670,7 +671,29 @@ test("con ropa o calzado, la primera respuesta pide la foto; con un combo, no", 
     null, null, null, hola, null, conFoto,
   );
   assert.match(pantalones.texto, /¿Qué talla le interesa\?/);
-  assert.equal(pantalones.pideFoto, true, "lo que se elige, se enseña");
+  assert.equal(pantalones.pideFoto, false, "en RD la foto no va en el primer mensaje: va con el color");
+
+  /*
+   * Y ese es el momento en que sí va: el cliente ya dio su talla y toca elegir
+   * color. Esa respuesta la escribe el modelo; esto es lo que la acompaña con
+   * la foto aunque el modelo se olvide de la etiqueta.
+   */
+  assert.equal(laFotoVaConEstaRespuesta("do", "Perfecto. ¿Qué color le interesa?"), true);
+  assert.equal(laFotoVaConEstaRespuesta("do", "¿Qué talla le interesa?"), false);
+  assert.equal(laFotoVaConEstaRespuesta("cr", "¿Qué color le interesa?"), false, "esto es de República Dominicana");
+
+  // Costa Rica sigue mandándola con la primera respuesta, que es su regla.
+  const tico = D.crearCanal(prueba.orgId, {
+    nombre: "Tico", phone: `506${Date.now().toString().slice(-7)}`, tokenCifrado: "x",
+    webhookSecret: "s", whapiChannelId: null, estado: "conectado",
+  });
+  D.actualizarAgente(prueba.orgId, { pais: "cr", nombre: "Mildred", negocio: "TELLERIA" }, tico);
+  const enCostaRica = await generarRespuesta(
+    prueba.orgId, tico, hola,
+    { origen: "anuncio", producto_anuncio: "Pantalón cargo", descripcion_anuncio: "PANTALÓN CARGO — ₡12.900. Varios colores." },
+    null, null, null, hola, null, conFoto,
+  );
+  assert.equal(enCostaRica.pideFoto, true, "lo que se elige, se enseña");
 
   const combo = await generarRespuesta(
     prueba.orgId, canal, hola,

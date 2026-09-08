@@ -134,7 +134,7 @@ test("el prompt del agente lleva la tarifa del cliente cuando la escribió, y el
   assert.ok(ritmo.includes("Entre 24 y 48 horas."), "y a cuánto tarda se contesta");
 
   // Y el bloque del cliente pide el celular también en RD.
-  assert.ok(prompt.includes("PREGÚNTALE A QUÉ NÚMERO LLAMA EL MENSAJERO"));
+  assert.ok(prompt.includes("PÍDELE EL NÚMERO AL QUE LLAMA EL MENSAJERO"));
   assert.equal(prompt.includes("EL TELÉFONO NO SE PREGUNTA"), false);
 
   // El precio del artículo del anuncio es el de la descripción del anuncio.
@@ -351,4 +351,49 @@ test("el guion dominicano nombra los productos fijos y les prohíbe la talla y e
   assert.ok(rdDatos.tallas.sinTallaNiColor.includes("Planchas"));
   const bloque = bloqueDelPais(rdDatos, null, "RINCON DCM");
   assert.ok(bloque.includes("NO llevan talla ni color, y no se preguntan: Cepillos, Blowers, Secadores, Planchas"));
+});
+
+/**
+ * LA FOTO DEL ANUNCIO VA CON LA PREGUNTA DEL COLOR (la dueña, RD, 2026-09-08).
+ *
+ * No al principio: el primer mensaje ya lleva producto, precio y la talla, y
+ * meterle la foto delante lo convierte en dos cosas a la vez. El momento en que
+ * sirve es el otro —el cliente ya dijo su talla, toca elegir color, y el color
+ * se elige viendo—.
+ */
+test("el guion dominicano manda la foto con el color, nunca en el primer mensaje", () => {
+  const { orgId } = D.crearOrgConDueno({
+    negocio: "RINCON DCM", color: "#12876a", nombre: "Dueña",
+    email: `fotocolor-${Date.now()}@prueba.local`, passwordHash: "x",
+  });
+  const canalId = D.crearCanal(orgId, {
+    nombre: "RD", phone: "18095550500", tokenCifrado: "x",
+    webhookSecret: "s", whapiChannelId: null, estado: "conectado",
+  });
+  D.actualizarAgente(orgId, { pais: "do" }, canalId);
+  const agente = D.obtenerAgente(orgId, canalId);
+  const polos = {
+    origen: "anuncio",
+    producto_anuncio: "Polos Bronx",
+    descripcion_anuncio: "POLOS BRONX ORIGINALES a RD$1,400. Colores: negro, gris, blanco y azul.",
+  };
+
+  const conFoto = armarSistema("RINCON DCM", agente, [], polos, "Resumen:", null, null, true, null);
+  assert.ok(conFoto.includes("CON LA PREGUNTA DEL COLOR, cuando el cliente ya te dio la talla"));
+  assert.ok(conFoto.includes("NUNCA EN EL PRIMER MENSAJE NI CON LA PREGUNTA DE LA TALLA"));
+  assert.ok(conFoto.includes('"[ENVIAR_FOTO]"'), "y cómo se manda");
+  assert.ok(conFoto.includes("Cuando el cliente la pide"), "si la pide, se le manda en el acto");
+
+  // Un artículo sin colores no tiene ese momento: la foto solo si la piden.
+  const cepillo = armarSistema("RINCON DCM", agente, [], {
+    origen: "anuncio",
+    producto_anuncio: "Combo 2 en 1",
+    descripcion_anuncio: "🔥 COMBO 2 EN 1 — RD$1,690 ✨ Cepillo secador + plancha alisadora.",
+  }, "Resumen:", null, null, true, null);
+  assert.equal(cepillo.includes("CON LA PREGUNTA DEL COLOR"), false, "ese artículo no lleva color");
+  assert.ok(cepillo.includes("NUNCA EN EL PRIMER MENSAJE"));
+
+  // Y sin foto guardada, no se promete ninguna.
+  const sinFoto = armarSistema("RINCON DCM", agente, [], polos, "Resumen:", null, null, false, null);
+  assert.equal(sinFoto.includes("[ENVIAR_FOTO]"), false);
 });

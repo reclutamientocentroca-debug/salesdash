@@ -59,14 +59,6 @@ export function guionRD(ctx: ContextoGuionRD): string {
   // El título del resumen, como lo escribió la dueña. Con un marcador propio de la cuenta, ese.
   const cabecera = /^resumen:?$/i.test(ctx.marcador.trim()) ? "📋 RESUMEN DEL PEDIDO" : ctx.marcador;
 
-  const fotos = ctx.conFoto
-    ? `Tienes la fotografía del anuncio por el que te escribió y PUEDES MANDÁRSELA. Para que salga, escribes tu mensaje normal y añades "[ENVIAR_FOTO]" al final: el cliente no ve esa etiqueta, ve la foto. NUNCA escribas solo la etiqueta —siempre va con tu mensaje—, no describas la foto y no digas «se la mando»: la foto habla sola.
-Se manda UNA SOLA VEZ en la conversación, y en estos dos casos:
-- Cuando el cliente pide foto, imagen, «¿cómo se ve?», «¿tiene fotos?», «mándeme una imagen», «quiero verlo» o «quiero ver los colores».
-- Cuando lo que vendes SE ELIGE POR LO QUE SE VE —ropa y calzado: pantalón, camisa, t-shirt, polo, bóxer, correa, zapato—, va con la pregunta de la talla o del color, para que elija viendo lo que compra. Con lo que no se elige —cepillos, secadores, planchas, abejones, combos, artículos del hogar— no hace falta: ahí no hay nada que escoger.
-Fuera de esos dos casos no la ofrezcas: acompaña a la venta, no la sustituye. Después de mandarla sigues con la pregunta que te tocaba.`
-    : `No hay ninguna fotografía disponible en este chat. Si el cliente pide foto, imagen, «¿cómo se ve?», «mándeme fotos» o «quiero ver los colores», transfiere al representante con "[HANDOFF]" y detente.`;
-
   /*
    * EL CEPILLO SECADOR NO LLEVA TALLA NI COLOR (la dueña, 2026-09-07). Cuando
    * ya se sabe qué se vende, el guion no le pide al modelo que clasifique el
@@ -115,6 +107,31 @@ Si tienes duda de si el producto lleva talla, no la preguntas. Sigues con el res
           ? `- Si el cliente nombra por su cuenta ${sinTalla && sinColor ? "una talla o un color" : sinTalla ? "una talla" : "un color"}, no lo registres ni se lo confirmes: le dices en una línea que ese artículo viene en una sola presentación y sigues con el dato que falta.`
           : ``,
         `Con este artículo vas de precio → ${sinTalla ? "dirección" : "talla"}.`,
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+  /*
+   * LA FOTO VA CON LA PREGUNTA DEL COLOR, NO AL PRINCIPIO (la dueña, RD,
+   * 2026-09-08). El primer mensaje ya lo lleva todo —producto, precio y la
+   * talla—, y meterle la foto delante lo convierte en dos cosas a la vez. El
+   * momento en que sirve es el otro: el cliente ya dijo su talla, toca elegir
+   * color, y ahí ver los colores ES la pregunta.
+   *
+   * Con un artículo sin colores que elegir no hay ese momento: entonces la
+   * foto sale solo si el cliente la pide. Por eso este bloque se arma después
+   * de la clasificación, que es la que sabe si este artículo lleva color.
+   */
+  const fotos = !ctx.conFoto
+    ? `No hay ninguna fotografía disponible en este chat. Si el cliente pide foto, imagen, «¿cómo se ve?», «mándeme fotos» o «quiero ver los colores», transfiere al representante con "[HANDOFF]" y detente.`
+    : [
+        `Tienes la fotografía del anuncio por el que te escribió y PUEDES MANDÁRSELA. Para que salga, escribes tu mensaje normal y añades "[ENVIAR_FOTO]" al final: el cliente no ve esa etiqueta, ve la foto. NUNCA escribas solo la etiqueta —siempre va con tu mensaje—, no describas la foto y no digas «se la mando»: la foto habla sola.`,
+        `Se manda UNA SOLA VEZ en la conversación, y en ${sinColor ? "un solo caso" : "estos dos casos"}:`,
+        sinColor
+          ? ``
+          : `- CON LA PREGUNTA DEL COLOR, cuando el cliente ya te dio la talla: «¿Qué color le interesa?» y la etiqueta al final de ese mismo mensaje. Ese es su momento —está eligiendo, y el color se elige viendo—.`,
+        `- Cuando el cliente la pide: foto, imagen, «¿cómo se ve?», «¿tiene fotos?», «mándeme una imagen», «quiero verlo» o «quiero ver los colores». Ahí se la mandas en el acto, en el paso en el que estés.`,
+        `NUNCA EN EL PRIMER MENSAJE${sinColor ? "" : " NI CON LA PREGUNTA DE LA TALLA"}: al abrir se le dice el producto con su precio y se le pregunta lo que toca, y nada más. Fuera de ${sinColor ? "ese caso" : "esos dos casos"} no la ofreces: acompaña a la venta, no la sustituye. Después de mandarla sigues con la pregunta que te tocaba.`,
       ]
         .filter(Boolean)
         .join("\n");

@@ -45,7 +45,7 @@ import { descifrar } from "./auth";
 import { leer as leerArchivo } from "./media";
 import { formatearImporte, monedaDelPais } from "./moneda";
 import { anuncioParaModelo, anuncioVigente, type DatosAnuncio } from "./anuncio";
-import { aperturaSegura, clienteAplazaCompra, fraseDeTransferencia, laFotoAyudaAElegir, llevaColor, llevaTalla, nombraUnArticulo, respuestaMinima } from "./apertura";
+import { aperturaSegura, clienteAplazaCompra, fraseDeTransferencia, laFotoAyudaAElegir, laFotoVaConEstaRespuesta, llevaColor, llevaTalla, nombraUnArticulo, respuestaMinima } from "./apertura";
 import { esMensajeDeSistema } from "./sistema";
 import { contieneMarcador, MARCADOR_POR_DEFECTO, registrarCierre } from "./cierre";
 import { completar, ErrorIA, hoyISO } from "./ia";
@@ -1289,8 +1289,14 @@ export async function generarRespuesta(
          * un pantalón, una camisa o un zapato el cliente los elige por lo que
          * ve, y este primer mensaje es justo el que le pide la talla. La foto
          * sale delante y la pregunta detrás, como la enseñaría un vendedor.
+         *
+         * EN REPÚBLICA DOMINICANA NO, y lo pidió ella misma después: allí la
+         * foto va más tarde, con la pregunta del color y la talla ya dada. El
+         * primer mensaje se queda como estaba —producto, precio y la talla—.
+         * Ver el guion de RD y el refuerzo de `atenderTurno`.
          */
-        pideFoto: conFoto && laFotoAyudaAElegir(anuncio?.descripcion_anuncio),
+        pideFoto:
+          conFoto && datosPais.codigo !== "do" && laFotoAyudaAElegir(anuncio?.descripcion_anuncio),
         modelo: agente.modelo,
         fueRespaldo: false,
       };
@@ -2516,6 +2522,18 @@ async function atenderTurno(
    * Que falle la foto NO puede callar la respuesta: se apunta y el texto sale
    * igual. Un cliente sin foto sigue comprando; uno sin respuesta, no.
    */
+  /*
+   * Y EN REPÚBLICA DOMINICANA, LA PREGUNTA DEL COLOR LA LLEVA SIEMPRE.
+   *
+   * La dueña (2026-09-08) la quiere ahí y no al principio: el cliente ya dio su
+   * talla, toca elegir color, y ver los colores ES la pregunta. Al guion se le
+   * pide y casi siempre lo hace; esto lo asegura, que es lo que se hace con lo
+   * que no puede fallar. Una sola vez por hilo, como todo lo demás.
+   */
+  if (!respuesta.pideFoto && foto && !fotoYaEnviada && laFotoVaConEstaRespuesta(agente.pais, respuesta.texto)) {
+    respuesta = { ...respuesta, pideFoto: true };
+  }
+
   if (respuesta.pideFoto && foto && !fotoYaEnviada) {
     try {
       const idFoto = await mandarFoto(foto);
