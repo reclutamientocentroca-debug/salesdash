@@ -149,6 +149,19 @@ function bloqueDeEnvio(d: DatosPais, donde: string | null): string {
   );
 
   /*
+   * Y NO SON EL PRECIO DE NADA. El caso de la dueña (2026-09-08): un anuncio
+   * sin precio y la IA contestando «El precio es RD$250 cada una», que es la
+   * tarifa de la capital. Las únicas cifras que el agente tiene delante son
+   * estas, y si le falta el precio del artículo acaba usando la que tenga a
+   * mano.
+   */
+  lineas.push(
+    "ESTAS CIFRAS SON EL COSTO DE LLEVARLO, NUNCA EL PRECIO DE LO QUE SE VENDE. No las uses para " +
+      "contestar «¿cuánto cuesta?»: el precio del artículo sale de la descripción del anuncio o del " +
+      "catálogo, y si ahí no está, no hay precio que dar —se lo pasa un representante—.",
+  );
+
+  /*
    * Y LO QUE LE TOCA A ESTE CLIENTE. Cuando ya se sabe de dónde es, decirle
    * las tarifas es dejarle elegir; decirle la suya es cerrar.
    */

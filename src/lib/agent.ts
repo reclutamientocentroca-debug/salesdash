@@ -1137,6 +1137,21 @@ function aHistorial(mensajes: Mensaje[]) {
   }));
 }
 
+/**
+ * LO QUE SE LE DICE AL AGENTE CUANDO LE DEVUELVEN UN HILO CON ALGO COLGANDO.
+ *
+ * Va al final del prompt, que es donde más pesa. Sin esto el modelo lee su
+ * propia despedida —«le transfiero con un representante»— y la repite, o se
+ * queda callado porque el guion le dice que después de transferir no vuelva a
+ * escribir en ese chat. Una persona miró la conversación y decidió lo
+ * contrario: eso es lo que manda.
+ */
+const AVISO_RETOMADO =
+  "\n\nEL EQUIPO TE HA DEVUELTO ESTE CHAT. Una persona lo miró y decidió que sigues tú, así que lo " +
+  "que dijiste antes de transferir ya no vale: NO repitas que le transfieres, no te despidas y no te " +
+  "quedes callado. El último mensaje del cliente se quedó SIN RESPUESTA: contéstalo ahora, en un solo " +
+  "mensaje, y sigue la venta por el paso que toque.";
+
 export interface RespuestaGenerada {
   /** Lo que se le manda al cliente: ya sin la etiqueta `[HANDOFF]`. */
   texto: string;
@@ -1183,6 +1198,13 @@ export async function generarRespuesta(
    * regla de «[ENVIAR_FOTO]» no entra en el prompt: ver `armarSistema`.
    */
   conFoto: boolean = false,
+  /**
+   * EL EQUIPO ACABA DE DEVOLVERLE ESTE HILO y hay un mensaje del cliente sin
+   * contestar. Sin decírselo, el modelo lee su propio «le transfiero con un
+   * representante» dos líneas arriba y vuelve a transferir, que es justo lo
+   * que la persona acaba de deshacer.
+   */
+  retomado: boolean = false,
 ): Promise<RespuestaGenerada> {
   const org = obtenerOrg(orgId);
   const agente = obtenerAgente(orgId, canalId);
@@ -1333,7 +1355,8 @@ export async function generarRespuesta(
             conFoto,
             // La zona que el cliente escribió EN ESTA SESIÓN, para decirle SU tarifa.
             lugarResuelto ?? lugarEscritoPorElCliente(agenteDePais(agente.pais), mensajesDeLaSesion(mensajes)),
-          ) + (reglaPrecio ? `\n\n${reglaPrecio}` : "") + memoria + ficha,
+          ) + (reglaPrecio ? `\n\n${reglaPrecio}` : "") + memoria + ficha +
+          (retomado ? AVISO_RETOMADO : ""),
       },
       ...aHistorial(mensajes),
     ],
@@ -1710,7 +1733,32 @@ async function atenderTurno(
 
   // ── Nunca responder a algo que no escribió el cliente ───────────────────
   let historial = ultimosMensajes(orgId, conversationId, MAX_MENSAJES_CONTEXTO);
-  const ultimo = historial[historial.length - 1];
+  let ultimo = historial[historial.length - 1];
+
+  /*
+   * SALVO EL HILO QUE ACABAN DE DEVOLVERLE: ahí contesta lo que quedó colgando.
+   *
+   * La dueña (2026-09-08): «al transferir nuevamente a la IA debe de responder
+   * al mensaje que se quedó sin respuesta». Lo último que escribe la IA antes
+   * de un handoff es «le transfiero con un representante», así que el último
+   * mensaje del hilo NO es del cliente y esta guarda lo mandaba a callar:
+   * pulsar «Contesta la IA» no producía nada y el cliente seguía esperando.
+   *
+   * Solo cuenta como colgando si detrás de su mensaje no escribió nadie de la
+   * casa DESPUÉS de devolverlo: si el equipo ya le contestó, no hay nada
+   * pendiente y el agente no se mete encima.
+   */
+  const retomado =
+    !!ultimo && ultimo.emisor !== "cliente" && conv.devuelta_a_ia_at !== null &&
+    (() => {
+      const suyo = [...historial].reverse().find((m) => m.emisor === "cliente");
+      if (!suyo) return false;
+      const desde = Math.max(suyo.created_at, conv.devuelta_a_ia_at!);
+      if (historial.some((m) => m.emisor !== "cliente" && m.created_at >= desde)) return false;
+      ultimo = suyo;
+      return true;
+    })();
+
   if (!ultimo || ultimo.emisor !== "cliente") {
     return { atendida: false, motivo: "ultimo_no_es_cliente" };
   }
@@ -1971,6 +2019,7 @@ async function atenderTurno(
       memoriaMensajes,
       lugarResuelto,
       !!foto && !fotoYaEnviada,
+      retomado,
     );
   } catch (e) {
     /*
@@ -2073,6 +2122,7 @@ async function atenderTurno(
           memoriaMensajes,
           lugarResuelto,
           !!foto && !fotoYaEnviada,
+          retomado,
         );
         if (segunda.texto) {
           candidata = segunda.texto;
@@ -2371,7 +2421,24 @@ async function atenderTurno(
    * de sobra: es lo que le repitió el saludo al cliente. La fila de turnos lo
    * evita dentro de este proceso; esto lo evita también fuera.
    */
-  if (ultimosMensajes(orgId, conversationId, 5).some((m) => m.emisor === "ia" && m.created_at >= ultimo.created_at)) {
+  /*
+   * Y CON UNA EXCEPCIÓN: EL HILO QUE ACABAN DE DEVOLVERLE.
+   *
+   * La dueña (2026-09-08): «al transferir nuevamente a la IA debe de responder
+   * al mensaje que se quedó sin respuesta». Lo último que escribe la IA antes
+   * de un handoff es «le transfiero con un representante», y eso es una
+   * respuesta posterior al mensaje del cliente: con esta guarda a secas, pulsar
+   * «Contesta la IA» no producía nada y el cliente se quedaba esperando. Lo que
+   * salió ANTES de que le devolvieran el hilo ya no cuenta como contestado: el
+   * botón manda, igual que hace con lo que escribió el equipo.
+   */
+  const contestadoDespues = ultimosMensajes(orgId, conversationId, 5).some(
+    (m) =>
+      m.emisor === "ia" &&
+      m.created_at >= ultimo.created_at &&
+      (conv.devuelta_a_ia_at === null || m.created_at >= conv.devuelta_a_ia_at),
+  );
+  if (contestadoDespues) {
     return { atendida: false, motivo: "ya_contestado" };
   }
 

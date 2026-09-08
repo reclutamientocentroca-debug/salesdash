@@ -103,7 +103,9 @@ export default async function PaginaConversacion({ params, searchParams }: Props
             </div>
 
             <dl style={{ display: "grid", gap: 9, fontSize: 12.5 }}>
-              <Dato etiqueta="Producto" valor={conv.producto_vendido ?? "—"} />
+              {/* Sin venta cerrada, el artículo que la IA tiene delante: el
+                  título del anuncio suele ser el nombre de una campaña. */}
+              <Dato etiqueta="Producto" valor={conv.producto_vendido ?? foto?.nombre ?? "—"} />
               <Dato etiqueta="Total" valor={dinero(conv.total)} />
               <Dato etiqueta="Envío" valor={dinero(conv.envio)} />
               <Dato

@@ -411,6 +411,40 @@ test("con el artículo de su foto ya confirmado, vendérselo no lo para el revis
   assert.deepEqual(revisarConReglas("Las botas de cuero están en RD$3,200. ¿Qué talla calza?", conSuFoto), []);
 });
 
+/**
+ * EL COSTO DEL ENVÍO NO ES EL PRECIO DEL ARTÍCULO (la dueña, 2026-09-08).
+ *
+ * Un anuncio de polos que era solo una foto, sin precio en ninguna parte, y la
+ * IA contestando «El precio es RD$250 cada una»: la tarifa de la capital. Es la
+ * cifra que tenía a mano.
+ */
+test("cotizar el artículo con la tarifa del envío no sale", () => {
+  const sinPrecio = {
+    ...rd,
+    anuncio: "Este cliente llegó por un anuncio:\nEste anuncio es SOLO una foto, y esto es lo que se ve en ella: Se ven cinco camisetas de polo en diferentes colores. No hay precios visibles.",
+    catalogo: "Catálogo:\n(sin catálogo cargado)",
+  };
+
+  for (const cobra of ["El precio es RD$250 cada una. ¿Qué color le interesa?", "Los polos están en RD$290."]) {
+    assert.ok(
+      revisarConReglas(cobra, sinPrecio).some((f) => f.includes("es la tarifa del ENVÍO")),
+      `«${cobra}» no puede salir`,
+    );
+  }
+
+  // Decir el ENVÍO con esa misma cifra es lo correcto, y sale.
+  assert.deepEqual(
+    revisarConReglas("Hasta Santo Domingo el envío le sale en RD$250.", sinPrecio),
+    [],
+  );
+
+  // Y si el catálogo vende algo a esa cifra, ese precio es de verdad.
+  assert.deepEqual(
+    revisarConReglas("Los polos están en RD$250.", { ...sinPrecio, catalogo: "Catálogo:\n- Polo Brox — 250" }),
+    [],
+  );
+});
+
 /** El caso de Costa Rica: ofrecía sábanas que nadie vende. Ni de un ejemplo ni de «La Sabana». */
 test("un artículo que no está en el anuncio ni en el catálogo no se ofrece", () => {
   assert.ok(revisarConReglas("Tenemos el set de sábanas en microfibra. ¿Qué medida necesita?", cr).some((f) => f.includes("sábanas") || f.includes("sabanas")));

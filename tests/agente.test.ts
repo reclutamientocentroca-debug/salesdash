@@ -305,6 +305,37 @@ test("devolver el hilo a la IA levanta el silencio del vendedor sin esperar dos 
   encender(false);
 });
 
+/**
+ * DEVOLVERLE EL HILO ES «CONTESTA LO QUE QUEDÓ COLGANDO» (la dueña, 2026-09-08).
+ *
+ * Después de un handoff, el último mensaje del hilo es de la IA —«le transfiero
+ * con un representante»—, así que la guarda de «nunca contestes a algo que no
+ * escribió el cliente» la mandaba a callar: se pulsaba «Contesta la IA» y no
+ * pasaba nada. El cliente seguía esperando una respuesta a su pregunta.
+ */
+test("al devolverle el hilo, la IA contesta el mensaje del cliente que quedó sin respuesta", async () => {
+  encender(true);
+  const id = hilo([
+    { emisor: "cliente", content: "¿Y en azul lo tienen?", hace: 300 },
+    { emisor: "ia", content: "Permítame un momento, le transfiero con un representante.", hace: 290 },
+  ]);
+
+  // Antes de devolverlo: el hilo es del representante y el agente no escribe.
+  assert.equal(motivoDe(await atenderConversacion(orgId, canalId, id)), "ultimo_no_es_cliente");
+
+  D.devolverALaIa(orgId, id);
+
+  // Ahora sí llega hasta el modelo —que en las pruebas no existe—: la pregunta
+  // del cliente vuelve a estar sobre la mesa.
+  assert.equal(motivoDe(await atenderConversacion(orgId, canalId, id)), "fallo_modelo");
+
+  // Pero si el equipo YA le contestó después de devolverlo, no hay nada colgando.
+  hiloAnade(id, [{ emisor: "humano", content: "Sí, en azul lo tenemos.", hace: 0 }]);
+  assert.equal(motivoDe(await atenderConversacion(orgId, canalId, id)), "ultimo_no_es_cliente");
+
+  encender(false);
+});
+
 test("si el cliente pide una persona, se calla y deja constancia", async () => {
   encender(true);
   const id = hilo([{ emisor: "cliente", content: "quiero hablar con una persona", hace: 30 }]);

@@ -328,6 +328,35 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
   }
 
   /*
+   * 6b. EL COSTO DEL ENVÍO NO ES EL PRECIO DEL ARTÍCULO.
+   *
+   * El caso de la dueña (2026-09-08): un anuncio de polos que era solo una foto
+   * —sin precio ni en la imagen ni en el texto— y la IA contestando «El precio
+   * es RD$250 cada una», que es la tarifa de envío de la capital. Cuando al
+   * agente le falta el precio, la cifra que tiene a mano es la del envío, y esa
+   * regla de arriba no lo para: un importe que ES una tarifa del país se
+   * explica solo.
+   *
+   * Solo salta si esa cifra no es además un precio de verdad: si el catálogo
+   * vende algo a 250, decir 250 está bien.
+   */
+  for (const frase of texto.split(/(?<=[.!?\n])\s+/)) {
+    if (/env[ií]o|domicilio|mensajer|total/i.test(frase)) continue;
+    if (!DICE_LO_QUE_VALE.test(frase)) continue;
+    const cobrado = importes(frase, d.moneda.simbolo).find(
+      (n) => costos.has(n) && !conocidas.some((c) => igual(c, n)),
+    );
+    if (cobrado !== undefined) {
+      fallas.push(
+        `dice que el artículo vale ${d.moneda.simbolo}${cobrado} y esa es la tarifa del ENVÍO, no su precio: ` +
+          "el precio sale de la descripción del anuncio o del catálogo, y si ahí no está, no lo das — " +
+          'se lo pasa un representante y escribes "[HANDOFF]"',
+      );
+      break;
+    }
+  }
+
+  /*
    * 8b-ter. Y NO SE LE CAMBIA EL ARTÍCULO AL CLIENTE DEL ANUNCIO.
    *
    * El caso de la dueña (2026-09-08): el anuncio era una foto de unos jeans, el
@@ -926,6 +955,13 @@ const APODOS = new RegExp(
 
 /** Cómo suena presentarse: el saludo de apertura, con o sin el «hola». */
 const SE_PRESENTA = /\b(le|te) asiste\b|\bbienvenid[oa]s?\b|\bsoy (su|tu) (asesor|asesora|vendedor|vendedora)\b|\bmi nombre es\b/i;
+
+/**
+ * CÓMO SUENA DECIR LO QUE VALE EL ARTÍCULO: «el precio es…», «cuesta…», «está
+ * en…», «le sale en…», «…cada una». No el envío, que tiene su propia frase.
+ */
+const DICE_LO_QUE_VALE =
+  /\bel precio\b|\bprecio (es|de)\b|\bcuestan?\b|\bvalen?\b|\best[aá]n? en\b|\bsale[n]? en\b|\bcada un[ao]\b|\bpor unidad\b|\bla unidad\b/i;
 
 /** Cómo suena una transferencia en el texto del agente. */
 const HABLA_DE_TRANSFERIR =

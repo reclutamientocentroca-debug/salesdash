@@ -57,6 +57,8 @@ interface Hilo {
     envio: number | null;
     producto_vendido: string | null;
     producto_anuncio: string | null;
+    /** Lo que el anuncio le prometió a ESTE cliente. Ver `anuncioParaModelo`. */
+    descripcion_anuncio: string | null;
     resumen_pedido: string | null;
     datos_faltantes: string[];
     intervencion_humana: number;
@@ -491,11 +493,26 @@ export default function BandejaMeta({
         {conv ? (
           <>
             <dl style={{ display: "grid", gap: 10, fontSize: 12.5, margin: "0 0 16px" }}>
-              <Par etiqueta="Producto" valor={conv.producto_vendido ?? "—"} />
+              {/*
+                QUÉ SE VENDE EN ESTE CHAT, aunque todavía no se haya cerrado.
+                Antes esta línea decía «—» hasta el cierre y el título del
+                anuncio era un nombre de campaña —«Nuevo Ventas Anuncio»—: quien
+                abría la bandeja no sabía qué le estaban pidiendo. Sin venta
+                cerrada vale el artículo que la IA tiene delante.
+              */}
+              <Par etiqueta="Producto" valor={conv.producto_vendido ?? hilo?.foto?.nombre ?? "—"} />
               <Par etiqueta="Del anuncio" valor={conv.producto_anuncio ?? "—"} />
               <Par etiqueta="Envío" valor={dinero(conv.envio)} />
               <Par etiqueta="Total" valor={dinero(conv.total)} />
             </dl>
+
+            {/* Y lo que ese anuncio prometía, que es lo que el cliente leyó
+                antes de escribir. Estaba en la base y no lo enseñaba nadie. */}
+            {conv.descripcion_anuncio && (
+              <p style={{ fontSize: 12, lineHeight: 1.5, color: "var(--ink-2)", margin: "-6px 0 16px" }}>
+                <strong style={{ color: "var(--ink)" }}>Prometía:</strong> {conv.descripcion_anuncio}
+              </p>
+            )}
 
             {hilo?.foto && (
               <div style={{ borderTop: "1px solid var(--line)", padding: "15px 0", marginBottom: 1 }}>
