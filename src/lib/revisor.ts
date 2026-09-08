@@ -632,6 +632,52 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
     }
   }
 
+  /*
+   * 8p. SIN SABER QUÉ QUIERE, NO SE VENDE NADA.
+   *
+   * El caso que paró la dueña (Costa Rica, 2026-09-08): el cliente escribió
+   * «Hlola» y «Hola», nada más, y el agente contestó «¿Me confirma qué talla le
+   * interesa del Polo Brox?». El polo lo eligió él, del catálogo: el cliente no
+   * lo había nombrado nunca. Antes de eso ya le había pedido la dirección.
+   *
+   * Mientras no haya anuncio y el cliente no diga QUÉ quiere, lo único que va
+   * es el saludo y «¿Cuál es el artículo de su interés?». Los datos del pedido
+   * —talla, color, dirección, teléfono, nombre— son de un artículo, y todavía
+   * no hay artículo.
+   *
+   * No se aplica con la venta ya en marcha —si en la ficha hay talla, color o
+   * dirección, el artículo se acordó de alguna forma— para no cortar un hilo
+   * por una palabra que esta casa no sepa reconocer.
+   */
+  {
+    const dichoPorElCliente = [...(ctx.textosDelCliente ?? []), ctx.ultimoDelCliente ?? ""].filter(Boolean);
+    const enMarcha = !!(ctx.ficha?.talla || ctx.ficha?.color || ctx.ficha?.direccion);
+
+    /*
+     * LA SEÑAL ES QUE EL CLIENTE SOLO HA SALUDADO, no que la casa no reconozca
+     * lo que escribió. Con «Poloche que quiero» —el polo, como se dice allá—
+     * el cliente SÍ dijo qué quiere aunque esa palabra no esté en ninguna lista
+     * nuestra, y pararle la respuesta al agente por no saber leerla es perder
+     * la venta por no conocer un idioma. «Hola» no admite esa duda.
+     *
+     * Se para cualquier dato del pedido, se nombre o no el artículo: a un «hola»
+     * le contestó «Indique su dirección exacta de entrega.» antes de inventarse
+     * el polo. Enseñarle las opciones del catálogo sin pedirle nada sigue
+     * valiendo, que es justo cómo se le pregunta cuál quiere.
+     */
+    if (
+      dichoPorElCliente.length > 0 &&
+      dichoPorElCliente.every((t) => SOLO_SALUDA.test(t)) &&
+      !ctx.anuncio &&
+      !enMarcha &&
+      PIDE_UN_DATO_DEL_PEDIDO.test(texto)
+    ) {
+      fallas.push(
+        "el cliente solo ha saludado, no hay anuncio y todavía no sabes qué artículo quiere: la respuesta ya le pide un dato del pedido. El artículo lo elige él, no lo saques del catálogo. Salúdalo si toca y pregúntale «¿Cuál es el artículo de su interés?», y espera a que conteste",
+      );
+    }
+  }
+
   // 7b. EL MISMO MENSAJE DOS VECES SEGUIDAS NO SALE.
   //
   // El caso real: «¿Qué número calza?» tres veces, una detrás de otra, con un
@@ -921,6 +967,14 @@ const PIDE_CONFIRMAR_EL_PEDIDO =
   /[¿?][^?¿]*\b(se lo despacho|lo despacho|se lo despachamos|se lo env[ií]o (ya|hoy)|procedo|proceso (el|su) pedido|registro (el|su) pedido|realizo (el|su) pedido|cierro (el|su) pedido|levanto (el|su) pedido|(le )?confirmo (el|su) pedido|me confirma (el|su) (pedido|orden)|confirma (el|su) pedido|lo dejamos as[ií]|est[aá] (todo )?correcto|est[aá] de acuerdo|le parece bien|desea que (lo|le|se lo) (registre|procese|env[ií]e|despache))\b[^?¿]*\?/i;
 
 /** Cualquier pregunta por un dato del pedido: talla, color, dirección, teléfono, nombre. */
+/**
+ * EL CLIENTE QUE TODAVÍA NO HA DICHO NADA: un saludo, un «info», un «precio».
+ * Con eso no se sabe qué quiere, y lo único que va es preguntárselo. Se
+ * escriben estiradas —«hooola», «hlola»— porque así llegan.
+ */
+const SOLO_SALUDA =
+  /^[\s¡!¿?.,·-]*(h+o+l+a+|h+l+o+l+a+|ho+la+s|buen[oa]s?|buenos d[ií]as|buenas (tardes|noches)|saludos|hey|ep[ae]|qu[eé] tal|info|informaci[oó]n|m[aá]s informaci[oó]n|quiero (m[aá]s )?(info|informaci[oó]n)|me interesa|precio|precios|cu[aá]nto (cuesta|vale)|disponible|disponibilidad|buenas)[\s¡!¿?.,·-]*$/i;
+
 const PIDE_UN_DATO_DEL_PEDIDO =
   /[¿?][^?¿]*\b(talla|tallas|n[uú]mero|numeraci[oó]n|size|color|colores|direcci[oó]n|sector|provincia|cant[oó]n|corregimiento|tel[eé]fono|celular|whatsapp|nombre|a nombre de|d[oó]nde (se lo|lo|le))\b[^?¿]*\?|\bindique su direcci[oó]n\b|\bme (facilita|regala|confirma) su\b/i;
 

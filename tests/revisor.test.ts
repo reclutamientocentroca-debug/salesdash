@@ -686,6 +686,52 @@ test("con la foto del anuncio guardada, pedirla ya no se transfiere", () => {
   assert.equal(transferenciaPermitida(frase, { ...rd, ultimoDelCliente: "quiero hablar con una persona", conFoto: true }), true);
 });
 
+/**
+ * EL CASO DE LA DUEÑA (Costa Rica, 2026-09-08): el cliente escribió «Hlola» y
+ * «Hola», nada más, y el agente contestó «¿Me confirma qué talla le interesa
+ * del Polo Brox?». El polo lo eligió él, del catálogo. Mientras el cliente solo
+ * salude, lo único que va es preguntarle qué artículo quiere.
+ */
+test("con el cliente solo saludando, no se le elige el artículo ni se le piden datos", () => {
+  const soloSaludo = {
+    ...cr,
+    anuncio: null,
+    catalogo: "Catálogo:\n- Polo Brox (S, M, L) — 12000",
+    textosDelCliente: ["Hlola", "Hola"],
+    ultimoDelCliente: "Hola",
+    ficha: { talla: null, color: null, direccion: null, nombre: null, celular: null, cantidad: null },
+  };
+
+  assert.ok(
+    revisarConReglas("¿Me confirma qué talla le interesa del Polo Brox?", soloSaludo)
+      .some((f) => f.includes("todavía no sabes qué artículo quiere")),
+  );
+  // Y el primer mensaje de esa misma captura, que fue pedirle la dirección a un «Hlola».
+  assert.ok(
+    revisarConReglas("Indique su dirección exacta de entrega.", soloSaludo)
+      .some((f) => f.includes("todavía no sabes qué artículo quiere")),
+  );
+
+  // Lo que sí toca: saludar y preguntar cuál es el artículo.
+  assert.deepEqual(
+    revisarConReglas("Hola, le asiste Mildred, un gusto. ¿Cuál es el artículo de su interés?", soloSaludo),
+    [],
+  );
+  // Y enseñarle lo que hay, sin pedirle nada, también.
+  assert.deepEqual(
+    revisarConReglas("Hola, le asiste Mildred, un gusto. Tenemos el Polo Brox en ₡12.000. ¿Cuál artículo le interesa?", soloSaludo),
+    [],
+  );
+
+  /*
+   * Pero en cuanto el cliente dice qué quiere —aunque lo diga con una palabra
+   * que esta casa no reconozca, como «poloche»—, la venta sigue: pararla por no
+   * saber leerlo sería perderla por no conocer el idioma.
+   */
+  const yaDijo = { ...soloSaludo, textosDelCliente: ["Hola", "Poloche que quiero"], ultimoDelCliente: "Poloche que quiero" };
+  assert.deepEqual(revisarConReglas("Claro que sí. ¿Qué talla le interesa?", yaDijo), []);
+});
+
 test("Costa Rica transfiere un artículo desconocido sin anuncio", () => {
   const ctx = { ...cr, anuncio: null, catalogo: "Catálogo:\n- Camisa de lino — ₡15.000", ultimoDelCliente: "Quiero una nevera" };
   assert.equal(
