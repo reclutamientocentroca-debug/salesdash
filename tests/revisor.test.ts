@@ -483,14 +483,17 @@ test("una talla, un número o un color a un artículo que no los lleva no se pre
   assert.ok(revisarConReglas("¿En qué color lo quiere?", combo).some((f) => f.includes("color")));
   assert.deepEqual(revisarConReglas("El combo 2 en 1 está en RD$1,690.\n\nLe hacemos envío y paga al recibir. ¿En qué provincia se encuentra?", combo), []);
 
-  // Ropa: lleva talla aunque el anuncio no la escriba; el color solo si el anuncio lo dice.
+  // Ropa: lleva talla Y color, aunque el anuncio no escriba ninguno de los dos.
+  // «Las ropas llevan talla y color, los artículos no llevan talla ni color»
+  // (la dueña, 2026-09-08). Los colores de una camisa están en la foto, no en
+  // el texto del anuncio, y antes eso la dejaba sin paso de color.
   const camisa: ContextoRevision = {
     ...rd,
     catalogo: "Catálogo:\n(sin catálogo cargado)",
     anuncio: "Este cliente llegó por un anuncio:\n- Producto anunciado: Camisa de lino\n- Lo que promete el anuncio: Camisas de lino para caballeros a RD$1,500.",
   };
   assert.deepEqual(revisarConReglas("La camisa de lino está en RD$1,500.\n\n¿Qué talla necesita?", camisa), []);
-  assert.ok(revisarConReglas("¿En qué color la quiere?", camisa).some((f) => f.includes("color")));
+  assert.deepEqual(revisarConReglas("¿En qué color la quiere?", camisa), []);
 
   // Calzado con numeración escrita: el número sí se pregunta.
   const zapatos: ContextoRevision = {

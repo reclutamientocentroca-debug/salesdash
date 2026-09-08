@@ -869,7 +869,7 @@ export function armarSistema(
     : anuncio?.producto_anuncio?.trim() ?? "";
   const articuloConocido = nombraUnArticulo(textoDelArticulo);
   const conTalla = articuloConocido ? llevaTalla(textoDelArticulo) : null;
-  const conColor = articuloConocido ? llevaColor(textoDelArticulo, conFoto) : null;
+  const conColor = articuloConocido ? llevaColor(textoDelArticulo) : null;
 
   /*
    * EL PAÍS DEL CANAL, en sus dos mitades.

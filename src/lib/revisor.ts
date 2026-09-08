@@ -1081,21 +1081,22 @@ export function preguntaDeVarianteSinVariante(borrador: string, ctx: ContextoRev
     );
   }
 
-  const coloresDisponibles = new Set(fuentes.match(COLORES_NOMBRADOS) ?? []);
-  const llevaColor = esRopaOCalzado && (coloresDisponibles.size >= 2 || /\b(varios|diferentes)\s+colores?\b|\bcolores?\s+disponibles\b/i.test(fuentes));
   /*
-   * Con la foto delante sí se pregunta el color aunque el texto del anuncio no
-   * nombre ninguno: el cliente elige entre los que está viendo. Ver `llevaColor`.
+   * EL COLOR ES DE LA ROPA Y DEL CALZADO, Y DE NADA MÁS.
    *
-   * PERO SOLO A LO QUE SE ELIGE. La foto no convierte en elegible lo que se
-   * vende fijo: un combo de cepillo y plancha, un abejón o una alisadora no
-   * llevan color aunque salgan preciosos en la imagen, y la dueña lo ha pedido
-   * más de una vez. Sin la mitad de `esRopaOCalzado`, este permiso se lo daba
-   * también a ellos.
+   * La regla de la dueña, en una línea (2026-09-08): «las ropas llevan talla y
+   * color, los artículos no llevan talla ni color». La misma frontera que la
+   * talla. Un combo de cepillo y plancha, un abejón o una alisadora no llevan
+   * color aunque salgan preciosos en la foto; una camisa lo lleva aunque el
+   * anuncio no escriba ninguno, porque los colores están en la imagen.
+   *
+   * Lo que sigue prohibido es ofrecerle colores que nadie ha escrito: eso lo
+   * para la regla 8g, y el paso del color de los guiones dice cómo preguntarlo
+   * sin nombrar ninguno.
    */
-  if (PREGUNTA_COLOR.test(b) && !llevaColor && !(esRopaOCalzado && ctx.conFoto)) {
+  if (PREGUNTA_COLOR.test(b) && !esRopaOCalzado) {
     fallas.push(
-      "pregunta el color, y ni la descripción del anuncio ni el catálogo dicen que este artículo venga en varios colores: no se pregunta",
+      "pregunta el color a un artículo que se vende fijo: el color es de la ropa y el calzado, y esto no lo es. Sigue con el paso que toca",
     );
   }
 

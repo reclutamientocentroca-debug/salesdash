@@ -110,25 +110,24 @@ export function llevaTalla(descripcion: string): boolean {
 /**
  * ¿SE LE PREGUNTA EL COLOR?
  *
- * Solo a lo que se elige —ropa y calzado— y solo si hay colores que ofrecer.
- * Que los haya se sabe de dos formas:
+ * La regla de la dueña, dicha en una línea (2026-09-08): «las ropas llevan
+ * talla y color, los artículos no llevan talla ni color». Es la MISMA frontera
+ * que decide la talla, y a propósito: lo que se viste se elige —qué medida y de
+ * qué color—, y lo que se vende fijo —el combo, el abejón, el cepillo, la
+ * plancha— no se elige, se despacha.
  *
- *  - La descripción los nombra, o dice que hay varios. Es lo de siempre.
- *  - HAY FOTO QUE MANDARLE. Lo pidió la dueña (2026-09-08): después de la talla
- *    se le enseña el producto y se le pregunta cuál color quiere. Media
- *    publicidad de Facebook no escribe los colores en el texto —están a la
- *    vista en la imagen—, y con esos anuncios el paso del color no existía: el
- *    cliente daba su talla y lo siguiente que leía era «Indique su dirección».
- *    Con la foto delante, preguntarle cuál prefiere no inventa nada: elige
- *    entre lo que está viendo.
+ * Antes esto miraba si la descripción nombraba dos colores o si había foto que
+ * mandar. Las dos cosas sobraban y las dos dejaban fuera media tienda: la
+ * publicidad de Facebook casi nunca escribe los colores en el texto, así que a
+ * una camisa anunciada sin colores no se le preguntaba ninguno y el cliente
+ * pasaba de su talla a su dirección sin elegir nada.
+ *
+ * Lo que NO se hace es ofrecerle colores inventados: si la descripción los
+ * nombra, se los dices; si no, le preguntas cuál quiere a secas y con la foto
+ * delante. Eso está escrito en el paso del color de los guiones.
  */
-export function llevaColor(descripcion: string, conFoto = false): boolean {
-  if (!(ROPA.test(descripcion) || CALZADO.test(descripcion))) return false;
-  const colores = new Set((descripcion.match(COLORES) ?? []).map((color) => color.toLowerCase()));
-  if (colores.size >= 2 || /\b(varios|diferentes)\s+colores?\b|\bcolores?\s+disponibles\b/i.test(descripcion)) {
-    return true;
-  }
-  return conFoto;
+export function llevaColor(descripcion: string): boolean {
+  return ROPA.test(descripcion) || CALZADO.test(descripcion);
 }
 
 /** Primer mensaje cuando todavía no existe un producto identificado. */

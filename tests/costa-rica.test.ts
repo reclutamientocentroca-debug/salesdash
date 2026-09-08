@@ -125,7 +125,9 @@ test("las respuestas mecánicas de Costa Rica son las que están grabadas", asyn
   // no cubría cómo lo pide, y una frase compartida podía cambiarlo sin ruido.
   const conDireccion = respuestaMinima(
     d,
-    { ...vacia, talla: "M", direccion: "Escazú, San José", nombre: "Ana" },
+    // Con la talla Y el color dados: la ropa lleva los dos, así que sin el
+    // color el paso siguiente sería ese y no el teléfono.
+    { ...vacia, talla: "M", color: "negro", direccion: "Escazú, San José", nombre: "Ana" },
     ANUNCIO,
     { lugar: "Escazú" },
   );

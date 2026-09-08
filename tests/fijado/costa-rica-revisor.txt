@@ -8,7 +8,6 @@
 ── Son US$25.00 más el envío.
    ✖ habla en dólares, y aquí se cobra en colón (₡)
 ── Perfecto, ya tenemos su talla. ¿Qué color prefiere?
-   ✖ pregunta el color, y ni la descripción del anuncio ni el catálogo dicen que este artículo venga en varios colores: no se pregunta
    ✖ da por recibida la talla y el cliente no la ha dicho en esta conversación: lo que contestó no es la talla. Contéstale en una línea lo que dijo y vuelve a pedirle la talla
 ── ¿Me comparte su ubicación por aquí?
    ✖ le pide que comparta su ubicación por el mapa: no se pide; se le pregunta en qué provincia o sector está

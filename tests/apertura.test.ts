@@ -217,7 +217,13 @@ test("la respuesta mínima es la siguiente pregunta del pedido, nunca una transf
   const combo = { descripcion_anuncio: "COMBO 2 EN 1 cepillo secador + plancha RD$1,690" };
 
   assert.equal(respuestaMinima(rd, vacia, camisa), "¿Qué talla le interesa?");
-  assert.equal(respuestaMinima(rd, { ...vacia, talla: "la M" }, camisa), "Indique su dirección exacta de entrega.");
+  // Después de la talla, el color: la ropa lleva los dos (la dueña, 2026-09-08).
+  assert.equal(respuestaMinima(rd, { ...vacia, talla: "la M" }, camisa), "¿Qué color le interesa?");
+  assert.equal(
+    respuestaMinima(rd, { ...vacia, talla: "la M", color: "negro" }, camisa),
+    "Indique su dirección exacta de entrega.",
+    "y con la talla y el color dados, a dónde se lo enviamos",
+  );
   assert.equal(respuestaMinima(rd, vacia, combo), "Indique su dirección exacta de entrega.", "un combo no lleva talla: a dónde se lo enviamos, sin preguntar cuántos");
   assert.equal(
     respuestaMinima(rd, { ...vacia, cantidad: "1", direccion: "Los Alcarrizos, calle 3" }, combo),
@@ -261,8 +267,13 @@ test("la respuesta mínima contesta la pregunta del cliente y no se repite", () 
   assert.ok(otra.includes("¿Cuál talla le interesa?"), otra);
   assert.ok(!otra.includes("apart"), "la empresa no aparta nada");
 
-  // Con la talla ya en la ficha, el siguiente paso es la provincia.
-  assert.equal(respuestaMinima(rd, { ...vacia, talla: "39" }, zapatos, { ultimoDelAgente: "¿Qué número calza?" }), "Indique su dirección exacta de entrega.");
+  // Con la talla ya en la ficha, el siguiente paso es el color: el calzado
+  // también se elige por él. Y con los dos dados, la dirección.
+  assert.equal(respuestaMinima(rd, { ...vacia, talla: "39" }, zapatos, { ultimoDelAgente: "¿Qué número calza?" }), "¿Qué color le interesa?");
+  assert.equal(
+    respuestaMinima(rd, { ...vacia, talla: "39", color: "negro" }, zapatos, { ultimoDelAgente: "¿Qué color le interesa?" }),
+    "Indique su dirección exacta de entrega.",
+  );
 
   // El envío se contesta con la tarifa del cliente si se sabe dónde está, y con las dos si no.
   assert.equal(respuestaDirecta(rd, "¿cuánto es el envío?", zapatos, "Santiago"), "El envío a su zona le sale en RD$290.");
