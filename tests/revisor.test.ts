@@ -150,9 +150,13 @@ test("el nombre de la cuenta de WhatsApp no sale si el cliente no lo escribió",
  *
  * Aquí es hola, gracias y adiós, y hay cuentas de WhatsApp que se llaman así.
  * El agente acabó levantando pedidos «a nombre de Pura vida» y llamando así a
- * gente que nunca dijo cómo se llama. Se para donde va un nombre; hablar tico
- * al agradecer o al despedirse no se toca, que eso lo pide el propio archivo
- * del país.
+ * gente que nunca dijo cómo se llama.
+ *
+ * Y desde el 2026-09-08 la dueña la sacó de los mensajes: en Costa Rica no se
+ * dice, punto. Son dos cosas distintas y las dos hacen falta —la frase está
+ * prohibida entera, y donde va un nombre no va ninguna expresión del país—,
+ * porque en los otros dos países no hay nada prohibido y el nombre se sigue
+ * protegiendo igual.
  */
 test("un saludo tico no se escribe donde va el nombre del cliente", () => {
   const tico = { ...cr, ultimoDelCliente: "Pura vida", textosDelCliente: ["Pura vida"] };
@@ -164,17 +168,25 @@ test("un saludo tico no se escribe donde va el nombre del cliente", () => {
     "Con gusto, don Diay. ¿Me regala su dirección?",
   ]) {
     assert.ok(
-      revisarConReglas(puesto, tico).some((f) => f.includes("saludo de aquí")),
+      revisarConReglas(puesto, tico).some((f) => f.includes("saludo de aquí") || f.includes("no se dice nunca")),
       `«${puesto}» le pone al cliente un nombre que no es suyo`,
     );
   }
 
-  // Y hablar como se habla aquí sigue saliendo, que es lo que pide el país.
-  for (const bien of [
-    "Con mucho gusto. ¿Me regala su dirección exacta?",
-    "Pura vida, con mucho gusto. El envío es ₡3.500.",
+  // «Pura vida» no sale ni bien usada: la dueña la quitó de los mensajes.
+  for (const prohibida of [
     "Gracias a usted. Pura vida.",
+    "Pura vida, con mucho gusto. El envío es ₡3.500.",
+    "pura vida!",
   ]) {
+    assert.ok(
+      revisarConReglas(prohibida, tico).some((f) => f.includes("no se dice nunca")),
+      `«${prohibida}» ya no sale en Costa Rica`,
+    );
+  }
+
+  // Y la cortesía tica que sí se usa sigue saliendo.
+  for (const bien of ["Con mucho gusto. ¿Me regala su dirección exacta?", "Que tenga buen día."]) {
     assert.deepEqual(revisarConReglas(bien, tico), [], `«${bien}» es como se habla en Costa Rica`);
   }
 

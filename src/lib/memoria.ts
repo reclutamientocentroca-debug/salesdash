@@ -285,9 +285,16 @@ const PALABRA_QUE_NO_ES_NOMBRE =
  * edita. Si mañana añade una, deja de ser un nombre el mismo día.
  */
 export function expresionesDelPais(datos: DatosPais | null): string[] {
-  return (datos?.habla?.expresiones ?? []).flatMap((e) =>
+  const citadas = (datos?.habla?.expresiones ?? []).flatMap((e) =>
     [...e.matchAll(/«([^»]+)»/g)].map((m) => llano(m[1]!).trim()),
   );
+  /*
+   * Y las que el país tiene PROHIBIDAS. Que el agente ya no las diga no las
+   * convierte en nombres: el cliente las sigue escribiendo, y «Pura vida»
+   * sigue sin ser nadie. Sacarlas de aquí al prohibirlas habría reabierto por
+   * detrás justo lo que se cerró.
+   */
+  return [...citadas, ...(datos?.habla?.prohibidas ?? []).map((f) => llano(f).trim())];
 }
 
 /**

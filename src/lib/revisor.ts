@@ -48,7 +48,7 @@ import { completarJson, ErrorIA } from "./ia";
 import { MODELO_ANALISIS, type Mensaje } from "./db";
 import { conLoVistoYOido } from "./percepcion";
 import { expresionesDelPais, pareceColor, pareceTalla, preguntasRepetidas, unidadesPorColores, type FichaDelPedido } from "./memoria";
-import { clienteAplazaCompra, familiasNombradas, nombraUnArticulo, preguntaDelCliente } from "./apertura";
+import { clienteAplazaCompra, familiasNombradas, nombraUnArticulo, preguntaDelCliente, PREGUNTA_COLOR } from "./apertura";
 import { zonaDelCliente } from "@/agents";
 import { contieneLugar } from "./envio";
 import { obtenerPais } from "./paises";
@@ -676,6 +676,24 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
   }
 
   /*
+   * 9b bis. LO QUE ESTE PAÍS TIENE PROHIBIDO DECIR NO SALE.
+   *
+   * La dueña (2026-09-08): en Costa Rica, «pura vida» fuera de todos los
+   * mensajes. Quitarla de la lista de expresiones del prompt no basta —un
+   * modelo la sabe sin que nadie se la enseñe y la suelta al saludar y al
+   * despedirse—, así que se comprueba aquí, que es lo único que de verdad
+   * decide si un mensaje sale.
+   */
+  for (const frase of d.habla.prohibidas ?? []) {
+    const suelta = new RegExp(`(^|[^\\p{L}])${llano(frase).replace(/\s+/g, "\\s+")}([^\\p{L}]|$)`, "iu");
+    if (suelta.test(llano(texto))) {
+      fallas.push(
+        `dice «${frase}» y en ${d.nombre} eso no se dice nunca, ni aunque el cliente lo haya escrito: quítalo y contesta con la cortesía de siempre`,
+      );
+    }
+  }
+
+  /*
    * 9c. DONDE VA UN NOMBRE NO VA UN SALUDO DE AQUÍ.
    *
    * EL CASO REAL DE COSTA RICA: pedidos «a nombre de Pura vida». Aquí «pura
@@ -684,9 +702,11 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
    * por su nombre. Ponerle a alguien un nombre que no es suyo no es cercano:
    * el paquete sale a nombre de nadie y el mensajero pregunta por un saludo.
    *
-   * Se para SOLO donde va un nombre. Un «pura vida» al agradecer o al
-   * despedirse es como se habla aquí —lo dice el archivo del país— y no se
-   * toca.
+   * Esta regla es la del NOMBRE y vale para cualquier expresión del país,
+   * incluidas las que el agente sí puede decir: «don Diay», «a nombre de A la
+   * orden». Que en Costa Rica «pura vida» esté además prohibida entera la
+   * para antes la regla de arriba; esta sigue haciendo falta para el resto y
+   * para los países donde no hay nada prohibido.
    */
   {
     const expresiones = expresionesDelPais(d).filter((e) => e.length >= 3 && !/[?¿]/.test(e));
@@ -890,7 +910,6 @@ const HAY_COLORES = new RegExp(`\\bcolor(es)?\\b|${reColores().source}`, "i");
 
 // Cualquier forma de preguntar la talla: «¿qué talla?», «¿me indica su talla?», «¿qué número calza?».
 const PREGUNTA_TALLA = /[¿?][^?¿]*\b(talla|tallas|numeracion|size)\b[^?¿]*\?|[¿?][^?¿]*\b(que|cual|de que)\b[^?¿]*\b(numero|medida)\b[^?¿]*\?/i;
-const PREGUNTA_COLOR = /[¿?][^?¿]*\bcolor(es)?\b[^?¿]*\?/i;
 
 /**
  * CÓMO SUENA PEDIR UNA CONFIRMACIÓN DEL PEDIDO ENTERO: «¿se lo despacho hoy

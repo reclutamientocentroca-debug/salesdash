@@ -121,6 +121,14 @@ test("las respuestas mecánicas de Costa Rica son las que están grabadas", asyn
   const vacia = { talla: null, color: null, direccion: null, nombre: null, celular: null, cantidad: null };
   const minima = respuestaMinima(d, vacia, ANUNCIO, { ultimoDelCliente: "¿cuánto cuesta?" });
   const conTalla = respuestaMinima(d, { ...vacia, talla: "M" }, ANUNCIO, {});
+  // Y el paso del teléfono, que es donde se pide el número. Sin esto el fijado
+  // no cubría cómo lo pide, y una frase compartida podía cambiarlo sin ruido.
+  const conDireccion = respuestaMinima(
+    d,
+    { ...vacia, talla: "M", direccion: "Escazú, San José", nombre: "Ana" },
+    ANUNCIO,
+    { lugar: "Escazú" },
+  );
 
   fijado(
     "costa-rica-respuestas.txt",
@@ -129,6 +137,7 @@ test("las respuestas mecánicas de Costa Rica son las que están grabadas", asyn
       "", "── Apertura desde un anuncio ──", conAnuncio.texto,
       "", "── Respuesta mínima, sin nada en la ficha ──", String(minima),
       "", "── Respuesta mínima, con la talla dada ──", String(conTalla),
+      "", "── Respuesta mínima, con la dirección dada (toca el teléfono) ──", String(conDireccion),
       "",
     ].join("\n"),
   );

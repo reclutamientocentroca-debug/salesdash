@@ -170,6 +170,17 @@ export interface DatosPais {
     descripcion: string;
     /** Expresiones con su uso al lado. Se citan enteras, no se recortan. */
     expresiones: string[];
+    /**
+     * LO QUE EL AGENTE NO DICE NUNCA EN ESTE PAÍS, aunque el cliente sí lo
+     * diga. Sin comillas y en minúscula, tal cual se escribiría.
+     *
+     * No es lo mismo que dejarlo fuera de `expresiones`: lo que no está en la
+     * lista el modelo lo dice igual si lo sabe —y «pura vida» lo sabe—. Esto
+     * se le prohíbe en el prompt Y lo para el revisor, así que no depende de
+     * que el modelo obedezca. Y sigue contando como saludo de aquí y no como
+     * nombre de nadie: ver `expresionesDelPais` en `lib/memoria.ts`.
+     */
+    prohibidas?: string[];
   };
 
   // ── El pie del resumen ─────────────────────────────────────────────────

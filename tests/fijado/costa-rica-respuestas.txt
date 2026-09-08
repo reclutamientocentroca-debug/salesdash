@@ -14,3 +14,7 @@ Camisa de lino manga larga está en ₡25.000.
 
 ── Respuesta mínima, con la talla dada ──
 Indique su dirección exacta de entrega.
+
+── Respuesta mínima, con la dirección dada (toca el teléfono) ──
+Perfecto, hasta Zona de entrega a domicilio se lo llevamos a domicilio. El envío es ₡3.500 y paga al recibir.
+¿Me facilita su número de teléfono para el pedido?

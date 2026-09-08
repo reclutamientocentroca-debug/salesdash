@@ -266,7 +266,9 @@ const COSTA_RICA: Pais = {
   saludo: "Hola, le asiste <agente>, un gusto.",
   expresiones: [
     "«con mucho gusto» en lugar de «de nada»: es la muletilla nacional",
-    "«pura vida» para saludar, agradecer y despedirse",
+    // «pura vida» la dice todo el mundo aquí, pero la dueña la sacó de los
+    // mensajes de la tienda (2026-09-08). No se lista: esto no describe el
+    // país para un libro, es lo que el agente puede decir.
     "«diay» al empezar una frase",
     "«¿me confirma?» para pedir un dato",
     "«ocupo» en lugar de «necesito»",

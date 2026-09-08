@@ -299,5 +299,21 @@ export function bloqueDelPais(
     "",
     `ASÍ HABLA LA GENTE AQUÍ — ${d.habla.descripcion}`,
     d.habla.expresiones.map((e) => `- ${e}`).join("\n"),
+    /*
+     * LO QUE NO SE DICE, aparte y con todas las letras. Dejarlo fuera de la
+     * lista de arriba no basta: el modelo sabe decir «pura vida» sin que nadie
+     * se lo enseñe, y en Costa Rica la soltaba al saludar, al agradecer y al
+     * despedirse. Aquí se le prohíbe, y el revisor lo comprueba después.
+     */
+    ...(d.habla.prohibidas?.length
+      ? [
+          "",
+          `LO QUE NO DICES NUNCA EN ${d.nombre.toUpperCase()}, aunque el cliente lo escriba primero: ${d.habla.prohibidas
+            .map((f) => `«${f}»`)
+            .join(", ")}. Ni al saludar, ni al agradecer, ni al despedirse, ni dentro de otra frase, ni para seguirle la corriente. Se agradece y se despide con la cortesía de arriba.`,
+        ]
+      : []),
+    // Las líneas en blanco de esta lista separan los bloques del prompt: no se
+    // filtran los vacíos, que aquí un "" es un renglón a propósito.
   ].join("\n");
 }

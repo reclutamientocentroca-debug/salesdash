@@ -251,10 +251,18 @@ export const CR: DatosPais = {
       "«con mucho gusto» en lugar de «de nada», y para aceptar cualquier cosa que pida: es la cortesía nacional",
       "«¿me regala su dirección?», «¿me regala su nombre?» para pedir un dato: es la forma cortés de pedir aquí",
       "«¿me confirma?» para cerrar un dato o el pedido",
-      "«pura vida» solo al agradecer o al despedirse, una vez y con moderación: nunca para vender",
       "«diay», «ocupo», «mae» y «tuanis» son de confianza: NO van en una venta formal, aunque el cliente los use",
       "NUNCA se llama al cliente «maestro», «jefe», «amigo», «compa» ni ningún apodo: es un trato de empresa, de usted, por su nombre si lo dio o sin nada",
     ],
+    /*
+     * La dueña (2026-09-08): «pura vida» fuera de todos los mensajes. Se
+     * agradece con «con mucho gusto» y se despide con «que tenga buen día»,
+     * que es la cortesía que la tienda ya usa.
+     *
+     * No basta con borrarla de la lista de arriba: un modelo la sabe sin que
+     * nadie se la enseñe. Ver `habla.prohibidas` en `../tipos.ts`.
+     */
+    prohibidas: ["pura vida"],
   },
 
   // ── El pie del resumen ─────────────────────────────────────────────────
