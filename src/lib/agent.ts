@@ -43,6 +43,7 @@ import {
 } from "./db";
 import { descifrar } from "./auth";
 import { leer as leerArchivo } from "./media";
+import { formatearImporte, monedaDelPais } from "./moneda";
 import { anuncioParaModelo, anuncioVigente, type DatosAnuncio } from "./anuncio";
 import { aperturaSegura, clienteAplazaCompra, fraseDeTransferencia, laFotoAyudaAElegir, llevaColor, llevaTalla, nombraUnArticulo, respuestaMinima } from "./apertura";
 import { esMensajeDeSistema } from "./sistema";
@@ -756,10 +757,18 @@ export function textoDeLoQueVende(
  * los precios en colones, y un producto de otro país en esa lista es un precio
  * mal dicho al cliente.
  */
-function bienvenidaSinAnuncioCR(saludo: string, catalogo: Producto[]): string {
+function bienvenidaSinAnuncioCR(saludo: string, catalogo: Producto[], d: DatosPais): string {
+  /*
+   * El importe se escribe como lo escribe el país, no como lo escriba el
+   * idioma del servidor. `toLocaleString("es-CR")` devolvía «25 000», con un
+   * espacio, y dos renglones más abajo el mismo precio salía «₡25.000»: al
+   * cliente le llegaban las dos formas del mismo colón según por dónde entrara.
+   * `formatearImporte` es la que ya usan el panel y el resto del chat.
+   */
+  const moneda = monedaDelPais(d.codigo);
   const activos = catalogo
     .map((p) => {
-      const precio = p.precio === null ? "precio por confirmar" : `₡${p.precio.toLocaleString("es-CR")}`;
+      const precio = p.precio === null ? "precio por confirmar" : formatearImporte(p.precio, moneda);
       return `${p.nombre}${p.precio === null ? "" : ` (${precio})`}`;
     })
     .slice(0, 8);
@@ -1255,6 +1264,7 @@ export async function generarRespuesta(
         texto: bienvenidaSinAnuncioCR(
           saludoDe(datosPais, agente.nombre, negocio),
           agente.usar_catalogo === 0 ? [] : catalogo,
+          datosPais,
         ),
         pideAsesor: false,
         // Sin anuncio no hay foto que enseñar: todavía no se sabe qué quiere.

@@ -1,5 +1,5 @@
 ── Bienvenida sin anuncio ──
-Hola, le asiste Mildred, un gusto. Opciones y promociones activas: Camisa de lino (₡25 000). ¿Cuál artículo le interesa?
+Hola, le asiste Mildred, un gusto. Opciones y promociones activas: Camisa de lino (₡25.000). ¿Cuál artículo le interesa?
 
 ── Apertura desde un anuncio ──
 Hola, le asiste Mildred, un gusto.

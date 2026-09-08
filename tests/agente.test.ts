@@ -140,6 +140,9 @@ test("Costa Rica sin anuncio saluda y ofrece el catálogo antes de pedir direcci
   assert.match(respuesta.texto, /Hola, le asiste Mildred/);
   assert.match(respuesta.texto, /Camisa de lino/);
   assert.match(respuesta.texto, /Cuál artículo le interesa/);
+  // El colón se escribe como en San José —₡25.000, con punto—, igual que en el
+  // resto del chat y en el panel. Aquí salía «₡25 000», con espacio.
+  assert.match(respuesta.texto, /₡25\.000/);
   assert.doesNotMatch(respuesta.texto, /direcci[oó]n/i);
 
   /*
