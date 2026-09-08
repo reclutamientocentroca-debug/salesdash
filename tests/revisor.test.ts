@@ -732,6 +732,44 @@ test("con el cliente solo saludando, no se le elige el artículo ni se le piden 
   assert.deepEqual(revisarConReglas("Claro que sí. ¿Qué talla le interesa?", yaDijo), []);
 });
 
+/**
+ * EL CASO DE LA DUEÑA (República Dominicana, 2026-09-08): el cliente abrió con
+ * «Buenas.k precio», el agente le contestó con el artículo pero sin cifra, le
+ * sacó la talla, y cuando insistió —«Primero deme precio»— le respondió
+ * «Indique su dirección exacta de entrega.». Dos veces preguntó lo mismo y las
+ * dos se quedó sin respuesta. Nadie da su dirección antes de saber el precio.
+ */
+test("si el cliente pregunta el precio, se le dice antes de seguir", () => {
+  const preguntaPrecio = {
+    ...rd,
+    catalogo: "Catálogo:\n- Mocasines de cuero — 2500",
+    ultimoDelCliente: "Primero deme precio",
+    ficha: { talla: "M", color: null, direccion: null, nombre: null, celular: null, cantidad: null },
+  };
+
+  assert.ok(
+    revisarConReglas("Indique su dirección exacta de entrega.", preguntaPrecio)
+      .some((f) => f.includes("preguntó el precio")),
+  );
+
+  // Lo que sí toca: el precio primero y detrás el paso que iba.
+  assert.deepEqual(
+    revisarConReglas("Están en RD$2,500. Indique su dirección exacta de entrega.", preguntaPrecio),
+    [],
+  );
+
+  // Y sin ningún precio escrito en ninguna parte, no se inventa: se transfiere.
+  const sinPrecio = { ...preguntaPrecio, catalogo: "Catálogo:\n(sin catálogo cargado)", anuncio: null };
+  assert.ok(
+    revisarConReglas("Indique su dirección exacta de entrega.", sinPrecio)
+      .some((f) => f.includes("no hay ninguno escrito")),
+  );
+  assert.deepEqual(
+    revisarConReglas("Permítame un momento, le transfiero con un representante.", sinPrecio),
+    [],
+  );
+});
+
 test("Costa Rica transfiere un artículo desconocido sin anuncio", () => {
   const ctx = { ...cr, anuncio: null, catalogo: "Catálogo:\n- Camisa de lino — ₡15.000", ultimoDelCliente: "Quiero una nevera" };
   assert.equal(

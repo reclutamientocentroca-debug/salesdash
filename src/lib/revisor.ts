@@ -705,6 +705,34 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
   if (pregunta === "pago" && !/pag|contra entrega|sinpe|transferencia|efectivo|recibir/i.test(texto)) {
     fallas.push("el cliente preguntó cómo se paga y no se lo contesta: dile primero cómo se paga y después sigue");
   }
+  /*
+   * EL PRECIO ES LA PREGUNTA QUE MÁS SE HACE Y LA ÚNICA QUE NO SE COMPROBABA.
+   *
+   * El caso de la dueña (República Dominicana, 2026-09-08): el cliente abrió
+   * con «Buenas.k precio», el agente le contestó con el artículo pero sin
+   * cifra, le sacó la talla, y cuando el cliente insistió —«Primero deme
+   * precio»— le respondió «Indique su dirección exacta de entrega.». Dos veces
+   * preguntó lo mismo y las dos se quedó sin respuesta. Nadie da su dirección
+   * antes de saber cuánto cuesta.
+   *
+   * Se le dice el precio y DESPUÉS se sigue con el paso que tocaba: primero lo
+   * suyo y después lo tuyo, que es lo que ya manda el guion. Si no hay ningún
+   * precio escrito —ni en el anuncio, ni en el catálogo—, no se inventa: eso sí
+   * es motivo de transferencia, y por eso la frase de transferir vale.
+   */
+  if (
+    pregunta === "precio" &&
+    importes(texto, d.moneda.simbolo).length === 0 &&
+    !HABLA_DE_TRANSFERIR.test(texto) &&
+    !contieneMarcador(texto, ctx.marcador ?? MARCADOR_POR_DEFECTO)
+  ) {
+    fallas.push(
+      cifrasConocidas(ctx).length > 0
+        ? `el cliente preguntó el precio y la respuesta no lo dice: dáselo primero, con la cifra tal cual está escrita y en ${d.moneda.simbolo}, y después sigue con el dato que falta`
+        : "el cliente preguntó el precio y no hay ninguno escrito en el anuncio ni en el catálogo: no te lo inventes, dile que le atiende un representante y transfiere",
+    );
+  }
+
   // El caso real: «¿Cuáles son los tamaños disponibles?» → «¿Qué talla necesita?».
   if (pregunta === "tallas" && !TIENE_TALLAS.test(texto)) {
     fallas.push("el cliente preguntó qué tallas hay y no se las dice: dile primero las tallas disponibles (de la descripción o de la tabla de tallas) y después pregúntale cuál quiere");
