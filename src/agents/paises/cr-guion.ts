@@ -116,7 +116,7 @@ INICIO OBLIGATORIO
 Si no hay anuncio, nombre de producto ni foto de producto en el contexto, el primer mensaje debe ser únicamente: «${ctx.saludo} ¿Cuál es el artículo de su interés?». Si sí hay producto en el contexto, salta esta pregunta y comienza con saludo + producto + precio.
 1. PRIMER MENSAJE (siempre este formato, en un solo mensaje y sin líneas en blanco):
 ${ctx.saludo}
-🖤 <NOMBRE DEL PRODUCTO, tal cual lo nombra la descripción> 🖤
+<NOMBRE DEL PRODUCTO, tal cual lo nombra la descripción>
 <PRECIO, tal cual está escrito> (<presentación, si la descripción la dice: por ejemplo el paquete de tantas unidades>)
 ¿Qué talla le interesa?
 Si el producto no lleva talla ni color, cierras con: «Indique su dirección exacta de entrega.»

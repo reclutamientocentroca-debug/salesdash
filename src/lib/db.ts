@@ -735,6 +735,17 @@ function migrar(conexion: DB): void {
   }
 
   /*
+   * conversations: EL ARTÍCULO QUE EL CLIENTE ENSEÑÓ EN UNA FOTO.
+   *
+   * El caso (2026-09-08): el cliente llega por un anuncio que sí tiene su
+   * producto y su precio, y a mitad de la conversación manda OTRA foto
+   * preguntando por otra cosa. Eso no es el artículo del anuncio y no se le
+   * puede pegar encima: el anuncio lo comparten cientos de clientes. Vive
+   * aquí, en SU hilo, y solo vale para él.
+   */
+  agregarColumna("conversations", "foto_producto_id", "INTEGER");
+
+  /*
    * agentes: los dos seguimientos.
    *
    * Nacen encendidos, y no es un descuido: solo salen por los números donde el
@@ -1317,6 +1328,12 @@ export interface Conversacion {
   meta_ad_id: string | null;
   /** De qué app de Meta vino: 'facebook' o 'instagram'. Nulo fuera de Meta. */
   red: string | null;
+  /**
+   * EL ARTÍCULO QUE EL CLIENTE ENSEÑÓ EN UNA FOTO, con su nombre y su precio
+   * puestos por una persona desde el hilo. Solo de esta conversación: el
+   * anuncio es de todos, esa foto es suya. Ver `fijarProductoDeLaFoto`.
+   */
+  foto_producto_id: number | null;
 }
 
 export interface Mensaje {
@@ -2779,6 +2796,11 @@ export function actualizarProducto(orgId: number, id: number, campos: Partial<Pr
   s(`UPDATE catalogo SET ${sql} WHERE org_id = ? AND id = ?`).run(...valores, orgId, id);
 }
 
+/** Un producto del catálogo por su id, o undefined. Del catálogo de ESTA cuenta. */
+export function productoPorId(orgId: number, id: number): Producto | undefined {
+  return s(`SELECT * FROM catalogo WHERE org_id = ? AND id = ?`).get(orgId, id) as Producto | undefined;
+}
+
 export function eliminarProducto(orgId: number, id: number): void {
   s(`DELETE FROM catalogo WHERE org_id = ? AND id = ?`).run(orgId, id);
 }
@@ -3487,6 +3509,95 @@ export function guardarAdjuntoAnuncio(orgId: number, adId: string, attachmentId:
 export function vincularAnuncioAProducto(orgId: number, adId: string, productoId: number | null): void {
   s(`UPDATE anuncios_meta SET producto_id = ? WHERE org_id = ? AND ad_id = ?`)
     .run(productoId, orgId, adId);
+}
+
+/**
+ * EL NOMBRE Y EL MONTO DE LO QUE SALE EN LA FOTO, PUESTOS A MANO.
+ *
+ * La dueña (2026-09-08), con la captura delante: un anuncio que es SOLO una
+ * imagen —unos jeans sobre una mesa, con el precio escrito encima— no le dice
+ * al agente cómo se llama lo que vende ni cuánto vale, y el agente acabó
+ * ofreciéndole al cliente otro artículo del catálogo: «no tenemos pantalones,
+ * pero le ofrezco los polos». Eso no es vender, es perder al cliente.
+ *
+ * Lo que se hace ahora es transferir, y quien atiende escribe ahí mismo, en el
+ * hilo, el nombre y el monto de esa foto. Eso entra en el CATÁLOGO —que es de
+ * donde sale el precio, nunca del modelo— y queda pegado AL ANUNCIO, así que
+ * vale para este cliente y para todos los que lleguen después por el mismo
+ * anuncio, sin que nadie tenga que volver a escribirlo.
+ *
+ * Si ya hay un producto que se llama igual, se le pone el precio nuevo en vez
+ * de crear un duplicado: corregir un monto no puede llenar el catálogo de
+ * artículos repetidos.
+ *
+ * DÓNDE QUEDA PEGADO, que no siempre es el anuncio:
+ *
+ *  - `destino: "anuncio"` — la foto es la del anuncio. Vale para este cliente
+ *    y para todos los que lleguen después por él.
+ *  - `destino: "chat"` — la foto la mandó el cliente a mitad de la
+ *    conversación, preguntando por OTRA cosa. Eso es suyo y de nadie más: se
+ *    guarda en su hilo. Pegarlo al anuncio le cambiaría el artículo a los
+ *    cientos de clientes que llegan por esa misma publicidad.
+ *
+ * Devuelve el id del producto del catálogo.
+ */
+export function fijarProductoDeLaFoto(
+  orgId: number,
+  datos: {
+    adId: string | null;
+    conversationId: number | null;
+    destino: "anuncio" | "chat";
+    nombre: string;
+    precio: number;
+  },
+): number {
+  const nombre = datos.nombre.trim();
+
+  const tx = db.transaction(() => {
+    const existente = s(
+      `SELECT id FROM catalogo WHERE org_id = ? AND lower(trim(nombre)) = lower(?)`,
+    ).get(orgId, nombre) as { id: number } | undefined;
+
+    let productoId: number;
+    if (existente) {
+      s(`UPDATE catalogo SET precio = ?, activo = 1 WHERE org_id = ? AND id = ?`)
+        .run(datos.precio, orgId, existente.id);
+      productoId = existente.id;
+    } else {
+      productoId = Number(
+        s(`INSERT INTO catalogo (org_id, nombre, variantes, precio) VALUES (?, ?, NULL, ?)`)
+          .run(orgId, nombre, datos.precio).lastInsertRowid,
+      );
+    }
+
+    if (datos.destino === "chat" && datos.conversationId !== null) {
+      s(`UPDATE conversations SET foto_producto_id = ? WHERE org_id = ? AND id = ?`)
+        .run(productoId, orgId, datos.conversationId);
+    }
+
+    if (datos.destino === "anuncio" && datos.adId) {
+      // El anuncio puede no estar todavía en la tabla —el hilo es viejo, o el
+      // referral llegó antes de que existiera—: se crea con su producto ya
+      // puesto en vez de perder lo que la persona acaba de escribir.
+      s(
+        `INSERT INTO anuncios_meta (org_id, ad_id, producto_id) VALUES (?, ?, ?)
+         ON CONFLICT(org_id, ad_id) DO UPDATE SET producto_id = excluded.producto_id`,
+      ).run(orgId, datos.adId, productoId);
+
+      // Y el aviso de «este anuncio no cotiza» deja de estar abierto: se acaba
+      // de arreglar, y dejarlo en la lista de lo que necesita atención hace
+      // que nadie se fíe de esa lista.
+      s(
+        `UPDATE anomalies SET resuelta = 1
+          WHERE org_id = ? AND resuelta = 0 AND tipo = 'anuncio_sin_producto'
+            AND conversation_id IN (SELECT id FROM conversations WHERE org_id = ? AND meta_ad_id = ?)`,
+      ).run(orgId, orgId, datos.adId);
+    }
+
+    return productoId;
+  });
+
+  return tx();
 }
 
 // ── Registro de eventos del webhook ─────────────────────────────────────────

@@ -3,12 +3,14 @@ import { z } from "zod";
 import {
   devolverALaIa,
   eliminarConversacion,
+  fijarProductoDeLaFoto,
   getConversation,
   listarCanales,
   listarMensajes,
   ponerAtiende,
   resolverRevision,
 } from "@/lib/db";
+import { fichaDeLaFoto } from "@/lib/meta/contexto-anuncio";
 import { anomaliaDeCorreccion } from "@/lib/analyzer";
 import { sesionApi } from "@/lib/tenant";
 
@@ -29,6 +31,7 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
   if (!conv) return NextResponse.json({ error: "No encontrada" }, { status: 404 });
 
   const canal = listarCanales(orgId).find((c) => c.id === conv.canal_id);
+  const mensajes = listarMensajes(orgId, conv.id);
 
   return NextResponse.json({
     conversacion: {
@@ -36,7 +39,8 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
       canal: canal?.nombre ?? "—",
       datos_faltantes: leerLista(conv.datos_faltantes),
     },
-    mensajes: listarMensajes(orgId, conv.id).map((m) => ({
+    foto: fichaDeLaFoto(orgId, conv, mensajes),
+    mensajes: mensajes.map((m) => ({
       id: m.id,
       emisor: m.emisor,
       tipo: m.tipo,
@@ -47,6 +51,63 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
       categoria_imagen: m.categoria_imagen,
       created_at: m.created_at,
     })),
+  });
+}
+
+const ProductoDeLaFoto = z.object({
+  nombre: z.string().trim().min(2, "Escribe cómo se llama lo que sale en la foto").max(120),
+  monto: z.number().positive("El monto tiene que ser mayor que cero"),
+});
+
+/**
+ * PUT — la casilla del hilo: qué es y cuánto vale lo que sale en la foto.
+ *
+ * La dueña (2026-09-08): cuando el agente transfiere porque no sabe qué le
+ * están enseñando, la persona que entra escribe el nombre y el monto AHÍ, sin
+ * salir del chat. Va al catálogo y se pega al anuncio, así que sirve para este
+ * cliente y para todos los que lleguen después por el mismo anuncio.
+ *
+ * Quién sigue contestando NO se decide aquí: guardar el dato y devolverle el
+ * hilo a la IA son dos cosas distintas, y la segunda tiene su propio botón.
+ */
+export async function PUT(req: NextRequest, { params }: Ctx) {
+  const s = await sesionApi();
+  if (!s.ok) return s.respuesta;
+  const { orgId } = s.ctx;
+
+  const { id } = await params;
+  const conv = getConversation(orgId, Number(id));
+  if (!conv) return NextResponse.json({ error: "No encontrada" }, { status: 404 });
+
+  const datos = ProductoDeLaFoto.safeParse(await req.json().catch(() => null));
+  if (!datos.success) {
+    return NextResponse.json({ error: datos.error.issues[0]?.message ?? "Revisa los datos" }, { status: 400 });
+  }
+
+  /*
+   * DÓNDE QUEDA PEGADO LO QUE ACABAN DE ESCRIBIR: lo decide la MISMA ficha que
+   * la pantalla usó para enseñar la casilla, no lo que mande el navegador. Si
+   * el cliente enseñó otra cosa a mitad del chat, eso es suyo y no del
+   * anuncio, que lo comparten cientos de clientes.
+   */
+  const ficha = fichaDeLaFoto(orgId, conv, listarMensajes(orgId, conv.id));
+
+  const productoId = fijarProductoDeLaFoto(orgId, {
+    adId: conv.meta_ad_id ?? null,
+    conversationId: conv.id,
+    destino: ficha?.destino ?? "chat",
+    nombre: datos.data.nombre,
+    precio: datos.data.monto,
+  });
+
+  return NextResponse.json({
+    ok: true,
+    productoId,
+    nombre: datos.data.nombre.trim(),
+    precio: datos.data.monto,
+    /* Para que la pantalla lo diga con las palabras justas: pegado al anuncio
+       vale para todos los que lleguen por él; en el chat, solo para este. */
+    destino: ficha?.destino ?? "chat",
   });
 }
 

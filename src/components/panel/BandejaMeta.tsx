@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Nube, Vacio, dinero, hace, tienePedido } from "@/components/panel/Piezas";
+import ProductoDeLaFoto from "@/components/panel/ProductoDeLaFoto";
+import type { FichaDeLaFoto } from "@/lib/meta/contexto-anuncio";
 
 /**
  * LA BANDEJA DE META.
@@ -60,6 +62,8 @@ interface Hilo {
     intervencion_humana: number;
   };
   mensajes: MensajeHilo[];
+  /** Qué es y cuánto vale lo que sale en la foto de este chat. Ver `ProductoDeLaFoto`. */
+  foto: FichaDeLaFoto | null;
 }
 
 type Filtro = "todo" | "mensajes" | "comentarios" | "pendientes";
@@ -492,6 +496,20 @@ export default function BandejaMeta({
               <Par etiqueta="Envío" valor={dinero(conv.envio)} />
               <Par etiqueta="Total" valor={dinero(conv.total)} />
             </dl>
+
+            {hilo?.foto && (
+              <div style={{ borderTop: "1px solid var(--line)", padding: "15px 0", marginBottom: 1 }}>
+                <h3 className="titulo-tarjeta" style={{ marginBottom: 8 }}>Lo que sale en la foto</h3>
+                <ProductoDeLaFoto
+                  conversationId={conv.id}
+                  foto={hilo.foto}
+                  onGuardado={() => {
+                    void cargarHilo(conv.id);
+                    router.refresh();
+                  }}
+                />
+              </div>
+            )}
 
             <div style={{ borderTop: "1px solid var(--line)", paddingTop: 15 }}>
               <h3 className="titulo-tarjeta" style={{ marginBottom: 8 }}>Estado</h3>

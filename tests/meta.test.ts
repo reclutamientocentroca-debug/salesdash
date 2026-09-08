@@ -14,7 +14,12 @@ import "./entorno";
 import * as D from "../src/lib/db";
 import { firmaValida, respuestaDeVerificacion } from "../src/lib/meta/firma";
 import { destinosDelEvento, normalizarEvento } from "../src/lib/meta/normalize";
-import { anuncioParaPrompt, resolverAnuncio } from "../src/lib/meta/contexto-anuncio";
+import {
+  anuncioParaPrompt,
+  fichaDeLaFoto,
+  productoDeLaFotoParaPrompt,
+  resolverAnuncio,
+} from "../src/lib/meta/contexto-anuncio";
 import { ANUNCIO_SIN_DESCRIBIR } from "../src/lib/anuncio";
 import { cifrar, secretoAleatorio } from "../src/lib/auth";
 
@@ -1493,4 +1498,198 @@ test("lo que se descarta del feed dice por qué", () => {
   const d3: string[] = [];
   assert.equal(normalizarEvento(cambio({ item: "comment", verb: "add", comment_id: "c_2", post_id: "p_1", from: { id: CLIENTE } }), PAGINA, d3).length, 0);
   assert.ok(d3[0]?.includes("sin texto"));
+});
+
+/**
+ * EL ANUNCIO QUE ES SOLO UNA FOTO.
+ *
+ * La captura de la dueña (2026-09-08): un anuncio de unos jeans, sin más texto
+ * que la foto. El agente no sabía qué era ni cuánto valía y le contestó al
+ * cliente «estamos ofreciendo los Polos Bronx Originales»; el cliente pidió
+ * tres pantalones dos veces y se fue. Lo que se ve en la foto ES el artículo, y
+ * si de él no hay precio se transfiere: nunca se le cambia el artículo.
+ */
+test("un anuncio que es solo una foto vende lo de la foto, y sin precio transfiere en vez de ofrecer otra cosa", () => {
+  const { orgId } = cuentaConPagina("SoloFoto");
+
+  D.registrarAnuncioVisto(orgId, "ad_jeans", null);
+  D.guardarDescripcionAnuncio(orgId, "ad_jeans", "Publicidad de pantalones jeans en diferentes colores");
+
+  const prompt = anuncioParaPrompt(resolverAnuncio(orgId, "ad_jeans"));
+
+  assert.ok(prompt.includes("Este anuncio es SOLO una foto"), "sin texto, la foto es la fuente");
+  assert.ok(prompt.includes("el artículo de este chat es ESE"));
+  assert.ok(prompt.includes("pantalones jeans en diferentes colores"));
+  assert.equal(
+    prompt.includes("la máquina se equivocó"),
+    false,
+    "eso solo vale cuando hay texto del anuncio con el que comparar",
+  );
+
+  // Y lo que no puede pasar: ofrecerle otra cosa porque de la suya no se sepa el precio.
+  assert.ok(prompt.includes("PROHIBIDO ofrecerle un artículo distinto"));
+  assert.ok(prompt.includes("no tenemos eso, pero le ofrezco"), "con las palabras del caso real");
+  assert.ok(prompt.includes('"[HANDOFF]"'), "sin precio se transfiere, no se cambia de artículo");
+});
+
+/**
+ * LA CASILLA DEL HILO: el nombre y el monto de esa foto, puestos a mano.
+ *
+ * Al transferir, quien atiende los escribe sin salir del chat. Van al catálogo
+ * —de donde sale el precio, nunca del modelo— y quedan pegados al anuncio, así
+ * que valen para este cliente y para todos los que lleguen después por él.
+ */
+test("el nombre y el monto de la foto quedan pegados al anuncio y hacen que cotice", () => {
+  const { orgId, canalId } = cuentaConPagina("CasillaDeLaFoto");
+
+  D.registrarAnuncioVisto(orgId, "ad_jeans_2", null);
+  D.guardarDescripcionAnuncio(orgId, "ad_jeans_2", "Publicidad de pantalones jeans");
+  const { conversacion } = D.getOrCreateConversation(orgId, canalId, "18090000001", {
+    origen: "anuncio", productoAnuncio: null, metaAdId: "ad_jeans_2", superficie: "messenger",
+  });
+
+  // El aviso de «este anuncio no cotiza» está abierto: es lo que el panel enseña.
+  D.crearAnomalia(orgId, {
+    conversationId: conversacion.id, tipo: "anuncio_sin_producto", severidad: "alta",
+    detalle: "El anuncio ad_jeans_2 no está vinculado a ningún producto.",
+  });
+  assert.equal(D.hayAnomaliaAbierta(orgId, conversacion.id, "anuncio_sin_producto"), true);
+
+  D.fijarProductoDeLaFoto(orgId, {
+    adId: "ad_jeans_2", conversationId: conversacion.id, destino: "anuncio",
+    nombre: "Pantalones jeans", precio: 1400,
+  });
+
+  const c = resolverAnuncio(orgId, "ad_jeans_2");
+  assert.equal(c.puedeCotizar, true, "con nombre y monto, el agente ya cotiza");
+  assert.equal(c.producto?.nombre, "Pantalones jeans");
+  assert.equal(c.producto?.precio, 1400);
+  assert.ok(anuncioParaPrompt(c).includes("Pantalones jeans"));
+
+  // El aviso se cierra: dejarlo abierto es enseñar como pendiente algo resuelto.
+  assert.equal(D.hayAnomaliaAbierta(orgId, conversacion.id, "anuncio_sin_producto"), false);
+
+  // Corregir el monto no duplica el producto en el catálogo.
+  D.fijarProductoDeLaFoto(orgId, {
+    adId: "ad_jeans_2", conversationId: conversacion.id, destino: "anuncio",
+    nombre: "pantalones JEANS", precio: 1500,
+  });
+  const catalogo = D.listarCatalogo(orgId);
+  assert.equal(catalogo.length, 1, `el catálogo no se llena de repetidos: ${catalogo.map((p) => p.nombre).join(", ")}`);
+  assert.equal(catalogo[0]!.precio, 1500);
+  assert.equal(resolverAnuncio(orgId, "ad_jeans_2").producto?.precio, 1500);
+});
+
+/** La casilla solo sale donde hay una foto que nombrar: si no, es ruido. */
+test("la ficha de la foto sale con el anuncio o con la foto del cliente, y no sin ninguna", () => {
+  const { orgId, canalId } = cuentaConPagina("FichaDeLaFoto");
+
+  const suelta = D.getOrCreateConversation(orgId, canalId, "18090000002", {}).conversacion;
+  assert.equal(fichaDeLaFoto(orgId, suelta, []), null, "ni anuncio ni foto: no hay nada que nombrar");
+
+  // Una foto del cliente basta: el agente tampoco sabe qué es ni cuánto vale.
+  const conFoto = fichaDeLaFoto(orgId, suelta, [
+    { emisor: "cliente", tipo: "imagen", descripcion_imagen: "Unas botas de cuero marrón", categoria_imagen: "foto_producto" },
+  ]);
+  assert.equal(conFoto?.fotoDelCliente, true);
+  assert.equal(conFoto?.nombre, null);
+  assert.equal(conFoto?.destino, "chat", "sin anuncio al que pegarlo, vale para este hilo");
+  assert.equal(conFoto?.descripcion, "Unas botas de cuero marrón", "la casilla enseña lo que se ve, para no escribir a ciegas");
+
+  D.registrarAnuncioVisto(orgId, "ad_ficha", "Jeans");
+  const delAnuncio = D.getOrCreateConversation(orgId, canalId, "18090000003", {
+    origen: "anuncio", productoAnuncio: "Jeans", metaAdId: "ad_ficha", superficie: "messenger",
+  }).conversacion;
+
+  const vacia = fichaDeLaFoto(orgId, delAnuncio, []);
+  assert.equal(vacia?.porAnuncio, true);
+  assert.equal(vacia?.nombre, null, "todavía no tiene nombre ni monto: la casilla sale vacía");
+
+  D.fijarProductoDeLaFoto(orgId, {
+    adId: "ad_ficha", conversationId: delAnuncio.id, destino: "anuncio",
+    nombre: "Pantalones jeans", precio: 1400,
+  });
+  const puesta = fichaDeLaFoto(orgId, delAnuncio, []);
+  assert.equal(puesta?.nombre, "Pantalones jeans", "y una vez puestos, sale con ellos para poder corregirlos");
+  assert.equal(puesta?.precio, 1400);
+});
+
+/**
+ * EL CLIENTE LLEGA POR UN ANUNCIO BUENO Y MANDA OTRA FOTO (2026-09-08).
+ *
+ * El anuncio tiene su descripción, su foto y su precio, así que el agente vende
+ * de sobra. A mitad de la conversación el cliente enseña OTRA cosa y pregunta
+ * por ella. Eso no es el artículo del anuncio y no se le puede pegar encima: el
+ * anuncio lo comparten cientos de clientes. Se guarda en SU hilo, y a partir de
+ * ahí el agente se lo vende a él.
+ */
+test("una foto del cliente por otro artículo se guarda en su chat, no encima del anuncio", () => {
+  const { orgId, canalId } = cuentaConPagina("OtraFoto");
+
+  const camisas = D.crearProducto(orgId, { nombre: "Camisa de lino", variantes: "S, M, L", precio: 1400 });
+  D.registrarAnuncioVisto(orgId, "ad_camisas", "Camisa de lino");
+  D.guardarPublicacionAnuncio(orgId, "ad_camisas", {
+    texto: "Camisa de lino manga larga para caballeros. RD$1,400.",
+    enlace: "https://facebook.com/123/posts/1",
+  });
+  D.vincularAnuncioAProducto(orgId, "ad_camisas", camisas);
+
+  const { conversacion } = D.getOrCreateConversation(orgId, canalId, "18090000004", {
+    origen: "anuncio", productoAnuncio: "Camisa de lino",
+    descripcionAnuncio: "Camisa de lino manga larga para caballeros. RD$1,400.",
+    metaAdId: "ad_camisas", superficie: "messenger",
+  });
+
+  const botas = [{
+    emisor: "cliente" as const, tipo: "imagen" as const,
+    descripcion_imagen: "Unas botas de cuero marrón para caballero",
+    categoria_imagen: "foto_producto" as const,
+  }];
+
+  // Con el anuncio ya vinculado, la casilla no habla del anuncio: habla de SU foto.
+  const ficha = fichaDeLaFoto(orgId, conversacion, botas);
+  assert.equal(ficha?.destino, "chat", "lo que se escriba vale para este cliente, no para el anuncio");
+  assert.equal(ficha?.fotoDelCliente, true);
+  assert.equal(ficha?.descripcion, "Unas botas de cuero marrón para caballero");
+  assert.equal(ficha?.nombre, null, "todavía nadie ha dicho qué son esas botas ni cuánto valen");
+
+  D.fijarProductoDeLaFoto(orgId, {
+    adId: "ad_camisas", conversationId: conversacion.id, destino: ficha!.destino,
+    nombre: "Botas de cuero", precio: 3200,
+  });
+
+  // El anuncio sigue vendiendo camisas a todo el mundo: eso es lo que no puede romperse.
+  const anuncio = resolverAnuncio(orgId, "ad_camisas");
+  assert.equal(anuncio.producto?.nombre, "Camisa de lino");
+  assert.equal(anuncio.producto?.precio, 1400);
+
+  // Y en ESTE hilo, el agente ya sabe qué son las botas y a cuánto.
+  const conv = D.getConversation(orgId, conversacion.id)!;
+  const bloque = productoDeLaFotoParaPrompt(orgId, conv)!;
+  assert.ok(bloque.includes("EL CLIENTE TE ENSEÑÓ OTRO ARTÍCULO EN UNA FOTO"));
+  assert.ok(bloque.includes("Botas de cuero"));
+  assert.ok(bloque.includes("3200"));
+  assert.ok(bloque.includes("Ya no transfieres por esa foto"));
+  assert.ok(bloque.includes('"[HANDOFF]"'), "y un TERCER artículo desconocido sí se transfiere");
+
+  // La casilla, ya con lo escrito dentro, para poder corregirlo.
+  const puesta = fichaDeLaFoto(orgId, conv, botas);
+  assert.equal(puesta?.nombre, "Botas de cuero");
+  assert.equal(puesta?.precio, 3200);
+
+  // Y una foto de LO MISMO que ya se vende no abre ninguna casilla nueva.
+  const mismaCamisa = fichaDeLaFoto(orgId, conv, [{
+    emisor: "cliente", tipo: "imagen",
+    descripcion_imagen: "Una camisa de lino blanca sobre una mesa", categoria_imagen: "foto_producto",
+  }]);
+  assert.equal(mismaCamisa?.destino, "anuncio", "es el artículo del anuncio: no hay nada nuevo que nombrar");
+  assert.equal(mismaCamisa?.nombre, "Camisa de lino");
+
+  // Un comprobante de pago no es un artículo que nombrar.
+  const comprobante = fichaDeLaFoto(orgId, conv, [{
+    emisor: "cliente", tipo: "imagen",
+    descripcion_imagen: "Captura de una transferencia por RD$1,400", categoria_imagen: "comprobante_pago",
+  }]);
+  assert.equal(comprobante?.destino, "anuncio");
+  assert.equal(comprobante?.fotoDelCliente, false);
 });

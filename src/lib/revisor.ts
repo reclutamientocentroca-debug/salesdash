@@ -37,7 +37,7 @@ import { contieneMarcador, MARCADOR_POR_DEFECTO } from "./cierre";
 import { completarJson, ErrorIA } from "./ia";
 import { MODELO_ANALISIS, type Mensaje } from "./db";
 import { conLoVistoYOido } from "./percepcion";
-import { pareceColor, pareceTalla, preguntasRepetidas, unidadesPorColores, type FichaDelPedido } from "./memoria";
+import { expresionesDelPais, pareceColor, pareceTalla, preguntasRepetidas, unidadesPorColores, type FichaDelPedido } from "./memoria";
 import { clienteAplazaCompra, familiasNombradas, nombraUnArticulo, preguntaDelCliente } from "./apertura";
 import { zonaDelCliente } from "@/agents";
 import { contieneLugar } from "./envio";
@@ -72,6 +72,8 @@ export interface ContextoRevision {
   clienteCompartioUbicacion?: boolean;
   /** Lo que el cliente escribió en esta sesión: el resumen tiene que salir de ahí. */
   textosDelCliente?: string[];
+  /** Lo que la casa ya escribió en esta sesión: un paso dicho no se vuelve a abrir. */
+  textosDelAgente?: string[];
   /** El número del chat, que vale como celular si el cliente dijo «a este mismo». */
   telefonoDelChat?: string | null;
   /** Dónde está el cliente según lo que escribió o su pin: decide la tarifa. */
@@ -326,6 +328,34 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
   }
 
   /*
+   * 8b-ter. Y NO SE LE CAMBIA EL ARTÍCULO AL CLIENTE DEL ANUNCIO.
+   *
+   * El caso de la dueña (2026-09-08): el anuncio era una foto de unos jeans, el
+   * agente no tenía el precio de esa foto, y en vez de transferir le contestó
+   * «Actualmente estamos ofreciendo los Polos Bronx Originales». El cliente
+   * pidió tres pantalones dos veces y se fue con un «yo le aviso».
+   *
+   * Quien llega por un anuncio viene por LO QUE VIO. Si de eso no se sabe el
+   * nombre o el precio, se transfiere —y quien atiende los escribe en la
+   * casilla del hilo—; lo que no se hace nunca es ofrecerle otra cosa.
+   *
+   * Un borrador que YA transfiere queda fuera: ahí nombrar el otro artículo es
+   * explicar por qué se pasa a una persona, que es justo lo que se pide.
+   */
+  if (ctx.anuncio && !HABLA_DE_TRANSFERIR.test(texto)) {
+    const delAnuncio = new Set(familiasNombradas(ctx.anuncio).map((f) => f.familia));
+    if (delAnuncio.size) {
+      const otra = familiasNombradas(texto).find((f) => !delAnuncio.has(f.familia));
+      if (otra) {
+        fallas.push(
+          `le ofrece «${otra.palabra}» y este cliente llegó por un anuncio de otra cosa: no se le cambia el artículo. ` +
+            "Véndele el del anuncio; si de ese no sabes el nombre o el precio, dile que un representante le pasa la información y transfiere",
+        );
+      }
+    }
+  }
+
+  /*
    * 8m. «¿DESEA ALGO MÁS?» NO SE PREGUNTA. Vuelve a abrir la venta que se
    * acababa de cerrar y de paso invita a añadir cosas que no se vendieron: el
    * caso real acabó con un artículo añadido que no estaba ni en el resumen.
@@ -495,6 +525,72 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
     );
   }
 
+  /*
+   * 8n. UN DATO QUE EL CLIENTE NO DIO NO SE DA POR RECIBIDO.
+   *
+   * El caso que paró la dueña (RD, 2026-09-08): «¿Qué talla le interesa?» →
+   * «Poloche que quiero» —que es el artículo, no una medida— y el agente
+   * contestó «Perfecto, ya tenemos su talla. ¿En qué color le interesa?». La
+   * talla no llegó nunca: el pedido siguió por el color, por el mayoreo y
+   * habría acabado en un resumen sin talla, o con la frase del cliente dentro.
+   *
+   * Es el mismo agujero que la ubicación de la regla 10, y aquí se cierra para
+   * los cuatro datos del pedido: si la ficha no lo tiene y el cliente no lo ha
+   * escrito en toda la sesión, decir que ya se tiene es inventarlo.
+   */
+  const afirmaciones = afirmacionesDe(texto);
+  if (ctx.ficha) {
+    const loEscribio = (parece: (t: string) => boolean) =>
+      [...(ctx.textosDelCliente ?? []), ctx.ultimoDelCliente ?? ""].some((t) => !!t && parece(t));
+
+    const datos: Array<[string, string, boolean]> = [
+      ["talla", "la talla", !ctx.ficha.talla && !loEscribio(pareceTalla)],
+      ["color", "el color", !ctx.ficha.color && !loEscribio(pareceColor)],
+      ["direccion", "la dirección", !ctx.ficha.direccion && !ctx.clienteCompartioUbicacion],
+      ["nombre", "el nombre", !ctx.ficha.nombre && !ctx.clienteEscribioSuNombre],
+    ];
+
+    for (const [campo, comoSeLlama, falta] of datos) {
+      if (!falta || !afirmaciones.some((f) => DA_POR_RECIBIDO[campo]!.test(f))) continue;
+      fallas.push(
+        `da por recibid${campo === "color" || campo === "nombre" ? "o" : "a"} ${comoSeLlama} y el cliente no la ha dicho en esta conversación: lo que contestó no es ${comoSeLlama}. Contéstale en una línea lo que dijo y vuelve a pedirle ${comoSeLlama}`,
+      );
+    }
+  }
+
+  /*
+   * 8o. EL COSTO DEL ENVÍO SE DICE UNA VEZ, NO CADA VEZ.
+   *
+   * El caso que paró la dueña (RD, 2026-09-08): el cliente mandó su dirección
+   * en una nota de voz, el agente se la confirmó con el envío y el total, y
+   * cuatro mensajes más tarde volvió a abrir el mismo paso —«Perfecto, hasta
+   * Guayacánal el envío le sale en RD$290. ¿Me facilita su número de
+   * teléfono?»—. Quien ya dio su dirección ve una conversación que no avanza.
+   *
+   * Lo provoca el propio guion: «nunca pides el teléfono sin haber dicho antes
+   * el costo de envío». El modelo, al que le falta el teléfono, vuelve a
+   * cotizar para poder pedirlo. Aquí se para lo que el guion ya dice arriba:
+   * esa frase va UNA vez, en el mensaje en que llega la dirección.
+   *
+   * Solo cuando repite la MISMA tarifa: si el cliente cambia de zona, el envío
+   * nuevo hay que decírselo.
+   */
+  {
+    const tarifaDicha = (t: string) =>
+      /env[ií]o/i.test(t) && !contieneMarcador(t, ctx.marcador ?? MARCADOR_POR_DEFECTO)
+        ? importes(t, d.moneda.simbolo).filter((n) => costos.has(n))
+        : [];
+    const yaDichas = new Set((ctx.textosDelAgente ?? []).flatMap(tarifaDicha));
+    if (
+      (ctx.ficha?.direccion || ctx.clienteCompartioUbicacion) &&
+      tarifaDicha(texto).some((n) => yaDichas.has(n))
+    ) {
+      fallas.push(
+        "vuelve a cotizarle el envío y ya se lo dijo en esta conversación: el costo va una sola vez, cuando llega la dirección. Pídele solo el dato que falta, sin repetir el paso",
+      );
+    }
+  }
+
   // 7b. EL MISMO MENSAJE DOS VECES SEGUIDAS NO SALE.
   //
   // El caso real: «¿Qué número calza?» tres veces, una detrás de otra, con un
@@ -536,6 +632,36 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
     fallas.push(
       `llama al cliente «${apodo[2]}» y eso no es aceptable: el trato es formal y educado, de empresa, sin apodos ni confianzas. Si hace falta dirigirse a él, por su nombre o sin nada`,
     );
+  }
+
+  /*
+   * 9c. DONDE VA UN NOMBRE NO VA UN SALUDO DE AQUÍ.
+   *
+   * EL CASO REAL DE COSTA RICA: pedidos «a nombre de Pura vida». Aquí «pura
+   * vida» es hola, gracias y adiós, así que el cliente la escribe en cualquier
+   * turno —también cuando le preguntan cómo se llama— y el agente la tomaba
+   * por su nombre. Ponerle a alguien un nombre que no es suyo no es cercano:
+   * el paquete sale a nombre de nadie y el mensajero pregunta por un saludo.
+   *
+   * Se para SOLO donde va un nombre. Un «pura vida» al agradecer o al
+   * despedirse es como se habla aquí —lo dice el archivo del país— y no se
+   * toca.
+   */
+  {
+    const expresiones = expresionesDelPais(d).filter((e) => e.length >= 3 && !/[?¿]/.test(e));
+    if (expresiones.length > 0) {
+      const lista = expresiones.map((e) => e.replace(/[.*+?^${}()|[\]\\]/g, (c) => `\\${c}`)).join("|");
+      const dondeVaUnNombre = new RegExp(
+        `\\b(a nombre de|nombre:|se[nñ]or|se[nñ]ora|sr\\.?|sra\\.?|don|dona|el pedido de|la orden de|el paquete de|se lo dejamos a)\\s+(${lista})\\b`,
+        "i",
+      );
+      const puesto = llano(texto).match(dondeVaUnNombre);
+      if (puesto) {
+        fallas.push(
+          `pone «${puesto[2]}» donde va el nombre del cliente, y eso es un saludo de aquí, no una persona: el nombre se pregunta y se escribe el que él conteste`,
+        );
+      }
+    }
   }
 
   // 8e. UNA TRANSFERENCIA SIN MOTIVO NO SALE.
@@ -827,6 +953,26 @@ export function transferenciaPermitida(borrador: string, ctx: ContextoRevision):
     !ctx.anuncio &&
     /(?:transfier|representante|asesor|confirmo con el equipo|no (?:lo|la) (?:vendemos|manejamos)|no aparece en (?:el )?cat[aá]logo)/i.test(borrador)
   ) return true;
+  /*
+   * EL ARTÍCULO DEL ANUNCIO NO TIENE PRECIO EN NINGÚN SITIO.
+   *
+   * El anuncio que es SOLO una foto (la dueña, 2026-09-08): se sabe qué se ve
+   * —unos jeans— y no cuánto vale, y el catálogo no tiene nada de esa familia.
+   * Inventarse el precio no se puede y cambiarle el artículo al cliente es
+   * perderlo: lo que queda es transferir, y quien atiende escribe ahí mismo el
+   * nombre y el monto de esa foto. Ver `fijarProductoDeLaFoto`.
+   *
+   * Sin esto, la regla de la transferencia sin motivo frenaba justo la
+   * respuesta correcta: el catálogo tenía precios —de OTROS artículos— y eso
+   * contaba como que había precio.
+   */
+  if (ctx.anuncio) {
+    const sinPrecio =
+      importes(ctx.anuncio, ctx.datos.moneda.simbolo).length === 0 && !/\b\d{3,}\b/.test(ctx.anuncio);
+    const delAnuncio = familiasNombradas(ctx.anuncio).map((f) => f.familia);
+    const enElCatalogo = new Set(familiasNombradas(ctx.catalogo ?? "").map((f) => f.familia));
+    if (sinPrecio && delAnuncio.length && !delAnuncio.some((f) => enElCatalogo.has(f))) return true;
+  }
   // Sin ningún precio escrito en ningún sitio, no se puede vender: ahí sí.
   return cifrasConocidas(ctx).length === 0;
 }
@@ -834,6 +980,36 @@ export function transferenciaPermitida(borrador: string, ctx: ContextoRevision):
 /** Cómo suena pedirle al cliente la ubicación por el mapa, o que la repita. */
 const PIDE_UBICACION =
   /(compart(a|e|ir|irme|anos|ame)|env[ií](e|eme|ame|ar)|mand(e|eme|ame|ar)|pas(e|eme|ame|ar))[^.?!\n]{0,25}\b(su|tu|la) ubicaci[oó]n|ubicaci[oó]n (por el mapa|en tiempo real|actual)|confirm(a|e|ar)[^.?!\n]{0,15}\b(su|tu|la) (ubicaci[oó]n|direcci[oó]n)|repit(a|e|ir)[^.?!\n]{0,15}\b(su|tu|la) (ubicaci[oó]n|direcci[oó]n)/i;
+
+/**
+ * CÓMO SUENA DAR UN DATO POR RECIBIDO: «ya tenemos su talla», «su dirección
+ * queda anotada», «anotado su nombre». Solo se mira en las AFIRMACIONES —ver
+ * `afirmacionesDe`—, porque «¿Ya tiene decidida su talla?» la pregunta, no la
+ * da por dada, y «Perfecto, ¿en qué color le interesa?» no afirma nada.
+ */
+const daPorRecibido = (dato: string) =>
+  new RegExp(
+    `\\bya\\b.{0,25}\\b(?:su|la|el) ${dato}\\b` +
+      `|\\b(?:tengo|tenemos|anote|anoto|anotamos|registre|registro|registramos|guarde|tome)\\b.{0,20}\\b(?:su|la|el) ${dato}\\b` +
+      `|\\b(?:su|la|el) ${dato}\\b.{0,25}\\b(?:anotad|registrad|guardad|confirmad|recibid)` +
+      `|\\b(?:anotad|registrad|guardad|recibid)[ao]s?\\b.{0,10}\\b(?:su|la|el) ${dato}\\b`,
+    "i",
+  );
+
+const DA_POR_RECIBIDO: Record<string, RegExp> = {
+  talla: daPorRecibido("talla"),
+  color: daPorRecibido("color"),
+  direccion: daPorRecibido("direccion"),
+  nombre: daPorRecibido("nombre"),
+};
+
+/** Los trozos del borrador que AFIRMAN algo: sin preguntas y sin tildes. */
+function afirmacionesDe(texto: string): string[] {
+  return llano(texto)
+    .split(/[.!\n]+/)
+    .map((f) => f.trim())
+    .filter((f) => f && !f.includes("?") && !f.includes("¿"));
+}
 
 /**
  * Cómo suena pedir UN DATO MÁS de una dirección que el cliente ya dio: el
@@ -869,6 +1045,8 @@ RECHAZA el borrador si ocurre CUALQUIERA de estas cosas:
 - Cotiza un costo de envío que no es el de la zona del cliente según el bloque del país, o dice que «el representante confirma el envío» teniendo la tarifa delante.
 - Promete una forma de pago, un plazo de entrega, un descuento, envío gratis, apartar mercancía o mandar dos para probar.
 - Pregunta una talla o un color a un artículo que no los lleva, o vuelve a preguntar algo que el cliente ya contestó en la conversación.
+- Vuelve a decirle el costo del envío que ya le dijo antes en esta conversación, en vez de pedir solo el dato que falta.
+- Da por recibido un dato que el cliente no escribió en la conversación: dice «ya tenemos su talla», «ya me llegó su dirección» o «ya tengo su nombre» cuando lo que el cliente contestó no es una talla, ni una dirección, ni un nombre. Ese dato hay que volver a pedirlo.
 - Con la dirección del cliente ya escrita en la conversación, le pide un dato más de ella —el número de casa, el apartamento, el piso, una seña para reconocer la puerta, el color de la casa, un punto de referencia— o le pide que la confirme o la repita. Esa dirección se da por buena.
 - Manda el resumen del pedido sin que el cliente haya dado nombre y dirección completa (y la variante, si el artículo la lleva), o con algún dato inventado que no aparece en la conversación. El teléfono puede ser el del chat.
 - Llama al cliente por un nombre que él no escribió en la conversación.

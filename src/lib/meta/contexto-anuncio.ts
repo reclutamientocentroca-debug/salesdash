@@ -11,8 +11,9 @@
  * leyó: no hay forma de desdecirlo sin quedar mal. Callar y pasar el hilo es
  * peor experiencia y mejor negocio.
  */
-import { anuncioMetaPorAdId, registrarAnuncioVisto } from "@/lib/db";
-import { descripcionUtil } from "@/lib/anuncio";
+import { anuncioMetaPorAdId, productoPorId, registrarAnuncioVisto, type Conversacion, type Mensaje } from "@/lib/db";
+import { descripcionUtil, llegoPorAnuncio } from "@/lib/anuncio";
+import { familiasNombradas } from "@/lib/apertura";
 
 export interface ContextoAnuncio {
   adId: string;
@@ -138,8 +139,20 @@ export function anuncioParaPrompt(c: ContextoAnuncio): string {
     );
   }
   if (c.descripcionImagen) {
+    /*
+     * EL ANUNCIO QUE ES SOLO UNA FOTO.
+     *
+     * Con texto del anuncio delante, la imagen es un apoyo: la leyó una máquina
+     * y puede equivocarse de artículo. SIN texto, esa lectura es lo único que
+     * se guardó de lo que el cliente vio, y decirle al agente que «solo sirve
+     * para el precio» lo dejaba sin artículo ninguno: la dueña vio a la IA
+     * contestarle a quien llegó por un anuncio de jeans que le ofrecía los
+     * polos del catálogo. Lo que se ve en la foto ES lo que se vende.
+     */
     vio.push(
-      `Lo que una máquina leyó en su imagen —sirve SOLO para el precio, los colores y las tallas escritos encima; si nombra un artículo distinto${c.texto ? " del texto de arriba" : " del que dice el anuncio"}, la máquina se equivocó y el artículo sigue siendo el del anuncio—: ${c.descripcionImagen}`,
+      c.texto
+        ? `Lo que una máquina leyó en su imagen —sirve SOLO para el precio, los colores y las tallas escritos encima; si nombra un artículo distinto del texto de arriba, la máquina se equivocó y el artículo sigue siendo el del anuncio—: ${c.descripcionImagen}`
+        : `Este anuncio es SOLO una foto, y esto es lo que se ve en ella —el artículo de este chat es ESE, con ese nombre, y en él van también el precio, los colores y las tallas que estén escritos encima—: ${c.descripcionImagen}`,
     );
   }
 
@@ -172,7 +185,7 @@ export function anuncioParaPrompt(c: ContextoAnuncio): string {
       return [
         "IMPORTANTE — este cliente llegó por un anuncio del que no se guardó nada: ni su texto ni lo que se veía en él.",
         "No sabes qué le prometieron, así que no des precios ni condiciones que no estén en tu catálogo o en tus instrucciones.",
-        "Pregúntale con naturalidad qué artículo vio, en una sola línea, y sigue desde ahí.",
+        "Pregúntale con naturalidad qué artículo vio, en una sola línea, y sigue desde ahí. NO le propongas tú ninguno del catálogo: él vio algo concreto, y ofrecerle otra cosa es perderlo.",
       ].join("\n");
     }
 
@@ -181,7 +194,15 @@ export function anuncioParaPrompt(c: ContextoAnuncio): string {
       [
         "Este anuncio no está vinculado a ningún producto del catálogo, así que lo que dice ARRIBA es tu fuente: el artículo que sale ahí y el precio que anuncia son los buenos, y con eso vendes.",
         "Si el catálogo o tus instrucciones tienen ese mismo artículo a otro precio, manda el catálogo: es lo que está vigente hoy.",
-        "Lo que no esté ni en el anuncio ni en el catálogo no te lo inventes: ahí sí, dile que lo confirmas con el equipo.",
+        /*
+         * Y SI NO SABES QUÉ ES O CUÁNTO VALE, SE TRANSFIERE. NO SE CAMBIA DE
+         * ARTÍCULO. El caso de la dueña: el cliente pidió tres pantalones y el
+         * agente le contestó que no había pantalones pero que le ofrecía unos
+         * polos. Se fue. Al transferir, quien atiende escribe en el panel el
+         * nombre y el monto de esa foto y a partir de ahí ya se vende sola.
+         */
+        "EL ARTÍCULO DE ESTE CHAT ES EL DE ARRIBA Y NO HAY OTRO: está PROHIBIDO ofrecerle un artículo distinto —del catálogo o de donde sea— porque del suyo no sepas el nombre o el precio. Nada de «no tenemos eso, pero le ofrezco…».",
+        "Si el artículo que vino buscando no tiene precio ni en el anuncio ni en el catálogo, no te lo inventes y no lo cambies por otro: dile en una línea que un representante le pasa la información y escribe \"[HANDOFF]\".",
       ].join("\n")
     );
   }
@@ -199,4 +220,121 @@ export function anuncioParaPrompt(c: ContextoAnuncio): string {
       "Ese precio es el bueno. Si el anuncio prometía otro —en su texto o escrito sobre su imagen—, no lo confirmes ni lo niegues: dile que lo revisas con el equipo.",
     ].join("\n")
   );
+}
+
+/**
+ * LO QUE SE VE EN LA FOTO DE ESTE CHAT: cómo se llama y cuánto vale.
+ *
+ * Es lo que sostiene la casilla del panel (`ProductoDeLaFoto`). Hay DOS fotos
+ * distintas que el agente puede no saber leer, y no se guardan en el mismo
+ * sitio:
+ *
+ *  - LA DEL ANUNCIO. Un anuncio que es solo una imagen no dice cómo se llama
+ *    lo que vende ni cuánto vale. Lo que se escriba vale para este cliente y
+ *    para todos los que lleguen después por ese anuncio.
+ *
+ *  - LA QUE MANDA EL CLIENTE A MITAD DE LA CONVERSACIÓN, preguntando por OTRA
+ *    cosa. Llegó por un anuncio de camisas y enseña unas botas: eso es SUYO.
+ *    Pegarlo al anuncio le cambiaría el artículo a los cientos de clientes que
+ *    llegan por esa misma publicidad, así que se guarda en su hilo.
+ *
+ * De ahí `destino`: dice dónde va lo que se escriba, y la casilla lo enseña
+ * para que nadie tenga que adivinarlo.
+ *
+ * Devuelve null cuando no hay ninguna foto que nombrar. Ahí no se enseña.
+ */
+export interface FichaDeLaFoto {
+  adId: string | null;
+  porAnuncio: boolean;
+  /** El cliente mandó una foto que no es lo de este chat. */
+  fotoDelCliente: boolean;
+  /** A quién le vale lo que se escriba: al anuncio (a todos) o solo a este chat. */
+  destino: "anuncio" | "chat";
+  /** Lo que se ve en esa foto, para no tener que escribir a ciegas. */
+  descripcion: string | null;
+  nombre: string | null;
+  precio: number | null;
+}
+
+/** Una foto del cliente que sea de un producto: un comprobante de pago no lo es. */
+type FotoDelCliente = Pick<Mensaje, "emisor" | "tipo" | "descripcion_imagen" | "categoria_imagen">;
+
+export function fichaDeLaFoto(
+  orgId: number,
+  conv: Conversacion,
+  mensajes: FotoDelCliente[],
+): FichaDeLaFoto | null {
+  const porAnuncio = llegoPorAnuncio(conv);
+
+  const anuncio = conv.meta_ad_id ? anuncioMetaPorAdId(orgId, conv.meta_ad_id) : undefined;
+  const vinculado = anuncio && anuncio.producto_id !== null && anuncio.producto_nombre !== null;
+
+  /*
+   * ¿EL CLIENTE ENSEÑÓ OTRA COSA? Se compara por familias —«botas» contra
+   * «camisas»— entre lo que se ve en su foto y EL ARTÍCULO DE ESTE CHAT, que
+   * es el del anuncio. El catálogo no entra en la comparación a propósito: que
+   * la tienda venda botas en otro anuncio no convierte esa foto en lo que este
+   * cliente vino a comprar, y con el catálogo dentro la casilla desaparecía en
+   * cuanto se guardaba el primer artículo. Una foto que la máquina no supo
+   * nombrar cuenta también: es justo la que el agente no puede cotizar.
+   */
+  const fotos = mensajes.filter(
+    (m) => m.emisor === "cliente" && m.tipo === "imagen" &&
+      m.categoria_imagen !== "comprobante_pago" && m.categoria_imagen !== "factura",
+  );
+  const ultima = fotos.at(-1);
+  const deLaFoto = descripcionUtil(ultima?.descripcion_imagen ?? null);
+
+  const loDeEsteChat = [
+    conv.producto_anuncio ?? "", conv.descripcion_anuncio ?? "",
+    anuncio?.texto ?? "", anuncio?.descripcion_imagen ?? "", anuncio?.producto_nombre ?? "",
+  ].join("\n");
+
+  const familiasDeAqui = new Set(familiasNombradas(loDeEsteChat).map((f) => f.familia));
+  const familiasDeLaFoto = familiasNombradas(deLaFoto ?? "");
+  const enseñaOtraCosa =
+    !!ultima && (!familiasDeLaFoto.length || familiasDeLaFoto.some((f) => !familiasDeAqui.has(f.familia)));
+
+  if (!porAnuncio && !ultima) return null;
+
+  /*
+   * Sin anuncio de Meta al que pegarlo, el destino es el chat aunque el hilo
+   * venga de una publicidad: no hay `ad_id` que vincular.
+   */
+  const destino: "anuncio" | "chat" = enseñaOtraCosa || !conv.meta_ad_id ? "chat" : "anuncio";
+
+  const delChat = conv.foto_producto_id !== null ? productoPorId(orgId, conv.foto_producto_id) : undefined;
+  const puesto = destino === "chat" ? delChat : vinculado ? anuncio : undefined;
+
+  return {
+    adId: conv.meta_ad_id ?? null,
+    porAnuncio,
+    fotoDelCliente: enseñaOtraCosa,
+    destino,
+    descripcion: destino === "chat" ? deLaFoto : descripcionUtil(anuncio?.descripcion_imagen ?? null),
+    nombre: puesto ? ("nombre" in puesto ? puesto.nombre : puesto.producto_nombre) : null,
+    precio: puesto ? ("precio" in puesto ? puesto.precio : puesto.producto_precio) : null,
+  };
+}
+
+/**
+ * EL ARTÍCULO QUE EL CLIENTE ENSEÑÓ EN SU FOTO, para el prompt.
+ *
+ * Una persona ya le puso nombre y precio desde el hilo, así que el agente deja
+ * de estar a ciegas: eso es lo que el cliente quiere ahora, y se le vende. Sin
+ * este bloque el agente seguiría con el artículo del anuncio —o transfiriendo
+ * otra vez por la misma foto—, que es lo que el equipo acaba de resolver.
+ *
+ * Devuelve null cuando en este hilo no hay ninguna foto resuelta.
+ */
+export function productoDeLaFotoParaPrompt(orgId: number, conv: Conversacion): string | null {
+  if (conv.foto_producto_id === null) return null;
+  const p = productoPorId(orgId, conv.foto_producto_id);
+  if (!p || p.precio === null) return null;
+
+  return [
+    `EL CLIENTE TE ENSEÑÓ OTRO ARTÍCULO EN UNA FOTO, y el equipo ya te dijo cuál es y cuánto vale: ${p.nombre}${p.variantes ? ` (${p.variantes})` : ""} — ${p.precio}.`,
+    "ESE es el artículo por el que preguntó en esta conversación: véndeselo con ese nombre y ese precio, aunque llegara por otro anuncio. Ya no transfieres por esa foto ni le dices que no lo tienes.",
+    "Si sigue interesado en el del anuncio, también se lo vendes: el que él diga. Y si te enseña un TERCER artículo del que aquí no hay nombre ni precio, ese sí: dile que un representante le pasa la información y escribe \"[HANDOFF]\".",
+  ].join("\n");
 }

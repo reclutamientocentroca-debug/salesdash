@@ -180,7 +180,9 @@ test("la apertura segura lleva saludo, artículo, precio y pregunta, y nada inve
     { producto_anuncio: "Rincondcm", descripcion_anuncio: "🔥 ¡COMPRA SEGURO! 🔥 COMBO 2 EN 1 — SOLO RD$1,690 ✨ Cepillo secador + plancha alisadora." },
     saludo,
   )!;
-  assert.ok(texto.startsWith(`${saludo}\n🖤 Combo 2 En 1 🖤\nRD$1,690\n`), "el formato del documento: saludo, producto, precio y pregunta");
+  // La dueña (2026-09-07): sin corazones. Saludo, artículo, precio y pregunta.
+  assert.ok(texto.startsWith(`${saludo}\nCombo 2 En 1\nRD$1,690\n`), "el formato del documento: saludo, producto, precio y pregunta");
+  assert.equal(texto.includes("🖤"), false, "los corazones ya no van en el mensaje");
   assert.ok(texto.endsWith("Indique su dirección exacta de entrega."), "la cantidad no se pregunta nunca");
   assert.equal(/cu[aá]nt/i.test(texto), false);
   assert.equal(texto.includes("talla"), false, "un combo no lleva talla");

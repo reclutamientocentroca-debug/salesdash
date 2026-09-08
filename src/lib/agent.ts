@@ -55,7 +55,9 @@ import {
   fichaParaModelo,
   PIENSA_COMO_VENDEDOR,
   mensajesDeLaSesion,
+  pareceNombreDePersona,
   textosDelClienteEnSesion,
+  textosDeLaCasaEnSesion,
 } from "./memoria";
 import {
   agenteDePais,
@@ -68,6 +70,7 @@ import {
   lineasDelResumen,
   lugarEscritoPorElCliente,
   saludoDe,
+  type DatosPais,
 } from "../agents";
 import { bloqueDePais, obtenerPais, saludoDelPais, type Pais } from "./paises";
 import { bloqueDeEnvio } from "./envio";
@@ -668,7 +671,9 @@ export type MotivoSilencio =
   /** Lo último del hilo es un aviso interno de WhatsApp, no un mensaje del cliente. */
   | "mensaje_de_sistema"
   /** Mientras se pensaba esta respuesta ya salió otra: llega tarde y de sobra. */
-  | "ya_contestado";
+  | "ya_contestado"
+  /** El cliente siguió escribiendo mientras se pensaba: contesta el turno siguiente, con todo. */
+  | "cliente_sigue_hablando";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Generación
@@ -748,6 +753,31 @@ function bienvenidaSinAnuncioCR(saludo: string, catalogo: Producto[]): string {
     : "Tenemos varias opciones y promociones activas para usted.";
 
   return `${saludo} ${promociones} ¿Cuál artículo le interesa?`;
+}
+
+/**
+ * ¿EL CLIENTE ESCRIBIÓ SU PROPIO NOMBRE EN EL CHAT?
+ *
+ * De esto depende que se le pueda llamar por el nombre de su cuenta de
+ * WhatsApp, que por sí solo no vale nunca. Y no basta con que el texto
+ * aparezca en el hilo: TIENE QUE SER UN NOMBRE DE PERSONA.
+ *
+ * EL CASO REAL DE COSTA RICA: cuentas que se llaman «Pura Vida» —aquí es un
+ * nombre de perfil de lo más corriente— y un cliente que saluda con «pura
+ * vida», que es como se saluda. Con eso, esto daba por dicho su nombre y el
+ * agente se ponía a llamarle Pura Vida. Nunca se lo dijo: dijo hola.
+ */
+export function clienteEscribioSuNombre(
+  nombreDeCuenta: string | null,
+  historial: { emisor: string; content: string }[],
+  datos: DatosPais | null,
+): boolean {
+  const cuenta = nombreDeCuenta?.trim();
+  if (!cuenta) return false;
+  // Un nombre de cuenta que no es de una persona no se vuelve el suyo porque
+  // él escriba esas mismas palabras.
+  if (!pareceNombreDePersona(cuenta, datos)) return false;
+  return historial.some((m) => m.emisor === "cliente" && m.content.toLowerCase().includes(cuenta.toLowerCase()));
 }
 
 export function armarSistema(
@@ -1373,11 +1403,19 @@ export function leerEtiquetaDeAsesor(texto: string): { texto: string; pideAsesor
  * cliente generaría otra y la bandeja de revisión quedaría inservible.
  */
 async function reglaDePrecio(orgId: number, conv: Conversacion): Promise<string | null> {
-  if (!conv.meta_ad_id) return null;
+  /*
+   * Y LO QUE EL CLIENTE ENSEÑÓ EN SU FOTO, si una persona ya le puso nombre y
+   * precio desde el hilo. Va aunque el hilo no venga de Meta —una foto por
+   * WhatsApp es la misma pregunta— y aunque el anuncio esté perfecto: el
+   * cliente llegó por camisas y a mitad de la conversación preguntó por unas
+   * botas. Ver `fijarProductoDeLaFoto`.
+   */
+  const { resolverAnuncio, anuncioParaPrompt, explicarMotivo, productoDeLaFotoParaPrompt } =
+    await import("@/lib/meta/contexto-anuncio");
 
-  const { resolverAnuncio, anuncioParaPrompt, explicarMotivo } = await import(
-    "@/lib/meta/contexto-anuncio"
-  );
+  const deSuFoto = productoDeLaFotoParaPrompt(orgId, conv);
+
+  if (!conv.meta_ad_id) return deSuFoto;
 
   const contexto = resolverAnuncio(orgId, conv.meta_ad_id, conv.producto_anuncio);
 
@@ -1390,7 +1428,8 @@ async function reglaDePrecio(orgId: number, conv: Conversacion): Promise<string 
     });
   }
 
-  return anuncioParaPrompt(contexto);
+  // El de su foto va DESPUÉS del anuncio: es lo más reciente y lo que manda.
+  return [anuncioParaPrompt(contexto), deSuFoto].filter(Boolean).join("\n\n");
 }
 
 /**
@@ -1547,9 +1586,41 @@ export type Resultado =
  */
 const turnos = new Map<string, Promise<void>>();
 
+/**
+ * CUÁNTOS TURNOS HAY EN LA FILA, contando el que está corriendo.
+ *
+ * Lo necesita `atenderTurno` para poder callarse sin dejar al cliente
+ * esperando: una respuesta a un mensaje viejo solo se tira si detrás viene
+ * otro turno que va a contestar con todo. Si esta es la única, sale igual,
+ * aunque llegue algo tarde: un agente mudo es peor.
+ */
+const enFila = new Map<string, number>();
+
+/**
+ * ¿ESTA RESPUESTA SE QUEDÓ ATRÁS? El cliente escribió otra vez mientras se
+ * pensaba, y detrás viene el turno que va a contestar con el hilo entero.
+ *
+ * Las dos condiciones cuentan. Sin la segunda, un mensaje que por lo que sea no
+ * abrió turno dejaría al cliente sin respuesta, y un agente mudo es peor que
+ * uno que contesta con un mensaje de retraso.
+ */
+export function elClienteSiguioHablando(
+  mensajes: { emisor: string; id: number }[],
+  ultimoId: number,
+  otroTurnoEspera: boolean,
+): boolean {
+  return otroTurnoEspera && mensajes.some((m) => m.emisor === "cliente" && m.id > ultimoId);
+}
+
+/** ¿Hay otro turno esperando en esta conversación además del que corre? */
+function otroTurnoEspera(orgId: number, conversationId: number): boolean {
+  return (enFila.get(`${orgId}:${conversationId}`) ?? 0) > 1;
+}
+
 export function atenderConversacion(orgId: number, canalId: number, conversationId: number): Promise<Resultado> {
   const clave = `${orgId}:${conversationId}`;
   const anterior = turnos.get(clave) ?? Promise.resolve();
+  enFila.set(clave, (enFila.get(clave) ?? 0) + 1);
   // Que el turno anterior fallara no puede dejar la conversación sin atender.
   const turno = anterior.then(
     () => atenderTurno(orgId, canalId, conversationId),
@@ -1562,6 +1633,9 @@ export function atenderConversacion(orgId: number, canalId: number, conversation
   turnos.set(clave, marca);
   // Y la fila no crece: cuando este es el último turno, se borra la entrada.
   void marca.then(() => {
+    const quedan = (enFila.get(clave) ?? 1) - 1;
+    if (quedan > 0) enFila.set(clave, quedan);
+    else enFila.delete(clave);
     if (turnos.get(clave) === marca) turnos.delete(clave);
   });
   return turno;
@@ -1911,6 +1985,7 @@ async function atenderTurno(
       ficha: fichaDelHilo(memoriaMensajes, agente.pais),
       clienteCompartioUbicacion: clienteCompartioUbicacion(historial),
       textosDelCliente: textosDelClienteEnSesion(historial),
+      textosDelAgente: textosDeLaCasaEnSesion(historial),
       telefonoDelChat: conv.cliente_phone,
       lugarDelCliente:
         ubicacion?.direccion?.provincia ??
@@ -1920,9 +1995,7 @@ async function atenderTurno(
       nombreDeCuenta: conv.cliente_nombre,
       ultimoDelCliente: ultimo.content,
       ultimoDelAgente: [...historial].reverse().find((m) => m.emisor !== "cliente")?.content ?? null,
-      clienteEscribioSuNombre: !!conv.cliente_nombre && historial.some(
-        (m) => m.emisor === "cliente" && m.content.toLowerCase().includes(conv.cliente_nombre!.toLowerCase()),
-      ),
+      clienteEscribioSuNombre: clienteEscribioSuNombre(conv.cliente_nombre, historial, datosPais),
       bloqueDelPais: bloqueDelPais(
         datosPais,
         ubicacion?.direccion?.provincia ??
@@ -2219,6 +2292,25 @@ async function atenderTurno(
   }
 
   /*
+   * Y SI EL CLIENTE SIGUIÓ HABLANDO, ESTA RESPUESTA ES DE UN MENSAJE VIEJO.
+   *
+   * El caso de la dueña (RD, 2026-09-08): el cliente mandó una nota de voz que
+   * no se entendió y, en seguida, otra. Salieron las dos respuestas, una detrás
+   * de otra: «No logré entender el último mensaje…» y, pegado, «Perfecto, hasta
+   * Guayacánal el envío le sale en RD$290». Dos mensajes seguidos, el primero
+   * contestando a algo que el cliente ya había dejado atrás.
+   *
+   * La fila de turnos ya evitaba que se pisaran; lo que faltaba es esperar a
+   * que el cliente TERMINE de hablar. Si mientras se pensaba esta respuesta
+   * entró otro mensaje suyo, y detrás viene el turno que lo va a contestar,
+   * esta sobra: el siguiente lee el hilo entero y contesta una sola vez, como
+   * haría una persona.
+   */
+  if (elClienteSiguioHablando(ultimosMensajes(orgId, conversationId, 5), ultimo.id, otroTurnoEspera(orgId, conversationId))) {
+    return { atendida: false, motivo: "cliente_sigue_hablando" };
+  }
+
+  /*
    * DOS MENSAJES DEL CLIENTE NO JUSTIFICAN DOS RESPUESTAS IGUALES.
    * El segundo turno puede haber generado la misma apertura antes de que el
    * primer turno quedara registrado. Se compara el mensaje completo y se
@@ -2484,6 +2576,7 @@ export async function enviarSeguimiento(
         anuncio: anuncioParaModelo(anuncioVigente(conv)) || null,
         ficha: fichaDelHilo(historial, agente.pais),
         textosDelCliente: textosDelClienteEnSesion(historial),
+        textosDelAgente: textosDeLaCasaEnSesion(historial),
         telefonoDelChat: conv.cliente_phone,
         nombreDeCuenta: conv.cliente_nombre,
         ultimoDelAgente: [...historial].reverse().find((m) => m.emisor !== "cliente")?.content ?? null,

@@ -143,7 +143,9 @@ export function articuloDeLaDescripcion(descripcion: string, simbolo: string): s
     articulo = articulo.replace(RELLENO, "").replace(/^[\s!¡.:,;—–-]+/, "");
   }
   articulo = articulo.split(/[.?\n]/)[0] ?? "";
-  articulo = articulo.replace(/[\s!¡.:,;—–-]+$/, "").trim();
+  // Y sin el separador con el que el anuncio pega el precio detrás: «3 PACK
+  // BOXER CR7 PARA CABALLERO | ₡18.800» dejaba el artículo con la barra suelta.
+  articulo = articulo.replace(/[\s!¡.:,;—–|·•/\\-]+$/, "").trim();
 
   /*
    * Y SI DELANTE DEL PRODUCTO SOLO HAY ESLOGAN, el artículo empieza donde el
@@ -213,7 +215,7 @@ export function aperturaSegura(
 
   // Costa Rica y República Dominicana: el primer mensaje de los guiones de la dueña, en un solo globo.
   if (d.codigo === "cr" || d.codigo === "do") {
-    return `${saludo}\n${contestacion}🖤 ${articulo} 🖤\n${precio}\n${primeraPregunta(descripcion, d)}`;
+    return `${saludo}\n${contestacion}${articulo}\n${precio}\n${primeraPregunta(descripcion, d)}`;
   }
 
   const cuerpo = d.trato === "tu"

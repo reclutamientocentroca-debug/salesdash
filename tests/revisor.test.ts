@@ -2,6 +2,7 @@ import "./entorno";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { agenteDePais, bloqueDelPais } from "../src/agents";
+import { clienteEscribioSuNombre } from "../src/lib/agent";
 import { correccionParaElAgente, revisarBorrador, revisarConReglas, transferenciaPermitida, type ContextoRevision } from "../src/lib/revisor";
 
 /**
@@ -25,6 +26,7 @@ function contexto(pais: string): ContextoRevision {
 
 const rd = contexto("do");
 const cr = contexto("cr");
+const crDatos = agenteDePais("cr")!;
 const pa = contexto("pa");
 
 test("una respuesta normal, con el envío del país, pasa sin objeción", () => {
@@ -144,6 +146,45 @@ test("el nombre de la cuenta de WhatsApp no sale si el cliente no lo escribió",
 });
 
 /**
+ * «PURA VIDA» NO ES EL NOMBRE DE NADIE (Costa Rica, 2026-09-08).
+ *
+ * Aquí es hola, gracias y adiós, y hay cuentas de WhatsApp que se llaman así.
+ * El agente acabó levantando pedidos «a nombre de Pura vida» y llamando así a
+ * gente que nunca dijo cómo se llama. Se para donde va un nombre; hablar tico
+ * al agradecer o al despedirse no se toca, que eso lo pide el propio archivo
+ * del país.
+ */
+test("un saludo tico no se escribe donde va el nombre del cliente", () => {
+  const tico = { ...cr, ultimoDelCliente: "Pura vida", textosDelCliente: ["Pura vida"] };
+
+  for (const puesto of [
+    "Perfecto, el pedido queda a nombre de Pura vida.",
+    "Listo, señora Pura vida, ya le anoto la dirección.",
+    "El pedido de Pura vida sale hoy.",
+    "Con gusto, don Diay. ¿Me regala su dirección?",
+  ]) {
+    assert.ok(
+      revisarConReglas(puesto, tico).some((f) => f.includes("saludo de aquí")),
+      `«${puesto}» le pone al cliente un nombre que no es suyo`,
+    );
+  }
+
+  // Y hablar como se habla aquí sigue saliendo, que es lo que pide el país.
+  for (const bien of [
+    "Con mucho gusto. ¿Me regala su dirección exacta?",
+    "Pura vida, con mucho gusto. El envío es ₡3.500.",
+    "Gracias a usted. Pura vida.",
+  ]) {
+    assert.deepEqual(revisarConReglas(bien, tico), [], `«${bien}» es como se habla en Costa Rica`);
+  }
+
+  // Y un nombre de cuenta que es un saludo no se vuelve suyo porque él salude.
+  assert.equal(clienteEscribioSuNombre("Pura Vida", [{ emisor: "cliente", content: "pura vida, buenas" }], crDatos), false);
+  assert.equal(clienteEscribioSuNombre("Mildred Solís", [{ emisor: "cliente", content: "soy Mildred Solís" }], crDatos), true);
+  assert.equal(clienteEscribioSuNombre("Mildred Solís", [{ emisor: "cliente", content: "buenas" }], crDatos), false);
+});
+
+/**
  * LOS FALLOS DE LA CAPTURA: tuteo en un país de usted, una ubicación que
  * nadie mandó hoy, un resumen con datos que el cliente no escribió, y el envío
  * de la zona equivocada.
@@ -247,6 +288,127 @@ TOTAL A PAGAR: ${total}`;
     revisarConReglas(pedido("Color: rojo\nTalla: XL", "1", "RD$1,650"), { ...ctx, textosDelCliente: ["Rojo XL", "Manuel Peña", "Pantoja, Santo Domingo", "8098503819"] }),
     [],
   );
+});
+
+/**
+ * NO SE LE CAMBIA EL ARTÍCULO AL CLIENTE DEL ANUNCIO (la dueña, 2026-09-08).
+ *
+ * El anuncio era una foto de unos jeans y el agente no tenía su precio, así que
+ * en vez de transferir le ofreció otra cosa: «estamos ofreciendo los Polos
+ * Bronx Originales». El cliente pidió tres pantalones dos veces y se fue.
+ */
+test("con un anuncio delante, ofrecerle otro artículo no sale", () => {
+  const delAnuncio = {
+    ...rd,
+    anuncio: "Este cliente llegó por un anuncio:\n- Producto anunciado: (el anuncio no traía título)\n" +
+      "Este anuncio es SOLO una foto, y esto es lo que se ve en ella: Publicidad de pantalones jeans en diferentes colores",
+    catalogo: "Catálogo:\n- Polos Bronx Originales — 1400",
+  };
+
+  for (const cambiaDeArticulo of [
+    "Actualmente estamos ofreciendo los Polos Bronx Originales. ¿Le interesa alguno?",
+    "Ahora mismo no tenemos disponible la opción de pantalones, pero le ofrezco los Polos Bronx Originales.",
+  ]) {
+    assert.ok(
+      revisarConReglas(cambiaDeArticulo, delAnuncio).some((f) => f.includes("no se le cambia el artículo")),
+      `«${cambiaDeArticulo}» no puede salir`,
+    );
+  }
+
+  // Vender lo del anuncio sí sale, claro.
+  assert.deepEqual(
+    revisarConReglas("Los pantalones jeans están en RD$1,400. ¿Qué talla le interesa?", {
+      ...delAnuncio,
+      anuncio: `${delAnuncio.anuncio}\n- Precio: RD$1,400`,
+    }),
+    [],
+  );
+
+  // Y nombrar el otro artículo PARA TRANSFERIR es justo lo que se le pide.
+  assert.deepEqual(
+    revisarConReglas(
+      "De los polos le da la información un representante. Permítame un momento, le transfiero con un representante. [HANDOFF]",
+      delAnuncio,
+    ),
+    [],
+  );
+
+  // Sin anuncio en el chat, esta regla no se mete: manda el catálogo de siempre.
+  assert.deepEqual(
+    revisarConReglas("Los polos están en RD$1,400. ¿Qué talla le interesa?", {
+      ...rd,
+      catalogo: "Catálogo:\n- Polos Bronx Originales — 1400",
+    }),
+    [],
+  );
+});
+
+/**
+ * LA FOTO QUE MANDA EL CLIENTE Y NO SE SABE QUÉ ES (la dueña, 2026-09-08).
+ *
+ * Se transfiere —y quien atiende escribe en la casilla del hilo qué es y cuánto
+ * vale—, así que esa transferencia tiene que pasar el revisor. La foto del
+ * cliente ya cuenta como motivo; lo que aquí se fija es que siga contando,
+ * porque de ella cuelga ahora la casilla.
+ */
+test("transferir por una foto del cliente tiene motivo, y un anuncio sin precio también", () => {
+  const conAnuncio = {
+    ...rd,
+    anuncio: "Este cliente llegó por un anuncio:\n- Producto anunciado: Camisa de lino RD$1,400",
+    catalogo: "Catálogo:\n- Camisa de lino — 1400",
+  };
+  const transfiere = "Eso se lo confirma un representante. Permítame un momento, le transfiero con un representante. [HANDOFF]";
+
+  const otroArticulo = { ...conAnuncio, ultimoDelCliente: "(imagen que manda el cliente: unas botas de cuero marrón)" };
+  assert.equal(transferenciaPermitida(transfiere, otroArticulo), true, "unas botas no son la camisa del anuncio");
+  assert.deepEqual(revisarConReglas(transfiere, otroArticulo), []);
+
+  /*
+   * Y EL ANUNCIO QUE ES SOLO UNA FOTO, SIN PRECIO EN NINGÚN SITIO. Antes esta
+   * transferencia se frenaba por «sin motivo»: el catálogo tenía precios —de
+   * OTROS artículos— y eso contaba como que había precio.
+   */
+  const soloFoto = {
+    ...rd,
+    anuncio: "Este cliente llegó por un anuncio:\nEste anuncio es SOLO una foto, y esto es lo que se ve en ella: Publicidad de pantalones jeans en diferentes colores",
+    catalogo: "Catálogo:\n- Polos Bronx Originales — 1400",
+    ultimoDelCliente: "Me interesan tres pantalones de ahí",
+  };
+  assert.equal(transferenciaPermitida(transfiere, soloFoto), true, "de esos jeans no hay precio en ninguna parte");
+  assert.deepEqual(revisarConReglas(transfiere, soloFoto), []);
+
+  // Con el precio del anuncio delante, no: eso se vende, no se transfiere.
+  const conPrecio = { ...soloFoto, anuncio: `${soloFoto.anuncio} RD$1,400` };
+  assert.equal(transferenciaPermitida(transfiere, conPrecio), false);
+});
+
+/**
+ * Y CUANDO EL EQUIPO YA DIJO QUÉ ES LA FOTO DEL CLIENTE, SE LE VENDE (2026-09-08).
+ *
+ * El cliente llegó por un anuncio de camisas y enseñó unas botas. Una persona
+ * escribió en la casilla del hilo qué son y cuánto valen, y ese dato viaja con
+ * el anuncio: a partir de ahí, venderle botas no es cambiarle el artículo, es
+ * atender lo que pidió.
+ */
+test("con el artículo de su foto ya confirmado, vendérselo no lo para el revisor", () => {
+  const soloElAnuncio = {
+    ...rd,
+    anuncio: "Este cliente llegó por un anuncio:\n- Producto anunciado: Camisa de lino\n- Lo que promete el anuncio: Camisa de lino manga larga. RD$1,400",
+    catalogo: "Catálogo:\n- Camisa de lino — 1400\n- Botas de cuero — 3200",
+  };
+
+  // Sin que nadie haya confirmado nada, ofrecerle botas es cambiarle el artículo.
+  assert.ok(
+    revisarConReglas("Las botas de cuero están en RD$3,200.", soloElAnuncio)
+      .some((f) => f.includes("no se le cambia el artículo")),
+  );
+
+  // Con la casilla ya escrita, el mismo mensaje sale.
+  const conSuFoto = {
+    ...soloElAnuncio,
+    anuncio: `${soloElAnuncio.anuncio}\n\nEL CLIENTE TE ENSEÑÓ OTRO ARTÍCULO EN UNA FOTO, y el equipo ya te dijo cuál es y cuánto vale: Botas de cuero — 3200.`,
+  };
+  assert.deepEqual(revisarConReglas("Las botas de cuero están en RD$3,200. ¿Qué talla calza?", conSuFoto), []);
 });
 
 /** El caso de Costa Rica: ofrecía sábanas que nadie vende. Ni de un ejemplo ni de «La Sabana». */
@@ -367,6 +529,76 @@ test("con la dirección ya dada, no se pide el número de casa ni la seña de la
   );
   // Sin dirección todavía, preguntar por dónde vive sigue siendo el paso.
   assert.deepEqual(revisarConReglas("Indique su dirección exacta de entrega.", rd), []);
+});
+
+/**
+ * EL CASO DE LA DUEÑA (RD, 2026-09-08): «¿Qué talla le interesa?» → «Poloche
+ * que quiero» —que es el artículo, no una medida— y la IA contestó «Perfecto,
+ * ya tenemos su talla. ¿En qué color le interesa?». La talla no llegó nunca y
+ * el pedido siguió cojo hasta el final.
+ */
+test("un dato que el cliente no dio no se da por recibido", () => {
+  const vacia = { talla: null, color: null, direccion: null, nombre: null, celular: null, cantidad: null };
+  const sinTalla = { ...rd, ficha: vacia, textosDelCliente: ["Poloche que quiero"], ultimoDelCliente: "Poloche que quiero" };
+
+  const f = revisarConReglas("Perfecto, ya tenemos su talla. ¿En qué color le interesa? Disponemos de negro, blanco, azul y gris.", sinTalla);
+  assert.ok(f.some((x) => x.includes("da por recibida la talla")), f.join(" | "));
+
+  // Lo mismo con los otros datos del pedido.
+  assert.ok(revisarConReglas("Listo, ya tengo su dirección.", sinTalla).some((x) => x.includes("da por recibida la dirección")));
+  assert.ok(revisarConReglas("Su nombre queda anotado.", sinTalla).some((x) => x.includes("da por recibido el nombre")));
+
+  // Lo que sí toca: contestarle y volver a pedirle la talla.
+  assert.deepEqual(
+    revisarConReglas("Claro que sí, tenemos los polos. ¿Qué talla le interesa?", sinTalla),
+    [],
+  );
+  // Y con la talla dicha de verdad, confirmarla no es inventarla.
+  const conTalla = { ...sinTalla, ficha: { ...vacia, talla: "XL" }, textosDelCliente: ["XL"], ultimoDelCliente: "XL" };
+  assert.deepEqual(revisarConReglas("Perfecto, ya tenemos su talla XL. Indique su dirección exacta de entrega.", conTalla), []);
+  // Aunque la ficha no lo haya emparejado, si el cliente la escribió, vale.
+  assert.ok(
+    !revisarConReglas("Perfecto, ya tenemos su talla. ¿Me facilita su número de teléfono?", { ...sinTalla, textosDelCliente: ["uso la 40"], ultimoDelCliente: "uso la 40" })
+      .some((x) => x.includes("da por recibida la talla")),
+  );
+  // Ofrecer las tallas no es darlas por recibidas.
+  assert.deepEqual(revisarConReglas("Para la talla tenemos S, M, L y XL. ¿Cuál prefiere?", sinTalla), []);
+});
+
+/**
+ * EL CASO DE LA DUEÑA (RD, 2026-09-08): el cliente mandó su dirección en una
+ * nota de voz, el agente se la confirmó con el envío y el total, y cuatro
+ * mensajes después volvió a abrir el mismo paso —«Perfecto, hasta Guayacánal
+ * el envío le sale en RD$290. ¿Me facilita su número de teléfono?»—. Quien ya
+ * dio su dirección ve una conversación que no avanza.
+ */
+test("el costo del envío no se cotiza dos veces en la misma conversación", () => {
+  const conDireccion = {
+    ...rd,
+    ficha: { talla: null, color: null, direccion: "Guayacánal, municipio Pueblo Viejo, calle Emilio Prud'Homme, casa 87", nombre: "Bellyra", celular: null, cantidad: null },
+    lugarDelCliente: "Pueblo Viejo",
+    textosDelAgente: ["Le confirmo: entrega en calle Emilio Prud'Homme, casa 87, Guayacánal. Son RD$1,690 más RD$290 de envío."],
+  };
+
+  assert.ok(
+    revisarConReglas("Perfecto, hasta Guayacánal el envío le sale en RD$290. ¿Me facilita su número de teléfono para el pedido?", conDireccion)
+      .some((f) => f.includes("vuelve a cotizarle el envío")),
+  );
+
+  // Lo que sí toca: pedir lo que falta, a secas.
+  assert.deepEqual(revisarConReglas("¿Me facilita su número de teléfono para el pedido?", conDireccion), []);
+
+  // La primera vez sí se dice, claro.
+  assert.deepEqual(
+    revisarConReglas("Perfecto, hasta Guayacánal el envío le sale en RD$290. ¿Me facilita su número de teléfono para el pedido?", { ...conDireccion, textosDelAgente: [] }),
+    [],
+  );
+
+  // Y si el cliente cambia de zona, la tarifa nueva se le dice.
+  assert.deepEqual(
+    revisarConReglas("Perfecto, hasta Los Alcarrizos el envío le sale en RD$250. ¿Me facilita su número de teléfono para el pedido?", { ...conDireccion, ficha: { ...conDireccion.ficha, direccion: "Los Alcarrizos" }, lugarDelCliente: "Los Alcarrizos" }),
+    [],
+  );
 });
 
 /**

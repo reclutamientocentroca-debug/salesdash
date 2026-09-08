@@ -274,7 +274,7 @@ const PALABRA_QUE_NO_ES_NOMBRE =
  * comillas en su archivo (`habla.expresiones`), que es donde el dueño las
  * edita. Si mañana añade una, deja de ser un nombre el mismo día.
  */
-function expresionesDelPais(datos: DatosPais | null): string[] {
+export function expresionesDelPais(datos: DatosPais | null): string[] {
   return (datos?.habla?.expresiones ?? []).flatMap((e) =>
     [...e.matchAll(/«([^»]+)»/g)].map((m) => llano(m[1]!).trim()),
   );
@@ -537,7 +537,8 @@ export function fichaParaModelo(f: FichaDelPedido, pais?: string | null): string
   return (
     "\n\nFICHA DEL PEDIDO — lo que este cliente YA TE DIO en esta conversación. Es tuyo: úsalo tal cual en el pedido y NO lo vuelvas a preguntar, ni «para confirmar», ni con otras palabras.\n" +
     lineas.join("\n") +
-    "\nLo que dice «(falta)» es LO ÚNICO que te queda por preguntar, en el orden del cierre y de uno en uno. Si el cliente pregunta algo, se lo contestas primero y después pides lo que falte."
+    "\nLo que dice «(falta)» es LO ÚNICO que te queda por preguntar, en el orden del cierre y de uno en uno. Si el cliente pregunta algo, se lo contestas primero y después pides lo que falte." +
+    "\nY lo que dice «(falta)» NO LO TIENES: no lo des por recibido ni lo escribas en el pedido. Nada de «Perfecto, ya tenemos su talla», «ya me llegó su dirección» ni «ya tengo su nombre» mientras esa línea siga en «(falta)». Si el cliente contestó otra cosa —te nombró el artículo, te hizo una pregunta, se equivocó de dato—, se lo contestas en una línea y le vuelves a pedir ESE dato, con otras palabras."
   );
 }
 
@@ -599,6 +600,17 @@ export function clienteCompartioUbicacion(mensajes: MensajeDeMemoria[]): boolean
 export function textosDelClienteEnSesion(mensajes: MensajeDeMemoria[]): string[] {
   return mensajesDeLaSesion(mensajes)
     .filter((m) => m.emisor === "cliente")
+    .map((m) => m.content);
+}
+
+/**
+ * Lo que la CASA ya escribió en esta sesión —el agente o una persona del
+ * equipo—. Con esto el revisor sabe qué se dijo ya y no deja que un paso del
+ * guion se vuelva a abrir: el costo del envío se dice una vez, no cada vez.
+ */
+export function textosDeLaCasaEnSesion(mensajes: MensajeDeMemoria[]): string[] {
+  return mensajesDeLaSesion(mensajes)
+    .filter((m) => m.emisor !== "cliente")
     .map((m) => m.content);
 }
 

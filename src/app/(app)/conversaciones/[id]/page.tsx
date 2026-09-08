@@ -5,7 +5,9 @@ import AnalizarBoton from "@/components/panel/AnalizarBoton";
 import BorrarConversacionBoton from "@/components/panel/BorrarConversacionBoton";
 import { Burbuja } from "@/components/panel/Burbuja";
 import { Nube, Pastilla, dinero, fechaHora, tienePedido } from "@/components/panel/Piezas";
+import ProductoDeLaFoto from "@/components/panel/ProductoDeLaFoto";
 import { llegoPorAnuncio } from "@/lib/anuncio";
+import { fichaDeLaFoto } from "@/lib/meta/contexto-anuncio";
 import { getConversation, listarCanales, listarMensajes } from "@/lib/db";
 import { porQueCalla } from "@/lib/agent";
 import { requerirSesion } from "@/lib/tenant";
@@ -41,6 +43,9 @@ export default async function PaginaConversacion({ params, searchParams }: Props
   /* Por qué el agente contesta —o no— en este hilo. Ver `porQueCalla`: son
      lecturas de la base, ni una llamada a ningún modelo. */
   const agente = porQueCalla(ctx.orgId, conv.canal_id, conv.id);
+  /* Qué es y cuánto vale lo que sale en la foto de este chat: null cuando no
+     hay ninguna foto que nombrar, y entonces la casilla no se enseña. */
+  const foto = fichaDeLaFoto(ctx.orgId, conv, mensajes);
   const faltantes = leerLista(conv.datos_faltantes);
 
   return (
@@ -80,6 +85,13 @@ export default async function PaginaConversacion({ params, searchParams }: Props
             <h2 className="titulo-tarjeta" style={{ marginBottom: 10 }}>Agente</h2>
             <AgenteEnHilo conversationId={conv.id} estado={agente} atiende={conv.atiende} />
           </section>
+
+          {foto && (
+            <section className="tarjeta">
+              <h2 className="titulo-tarjeta" style={{ marginBottom: 10 }}>Lo que sale en la foto</h2>
+              <ProductoDeLaFoto conversationId={conv.id} foto={foto} />
+            </section>
+          )}
 
           <section className="tarjeta">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>

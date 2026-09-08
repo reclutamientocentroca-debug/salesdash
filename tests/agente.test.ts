@@ -5,6 +5,7 @@ import * as D from "../src/lib/db";
 import {
   armarSistema,
   atenderConversacion,
+  elClienteSiguioHablando,
   generarRespuesta,
   monedaAjena,
   dentroDeHorario,
@@ -188,6 +189,35 @@ test("el horario nocturno cruza la medianoche", () => {
 
   // Sin horario configurado, siempre dentro.
   assert.equal(dentroDeHorario(null, null, a(4)), true);
+});
+
+/**
+ * EL CASO DE LA DUEÑA (RD, 2026-09-08): el cliente mandó una nota de voz que no
+ * se entendió y, en seguida, otra. Salieron las dos respuestas seguidas: «No
+ * logré entender el último mensaje…» y, pegado, «Perfecto, hasta Guayacánal el
+ * envío le sale en RD$290». La primera contestaba a algo que el cliente ya
+ * había dejado atrás.
+ *
+ * Se espera a que TERMINE de hablar: si mientras se pensaba entró otro mensaje
+ * suyo y detrás viene el turno que lo va a contestar, esta respuesta sobra. Y
+ * solo entonces: sin ese turno detrás, el cliente se quedaría sin respuesta, y
+ * un agente mudo es peor que uno que contesta con un mensaje de retraso.
+ */
+test("si el cliente sigue hablando, la respuesta al mensaje viejo no sale", () => {
+  const hablo = [
+    { emisor: "cliente", id: 10 },
+    { emisor: "ia", id: 11 },
+    { emisor: "cliente", id: 12 },
+    { emisor: "cliente", id: 13 },
+  ];
+
+  // Se pensó la respuesta al 12 y el cliente ya mandó el 13: contesta el otro turno.
+  assert.equal(elClienteSiguioHablando(hablo, 12, true), true);
+  // Sin otro turno detrás, sale igual: nadie se queda esperando.
+  assert.equal(elClienteSiguioHablando(hablo, 12, false), false);
+  // Y si lo único que hay después es de la casa, esta respuesta es la que toca.
+  assert.equal(elClienteSiguioHablando(hablo, 13, true), false);
+  assert.equal(elClienteSiguioHablando([{ emisor: "cliente", id: 10 }, { emisor: "ia", id: 11 }], 10, true), false);
 });
 
 // ── Condiciones de silencio ─────────────────────────────────────────────────
@@ -1932,7 +1962,11 @@ test("lo que no conoce no se vende ni se transfiere: se confirma con el equipo y
 
   // El guion de la dueña (2026-09-05): un producto distinto se transfiere, sin inventarle precio.
   assert.ok(prompt.includes("Preguntan por un producto distinto al que están consultando"));
-  assert.ok(prompt.includes("Mandan foto de otro artículo"), "ni precio ni nada de algo que no tiene delante: se transfiere");
+  assert.ok(prompt.includes("Mandan una foto de otro artículo"), "ni precio ni nada de algo que no tiene delante: se transfiere");
+  assert.ok(
+    prompt.includes("o de algo que no sabes qué es ni cuánto vale"),
+    "y una foto que no se sabe qué es tampoco se cotiza a ojo (la dueña, 2026-09-08)",
+  );
   assert.ok(prompt.includes("TU TRABAJO ES VENDER, NO TRANSFERIR"), "y por lo demás se sigue vendiendo");
 
   // Solo se transfiere por lo que dice el guion, y la etiqueta sigue existiendo para ello.
