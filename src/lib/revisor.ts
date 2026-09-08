@@ -29,6 +29,16 @@
  * ═══ SOLO LECTURA ═══
  * Esto no envía. No importa la función de envío y la prueba que barre `src/`
  * lo garantiza.
+ *
+ * ═══ COSTA RICA VA SOLA ═══
+ *
+ * Lo que hay aquí lo comparten los tres países, así que un arreglo escrito para
+ * República Dominicana o Panamá le llega a Costa Rica sin que nadie lo pida. La
+ * dueña quiere que Costa Rica se quede como está (2026-09-08), y por eso está
+ * FIJADA palabra por palabra en `tests/costa-rica.test.ts`: si tocas este
+ * archivo y ella se mueve, esa prueba falla y te lo dice. Si el cambio es para
+ * Costa Rica, se vuelve a grabar con `FIJAR_CR=1 npm test`; si no lo es, acota
+ * el arreglo al país que lo pidió.
  */
 import type { DatosPais } from "@/agents";
 import { reColores } from "@/agents/base-comportamiento";
