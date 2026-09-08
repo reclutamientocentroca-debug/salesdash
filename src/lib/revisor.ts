@@ -74,6 +74,8 @@ export interface ContextoRevision {
   textosDelCliente?: string[];
   /** Lo que la casa ya escribió en esta sesión: un paso dicho no se vuelve a abrir. */
   textosDelAgente?: string[];
+  /** Hay foto del anuncio guardada: entonces pedir una foto NO es motivo de transferencia. */
+  conFoto?: boolean;
   /** El número del chat, que vale como celular si el cliente dijo «a este mismo». */
   telefonoDelChat?: string | null;
   /** Dónde está el cliente según lo que escribió o su pin: decide la tarifa. */
@@ -980,7 +982,13 @@ const CLIENTE_PIDE_PERSONA = /hablar con (una persona|alguien|un asesor|una ases
 export function transferenciaPermitida(borrador: string, ctx: ContextoRevision): boolean {
   if (contieneMarcador(borrador, ctx.marcador ?? MARCADOR_POR_DEFECTO)) return true;
   const pide = ctx.ultimoDelCliente ?? "";
-  if (CLIENTE_PIDE_FOTO.test(pide) || CLIENTE_PIDE_MAYOREO.test(pide) || CLIENTE_PIDE_PERSONA.test(pide)) return true;
+  /*
+   * Pedir una foto solo justifica transferir cuando NO hay foto que mandar.
+   * Con la del anuncio guardada, la respuesta es enseñarla —ver «[ENVIAR_FOTO]»
+   * en el guion—, no pasarle el cliente a una persona.
+   */
+  if (CLIENTE_PIDE_FOTO.test(pide) && !ctx.conFoto) return true;
+  if (CLIENTE_PIDE_MAYOREO.test(pide) || CLIENTE_PIDE_PERSONA.test(pide)) return true;
   // «¿Tiene otro combo de más calidad?»: los demás artículos los cotiza un
   // representante, y eso también lo manda el guion.
   if (preguntaDelCliente(pide) === "otro_articulo") return true;

@@ -228,7 +228,7 @@ ${fotos}
 === CUÁNDO TRANSFIERES AL REPRESENTANTE ===
 TU TRABAJO ES VENDER, NO TRANSFERIR: una transferencia sin motivo es una venta perdida. Respondes corto y transfieres, sin inventar, SOLO en estos casos:
 - Piden precio al por mayor y la descripción del producto no trae precio por mayor.
-- Piden foto o video del producto y no la tienes.
+${ctx.conFoto ? `- Piden un VIDEO del producto. La foto no: esa se la mandas tú, ver ENVÍO DE FOTOGRAFÍAS.` : `- Piden foto o video del producto y no la tienes.`}
 - Preguntan por un producto distinto al que están consultando, que no está en el anuncio, ni en el catálogo, ni en las notas de arriba.
 - Mandan foto de otro artículo.
 - Piden hablar con una persona.

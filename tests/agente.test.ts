@@ -6,6 +6,7 @@ import {
   armarSistema,
   atenderConversacion,
   elClienteSiguioHablando,
+  leerEtiquetaDeFoto,
   generarRespuesta,
   monedaAjena,
   dentroDeHorario,
@@ -22,6 +23,7 @@ import { contieneMarcador, duenoDelCierre, registrarCierre } from "../src/lib/ci
 import { leerEtiquetaDeAsesor } from "../src/lib/agent";
 import { ingerir } from "../src/lib/ingesta";
 import { direccionDelChat, jidDeDestino } from "../src/lib/telefono";
+import { laFotoAyudaAElegir } from "../src/lib/apertura";
 import type { Resultado } from "../src/lib/agent";
 
 /** Estrecha la unión: si el agente respondió, la prueba debe fallar aquí. */
@@ -567,6 +569,106 @@ test("la primera respuesta de un combo usa la apertura configurada y no la IA li
   assert.match(respuesta.texto, /RD\$1,690/);
   assert.match(respuesta.texto, /Indique su dirección exacta de entrega\./);
   assert.doesNotMatch(respuesta.texto, /talla|color|¿le interesa\?/i);
+});
+
+/**
+ * La etiqueta con la que el agente pide la foto NO la ve el cliente. Estaba
+ * escrita en los tres guiones y no se leía en ninguna parte: le llegaba tal
+ * cual, «[ENVIAR_FOTO]» pegado al mensaje, y sin foto detrás.
+ */
+test("la etiqueta de la foto se quita del mensaje y se lee como petición", () => {
+  const conEtiqueta = leerEtiquetaDeFoto("Aquí se lo muestro.\n[ENVIAR_FOTO]");
+  assert.equal(conEtiqueta.pideFoto, true);
+  assert.equal(conEtiqueta.texto, "Aquí se lo muestro.");
+
+  // Sin corchetes y en minúsculas también: el modelo la escribe de las dos formas.
+  assert.equal(leerEtiquetaDeFoto("Mire. enviar_foto").pideFoto, true);
+  assert.equal(leerEtiquetaDeFoto("¿Qué talla le interesa?").pideFoto, false);
+  assert.equal(leerEtiquetaDeFoto("¿Qué talla le interesa?").texto, "¿Qué talla le interesa?");
+});
+
+/** Lo que se elige se enseña; lo que se vende fijo, no hace falta. */
+test("la foto ayuda a elegir en ropa y calzado, y no en lo que se vende fijo", () => {
+  for (const que of ["PANTALÓN CARGO — RD$1,290", "Camisa de lino", "Polos Bronx originales", "Zapatos de cuero", "Correa de cuero"]) {
+    assert.equal(laFotoAyudaAElegir(que), true, que);
+  }
+  for (const que of ["Combo 2 en 1: cepillo secador + plancha", "Abejón recargable", "Perfume árabe", "Reloj para caballero", null]) {
+    assert.equal(laFotoAyudaAElegir(que), false, String(que));
+  }
+});
+
+/**
+ * Y la regla solo entra en el prompt cuando hay foto guardada. Prometerle una
+ * foto que no existe es peor que no ofrecerla: el cliente dice que sí, no le
+ * llega nada, y el agente queda contestando a una promesa que no puede cumplir.
+ */
+test("el prompt ofrece la foto solo cuando la hay, y si no, transfiere", () => {
+  const agente = D.obtenerAgente(orgId);
+  const anuncio = { origen: "anuncio" as const, producto_anuncio: "Pantalón cargo", descripcion_anuncio: "Pantalón cargo — RD$1,290" };
+
+  const con = armarSistema("Tienda", agente, [], anuncio, undefined, null, null, true);
+  assert.ok(con.includes("[ENVIAR_FOTO]"), "con foto, se le dice cómo mandarla");
+  assert.ok(con.includes("SE ELIGE POR LO QUE SE VE"), "y cuándo va sin que se la pidan");
+  assert.ok(con.includes("NUNCA escribas solo la etiqueta"), "sola dejaría el mensaje vacío");
+
+  const sin = armarSistema("Tienda", agente, [], anuncio, undefined, null, null, false);
+  assert.equal(sin.includes("[ENVIAR_FOTO]"), false, "sin foto no se ofrece ninguna");
+  assert.ok(sin.includes("no hay foto disponible"), "y se transfiere, que es lo que había");
+});
+
+/**
+ * LA FOTO DEL ANUNCIO, CON LA PREGUNTA DE LA TALLA.
+ *
+ * Lo pidió la dueña (2026-09-08): en un pantalón, una camisa o un zapato el
+ * cliente elige por lo que ve, y pedirle la talla de algo que no ha visto es
+ * pedirle que compre a ciegas. Con un combo de cepillo y plancha no: ahí no hay
+ * nada que escoger. La imagen ya se guardaba al entrar el lead; lo que faltaba
+ * era mandársela.
+ */
+test("con ropa o calzado, la primera respuesta pide la foto; con un combo, no", async () => {
+  const prueba = D.crearOrgConDueno({
+    negocio: "Cuenta de la foto",
+    color: "#12876a",
+    nombre: "Dueña",
+    email: `foto-${Date.now()}@local`,
+    passwordHash: "hash",
+  });
+  const canal = D.crearCanal(prueba.orgId, {
+    nombre: "Ventas",
+    phone: `1809${Date.now().toString().slice(-7)}`,
+    tokenCifrado: "x",
+    webhookSecret: "s",
+    whapiChannelId: null,
+    estado: "conectado",
+  });
+  D.actualizarAgente(prueba.orgId, { pais: "do", nombre: "Ana", negocio: "RINCON DCM" }, canal);
+
+  const hola = hiloFalso([{ emisor: "cliente", content: "Hola, quiero más información" }]);
+  const conFoto = true;
+
+  const pantalones = await generarRespuesta(
+    prueba.orgId, canal, hola,
+    { origen: "anuncio", producto_anuncio: "Pantalón cargo", descripcion_anuncio: "PANTALÓN CARGO — RD$1,290. Varios colores." },
+    null, null, null, hola, null, conFoto,
+  );
+  assert.match(pantalones.texto, /¿Qué talla le interesa\?/);
+  assert.equal(pantalones.pideFoto, true, "lo que se elige, se enseña");
+
+  const combo = await generarRespuesta(
+    prueba.orgId, canal, hola,
+    { origen: "anuncio", producto_anuncio: "Combo 2 en 1", descripcion_anuncio: "COMBO 2 EN 1 — SOLO RD$1,690 ✨ Cepillo secador + plancha alisadora." },
+    null, null, null, hola, null, conFoto,
+  );
+  assert.match(combo.texto, /Indique su dirección exacta de entrega\./);
+  assert.equal(combo.pideFoto, false, "un combo no se elige por la foto");
+
+  // Y sin foto guardada no se promete ninguna, se venda lo que se venda.
+  const sinFoto = await generarRespuesta(
+    prueba.orgId, canal, hola,
+    { origen: "anuncio", producto_anuncio: "Pantalón cargo", descripcion_anuncio: "PANTALÓN CARGO — RD$1,290. Varios colores." },
+    null, null, null, hola, null, false,
+  );
+  assert.equal(sinFoto.pideFoto, false);
 });
 
 /**

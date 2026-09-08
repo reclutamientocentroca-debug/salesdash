@@ -658,6 +658,22 @@ test("una transferencia sin motivo no sale; con motivo, sí", () => {
   assert.deepEqual(revisarConReglas(resumen, cierre), []);
 });
 
+/**
+ * Pedir una foto deja de ser motivo de transferencia en cuanto hay foto que
+ * mandar: la respuesta es enseñarla, no pasarle el cliente a una persona.
+ */
+test("con la foto del anuncio guardada, pedirla ya no se transfiere", () => {
+  const pideFoto = { ...rd, ultimoDelCliente: "¿me manda fotos?" };
+  const frase = "Permítame un momento, le transfiero con un representante. [HANDOFF]";
+
+  assert.equal(transferenciaPermitida(frase, pideFoto), true, "sin foto, se transfiere como siempre");
+  assert.equal(transferenciaPermitida(frase, { ...pideFoto, conFoto: true }), false);
+
+  // Y lo que sí sigue transfiriéndose con foto delante: el mayoreo y pedir persona.
+  assert.equal(transferenciaPermitida(frase, { ...rd, ultimoDelCliente: "precio al por mayor?", conFoto: true }), true);
+  assert.equal(transferenciaPermitida(frase, { ...rd, ultimoDelCliente: "quiero hablar con una persona", conFoto: true }), true);
+});
+
 test("Costa Rica transfiere un artículo desconocido sin anuncio", () => {
   const ctx = { ...cr, anuncio: null, catalogo: "Catálogo:\n- Camisa de lino — ₡15.000", ultimoDelCliente: "Quiero una nevera" };
   assert.equal(

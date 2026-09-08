@@ -2082,6 +2082,7 @@ async function atenderTurno(
       clienteCompartioUbicacion: clienteCompartioUbicacion(historial),
       textosDelCliente: textosDelClienteEnSesion(historial),
       textosDelAgente: textosDeLaCasaEnSesion(historial),
+      conFoto: !!foto && !fotoYaEnviada,
       telefonoDelChat: conv.cliente_phone,
       lugarDelCliente:
         ubicacion?.direccion?.provincia ??
