@@ -577,7 +577,7 @@ test("con la dirección ya dada, no se pide el número de casa ni la seña de la
     [],
   );
   // Sin dirección todavía, preguntar por dónde vive sigue siendo el paso.
-  assert.deepEqual(revisarConReglas("Indique su dirección exacta de entrega.", rd), []);
+  assert.deepEqual(revisarConReglas("Indíquenos a qué dirección y provincia le enviamos.", rd), []);
 });
 
 /**
@@ -604,7 +604,7 @@ test("un dato que el cliente no dio no se da por recibido", () => {
   );
   // Y con la talla dicha de verdad, confirmarla no es inventarla.
   const conTalla = { ...sinTalla, ficha: { ...vacia, talla: "XL" }, textosDelCliente: ["XL"], ultimoDelCliente: "XL" };
-  assert.deepEqual(revisarConReglas("Perfecto, ya tenemos su talla XL. Indique su dirección exacta de entrega.", conTalla), []);
+  assert.deepEqual(revisarConReglas("Perfecto, ya tenemos su talla XL. Indíquenos a qué dirección y provincia le enviamos.", conTalla), []);
   // Aunque la ficha no lo haya emparejado, si el cliente la escribió, vale.
   assert.ok(
     !revisarConReglas("Perfecto, ya tenemos su talla. ¿Me facilita su número de teléfono?", { ...sinTalla, textosDelCliente: ["uso la 40"], ultimoDelCliente: "uso la 40" })
@@ -793,7 +793,7 @@ test("con el cliente solo saludando, no se le elige el artículo ni se le piden 
  * EL CASO DE LA DUEÑA (República Dominicana, 2026-09-08): el cliente abrió con
  * «Buenas.k precio», el agente le contestó con el artículo pero sin cifra, le
  * sacó la talla, y cuando insistió —«Primero deme precio»— le respondió
- * «Indique su dirección exacta de entrega.». Dos veces preguntó lo mismo y las
+ * «Indíquenos a qué dirección y provincia le enviamos.». Dos veces preguntó lo mismo y las
  * dos se quedó sin respuesta. Nadie da su dirección antes de saber el precio.
  */
 test("si el cliente pregunta el precio, se le dice antes de seguir", () => {
@@ -805,20 +805,20 @@ test("si el cliente pregunta el precio, se le dice antes de seguir", () => {
   };
 
   assert.ok(
-    revisarConReglas("Indique su dirección exacta de entrega.", preguntaPrecio)
+    revisarConReglas("Indíquenos a qué dirección y provincia le enviamos.", preguntaPrecio)
       .some((f) => f.includes("preguntó el precio")),
   );
 
   // Lo que sí toca: el precio primero y detrás el paso que iba.
   assert.deepEqual(
-    revisarConReglas("Están en RD$2,500. Indique su dirección exacta de entrega.", preguntaPrecio),
+    revisarConReglas("Están en RD$2,500. Indíquenos a qué dirección y provincia le enviamos.", preguntaPrecio),
     [],
   );
 
   // Y sin ningún precio escrito en ninguna parte, no se inventa: se transfiere.
   const sinPrecio = { ...preguntaPrecio, catalogo: "Catálogo:\n(sin catálogo cargado)", anuncio: null };
   assert.ok(
-    revisarConReglas("Indique su dirección exacta de entrega.", sinPrecio)
+    revisarConReglas("Indíquenos a qué dirección y provincia le enviamos.", sinPrecio)
       .some((f) => f.includes("no hay ninguno escrito")),
   );
   assert.deepEqual(
@@ -1020,7 +1020,7 @@ test("al cliente que dice cuándo vuelve no se le siguen pidiendo datos del pedi
   for (const insiste of [
     "Perfecto, hasta esa fecha. ¿Me facilita su número de teléfono para el pedido?",
     "¿A qué número le llama el mensajero, a este mismo?",
-    "Indique su dirección exacta de entrega.",
+    "Indíquenos a qué dirección y provincia le enviamos.",
     "Claro que sí. ¿A nombre de quién sale el pedido?",
   ]) {
     assert.ok(
@@ -1043,7 +1043,7 @@ test("al cliente que dice cuándo vuelve no se le siguen pidiendo datos del pedi
     [],
   );
   assert.deepEqual(
-    revisarConReglas("Indique su dirección exacta de entrega.", { ...aplaza, ultimoDelCliente: "Quiero el combo" }),
+    revisarConReglas("Indíquenos a qué dirección y provincia le enviamos.", { ...aplaza, ultimoDelCliente: "Quiero el combo" }),
     [],
     "al que sigue comprando se le pide lo que falta",
   );
@@ -1150,7 +1150,7 @@ test("un combo no lleva talla aunque el catálogo hable de tallas, y un color qu
   assert.ok(fallas.some((f) => f.includes("empieza con «Hola! Bienvenido(a) a RINCON DCM")), "el primer mensaje no es el del documento");
 
   // El primer mensaje del documento pasa limpio.
-  const bueno = "Hola! Bienvenido(a) a RINCON DCM. Gracias por escribirnos.\n🖤 COMBO 2 EN 1 🖤\nRD$1,690\nIndique su dirección exacta de entrega.";
+  const bueno = "Hola! Bienvenido(a) a RINCON DCM. Gracias por escribirnos.\n🖤 COMBO 2 EN 1 🖤\nRD$1,690\nIndíquenos a qué dirección y provincia le enviamos.";
   assert.deepEqual(revisarConReglas(bueno, combo), []);
   // Y preguntar cuántas unidades es una falla (la dueña, 2026-09-05): se asume una.
   const conCantidad = "Hola! Bienvenido(a) a RINCON DCM. Gracias por escribirnos.\n🖤 COMBO 2 EN 1 🖤\nRD$1,690\n¿Cuántas unidades desea?";
@@ -1185,7 +1185,7 @@ test("a una camisa se le pregunta la talla antes que la provincia, y «Le confir
 
   // Con la talla ya dada, pedir la dirección es lo que toca.
   const conTalla = { ...camisa, esApertura: false, ficha: { ...camisa.ficha, talla: "M" }, ultimoDelCliente: "M" };
-  assert.deepEqual(revisarConReglas("Indique su dirección exacta de entrega.", conTalla), []);
+  assert.deepEqual(revisarConReglas("Indíquenos a qué dirección y provincia le enviamos.", conTalla), []);
   // Y el «Le confirmo» con todo, también.
   const completo = { ...conTalla, ficha: { ...conTalla.ficha, direccion: "Calle 3, Los Mina, Santo Domingo Este", nombre: "Pedro Sabater" }, textosDelCliente: ["M", "Calle 3, Los Mina, Santo Domingo Este", "Pedro Sabater"], ultimoDelCliente: "Pedro Sabater" };
   assert.deepEqual(revisarConReglas("Le confirmo: Polos Bronx Originales, talla M, a nombre de Pedro Sabater, entrega en Calle 3, Los Mina, Santo Domingo Este.\nSon RD$1,400 más RD$250 de envío, total RD$1,650, y se paga al recibir.\n¿Se lo despacho hoy mismo?", completo), []);
@@ -1278,7 +1278,7 @@ test("a unos polos se les pregunta la talla, y el saludo no sale por segunda vez
   assert.ok(fallas.some((f) => f.includes("vuelve a preguntar talla")), "la talla ya la dio");
   assert.ok(fallas.some((f) => f.includes("exactamente lo mismo")), "y el mensaje es el mismo de antes");
   assert.ok(fallas.some((f) => f.includes("vuelve a saludar")), "el saludo va una sola vez");
-  assert.deepEqual(revisarConReglas("Indique su dirección exacta de entrega.", conTalla), []);
+  assert.deepEqual(revisarConReglas("Indíquenos a qué dirección y provincia le enviamos.", conTalla), []);
 
   /*
    * Y con una FOTO en medio tampoco. El segundo caso real: el agente mandó la
@@ -1300,7 +1300,7 @@ test("a unos polos se les pregunta la talla, y el saludo no sale por segunda vez
 test("en RD el teléfono no se pide antes de la dirección, y un día de entrega no se promete", () => {
   const sinDireccion = { ...rd, ficha: { talla: "42", color: null, direccion: null, nombre: null, celular: null, cantidad: null }, ultimoDelCliente: "Cuando vendría llegando?" };
   assert.ok(revisarConReglas("El envío tarda entre 24 y 48 horas. ¿Me facilita su número de teléfono para el pedido?", sinDireccion).some((f) => f.includes("antes de la dirección")));
-  assert.deepEqual(revisarConReglas("Entre 24 y 48 horas. Indique su dirección exacta de entrega.", sinDireccion), []);
+  assert.deepEqual(revisarConReglas("Entre 24 y 48 horas. Indíquenos a qué dirección y provincia le enviamos.", sinDireccion), []);
 
   const conDireccion = { ...sinDireccion, ficha: { ...sinDireccion.ficha, direccion: "Las Matas de Farfán, junta central electoral" }, ultimoDelCliente: "Las Matas de Farfán, junta central electoral" };
   assert.deepEqual(revisarConReglas("Perfecto, hasta Las Matas de Farfán el envío le sale en RD$290.\n¿Me facilita su número de teléfono para el pedido?", conDireccion), []);

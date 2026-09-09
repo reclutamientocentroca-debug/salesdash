@@ -31,7 +31,7 @@
 import type { DatosPais } from "@/agents";
 import { importe, precioPorCantidad, zonaDelCliente } from "@/agents/armar";
 import { reColores, TALLAS_BASE } from "@/agents/base-comportamiento";
-import { FRASE_DE_TRANSFERENCIA } from "@/agents/paises/rd-guion";
+import { FRASE_DE_TRANSFERENCIA, PREGUNTA_DIRECCION_RD } from "@/agents/paises/rd-guion";
 import { FRASE_DE_CIERRE_CR } from "@/agents/paises/cr-guion";
 import { MARCADOR_POR_DEFECTO } from "./cierre";
 import type { FichaDelPedido } from "./memoria";
@@ -448,6 +448,26 @@ export function respuestaMinima(
 
 type PasoDelPedido = "talla" | "color" | "direccion" | "nombre" | "celular" | "resumen";
 
+/**
+ * CON QUÉ PALABRAS SE PIDE LA DIRECCIÓN EN ESTE PAÍS.
+ *
+ * Cada guion tiene la suya y no se mezclan: la dominicana pregunta también por
+ * la provincia —es la que decide la tarifa del envío (la dueña, 2026-09-09)—,
+ * la tica es la de siempre y no se toca, y en Panamá se pregunta por el
+ * corregimiento. Está aquí, en una sola función, porque la escriben el guion
+ * que lee el modelo, la respuesta mecánica y el aviso del revisor.
+ */
+export function preguntaDeDireccion(d: DatosPais): string {
+  switch (d.codigo) {
+    case "do":
+      return PREGUNTA_DIRECCION_RD;
+    case "cr":
+      return "Indique su dirección exacta de entrega.";
+    default:
+      return d.trato === "tu" ? "¿A qué corregimiento te lo enviamos?" : "¿A qué corregimiento se lo enviamos?";
+  }
+}
+
 /** La pregunta de cada paso del pedido, en el orden de venta. */
 function preguntaDelPaso(d: DatosPais, paso: PasoDelPedido, descripcion: string): string {
   const tu = d.trato === "tu";
@@ -457,14 +477,7 @@ function preguntaDelPaso(d: DatosPais, paso: PasoDelPedido, descripcion: string)
     case "color":
       return tu ? "¿Qué color te interesa?" : "¿Qué color le interesa?";
     case "direccion":
-      switch (d.codigo) {
-        case "do":
-          return "Indique su dirección exacta de entrega.";
-        case "cr":
-          return "Indique su dirección exacta de entrega.";
-        default:
-          return tu ? "¿A qué corregimiento te lo enviamos?" : "¿A qué corregimiento se lo enviamos?";
-      }
+      return preguntaDeDireccion(d);
     case "nombre":
       return "¿A nombre de quién sale el pedido?";
     case "celular":

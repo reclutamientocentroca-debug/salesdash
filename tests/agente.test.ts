@@ -586,7 +586,7 @@ test("la primera respuesta de un combo usa la apertura configurada y no la IA li
   assert.match(respuesta.texto, /Hola! Bienvenido\(a\) a RINCON DCM/);
   assert.match(respuesta.texto, /Combo 2 En 1/);
   assert.match(respuesta.texto, /RD\$1,690/);
-  assert.match(respuesta.texto, /Indique su dirección exacta de entrega\./);
+  assert.match(respuesta.texto, /Indíquenos a qué dirección y provincia le enviamos\./);
   assert.doesNotMatch(respuesta.texto, /talla|color|¿le interesa\?/i);
 });
 
@@ -701,7 +701,7 @@ test("en RD la primera respuesta no lleva foto; en Costa Rica sí, y un combo no
     { origen: "anuncio", producto_anuncio: "Combo 2 en 1", descripcion_anuncio: "COMBO 2 EN 1 — SOLO RD$1,690 ✨ Cepillo secador + plancha alisadora." },
     null, null, null, hola, null, conFoto,
   );
-  assert.match(combo.texto, /Indique su dirección exacta de entrega\./);
+  assert.match(combo.texto, /Indíquenos a qué dirección y provincia le enviamos\./);
   assert.equal(combo.pideFoto, false, "un combo no se elige por la foto");
 
   // Y sin foto guardada no se promete ninguna, se venda lo que se venda.

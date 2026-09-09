@@ -474,7 +474,8 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
     // cinturón, aunque la lista de los que no llevan la nombre. Ver `esCorreaLocal`.
     const llevaTalla = conTallaDeAqui(fuentes, d) && !sinVariantesDeAqui(fuentes, d);
     const pideDireccion =
-      /[¿?][^?¿]*(direcci[oó]n|provincia|a d[oó]nde se lo|d[oó]nde se lo enviamos|sector|cant[oó]n|corregimiento)[^?¿]*\?|indique su direcci[oó]n/i.test(texto);
+      /[¿?][^?¿]*(direcci[oó]n|provincia|a d[oó]nde se lo|d[oó]nde se lo enviamos|sector|cant[oó]n|corregimiento)[^?¿]*\?/i.test(texto) ||
+      PIDE_LA_DIRECCION_SIN_PREGUNTAR.test(texto);
     if (llevaTalla && ctx.ficha && !ctx.ficha.talla && pideDireccion && !PREGUNTA_TALLA.test(llano(texto))) {
       fallas.push("pide la dirección o la provincia antes de la talla, y este artículo lleva talla: primero «¿Qué talla le interesa?»");
     }
@@ -537,7 +538,7 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
     !ctx.ficha.direccion &&
     /[¿?][^?¿]*(tel[eé]fono|celular|n[uú]mero de contacto|n[uú]mero le llama)[^?¿]*\?/i.test(texto)
   ) {
-    fallas.push("pide el teléfono antes de la dirección: primero «Indique su dirección exacta de entrega.», y el teléfono va en el mismo mensaje que el costo de envío");
+    fallas.push(`pide el teléfono antes de la dirección: primero «${preguntaDeDireccion(d)}», y el teléfono va en el mismo mensaje que el costo de envío`);
   }
 
   /*
@@ -1125,12 +1126,22 @@ function preguntaPorElConjunto(texto: string): boolean {
   );
 }
 
+/**
+ * PEDIR LA DIRECCIÓN SIN SIGNOS DE INTERROGACIÓN.
+ *
+ * Los dos guiones de la dueña la piden mandando: «Indique su dirección exacta
+ * de entrega.» en Costa Rica y «Indíquenos a qué dirección y provincia le
+ * enviamos.» en República Dominicana. Ninguna lleva «?», así que las reglas
+ * que buscan preguntas no las ven y hay que reconocerlas aparte.
+ */
+const PIDE_LA_DIRECCION_SIN_PREGUNTAR = /\bind[ií]que(?:nos|me)?\b[^.?!\n]{0,20}\bdirecci[oó]n\b/i;
+
 /** Cómo suena preguntarle al cliente QUÉ quiere. Sin artículo no hay precio que dar. */
 const PREGUNTA_QUE_ARTICULO =
   /[¿?][^?¿]*\b(qu[eé]|cu[aá]l|cu[aá]les)\b[^?¿]*\b(art[ií]culo|art[ií]culos|producto|productos|modelo|le interesa|te interesa|busca|buscas|desea|deseas)\b[^?¿]*\?/i;
 
 const PIDE_UN_DATO_DEL_PEDIDO =
-  /[¿?][^?¿]*\b(talla|tallas|n[uú]mero|numeraci[oó]n|size|color|colores|direcci[oó]n|sector|provincia|cant[oó]n|corregimiento|tel[eé]fono|celular|whatsapp|nombre|a nombre de|d[oó]nde (se lo|lo|le))\b[^?¿]*\?|\bindique su direcci[oó]n\b|\bme (facilita|regala|confirma) su\b/i;
+  /[¿?][^?¿]*\b(talla|tallas|n[uú]mero|numeraci[oó]n|size|color|colores|direcci[oó]n|sector|provincia|cant[oó]n|corregimiento|tel[eé]fono|celular|whatsapp|nombre|a nombre de|d[oó]nde (se lo|lo|le))\b[^?¿]*\?|\bind[ií]que(?:nos|me)?\b[^.?!\n]{0,20}\bdirecci[oó]n\b|\bme (facilita|regala|confirma) su\b/i;
 
 /**
  * Pregunta talla, número o color y las fuentes no dicen que el artículo los

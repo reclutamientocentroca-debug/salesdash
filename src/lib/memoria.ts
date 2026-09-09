@@ -107,8 +107,9 @@ function ultimaPregunta(contenido: string): string | null {
   const preguntas = contenido
     .split(/(?<=[?.!\n])/)
     .map((f) => f.trim())
-    // Una petición en imperativo («Indique su dirección exacta de entrega.») también pregunta.
-    .filter((f) => (f.endsWith("?") || /^(indique|ind[ií]queme|me indica|d[ií]game|escr[ií]bame)\b/i.test(f)) && f.length >= 6);
+    // Una petición en imperativo («Indíquenos a qué dirección y provincia le
+    // enviamos.») también pregunta.
+    .filter((f) => (f.endsWith("?") || /^(ind[ií]que(nos|me)?|me indica|d[ií]game|escr[ií]bame)\b/i.test(f)) && f.length >= 6);
   return preguntas[preguntas.length - 1] ?? null;
 }
 

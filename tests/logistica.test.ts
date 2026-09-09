@@ -118,7 +118,7 @@ test("el prompt del agente lleva la tarifa del cliente cuando la escribió, y el
    * venta esperando una respuesta que muchas veces no llegaba.
    */
   assert.ok(pos("6. Nombre real") < pos("7. Resumen final"));
-  assert.ok(ritmo.includes("Indique su dirección exacta de entrega."));
+  assert.ok(ritmo.includes("Indíquenos a qué dirección y provincia le enviamos."));
   assert.ok(ritmo.includes("Perfecto, hasta <zona> el envío le sale en RD$<250 o 290>."), "el envío y el teléfono en el mismo mensaje");
   assert.ok(ritmo.includes("¿Me facilita su número de teléfono para el pedido?"));
   assert.ok(ritmo.includes("Nunca tomas el nombre de ninguna fuente que no sea la boca del cliente"));

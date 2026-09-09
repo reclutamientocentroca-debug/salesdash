@@ -239,7 +239,7 @@ test("la contestación tardía a la pregunta pendiente sigue la venta, no la emp
   // Y el que vuelve de verdad —escribe otra cosa, no una contestación— sí abre otra compra.
   const vuelve = [
     ...hilo,
-    { emisor: "ia", content: "Indique su dirección exacta de entrega.", created_at: t0 + 60 + 14 * 3600 + 60 },
+    { emisor: "ia", content: "Indíquenos a qué dirección y provincia le enviamos.", created_at: t0 + 60 + 14 * 3600 + 60 },
     { emisor: "cliente", content: "Hola, quiero información de otro artículo", created_at: t0 + 4 * 24 * 3600 },
   ];
   assert.equal(esClienteQueVuelve(vuelve), true);
@@ -330,14 +330,14 @@ test("una frase suelta no es una dirección, ni un color, ni una talla", () => {
       rd,
     );
 
-  assert.equal(contesta("Indique su dirección exacta de entrega.", "Si yo.le escomprado").direccion, null);
+  assert.equal(contesta("Indíquenos a qué dirección y provincia le enviamos.", "Si yo.le escomprado").direccion, null);
   assert.equal(contesta("¿Qué color le interesa?", "Para cuando").color, null);
   assert.equal(contesta("¿Qué talla le interesa?", "Para cuando").talla, null);
   assert.equal(contesta("¿A nombre de quién sale el pedido?", "Si yo.le escomprado").nombre, null);
 
   // Y lo que sí es el dato, sigue entrando.
-  assert.equal(contesta("Indique su dirección exacta de entrega.", "Calle Duarte #70, Brisas del Este").direccion, "Calle Duarte #70, Brisas del Este");
-  assert.equal(contesta("Indique su dirección exacta de entrega.", "Los Alcarrizos").direccion, "Los Alcarrizos", "un sector del país es una dirección");
+  assert.equal(contesta("Indíquenos a qué dirección y provincia le enviamos.", "Calle Duarte #70, Brisas del Este").direccion, "Calle Duarte #70, Brisas del Este");
+  assert.equal(contesta("Indíquenos a qué dirección y provincia le enviamos.", "Los Alcarrizos").direccion, "Los Alcarrizos", "un sector del país es una dirección");
   assert.equal(contesta("¿Qué color le interesa?", "negro").color, "negro");
   assert.equal(contesta("¿Qué color le interesa?", "el chocolate").color, "el chocolate");
   assert.equal(contesta("¿Qué talla le interesa?", "la 42").talla, "la 42");

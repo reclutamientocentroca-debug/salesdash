@@ -53,6 +53,21 @@ export interface ContextoGuionRD {
 /** La frase con la que se avisa antes de transferir. Siempre la misma. */
 export const FRASE_DE_TRANSFERENCIA = "Permítame un momento, le transfiero con un representante.";
 
+/**
+ * CON QUÉ PALABRAS SE PIDE LA DIRECCIÓN, en República Dominicana.
+ *
+ * La dueña (2026-09-09): «esa pregunta podría ser indíquenos a qué dirección y
+ * provincia le enviamos». Era «Indique su dirección exacta de entrega.», que
+ * suena a formulario y no dice lo que de verdad hace falta saber: la provincia
+ * es la que decide la tarifa del envío, y sin ella el agente tiene que volver
+ * a preguntar.
+ *
+ * Va aquí, en un solo sitio, porque la escriben dos: el guion que lee el
+ * modelo y la respuesta mecánica de `apertura.ts`. Costa Rica tiene la suya y
+ * no se toca: ver la nota de «COSTA RICA VA SOLA».
+ */
+export const PREGUNTA_DIRECCION_RD = "Indíquenos a qué dirección y provincia le enviamos.";
+
 export function guionRD(ctx: ContextoGuionRD): string {
   // «Resumen de su pedido:» lleva dentro el marcador por defecto y el panel lo
   // reconoce. Con un marcador propio de la cuenta, se usa ese tal cual.
@@ -72,7 +87,7 @@ export function guionRD(ctx: ContextoGuionRD): string {
   const seSabeQueEs = ctx.llevaTalla !== null && ctx.llevaTalla !== undefined;
 
   /** La pregunta con la que se sigue en cuanto se dice el precio. */
-  const trasElPrecio = sinTalla ? "Indique su dirección exacta de entrega." : "¿Qué talla le interesa?";
+  const trasElPrecio = sinTalla ? PREGUNTA_DIRECCION_RD : "¿Qué talla le interesa?";
 
   const productoEnContexto = ctx.conAnuncio || ctx.conFoto;
   const anuncio = productoEnContexto
@@ -137,7 +152,7 @@ Si tienes duda de si el producto lleva talla, no la preguntas. Sigues con el res
         .join("\n");
 
   const ejemploFueraDeTurno = sinTalla
-    ? `- Cliente en el paso de dirección pregunta «¿a cómo son?» → «Están en RD$<precio>. Indique su dirección exacta de entrega.»`
+    ? `- Cliente en el paso de dirección pregunta «¿a cómo son?» → «Están en RD$<precio>. ${PREGUNTA_DIRECCION_RD}»`
     : `- Cliente en el paso de talla pregunta «¿a cómo son?» → «Están en RD$<precio> el paquete. ¿Qué talla usa?»`;
 
   const ejemploDeTono = sinColor
@@ -153,7 +168,7 @@ ${trasElPrecio}${
     seSabeQueEs
       ? ``
       : `
-Si el producto no lleva talla ni color, cierras con: Indique su dirección exacta de entrega.`
+Si el producto no lleva talla ni color, cierras con: ${PREGUNTA_DIRECCION_RD}`
   }${
     sinTalla
       ? ``
@@ -239,7 +254,7 @@ TONO — REGLA FIJA
 Tratas al cliente de usted siempre. Nada de voseo ni de tuteo («querés», «usás», «pagás», «tu dirección»). Suena flojo y le quita autoridad a la venta.
 Pero «usted» no significa sonar tieso ni pedir permiso. Hablas con confianza, como alguien que domina lo que vende:
 ${ejemploDeTono}
-- SÍ: «Indique su dirección exacta de entrega.» · NO: «¿Me podrías dar tu dirección si no es molestia?»
+- SÍ: «${PREGUNTA_DIRECCION_RD}» · NO: «¿Me podrías dar tu dirección si no es molestia?»
 - SÍ: «Se lo enviamos dentro de 24 a 48 horas.» · NO: «¿Le gustaría que tal vez se lo enviemos?»
 Frases cortas, afirmativas, sin rodeos y sin exceso de cortesía. Cercano y seguro. Al cliente no se le llama «maestro», «jefe», «amigo» ni ningún apodo: por su nombre cuando él lo dé, o sin nada.
 
@@ -269,7 +284,7 @@ Si sí hay anuncio, nombre de producto o foto de producto en el contexto, salta 
 ${primerMensaje}${pasoTalla}${pasoColor}
 
 ${nDireccion}. Dirección
-Indique su dirección exacta de entrega.
+${PREGUNTA_DIRECCION_RD}
 LA DIRECCIÓN SE PIDE UNA SOLA VEZ. Con lo que el cliente conteste ya se despacha: la das por buena y pasas al costo de envío. NO le pides ni un dato más de ella: ni el número de casa, ni el apartamento, ni el piso, ni una seña para reconocer la puerta, ni el color de la casa, ni un punto de referencia, ni el nombre del edificio, ni que la repita «para confirmar». Si mandó su ubicación por el mapa, ESA es su dirección y vale igual de buena: se la confirmas en corto por su sector y sigues. El mensajero llama al teléfono, que sí se pide en el paso siguiente; cada repregunta por la puerta es una venta que se cae.
 
 ${nDireccion + 1}. Costo de envío + teléfono (REGLA FIJA — no se modifica)
