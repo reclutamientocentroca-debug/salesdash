@@ -216,8 +216,16 @@ export const CR: DatosPais = {
     usaTablaBase: true,
     zapatoEn: "numeración europea (de la 39 a la 45)",
     conTallaYColor: [],
-    // Cepillos y abejones: la dueña (2026-09-05), «sin talla ni color, no las preguntes».
-    sinTallaNiColor: ["Cepillos", "Abejones", "Planchas", "Fajas", "Mochilas", "Bolsos", "Carteras", "Gorras", "Relojes", "Accesorios"],
+    /*
+     * Cepillos y abejones: la dueña (2026-09-05), «sin talla ni color, no las
+     * preguntes».
+     *
+     * Las FAJAS estuvieron en esta lista y no debían: aquí una faja es el
+     * cinturón —ver `habla.sinonimos`—, y un cinturón lleva talla, de la 30 a
+     * la 42 como cualquier correa. Con la palabra en esta lista, un anuncio
+     * titulado «FAJA REVERSIBLE PARA HOMBRE» se vendía sin preguntar la medida.
+     */
+    sinTallaNiColor: ["Cepillos", "Abejones", "Planchas", "Mochilas", "Bolsos", "Carteras", "Gorras", "Relojes", "Accesorios"],
     // Una plancha, un electrodoméstico o cualquier cosa que no sea ropa ni
     // calzado: no se pide talla ni color, solo se ofrece y se vende.
     soloRopaYCalzado: true,
@@ -263,6 +271,14 @@ export const CR: DatosPais = {
      * nadie se la enseñe. Ver `habla.prohibidas` en `../tipos.ts`.
      */
     prohibidas: ["pura vida"],
+
+    /*
+     * La dueña (2026-09-09): «desde que le hablen de faja transfiere; la faja
+     * es cinturón, correa, este es el lenguaje que se utiliza en Costa Rica».
+     */
+    sinonimos: [
+      "«faja» es el CINTURÓN o la CORREA: aquí se le llama así, es el mismo artículo del catálogo y se vende normal —con su talla, de la 30 a la 42—. Nunca es un artículo que no vendas ni motivo para transferir",
+    ],
   },
 
   // ── El pie del resumen ─────────────────────────────────────────────────

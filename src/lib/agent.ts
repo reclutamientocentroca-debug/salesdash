@@ -889,8 +889,9 @@ export function armarSistema(
     ? descripcionDelAnuncio
     : anuncio?.producto_anuncio?.trim() ?? "";
   const articuloConocido = nombraUnArticulo(textoDelArticulo);
-  const conTalla = articuloConocido ? llevaTalla(textoDelArticulo) : null;
-  const conColor = articuloConocido ? llevaColor(textoDelArticulo) : null;
+  const paisDelArticulo = agenteDePais(agente.pais);
+  const conTalla = articuloConocido ? llevaTalla(textoDelArticulo, paisDelArticulo) : null;
+  const conColor = articuloConocido ? llevaColor(textoDelArticulo, paisDelArticulo) : null;
 
   /*
    * EL PAÍS DEL CANAL, en sus dos mitades.

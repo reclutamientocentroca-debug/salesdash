@@ -100,11 +100,34 @@ const CALZADO = /\b(zapato|zapatos|calzado|tenis|bota|botas|mocas[ií]n|mocasine
 const COLORES = reColores("gi");
 
 /**
+ * EN COSTA RICA, «FAJA» ES EL CINTURÓN.
+ *
+ * Lo dijo la dueña (2026-09-09): así se le llama aquí a la correa, y no a una
+ * faja moldeadora. El agente tico transfería en cuanto el cliente escribía la
+ * palabra —«faja» no estaba en el catálogo, que dice «correa», así que la leía
+ * como un artículo que la tienda no vende— y encima, cuando el anuncio venía
+ * titulado «FAJA REVERSIBLE PARA HOMBRE», la vendía sin preguntar la talla: un
+ * cinturón de cuero despachado sin saber la medida.
+ *
+ * Es la MISMA correa de la tabla de tallas, de la 30 a la 42, y se vende como
+ * cualquier otra. Solo en Costa Rica: en República Dominicana una faja es una
+ * faja, se vende fija y no lleva talla ni color.
+ */
+const FAJA = /\bfajas?\b/i;
+
+export function esCorreaLocal(texto: string, d: DatosPais | null | undefined): boolean {
+  return d?.codigo === "cr" && FAJA.test(texto);
+}
+
+/**
  * El artículo lleva talla solo si es ropa o calzado. Todo lo demás —el cepillo
  * secador, la plancha, el combo, el abejón— se vende fijo, en una sola medida.
+ *
+ * El país entra porque una misma palabra no nombra lo mismo en los tres: ver
+ * `esCorreaLocal`. Sin país se clasifica como siempre.
  */
-export function llevaTalla(descripcion: string): boolean {
-  return ROPA.test(descripcion) || CALZADO.test(descripcion);
+export function llevaTalla(descripcion: string, d?: DatosPais | null): boolean {
+  return ROPA.test(descripcion) || CALZADO.test(descripcion) || esCorreaLocal(descripcion, d);
 }
 
 /**
@@ -126,8 +149,8 @@ export function llevaTalla(descripcion: string): boolean {
  * nombra, se los dices; si no, le preguntas cuál quiere a secas y con la foto
  * delante. Eso está escrito en el paso del color de los guiones.
  */
-export function llevaColor(descripcion: string): boolean {
-  return ROPA.test(descripcion) || CALZADO.test(descripcion);
+export function llevaColor(descripcion: string, d?: DatosPais | null): boolean {
+  return ROPA.test(descripcion) || CALZADO.test(descripcion) || esCorreaLocal(descripcion, d);
 }
 
 /** Primer mensaje cuando todavía no existe un producto identificado. */
@@ -235,7 +258,7 @@ export function primeraPregunta(descripcion: string, d: DatosPais): string {
   const texto = descripcion;
   const tu = d.trato === "tu";
   if (CALZADO.test(texto)) return d.codigo === "do" ? "¿Qué talla le interesa?" : tu ? "¿Qué número calzas?" : "¿Qué número calza?";
-  if (ROPA.test(texto)) return tu ? "¿Qué talla te interesa?" : "¿Qué talla le interesa?";
+  if (ROPA.test(texto) || esCorreaLocal(texto, d)) return tu ? "¿Qué talla te interesa?" : "¿Qué talla le interesa?";
   // Sin talla, a dónde se lo enviamos: la cantidad NO se pregunta nunca, se
   // asume una unidad salvo que el cliente diga otra (la dueña, 2026-09-05).
   return preguntaDelPaso(d, "direccion", descripcion);
@@ -331,8 +354,8 @@ export function respuestaMinima(
   if (clienteAplazaCompra(opciones.ultimoDelCliente)) {
     return "Entiendo, no hay problema. Cuando esté listo para ordenar, escríbanos y con gusto le atendemos.";
   }
-  const pideTalla = llevaTalla(descripcion);
-  const llevaColorEnDescripcion = llevaColor(descripcion);
+  const pideTalla = llevaTalla(descripcion, d);
+  const llevaColorEnDescripcion = llevaColor(descripcion, d);
 
   // El orden de los guiones de la dueña (2026-09-05): talla si la lleva,
   // dirección, teléfono con el costo de envío, nombre y el cierre. La cantidad
@@ -695,7 +718,9 @@ export function tallasDisponibles(descripcion: string, d: DatosPais): string | n
   if (!d.tallas.usaTablaBase) return null;
   const fila = (articulo: string) => TALLAS_BASE.find((f) => f.articulo === articulo)?.tallas ?? null;
   if (CALZADO.test(descripcion)) return d.tallas.zapatoEn || fila("Zapatos");
-  if (/\b(correa|correas|cintur[oó]n|cinturones)\b/i.test(descripcion)) return fila("Correas y cinturones");
+  if (/\b(correa|correas|cintur[oó]n|cinturones)\b/i.test(descripcion) || esCorreaLocal(descripcion, d)) {
+    return fila("Correas y cinturones");
+  }
   if (/\b(pantal[oó]n|pantalones|jean|jeans|short|shorts|bermuda)\b/i.test(descripcion)) return fila("Pantalones");
   if (/\b(camisas?|polos?|t-?shirts?|franelas?|blusas?|chacabanas?|su[eé]ter|sudadera|chaqueta|abrigo|b[oó]xers?|underwear)\b/i.test(descripcion)) return fila("Camisas, t-shirts, polos y boxers");
   return null;

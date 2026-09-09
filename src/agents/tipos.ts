@@ -158,6 +158,22 @@ export interface DatosPais {
     agenteCotiza: boolean;
     /** A partir de cuántas unidades es mayoreo. Null = no se sabe. */
     desde: number | null;
+    /**
+     * LA LISTA DE PRECIOS POR CANTIDAD, artículo por artículo.
+     *
+     * Lo que la dueña dicta cuando dice «los polos, de 1 a 2 a RD$1,400; de 3
+     * a 11, a RD$1,190; por docena, a RD$990 cada uno». Sin esto, el precio
+     * del anuncio era el único que existía: tres polos se cobraban al precio
+     * de uno por tres, y a quien preguntaba por la docena se le pasaba a un
+     * representante porque el agente no tenía la cifra.
+     *
+     * Es una lista de PRECIOS, no de descuentos: cada tramo dice lo que cuesta
+     * CADA UNIDAD dentro de él. El primero es el precio de siempre, el mismo
+     * que lleva escrito el anuncio, y por eso se comprueba: la escala solo se
+     * aplica cuando el precio del anuncio es ese. Un polo anunciado a otro
+     * precio es otro polo, y ahí no hay escala que valga.
+     */
+    escalas?: EscalaDePrecio[];
   };
 
   // ── Cambios y devoluciones ─────────────────────────────────────────────

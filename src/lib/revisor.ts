@@ -48,7 +48,7 @@ import { completarJson, ErrorIA } from "./ia";
 import { MODELO_ANALISIS, type Mensaje } from "./db";
 import { conLoVistoYOido } from "./percepcion";
 import { expresionesDelPais, pareceColor, pareceTalla, preguntasRepetidas, unidadesPorColores, type FichaDelPedido } from "./memoria";
-import { clienteAplazaCompra, familiasNombradas, nombraUnArticulo, preguntaDelCliente, PREGUNTA_COLOR } from "./apertura";
+import { clienteAplazaCompra, esCorreaLocal, familiasNombradas, nombraUnArticulo, preguntaDelCliente, preguntaDeDireccion, PREGUNTA_COLOR } from "./apertura";
 import { zonaDelCliente } from "@/agents";
 import { contieneLugar } from "./envio";
 import { obtenerPais } from "./paises";
@@ -459,7 +459,9 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
   // lo enviamos?» a unos polos, sin haber preguntado la talla.
   {
     const fuentes = llano(ctx.anuncio ? ctx.anuncio : ctx.catalogo);
-    const llevaTalla = CON_TALLA_SIEMPRE.test(fuentes) && !SIN_VARIANTES.test(fuentes);
+    // En Costa Rica una «faja» es la correa: lleva talla como cualquier
+    // cinturón, aunque la lista de los que no llevan la nombre. Ver `esCorreaLocal`.
+    const llevaTalla = conTallaDeAqui(fuentes, d) && !sinVariantesDeAqui(fuentes, d);
     const pideDireccion =
       /[¿?][^?¿]*(direcci[oó]n|provincia|a d[oó]nde se lo|d[oó]nde se lo enviamos|sector|cant[oó]n|corregimiento)[^?¿]*\?|indique su direcci[oó]n/i.test(texto);
     if (llevaTalla && ctx.ficha && !ctx.ficha.talla && pideDireccion && !PREGUNTA_TALLA.test(llano(texto))) {
@@ -498,7 +500,7 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
   {
     const f = ctx.ficha;
     const fuentes = llano(ctx.anuncio ? ctx.anuncio : ctx.catalogo);
-    const faltaTalla = CON_TALLA_SIEMPRE.test(fuentes) && !SIN_VARIANTES.test(fuentes) && !f?.talla;
+    const faltaTalla = conTallaDeAqui(fuentes, d) && !sinVariantesDeAqui(fuentes, d) && !f?.talla;
     // El celular es dato de cierre en los guiones de la dueña; en Panamá no.
     const faltaCelular = (d.codigo === "do" || d.codigo === "cr") && !f?.celular;
     const completa = !!f?.nombre && !!f?.direccion && !faltaTalla && !faltaCelular;
@@ -1047,6 +1049,21 @@ const SIN_VARIANTES =
 const CON_TALLA_SIEMPRE =
   /\b(camisas?|pantalon|pantalones|t-?shirts?|polos?|boxers?|zapatos?|tenis|botas?|mocasin|mocasines|sandalias?|calzado|correas?|cinturon|cinturones)\b/i;
 
+/*
+ * LAS DOS LISTAS DE ARRIBA, CON EL PAÍS DELANTE.
+ *
+ * Una palabra no nombra lo mismo en los tres países: en Costa Rica la «faja»
+ * es el cinturón —lleva talla, de la 30 a la 42— y en República Dominicana es
+ * una faja, que se vende fija. Sin esto, el revisor tico paraba la pregunta de
+ * la talla de una correa por estar la palabra en la lista de los que no llevan.
+ * Ver `esCorreaLocal` en `apertura.ts`, que es donde vive la regla.
+ */
+const sinVariantesDeAqui = (fuentes: string, d: DatosPais): boolean =>
+  SIN_VARIANTES.test(fuentes) && !esCorreaLocal(fuentes, d);
+
+const conTallaDeAqui = (fuentes: string, d: DatosPais): boolean =>
+  CON_TALLA_SIEMPRE.test(fuentes) || esCorreaLocal(fuentes, d);
+
 /** Lo que en un anuncio o catálogo dice CON PALABRAS que hay tallas o números. */
 const HAY_TALLAS_EXPLICITAS = /\btallas?\b|\bsize\b|numeraci[oó]n|\bx?xl\b|\bs\s*[,\/-]\s*m\b|\bde la s a la\b/i;
 
@@ -1123,8 +1140,9 @@ export function preguntaDeVarianteSinVariante(borrador: string, ctx: ContextoRev
 
   const sinVariantesDelPais = ctx.datos.tallas.sinTallaNiColor.map((s) => llano(s));
   const esDeLosQueNoLlevan =
-    SIN_VARIANTES.test(fuentes) || sinVariantesDelPais.some((s) => s && fuentes.includes(s.replace(/s$/, "")));
-  const esRopaOCalzado = CON_TALLA_SIEMPRE.test(fuentes);
+    !esCorreaLocal(fuentes, ctx.datos) &&
+    (SIN_VARIANTES.test(fuentes) || sinVariantesDelPais.some((s) => s && fuentes.includes(s.replace(/s$/, ""))));
+  const esRopaOCalzado = conTallaDeAqui(fuentes, ctx.datos);
 
   /*
    * ¿Las fuentes dicen que hay tallas? Con la palabra, siempre. Con solo
@@ -1194,6 +1212,10 @@ const CLIENTE_PIDE_FOTO = /\b(foto|fotos|imagen|im[aá]genes|video|videos)\b|ver
 const CLIENTE_PIDE_MAYOREO = /\bmayor(eo|ista)?\b|al por mayor|por mayor|revender|reventa|\bdocena|precio (por|de) cantidad|varias unidades para vender/i;
 const CLIENTE_PIDE_PERSONA = /hablar con (una persona|alguien|un asesor|una asesora|un representante|un humano|un agente|el due[ñn]o|la due[ñn]a)|persona real|\bhumano\b|\bhumana\b|no quiero (un )?(bot|robot)/i;
 
+/** Cómo suena pasar a una persona por un artículo que la tienda no vende. */
+const SUENA_A_ARTICULO_AJENO =
+  /(?:transfier|representante|asesor|confirmo con el equipo|no (?:lo|la) (?:vendemos|manejamos)|no aparece en (?:el )?cat[aá]logo)/i;
+
 /**
  * ¿ESTA TRANSFERENCIA TIENE MOTIVO? Con el resumen, siempre. Sin resumen, solo
  * si el cliente acaba de pedir una foto, precio al por mayor o una persona, o
@@ -1212,11 +1234,22 @@ export function transferenciaPermitida(borrador: string, ctx: ContextoRevision):
   // «¿Tiene otro combo de más calidad?»: los demás artículos los cotiza un
   // representante, y eso también lo manda el guion.
   if (preguntaDelCliente(pide) === "otro_articulo") return true;
-  if (
-    ctx.datos.codigo === "cr" &&
-    !ctx.anuncio &&
-    /(?:transfier|representante|asesor|confirmo con el equipo|no (?:lo|la) (?:vendemos|manejamos)|no aparece en (?:el )?cat[aá]logo)/i.test(borrador)
-  ) return true;
+  /*
+   * COSTA RICA SIN ANUNCIO: el artículo que la tienda NO vende sí se pasa a
+   * una persona, y eso lo manda el guion.
+   *
+   * PERO NO POR EL NOMBRE QUE LE DÉ EL CLIENTE. El caso que paró la dueña
+   * (2026-09-09): en cuanto alguien escribía «faja», el agente tico
+   * transfería. Aquí «faja» es el cinturón —el catálogo lo llama «correa»— y
+   * es la misma correa de siempre: una venta perdida por una palabra. Si lo
+   * que el cliente nombró es de una familia que la tienda tiene en el
+   * catálogo, no hay nada que pasarle a nadie: se vende.
+   */
+  if (ctx.datos.codigo === "cr" && !ctx.anuncio && SUENA_A_ARTICULO_AJENO.test(borrador)) {
+    const suyas = familiasNombradas(pide).map((f) => f.familia);
+    const seVenden = new Set(familiasNombradas(ctx.catalogo ?? "").map((f) => f.familia));
+    if (!suyas.some((f) => seVenden.has(f))) return true;
+  }
   /*
    * EL ARTÍCULO DEL ANUNCIO NO TIENE PRECIO EN NINGÚN SITIO.
    *

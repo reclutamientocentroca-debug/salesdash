@@ -388,8 +388,13 @@ test("con todos los datos sale directamente el resumen del pedido", () => {
  */
 test("en Costa Rica el envío y el teléfono van juntos tras la dirección, y el cierre despacha", () => {
   const faja = { descripcion_anuncio: "FAJA REVERSIBLE PARA HOMBRE ₡9.000" };
-  const base = { talla: null, color: null, direccion: null, nombre: null, celular: null, cantidad: null };
+  const vacia = { talla: null, color: null, direccion: null, nombre: null, celular: null, cantidad: null };
 
+  // La faja tica es la correa: se vende igual que ella, talla y color primero.
+  assert.equal(respuestaMinima(cr, vacia, faja, {}), "¿Qué talla le interesa?");
+  assert.equal(respuestaMinima(cr, { ...vacia, talla: "34" }, faja, {}), "¿Qué color le interesa?");
+
+  const base = { ...vacia, talla: "34", color: "negro" };
   const pideDireccion = respuestaMinima(cr, base, faja, {});
   assert.equal(pideDireccion, "Indique su dirección exacta de entrega.");
 

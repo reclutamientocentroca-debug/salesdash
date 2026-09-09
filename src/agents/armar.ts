@@ -321,6 +321,18 @@ export function bloqueDelPais(
     `ASÍ HABLA LA GENTE AQUÍ — ${d.habla.descripcion}`,
     d.habla.expresiones.map((e) => `- ${e}`).join("\n"),
     /*
+     * CÓMO LLAMA LA GENTE DE AQUÍ A LO QUE VENDES. Va pegado a cómo habla,
+     * porque es lo mismo: el nombre que el cliente usa. Sin esto, el agente
+     * tico transfería en cuanto alguien escribía «faja».
+     */
+    ...(d.habla.sinonimos?.length
+      ? [
+          "",
+          `CÓMO LLAMAN AQUÍ A LO QUE VENDES. Es el MISMO artículo con otro nombre, no uno que no tengas: véndelo con normalidad y no transfieras por esto.`,
+          d.habla.sinonimos.map((e) => `- ${e}`).join("\n"),
+        ]
+      : []),
+    /*
      * LO QUE NO SE DICE, aparte y con todas las letras. Dejarlo fuera de la
      * lista de arriba no basta: el modelo sabe decir «pura vida» sin que nadie
      * se lo enseñe, y en Costa Rica la soltaba al saludar, al agradecer y al

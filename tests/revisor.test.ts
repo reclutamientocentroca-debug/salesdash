@@ -878,6 +878,39 @@ test("Costa Rica transfiere un artículo desconocido sin anuncio", () => {
   );
 });
 
+/**
+ * PERO NO POR EL NOMBRE QUE LE DÉ EL CLIENTE.
+ *
+ * La dueña (2026-09-09): «en Costa Rica, desde que le hablen de faja,
+ * transfiere; la faja es cinturón, correa, este es el lenguaje que se utiliza
+ * aquí, debe vender de forma normal». El catálogo dice «correa», el cliente
+ * dice «faja», y esa palabra costaba la venta entera.
+ */
+test("en Costa Rica «faja» es la correa del catálogo: no se transfiere por eso", () => {
+  const transfiere = "Permítame un momento, le transfiero con un representante. [HANDOFF]";
+  const catalogo = "Catálogo:\n- Correa reversible para hombre — ₡9.000\n- Cepillo secador — ₡12.500";
+  const conFaja = { ...cr, anuncio: null, catalogo, ultimoDelCliente: "Buenas, me interesa la faja" };
+
+  assert.equal(transferenciaPermitida(transfiere, conFaja), false, "eso es la correa, y se vende");
+  assert.ok(
+    revisarConReglas(transfiere, conFaja).some((f) => f.includes("sin motivo")),
+    "y el revisor para el borrador que la pasa a una persona",
+  );
+
+  // Lo que de verdad no se vende sigue pasando a una persona.
+  assert.equal(
+    transferenciaPermitida(transfiere, { ...conFaja, ultimoDelCliente: "¿tienen refrigeradoras?" }),
+    true,
+  );
+
+  // Y preguntar la talla de una faja tica es lo correcto: es un cinturón.
+  const anuncioFaja = { ...cr, anuncio: "FAJA REVERSIBLE PARA HOMBRE ₡9.000", esApertura: true };
+  assert.deepEqual(
+    revisarConReglas("Hola, le asiste Mildred de TELLERIA\nFAJA REVERSIBLE PARA HOMBRE\n₡9.000\n¿Qué talla le interesa?", anuncioFaja),
+    [],
+  );
+});
+
 /** El saludo va una sola vez: fuera de la apertura, presentarse otra vez no sale. */
 test("presentarse otra vez a mitad de conversación no sale", () => {
   const enMedio = { ...cr, esApertura: false };
