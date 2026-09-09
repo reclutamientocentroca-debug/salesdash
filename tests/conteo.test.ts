@@ -1151,3 +1151,143 @@ test("el agente de Costa Rica cobra por SINPE, pide señas y no pide talla a una
   assert.ok(cr.includes("AQUÍ NO SE RESERVA NADA"));
   assert.ok(cr.includes("SE ENVÍA dentro de 24 a 48 horas"));
 });
+
+// ── La foto del anuncio, en grande ──────────────────────────────────────────
+
+/**
+ * LO QUE LE LLEGABA AL CLIENTE QUE PIDE LA FOTO: UNA MINIATURA PIXELADA.
+ *
+ * WhatsApp mete la creatividad dentro del mensaje del anuncio, y esa copia son
+ * unos kilobytes: sirve para leerle el precio escrito encima, no para
+ * enseñársela a quien está a punto de comprar. En el mismo `externalAdReply`
+ * viene el enlace a la foto entera, y es esa la que se guarda y se reenvía.
+ */
+test("la creatividad grande sustituye a la miniatura, y solo se baja una vez", async () => {
+  const MINIATURA = Buffer.alloc(2 * 1024, 7);
+  const GRANDE = Buffer.alloc(180 * 1024, 9);
+  const URL = "https://scontent.xx.fbcdn.net/creatividad-entera.jpg";
+
+  const original = globalThis.fetch;
+  let descargas = 0;
+  globalThis.fetch = (async (u: string | URL | Request) => {
+    assert.equal(String(u), URL, "solo se baja la foto del anuncio");
+    descargas++;
+    return new Response(new Uint8Array(GRANDE), {
+      status: 200,
+      headers: { "content-type": "image/jpeg", "content-length": String(GRANDE.length) },
+    });
+  }) as typeof fetch;
+
+  const delAnuncio = (id: string, chatId: string): MensajeEntrante => ({
+    id, deMi: false, chatId, tipo: "texto", content: "hola, quiero esa",
+    mediaUrl: null, cuando: 1_700_800_000, nombre: "Rosa",
+    deAnuncio: true, productoAnuncio: "Set de sábanas", descripcionAnuncio: "Set de sábanas — RD$1,290",
+    metaAdId: "ad-hd-1",
+    imagenAnuncio: MINIATURA,
+    imagenAnuncioUrlGrande: URL,
+  });
+
+  try {
+    await ingerir(canalDePruebas(), [delAnuncio("hd-1", "18095551111@s.whatsapp.net")], {
+      dentroDePeticion: false,
+      historico: true,
+    });
+
+    const { leer } = await import("../src/lib/media");
+    const a = D.anuncioMetaPorAdId(orgId, "ad-hd-1");
+
+    assert.ok(a?.imagen, "el anuncio se quedó con una foto");
+    assert.equal(a.imagen_hd, 1, "queda marcado que ya se buscó la grande");
+    assert.equal(
+      leer(orgId, a.imagen!)?.datos.length,
+      GRANDE.length,
+      "lo guardado es la foto entera, no la miniatura del mensaje",
+    );
+
+    // El segundo cliente del MISMO anuncio no repite la descarga: esto corre
+    // con el cliente esperando la respuesta.
+    await ingerir(canalDePruebas(), [delAnuncio("hd-2", "18095552222@s.whatsapp.net")], {
+      dentroDePeticion: false,
+      historico: true,
+    });
+    assert.equal(descargas, 1, "una descarga por anuncio, no una por lead");
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+/**
+ * Y la copia que Meta ya tenía de la miniatura se tira con ella. Sin eso, el
+ * canal de Messenger seguiría reenviando para siempre el `attachment_id` de la
+ * foto borrosa: subir la buena no habría servido de nada.
+ */
+test("al llegar la grande se tira el adjunto que Meta tenía de la miniatura", async () => {
+  const URL = "https://scontent.xx.fbcdn.net/otra-creatividad.jpg";
+  const GRANDE = Buffer.alloc(120 * 1024, 3);
+
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(new Uint8Array(GRANDE), {
+      status: 200,
+      headers: { "content-type": "image/jpeg" },
+    })) as typeof fetch;
+
+  try {
+    D.registrarAnuncioVisto(orgId, "ad-hd-2", "Cafetera", { imagen: null });
+    D.guardarAdjuntoAnuncio(orgId, "ad-hd-2", "adjunto-de-la-miniatura");
+
+    await ingerir(
+      canalDePruebas(),
+      [{
+        id: "hd-3", deMi: false, chatId: "18095553333@s.whatsapp.net", tipo: "texto",
+        content: "buenas", mediaUrl: null, cuando: 1_700_800_100, nombre: "Luz",
+        deAnuncio: true, productoAnuncio: "Cafetera", descripcionAnuncio: null,
+        metaAdId: "ad-hd-2", imagenAnuncio: Buffer.alloc(1024, 1), imagenAnuncioUrlGrande: URL,
+      }],
+      { dentroDePeticion: false, historico: true },
+    );
+
+    const a = D.anuncioMetaPorAdId(orgId, "ad-hd-2");
+    assert.equal(a?.attachment_id, null, "la copia de la borrosa ya no vale");
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+/**
+ * Hay formatos que en ese enlace devuelven la MISMA vista previa. Cambiar una
+ * foto por otra igual no arregla nada y cuesta una subida entera a Meta con el
+ * cliente esperando, así que se mira lo que pesa antes de dar el cambio por
+ * bueno.
+ */
+test("si el enlace trae lo mismo que la miniatura, no se cambia nada", async () => {
+  const MINIATURA = Buffer.alloc(4 * 1024, 5);
+
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(new Uint8Array(Buffer.alloc(2 * 1024, 5)), {
+      status: 200,
+      headers: { "content-type": "image/jpeg" },
+    })) as typeof fetch;
+
+  try {
+    await ingerir(
+      canalDePruebas(),
+      [{
+        id: "hd-4", deMi: false, chatId: "18095554444@s.whatsapp.net", tipo: "texto",
+        content: "buenas", mediaUrl: null, cuando: 1_700_800_200, nombre: "Sara",
+        deAnuncio: true, productoAnuncio: "Faja", descripcionAnuncio: null,
+        metaAdId: "ad-hd-3", imagenAnuncio: MINIATURA, imagenAnuncioUrlGrande: "https://scontent.xx.fbcdn.net/igual.jpg",
+      }],
+      { dentroDePeticion: false, historico: true },
+    );
+
+    const { leer } = await import("../src/lib/media");
+    const a = D.anuncioMetaPorAdId(orgId, "ad-hd-3");
+
+    assert.equal(leer(orgId, a!.imagen!)?.datos.length, MINIATURA.length, "se queda la que ya había");
+    assert.equal(a?.imagen_hd, 1, "pero no se vuelve a intentar con cada lead");
+  } finally {
+    globalThis.fetch = original;
+  }
+});

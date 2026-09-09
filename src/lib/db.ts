@@ -3373,6 +3373,8 @@ export interface AnuncioMeta {
   post_id: string | null; enlace: string | null;
   /** La foto del anuncio ya subida a Meta, lista para reenviar. */
   attachment_id: string | null;
+  /** 1 cuando ya se buscó la foto en grande, se encontrara o no. */
+  imagen_hd: number;
 }
 
 export function listarAnunciosMeta(orgId: number) {

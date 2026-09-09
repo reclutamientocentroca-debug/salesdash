@@ -38,6 +38,7 @@ import {
   insertMessage,
   marcarActividadCanal,
   anuncioMetaPorAdId,
+  guardarImagenGrandeAnuncio,
   registrarAnuncioVisto,
   type Canal,
   type Emisor,
@@ -116,6 +117,15 @@ export interface MensajeEntrante {
    * la creatividad es la misma para todos.
    */
   imagenAnuncioUrl?: string | null;
+  /**
+   * La creatividad ENTERA, como enlace, cuando quien la trae sabe dónde está.
+   *
+   * Distinto de `imagenAnuncioUrl`, que es la vista previa: esta es la foto en
+   * su tamaño real y es la que se le reenvía al cliente que la pide. WhatsApp
+   * la manda en el mismo `externalAdReply` que la miniatura; Messenger no la
+   * sabe todavía en este punto y la busca después, en la publicación.
+   */
+  imagenAnuncioUrlGrande?: string | null;
   /**
    * La publicación de Facebook que hay detrás del anuncio.
    *
@@ -296,6 +306,36 @@ export async function ingerir(
             imagen,
             postId: m.postAnuncioId ?? null,
           });
+
+          /*
+           * LA FOTO EN GRANDE, QUE ES LA QUE SE LE MANDA AL CLIENTE.
+           *
+           * Lo que se guardó arriba es la miniatura que viaja dentro del
+           * mensaje: unos kilobytes. Vale para que el modelo lea lo que hay
+           * escrito encima, y NO vale para reenviársela a quien pide ver el
+           * producto —le llega pixelada—. Aquí se baja la de verdad y pisa a la
+           * miniatura, igual que hace `completarAnunciosPendientes` en Meta.
+           *
+           * UNA VEZ POR ANUNCIO, marcada con `imagen_hd`. Sin esa marca, cada
+           * lead del mismo anuncio repetiría la descarga con el cliente
+           * esperando; y se marca también cuando no se consigue, que es la
+           * diferencia entre «no la hay» y «no lo hemos intentado».
+           *
+           * Solo si de verdad es más grande que la miniatura. Hay formatos que
+           * devuelven en ese enlace la misma vista previa, y cambiar una foto
+           * por otra igual para borrar de paso el `attachment_id` de Meta sería
+           * pagar una subida entera para dejar al cliente como estaba.
+           */
+          if (m.imagenAnuncioUrlGrande && !guardado?.imagen_hd) {
+            const grande = await descargarImagen(m.imagenAnuncioUrlGrande, 8_000);
+            const mejor = grande && grande.length > (m.imagenAnuncio?.length ?? 0) ? grande : null;
+
+            guardarImagenGrandeAnuncio(
+              orgId,
+              m.metaAdId,
+              mejor ? guardarArchivo(orgId, `anuncio-hd:${m.metaAdId}`, "imagen", mejor) : null,
+            );
+          }
         } catch (e) {
           // El anuncio es contexto, no la conversación: que falle no puede
           // impedir que el mensaje del cliente entre.

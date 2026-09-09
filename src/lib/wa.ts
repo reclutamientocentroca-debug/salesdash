@@ -349,6 +349,25 @@ function traducir(m: WAMessage): MensajeEntrante | null {
      * qué habla. WhatsApp manda esa miniatura en el mismo mensaje.
      */
     imagenAnuncio: anuncio?.thumbnail ? Buffer.from(anuncio.thumbnail) : null,
+    /*
+     * Y EL ENLACE A ESA MISMA CREATIVIDAD, ENTERA.
+     *
+     * La miniatura de arriba viaja DENTRO del mensaje, y por eso pesa lo que
+     * pesa: unos kilobytes, un par de cientos de píxeles de ancho. Para leerle
+     * el precio escrito encima sobra. Pero es TAMBIÉN la que se le reenviaba al
+     * cliente que pregunta «¿me manda la foto?», y esa llegaba pixelada en
+     * cuanto la abría: la foto del producto que quiere comprar, borrosa.
+     *
+     * WhatsApp manda además la dirección de la creatividad en el CDN de Meta.
+     * Se descarga en `ingesta.ts` —el traductor no llama a nadie— y sustituye a
+     * la miniatura. Es el mismo arreglo que ya se hizo del lado de Messenger
+     * con la foto de la publicación, que allí llegaba con el mismo problema.
+     *
+     * Los tres campos por orden de calidad, y el primero que venga: no todos
+     * los formatos de anuncio mandan los tres.
+     */
+    imagenAnuncioUrlGrande:
+      anuncio?.originalImageUrl || anuncio?.thumbnailUrl || anuncio?.mediaUrl || null,
   };
 }
 
