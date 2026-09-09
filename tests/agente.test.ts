@@ -20,7 +20,8 @@ import {
   revisarAgente,
 } from "../src/lib/agent";
 import { contieneMarcador, duenoDelCierre, registrarCierre } from "../src/lib/cierre";
-import { leerEtiquetaDeAsesor } from "../src/lib/agent";
+import { leerEtiquetaDeAsesor, ponerUbicacionResuelta } from "../src/lib/agent";
+import { fichaDelHilo } from "../src/lib/memoria";
 import { ingerir } from "../src/lib/ingesta";
 import { direccionDelChat, jidDeDestino } from "../src/lib/telefono";
 import { laFotoAyudaAElegir, laFotoVaConEstaRespuesta } from "../src/lib/apertura";

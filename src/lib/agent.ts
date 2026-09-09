@@ -80,6 +80,27 @@ import { bloqueDeEnvio } from "./envio";
 import { conLoVistoYOido, modelosDePercepcion, percibir } from "./percepcion";
 import { ubicacionParaModelo, validarUbicacion, type UbicacionValidada } from "./ubicacion";
 
+/**
+ * LA DIRECCIÓN RESUELTA VUELVE AL HILO QUE SE ESTÁ LEYENDO, no solo a la base.
+ *
+ * Aquí estaba el agujero de República Dominicana: el pin entra como
+ * «[ubicación]» a secas, el mapa lo convierte en «[ubicación] Avenida Rómulo
+ * Betancourt…» —que es lo que acaba enseñando el panel— pero eso se guardaba
+ * únicamente con un UPDATE. Los mensajes que ya estaban en memoria seguían
+ * diciendo «[ubicación]», y de ellos sale la ficha del pedido: la ficha decía
+ * que no había dirección y el agente le pedía la dirección a un cliente que
+ * acababa de mandarla por el mapa.
+ *
+ * Se busca por id y en TODAS las listas: la del prompt y la de la ficha son
+ * dos consultas distintas y no comparten objetos.
+ */
+export function ponerUbicacionResuelta(listas: Mensaje[][], id: number, texto: string): void {
+  for (const lista of listas) {
+    const m = lista.find((x) => x.id === id);
+    if (m) m.content = texto;
+  }
+}
+
 /** Un texto sin tildes, sin mayúsculas y en una sola línea, para comparar dos mensajes. */
 function llanoDeUnaLinea(t: string): string {
   return t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
@@ -1975,11 +1996,9 @@ async function atenderTurno(
 
         const { textoDeUbicacionResuelta } = await import("./ubicacion");
         const { guardarUbicacionResuelta } = await import("./db");
-        guardarUbicacionResuelta(
-          orgId,
-          ultimoFresco.id,
-          textoDeUbicacionResuelta(ultimoFresco.content, direccion),
-        );
+        const resuelto = textoDeUbicacionResuelta(ultimoFresco.content, direccion);
+        guardarUbicacionResuelta(orgId, ultimoFresco.id, resuelto);
+        ponerUbicacionResuelta([historial, memoriaMensajes], ultimoFresco.id, resuelto);
       }
     } catch (e) {
       console.error(`[agente] no se pudo describir la ubicación de ${conversationId}`, e);
@@ -2227,6 +2246,7 @@ async function atenderTurno(
         const minima = respuestaMinima(datosPais, contexto.ficha, anuncioVigente(conv), {
           ultimoDelCliente: ultimo.content,
           ultimoDelAgente: contexto.ultimoDelAgente,
+          clienteCompartioUbicacion: contexto.clienteCompartioUbicacion,
           lugar: contexto.lugarDelCliente,
           telefonoDelChat: conv.cliente_phone,
           marcador: contexto.marcador,

@@ -309,6 +309,8 @@ export function respuestaMinima(
     marcador?: string;
     /** Cómo se presenta el artículo, si el anuncio lo trae con título. */
     productoAnuncio?: string | null;
+    /** Si el cliente mandó su ubicación por el mapa en esta sesión. */
+    clienteCompartioUbicacion?: boolean;
   } = {},
 ): string {
   const descripcion = anuncio?.descripcion_anuncio ?? "";
@@ -349,6 +351,25 @@ export function respuestaMinima(
     if (resumen) return resumen;
     // Sin zona conocida no hay envío ni total: se pide la provincia.
     return otraFormaDePreguntar(d, "direccion", descripcion);
+  }
+
+  /*
+   * AL QUE MANDÓ SU UBICACIÓN NO SE LE PIDE LA DIRECCIÓN COMO SI NO HUBIERA
+   * MANDADO NADA.
+   *
+   * Aquí se llega con el pin puesto y sin dirección escrita: el mapa no
+   * devolvió calle ninguna y WhatsApp no mandó ni el nombre del sitio. Hace
+   * falta saber la zona para cobrar el envío, pero se pregunta RECONOCIENDO lo
+   * que el cliente ya hizo. Repetirle «Indique su dirección exacta de entrega.»
+   * —el caso real de República Dominicana— es decirle que su ubicación no
+   * llegó.
+   */
+  if (paso === "direccion" && opciones.clienteCompartioUbicacion) {
+    const zona =
+      d.codigo === "cr" ? "¿En qué cantón queda?"
+        : d.codigo === "do" ? "¿En qué sector o provincia queda?"
+          : "¿En qué corregimiento queda?";
+    return `Ya me llegó su ubicación, gracias. ${zona}`;
   }
 
   let pregunta =

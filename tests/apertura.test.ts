@@ -174,6 +174,40 @@ test("el cliente que dice cuándo vuelve se despide, no se le sigue pidiendo el 
   );
 });
 
+/**
+ * AL QUE MANDÓ SU UBICACIÓN NO SE LE PIDE LA DIRECCIÓN COMO SI NO HUBIERA
+ * MANDADO NADA.
+ *
+ * Un pin del que ni el mapa ni WhatsApp sacaron una calle no deja dirección
+ * escrita, así que la zona hay que preguntarla —el envío depende de ella—,
+ * pero reconociendo lo que el cliente ya hizo. Repetirle «Indique su dirección
+ * exacta de entrega.» —el caso real de República Dominicana— es decirle que su
+ * ubicación no llegó.
+ */
+test("con la ubicación ya mandada, la respuesta mínima no vuelve a pedir la dirección", () => {
+  const vacia = { talla: null, color: null, direccion: null, nombre: null, celular: null, cantidad: null };
+  const combo = { descripcion_anuncio: "COMBO 2 EN 1 cepillo secador + plancha RD$1,690" };
+
+  assert.equal(
+    respuestaMinima(rd, vacia, combo, { clienteCompartioUbicacion: true }),
+    "Ya me llegó su ubicación, gracias. ¿En qué sector o provincia queda?",
+  );
+  assert.equal(
+    respuestaMinima(cr, vacia, { descripcion_anuncio: "Cepillo secador ₡12.500" }, { clienteCompartioUbicacion: true }),
+    "Ya me llegó su ubicación, gracias. ¿En qué cantón queda?",
+  );
+
+  // Sin pin, el paso de la dirección es el de siempre.
+  assert.equal(respuestaMinima(rd, vacia, combo), "Indíquenos a qué dirección y provincia le enviamos.");
+
+  // Y con la dirección ya en la ficha no se pregunta nada de esto: sigue el pedido.
+  const conDireccion = { ...vacia, direccion: "Avenida Rómulo Betancourt, Distrito Nacional" };
+  assert.equal(
+    respuestaMinima(rd, conDireccion, combo, { clienteCompartioUbicacion: true }),
+    "Perfecto, hasta Gran Santo Domingo el envío le sale en RD$250.\n¿Me facilita su número de teléfono para el pedido?",
+  );
+});
+
 test("la apertura segura lleva saludo, artículo, precio y pregunta, y nada inventado", () => {
   const texto = aperturaSegura(
     rd,

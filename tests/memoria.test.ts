@@ -460,6 +460,60 @@ test("el revisor para la respuesta que vuelve a preguntar lo que ya está en la 
   assert.deepEqual(revisarConReglas("Con gusto. ¿Me confirma para levantar el pedido?", ctx), []);
 });
 
+/**
+ * EL PIN DEL MAPA ES LA DIRECCIÓN, Y NO SE VUELVE A PEDIR.
+ *
+ * El caso real (RD): «¿Cuál sería su dirección exacta de entrega?» → el cliente
+ * mandó su ubicación —Avenida Rómulo Betancourt, Renacimiento, Santo Domingo—
+ * y el agente le contestó «Indíquenos a qué dirección y provincia le enviamos.». Dos
+ * agujeros a la vez: la ficha solo se quedaba con el pin cuando su texto
+ * nombraba una zona del catálogo de envíos, y el freno de las preguntas
+ * repetidas buscaba signos de interrogación —esa frase no lleva ninguno—.
+ */
+test("la ubicación que manda el cliente es su dirección, y no se le vuelve a pedir", () => {
+  const pin = "[ubicación] Avenida Rómulo Betancourt, Renacimiento, Santo Domingo de Guzmán, Distrito Nacional";
+  const conPin = [
+    { emisor: "ia", content: "¡Quedan pocos POLOS BROTEX ORIGINALES en inventario! ¿Cuál sería su dirección exacta de entrega?" },
+    { emisor: "cliente", content: pin },
+  ];
+
+  const ficha = fichaDelPedido(conPin, rd);
+  assert.equal(
+    ficha.direccion,
+    "Avenida Rómulo Betancourt, Renacimiento, Santo Domingo de Guzmán, Distrito Nacional",
+    "la dirección del pin, y sin la marca: la ficha la lee el modelo y la escribe en el resumen",
+  );
+
+  // La frase del guion no lleva signos de interrogación, y es la que salió.
+  for (const repite of [
+    "Indíquenos a qué dirección y provincia le enviamos.",
+    "Indique su dirección exacta de entrega.",
+    "Indíqueme su dirección exacta de entrega.",
+    "Por favor indique la dirección exacta de entrega",
+    "Necesito su dirección exacta para el envío",
+  ]) {
+    assert.ok(
+      preguntasRepetidas(repite, ficha).some((f) => f.includes("dirección")),
+      `se para «${repite}»`,
+    );
+  }
+
+  // Y decir la dirección no es pedirla: el resumen la escribe en cada venta.
+  assert.deepEqual(
+    preguntasRepetidas("Direccion: Avenida Rómulo Betancourt\nTOTAL A PAGAR: RD$1,940", ficha),
+    [],
+  );
+
+  /*
+   * Un pin sin nada legible —ni el mapa ni WhatsApp devolvieron calle— no deja
+   * dirección escrita: no hay nada que escribir. Pero el cliente contestó, y
+   * eso se sabe por otro camino.
+   */
+  const soloPin = [{ emisor: "cliente", content: "[ubicación]" }];
+  assert.equal(fichaDelPedido(soloPin, rd).direccion, null);
+  assert.equal(clienteCompartioUbicacion(soloPin), true);
+});
+
 test("la ubicación compartida solo cuenta si llegó en esta sesión", () => {
   const t0 = 1_700_000_000;
   const conPin = [

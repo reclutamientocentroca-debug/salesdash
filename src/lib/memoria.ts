@@ -45,7 +45,7 @@ import { agenteDePais, zonaDelCliente, type DatosPais } from "@/agents";
 import { reColores } from "@/agents/base-comportamiento";
 import { nombraUnArticulo } from "./apertura";
 import { nombresDeLugar } from "./envio";
-import { esUbicacion } from "./ubicacion";
+import { esUbicacion, textoSinMarca } from "./ubicacion";
 
 export interface FichaDelPedido {
   talla: string | null;
@@ -446,6 +446,30 @@ function fichaDe(sesion: MensajeDeMemoria[], datos: DatosPais | null): FichaDelP
        */
       const abierta = campoPendiente(sesion[i - 1]);
 
+      /*
+       * EL PIN DEL MAPA ES LA DIRECCIÓN, y no hace falta que nombre un sector
+       * conocido para serlo.
+       *
+       * El caso real (RD): el cliente mandó su ubicación —«Avenida Rómulo
+       * Betancourt, Renacimiento, Santo Domingo de Guzmán»— y el agente le
+       * contestó «Indique su dirección exacta de entrega.». La ficha no la
+       * tenía porque la ubicación solo entraba aquí de rebote, cuando el texto
+       * del pin nombraba una zona del catálogo de envíos.
+       *
+       * Se guarda SIN la marca: la ficha la lee el modelo y la escribe en el
+       * resumen, y «[ubicación]» dentro de una línea de dirección es basura
+       * para quien despacha. Un pin sin nada legible no deja dirección escrita
+       * —no hay nada que escribir— pero sigue contando como que el cliente ya
+       * contestó: eso lo mira `clienteCompartioUbicacion`.
+       */
+      if (esUbicacion(m.content)) {
+        const escrito = textoSinMarca(m.content);
+        if (escrito !== "Ubicación enviada por el cliente") {
+          ficha.direccion = escrito.slice(0, 160);
+        }
+        continue;
+      }
+
       // Un sitio del país escrito por él es su dirección hasta que dé otra.
       // «¿Envían a Las Matas de Farfán?» es una pregunta, no su dirección.
       if (
@@ -593,6 +617,30 @@ const PREGUNTA_POR: Record<CampoDelPedido, RegExp> = {
 };
 
 /**
+ * PEDIR UN DATO NO SIEMPRE LLEVA SIGNOS DE PREGUNTA.
+ *
+ * El paso de la dirección de los guiones de la dueña se escribe mandando:
+ * «Indique su dirección exacta de entrega.». No es una pregunta —no lleva ni
+ * «¿» ni «?»— así que los patrones de arriba no la veían, y era justo la frase
+ * que el agente le repetía al cliente que acababa de mandar su ubicación por el
+ * mapa. Aquí se reconoce lo mismo dicho en imperativo.
+ *
+ * Hace falta el VERBO de pedir delante del dato: sin él, la línea «Direccion:
+ * Calle Duarte #70» del resumen —que dice la dirección, no la pide— entraría
+ * como si volviera a preguntarla.
+ */
+const PIDIENDO = "(?:indique|indiquenos|indiqueme|digame|deme|escriba|escribame|mande|mandeme|envie|envieme|facilite|faciliteme|proporcione|comparta|confirme|confirmeme|regaleme|necesito|necesitamos)";
+const conVerbo = (dato: string) => new RegExp(`\\b${PIDIENDO}\\b[^.!\\n]{0,40}\\b(?:${dato})\\b`, "i");
+
+const PEDIDO_EN_IMPERATIVO: Partial<Record<CampoDelPedido, RegExp>> = {
+  talla: conVerbo("talla|numero que calza|numero de calzado|medida"),
+  color: conVerbo("color"),
+  direccion: conVerbo("direccion|ubicacion|sector|provincia|canton|corregimiento"),
+  nombre: conVerbo("nombre"),
+  celular: conVerbo("telefono|celular|numero de (?:telefono|celular|whatsapp)|numero al que|numero para"),
+};
+
+/**
  * Las preguntas del borrador que ya están contestadas en la ficha. Cada una
  * es una falla con la que el revisor para la respuesta.
  */
@@ -601,7 +649,7 @@ export function preguntasRepetidas(borrador: string, f: FichaDelPedido): string[
   const fallas: string[] = [];
   for (const campo of Object.keys(PREGUNTA_POR) as CampoDelPedido[]) {
     if (!f[campo]) continue;
-    if (PREGUNTA_POR[campo].test(b)) {
+    if (PREGUNTA_POR[campo].test(b) || PEDIDO_EN_IMPERATIVO[campo]?.test(b)) {
       fallas.push(`vuelve a preguntar ${ETIQUETAS[campo].toLowerCase()}, y el cliente ya lo dijo: «${f[campo]}»`);
     }
   }
