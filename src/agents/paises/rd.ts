@@ -389,6 +389,27 @@ export const RD: DatosPais = {
     // mayor SI la descripción del anuncio lo trae; si no lo trae, transfiere.
     agenteCotiza: true,
     desde: 3,
+    /*
+     * LOS POLOS, dictados por la dueña (2026-09-09): «de 1 unidad a 2, cuestan
+     * 1,400; de 3 a 11 piezas, 1,190; por docena, 990 cada uno».
+     *
+     * Antes esto no estaba en ninguna parte: el agente solo conocía el precio
+     * del anuncio, así que tres polos se cobraban a RD$1,400 cada uno —la
+     * tienda cobrando de más y el cliente comparando con el vecino— y a quien
+     * preguntaba por la docena se le pasaba a un representante, que es una
+     * venta al por mayor esperando a que alguien la mire.
+     */
+    escalas: [
+      {
+        articulo: "Polos",
+        palabras: "polos?",
+        tramos: [
+          { desde: 1, hasta: 2, precio: 1400 },
+          { desde: 3, hasta: 11, precio: 1190 },
+          { desde: 12, hasta: null, precio: 990 },
+        ],
+      },
+    ],
   },
 
   // ── Cambios y devoluciones ─────────────────────────────────────────────

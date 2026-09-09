@@ -38,6 +38,25 @@ export interface ZonaDeEnvio {
   pago?: string;
 }
 
+/** Un tramo de la lista de precios: de tantas a tantas unidades, a tanto cada una. */
+export interface TramoDePrecio {
+  desde: number;
+  /** Null = de ahí en adelante. */
+  hasta: number | null;
+  /** Lo que cuesta CADA unidad dentro del tramo. */
+  precio: number;
+}
+
+/** La lista de precios por cantidad de UN artículo. Ver `mayoreo.escalas`. */
+export interface EscalaDePrecio {
+  /** Cómo se llama en el prompt: «Polos». */
+  articulo: string;
+  /** Cómo lo nombran el anuncio y el catálogo, para reconocerlo. */
+  palabras: string;
+  /** Los tramos, de menos unidades a más. El primero es el precio de siempre. */
+  tramos: TramoDePrecio[];
+}
+
 export interface DatosPais {
   /** ISO 3166-1 alfa-2 en minúsculas: el mismo código que lleva el canal. */
   codigo: string;
@@ -197,6 +216,17 @@ export interface DatosPais {
      * nombre de nadie: ver `expresionesDelPais` en `lib/memoria.ts`.
      */
     prohibidas?: string[];
+    /**
+     * CÓMO LLAMA LA GENTE DE AQUÍ A LO QUE SE VENDE, cuando la palabra del
+     * país no es la del catálogo.
+     *
+     * NO son artículos distintos: son el mismo con otro nombre, y por eso van
+     * aquí y no en el catálogo. El caso que lo trajo (Costa Rica, 2026-09-09):
+     * en cuanto el cliente escribía «faja» —que aquí es el cinturón— el agente
+     * lo leía como algo que la tienda no vende y pasaba el chat a una persona.
+     * Cada línea se escribe entera, como se le dice al modelo.
+     */
+    sinonimos?: string[];
   };
 
   // ── El pie del resumen ─────────────────────────────────────────────────

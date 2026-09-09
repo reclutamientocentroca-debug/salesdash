@@ -49,7 +49,7 @@ import { MODELO_ANALISIS, type Mensaje } from "./db";
 import { conLoVistoYOido } from "./percepcion";
 import { expresionesDelPais, pareceColor, pareceTalla, preguntasRepetidas, unidadesPorColores, type FichaDelPedido } from "./memoria";
 import { clienteAplazaCompra, esCorreaLocal, familiasNombradas, nombraUnArticulo, preguntaDelCliente, preguntaDeDireccion, PREGUNTA_COLOR } from "./apertura";
-import { zonaDelCliente } from "@/agents";
+import { escalaDelArticulo, zonaDelCliente } from "@/agents";
 import { contieneLugar } from "./envio";
 import { obtenerPais } from "./paises";
 
@@ -169,6 +169,17 @@ const FORMAS_DE_PAGO = /contra entrega|contraentrega|transferencia|\bsinpe\b|\by
 function cifrasConocidas(ctx: ContextoRevision): number[] {
   const fuentes = [ctx.catalogo, ctx.anuncio ?? ""].join("\n");
   const salida = new Set<number>();
+
+  /*
+   * LA LISTA DE PRECIOS POR CANTIDAD TAMBIÉN ES UN PRECIO ESCRITO.
+   *
+   * Los polos dominicanos van a RD$1,190 de tres a once y a RD$990 por docena
+   * (la dueña, 2026-09-09), y esas cifras no están en el anuncio: están en los
+   * datos del país. Sin meterlas aquí, el agente cotizaba bien la docena y el
+   * revisor le paraba la respuesta por precio inventado.
+   */
+  const escala = escalaDelArticulo(ctx.datos, fuentes);
+  for (const t of escala?.tramos ?? []) salida.add(t.precio);
   for (const m of fuentes.matchAll(/\d[\d.,]*/g)) {
     const crudo = m[0].replace(/[.,]+$/, "");
     if (!crudo) continue;
@@ -1230,7 +1241,18 @@ export function transferenciaPermitida(borrador: string, ctx: ContextoRevision):
    * en el guion—, no pasarle el cliente a una persona.
    */
   if (CLIENTE_PIDE_FOTO.test(pide) && !ctx.conFoto) return true;
-  if (CLIENTE_PIDE_MAYOREO.test(pide) || CLIENTE_PIDE_PERSONA.test(pide)) return true;
+  /*
+   * EL MAYOREO SE TRANSFIERE CUANDO NO HAY PRECIO QUE DAR, y solo entonces.
+   * Con la lista de precios por cantidad del país —los polos: 1,400 de una o
+   * dos, 1,190 de tres a once, 990 por docena— el agente cotiza él mismo, y
+   * pasar ese chat a una persona es dejar esperando la venta más grande del
+   * día. Ver `mayoreo.escalas`.
+   */
+  if (CLIENTE_PIDE_MAYOREO.test(pide)) {
+    const fuentes = [ctx.catalogo, ctx.anuncio ?? ""].join("\n");
+    if (!escalaDelArticulo(ctx.datos, fuentes)) return true;
+  }
+  if (CLIENTE_PIDE_PERSONA.test(pide)) return true;
   // «¿Tiene otro combo de más calidad?»: los demás artículos los cotiza un
   // representante, y eso también lo manda el guion.
   if (preguntaDelCliente(pide) === "otro_articulo") return true;

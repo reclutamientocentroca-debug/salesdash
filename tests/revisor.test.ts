@@ -870,6 +870,38 @@ test("reservar, apartar, guardar o separar no sale, se diga como se diga", () =>
   }
 });
 
+/**
+ * LOS PRECIOS POR CANTIDAD SON PRECIOS ESCRITOS, Y NO SE TRANSFIERE POR ELLOS.
+ *
+ * La dueña (2026-09-09): los polos van a RD$1,400 de una o dos, RD$1,190 de
+ * tres a once y RD$990 por docena. Esas dos últimas cifras no están en el
+ * anuncio, así que el revisor las habría parado como precio inventado; y a
+ * quien preguntaba por la docena se le pasaba a un representante en vez de
+ * venderle doce polos.
+ */
+test("el precio por cantidad de los polos se cotiza y no se transfiere", () => {
+  const polos = {
+    ...rd,
+    catalogo: "Catálogo:\n- Polos Bronx — 1400",
+    anuncio: "🖤 POLOS BRONX ORIGINALES 🖤 RD$1,400",
+    ultimoDelCliente: "¿a cómo la docena?",
+  };
+
+  assert.deepEqual(revisarConReglas("Llevando 3 le salen a RD$1,190 cada uno.", polos), []);
+  assert.deepEqual(revisarConReglas("La docena le sale a RD$990 cada uno, RD$11,880 en total.", polos), []);
+  assert.ok(
+    revisarConReglas("Se los dejo a RD$1,050 cada uno.", polos).some((f) => f.includes("no está escrito")),
+    "y un precio que no es de la lista sigue siendo inventado",
+  );
+
+  const transfiere = "Permítame un momento, le paso con un representante. [HANDOFF]";
+  assert.equal(transferenciaPermitida(transfiere, polos), false, "la docena se cotiza, no se pasa a nadie");
+
+  // Sin lista de precios para ese artículo, el mayoreo se transfiere como siempre.
+  const combo = { ...polos, catalogo: "Catálogo:\n- Combo 2 en 1 — 1690", anuncio: "Combo 2 en 1 RD$1,690" };
+  assert.equal(transferenciaPermitida(transfiere, combo), true);
+});
+
 test("Costa Rica transfiere un artículo desconocido sin anuncio", () => {
   const ctx = { ...cr, anuncio: null, catalogo: "Catálogo:\n- Camisa de lino — ₡15.000", ultimoDelCliente: "Quiero una nevera" };
   assert.equal(

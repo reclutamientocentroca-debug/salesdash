@@ -14,13 +14,15 @@ export { guionCR, FRASE_AL_TRANSFERIR_CR, FRASE_DE_CIERRE_CR } from "./paises/cr
 export type { ContextoGuionCR } from "./paises/cr-guion";
 export {
   bloqueDelPais,
+  escalaDelArticulo,
   importe,
   lineasDelResumen,
   lugarEscritoPorElCliente,
+  precioPorCantidad,
   saludoDe,
   zonaDelCliente,
 } from "./armar";
-export type { DatosPais, ZonaDeEnvio } from "./tipos";
+export type { DatosPais, EscalaDePrecio, TramoDePrecio, ZonaDeEnvio } from "./tipos";
 
 /**
  * ¿Esto es el guion viejo, pegado en las instrucciones del panel?

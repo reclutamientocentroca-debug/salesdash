@@ -10,7 +10,7 @@
  * cosa a la vez» en este archivo, es que se está escribiendo en el sitio
  * equivocado.
  */
-import type { DatosPais, ZonaDeEnvio } from "./tipos";
+import type { EscalaDePrecio, DatosPais, ZonaDeEnvio } from "./tipos";
 import { tablaDeTallas } from "./base-comportamiento";
 import { contieneLugar } from "@/lib/envio";
 import { obtenerPais } from "@/lib/paises";
@@ -260,6 +260,65 @@ function bloqueDeTallas(d: DatosPais): string {
 }
 
 /** Mayoreo: qué hay y qué hace el agente con ello. */
+/**
+ * LA LISTA DE PRECIOS DE ESTE ARTÍCULO, si la hay.
+ *
+ * Se reconoce por las palabras del anuncio o del catálogo —«polos»—, y se
+ * comprueba contra el precio escrito: el primer tramo ES el precio de siempre,
+ * así que si el anuncio dice otra cifra, ese artículo no es de esta escala y no
+ * se le aplica. Sin `precioEscrito` se reconoce solo por el nombre, que es lo
+ * que hace falta para contarle al modelo qué escalas existen.
+ */
+export function escalaDelArticulo(
+  d: DatosPais,
+  texto: string | null | undefined,
+  precioEscrito?: number | null,
+): EscalaDePrecio | null {
+  if (!texto?.trim()) return null;
+  for (const e of d.mayoreo.escalas ?? []) {
+    if (!new RegExp(`\\b(${e.palabras})\\b`, "i").test(texto)) continue;
+    const base = e.tramos[0]?.precio;
+    if (precioEscrito != null && base != null && Math.abs(precioEscrito - base) >= 0.005) continue;
+    return e;
+  }
+  return null;
+}
+
+/**
+ * LO QUE CUESTA CADA UNIDAD cuando el cliente lleva `cantidad`.
+ *
+ * Devuelve el precio escrito tal cual cuando no hay escala para este artículo:
+ * el precio del anuncio manda siempre, y una lista de precios que no es de él
+ * no le cambia nada.
+ */
+export function precioPorCantidad(
+  d: DatosPais,
+  texto: string | null | undefined,
+  cantidad: number,
+  precioEscrito: number,
+): number {
+  const escala = escalaDelArticulo(d, texto, precioEscrito);
+  if (!escala) return precioEscrito;
+  const n = Math.max(1, Math.floor(cantidad));
+  const tramo = escala.tramos.find((t) => n >= t.desde && (t.hasta === null || n <= t.hasta));
+  return tramo?.precio ?? precioEscrito;
+}
+
+/** Los tramos de una escala, escritos como se le dicen al cliente. */
+function tramosEnPalabras(d: DatosPais, e: EscalaDePrecio): string {
+  return e.tramos
+    .map((t) => {
+      const cuantas =
+        t.hasta === null
+          ? `de ${t.desde} en adelante`
+          : t.desde === t.hasta
+            ? `${t.desde} unidad`
+            : `de ${t.desde} a ${t.hasta} unidades`;
+      return `${cuantas}: ${importe(d, t.precio)} cada una`;
+    })
+    .join(" · ");
+}
+
 function bloqueDeMayoreo(d: DatosPais): string {
   const m = d.mayoreo;
   if (m.vende === null) {
@@ -271,11 +330,40 @@ function bloqueDeMayoreo(d: DatosPais): string {
       "sigue con la venta normal, al precio de siempre.";
   }
   const desde = m.desde ? ` a partir de ${m.desde} unidades` : "";
-  return m.agenteCotiza
-    ? `MAYOREO: esta tienda vende al por mayor${desde}. Los precios de mayoreo son solo los que ` +
-        "estén escritos en el catálogo o en las instrucciones; si no están, transfieres."
-    : `MAYOREO: esta tienda vende al por mayor${desde}, pero TÚ NO COTIZAS MAYOREO: si el cliente ` +
-        "lo pide, un representante le pasa los precios. Escribe \"[HANDOFF]\" y no des ninguna cifra.";
+  if (!m.agenteCotiza) {
+    return `MAYOREO: esta tienda vende al por mayor${desde}, pero TÚ NO COTIZAS MAYOREO: si el cliente ` +
+      "lo pide, un representante le pasa los precios. Escribe \"[HANDOFF]\" y no des ninguna cifra.";
+  }
+
+  /*
+   * LA LISTA DE PRECIOS, cuando la hay, ANTES de la regla de transferir: con
+   * ella el agente cotiza él mismo y no pasa a nadie. Sin ella se queda la
+   * regla de siempre, que es la que evita un precio inventado.
+   */
+  const listas = (m.escalas ?? []).map(
+    (e) => `- ${e.articulo}: ${tramosEnPalabras(d, e)}.`,
+  );
+
+  /*
+   * Sin lista, la frase de siempre PALABRA POR PALABRA: Costa Rica no tiene
+   * escalas y este archivo lo comparten los tres países. Ver la nota de
+   * `apertura.ts`: un arreglo escrito para República Dominicana no puede
+   * moverle el prompt a Costa Rica.
+   */
+  const donde = listas.length ? "en la lista de aquí abajo, en el catálogo" : "en el catálogo";
+
+  return [
+    `MAYOREO: esta tienda vende al por mayor${desde}. Los precios de mayoreo son solo los que ` +
+      `estén escritos ${donde} o en las instrucciones; si no están, transfieres.`,
+    ...(listas.length
+      ? [
+          "PRECIOS POR CANTIDAD (cada tramo dice lo que cuesta CADA unidad, y el precio del tramo se " +
+            "multiplica por las unidades que lleve; el envío se suma una sola vez). Si el cliente pregunta " +
+            "por varias unidades o por la docena, le dices el precio de aquí y sigues la venta: esto NO se transfiere.",
+          ...listas,
+        ]
+      : []),
+  ].join("\n");
 }
 
 /**

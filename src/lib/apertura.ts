@@ -29,7 +29,7 @@
  * el arreglo al país que lo pidió.
  */
 import type { DatosPais } from "@/agents";
-import { importe, zonaDelCliente } from "@/agents/armar";
+import { importe, precioPorCantidad, zonaDelCliente } from "@/agents/armar";
 import { reColores, TALLAS_BASE } from "@/agents/base-comportamiento";
 import { FRASE_DE_TRANSFERENCIA } from "@/agents/paises/rd-guion";
 import { FRASE_DE_CIERRE_CR } from "@/agents/paises/cr-guion";
@@ -514,10 +514,18 @@ export function resumenMecanico(
     null;
   if (!articulo) return null;
 
+  /*
+   * EL PRECIO DE CADA UNIDAD DEPENDE DE CUÁNTAS LLEVE. La dueña (2026-09-09):
+   * los polos van a RD$1,400 de una o dos, a RD$1,190 de tres a once y a
+   * RD$990 por docena. Sin esto el resumen multiplicaba siempre por el precio
+   * del anuncio y le cobraba de más al que llevaba tres. Ver `precioPorCantidad`:
+   * sin lista de precios para este artículo, el precio escrito manda.
+   */
   const cantidad = cantidadDe(ficha.cantidad);
-  const total = precio * cantidad + envio;
-  const tallaValida = llevaTalla(descripcion) ? ficha.talla : null;
-  const colorValido = llevaColor(descripcion) ? ficha.color : null;
+  const unitario = precioPorCantidad(d, `${descripcion} ${articulo}`, cantidad, precio);
+  const total = unitario * cantidad + envio;
+  const tallaValida = llevaTalla(descripcion, d) ? ficha.talla : null;
+  const colorValido = llevaColor(descripcion, d) ? ficha.color : null;
   const variante = [tallaValida, colorValido].filter(Boolean).join(", ");
   const marcador = opciones.marcador ?? MARCADOR_POR_DEFECTO;
   const cabecera = /^resumen:?$/i.test(marcador.trim()) ? "Resumen de su pedido:" : marcador;
