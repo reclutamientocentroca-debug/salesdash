@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { agenteDePais, precioPorCantidad } from "../src/agents";
 import { fichaDelPedido } from "../src/lib/memoria";
-import { aperturaSegura, articuloDeLaDescripcion, clienteAplazaCompra, llevaColor, llevaTalla, mensajeSinProducto, precioDeLaDescripcion, preguntaDelCliente, preguntaDeDireccion, primeraPregunta, respuestaDirecta, respuestaMinima, resumenMecanico, tallasDisponibles } from "../src/lib/apertura";
+import { aperturaSegura, articuloDeLaDescripcion, clienteAplazaCompra, clienteRenunciaALaCompra, llevaColor, llevaTalla, mensajeSinProducto, precioDeLaDescripcion, preguntaDelCliente, preguntaDeDireccion, primeraPregunta, respuestaDirecta, respuestaMinima, resumenMecanico, tallasDisponibles } from "../src/lib/apertura";
 import { contieneMarcador } from "../src/lib/cierre";
 
 /**
@@ -207,6 +207,53 @@ test("en Costa Rica una faja es la correa: se vende con su talla", () => {
   assert.equal(llevaTalla("Faja reversible RD$1,500", rd), false);
   assert.equal(llevaTalla("FAJA REVERSIBLE PARA HOMBRE ₡9.000", cr), true);
   assert.equal(llevaTalla("FAJA REVERSIBLE PARA HOMBRE ₡9.000"), false, "sin país, la clasificación de siempre");
+});
+
+/**
+ * UN «NO» NO ES UN «AHORA NO».
+ *
+ * La captura de la dueña (Costa Rica, 2026-09-09): «¿Me confirma qué talla
+ * necesita del cinturón reversible para poder finalizar su pedido?» → «No voy a
+ * continuar con la compra, gracias» → «Con mucho gusto. ¿Me regala su nombre
+ * completo para el pedido?». El cliente cerró la puerta y el agente le siguió
+ * pasando el formulario.
+ */
+test("al que dice que no se le agradece y se le deja ir, no se le siguen pidiendo datos", () => {
+  for (const dice of [
+    "No voy a continuar con la compra, gracias",
+    "Ya no lo quiero",
+    "ya no me interesa",
+    "Cancele el pedido por favor",
+    "¿me lo puede cancelar?",
+    "Mejor no",
+    "no, gracias",
+    "déjelo así",
+  ]) {
+    assert.equal(clienteRenunciaALaCompra(dice), true, `«${dice}» es un no`);
+  }
+
+  /*
+   * Y NO SE PASA DE LISTO: elegir otro color, corregir la cantidad o preguntar
+   * si se puede cancelar son de alguien que sigue comprando.
+   */
+  for (const sigue of [
+    "no me interesa el negro, prefiero el azul",
+    "mejor no me mande dos, mande uno",
+    "¿se puede cancelar si no me queda?",
+    "no tengo el dinero completo todavía",
+    "el lunes le llamo",
+    "no sé qué talla uso",
+  ]) {
+    assert.equal(clienteRenunciaALaCompra(sigue), false, `«${sigue}» no cierra nada`);
+  }
+
+  // Y lo que sale es la despedida, no el siguiente dato del pedido.
+  const vacia = { talla: null, color: null, direccion: null, nombre: null, celular: null, cantidad: null };
+  const cinturon = { descripcion_anuncio: "CINTURÓN REVERSIBLE PARA HOMBRE ₡9.000" };
+  assert.equal(
+    respuestaMinima(cr, vacia, cinturon, { ultimoDelCliente: "No voy a continuar con la compra, gracias" }),
+    "Entiendo, no hay problema. Cuando esté listo para ordenar, escríbanos y con gusto le atendemos.",
+  );
 });
 
 test("una compra aplazada no repite la pregunta del pedido", () => {

@@ -48,7 +48,7 @@ import { completarJson, ErrorIA } from "./ia";
 import { MODELO_ANALISIS, type Mensaje } from "./db";
 import { conLoVistoYOido } from "./percepcion";
 import { expresionesDelPais, pareceColor, pareceTalla, preguntasRepetidas, unidadesPorColores, type FichaDelPedido } from "./memoria";
-import { clienteAplazaCompra, esCorreaLocal, familiasNombradas, nombraUnArticulo, preguntaDelCliente, preguntaDeDireccion, PREGUNTA_COLOR } from "./apertura";
+import { clienteAplazaCompra, clienteRenunciaALaCompra, esCorreaLocal, familiasNombradas, nombraUnArticulo, preguntaDelCliente, preguntaDeDireccion, PREGUNTA_COLOR } from "./apertura";
 import { escalaDelArticulo, zonaDelCliente } from "@/agents";
 import { contieneLugar } from "./envio";
 import { obtenerPais } from "./paises";
@@ -550,14 +550,35 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
    * número de teléfono para el pedido?». Insistirle a alguien que ya se
    * despidió es lo que hace que el lunes no escriba.
    */
-  if (clienteAplazaCompra(ctx.ultimoDelCliente)) {
+  /*
+   * Y EL QUE DICE QUE NO, IGUAL. El caso que paró la dueña (Costa Rica,
+   * 2026-09-09): «No voy a continuar con la compra, gracias» → «Con mucho
+   * gusto. ¿Me regala su nombre completo para el pedido?». El cliente cerró la
+   * puerta, el agente siguió con el formulario, y el «con mucho gusto» encima
+   * suena a que estaba de acuerdo. Ver `clienteRenunciaALaCompra`.
+   */
+  const seDespidio = clienteAplazaCompra(ctx.ultimoDelCliente);
+  const dijoQueNo = clienteRenunciaALaCompra(ctx.ultimoDelCliente);
+
+  if (seDespidio || dijoQueNo) {
+    const quien = dijoQueNo ? "el cliente dijo que NO sigue con la compra" : "el cliente dijo que vuelve más adelante";
     if (PIDE_UN_DATO_DEL_PEDIDO.test(texto)) {
       fallas.push(
-        "el cliente dijo que vuelve más adelante y la respuesta le sigue pidiendo datos del pedido: se le contesta «Entiendo, no hay problema. Cuando esté listo para ordenar, escríbanos y con gusto le atendemos.» y nada más",
+        `${quien} y la respuesta le sigue pidiendo datos del pedido: se le contesta «Entiendo, no hay problema. Cuando esté listo para ordenar, escríbanos y con gusto le atendemos.» y nada más`,
       );
     }
     if (contieneMarcador(texto, ctx.marcador ?? MARCADOR_POR_DEFECTO)) {
-      fallas.push("el cliente dijo que vuelve más adelante y esto le manda el resumen: un pedido que él no ha aceptado no se levanta");
+      fallas.push(`${quien} y esto le manda el resumen: un pedido que él no ha aceptado no se levanta`);
+    }
+    /*
+     * Y NO SE LE DA LA RAZÓN AL REVÉS. «Con mucho gusto», «perfecto» o
+     * «excelente» delante de un no es la casa celebrando que el cliente se
+     * vaya: se entiende y se agradece, que es lo que dice la frase de arriba.
+     */
+    if (dijoQueNo && /^\W*(con mucho gusto|perfecto|excelente|genial|de acuerdo|listo)\b/i.test(texto.trim())) {
+      fallas.push(
+        "empieza celebrando un «no»: el cliente acaba de decir que no sigue, y eso se recibe con «Entiendo, no hay problema», no con «con mucho gusto»",
+      );
     }
   }
 

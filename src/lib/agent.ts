@@ -45,7 +45,7 @@ import { descifrar } from "./auth";
 import { leer as leerArchivo } from "./media";
 import { formatearImporte, monedaDelPais } from "./moneda";
 import { anuncioParaModelo, anuncioVigente, type DatosAnuncio } from "./anuncio";
-import { aperturaSegura, clienteAplazaCompra, fraseDeTransferencia, laFotoAyudaAElegir, laFotoVaConEstaRespuesta, llevaColor, llevaTalla, nombraUnArticulo, respuestaMinima } from "./apertura";
+import { aperturaSegura, clienteAplazaCompra, clienteRenunciaALaCompra, fraseDeTransferencia, laFotoAyudaAElegir, laFotoVaConEstaRespuesta, llevaColor, llevaTalla, nombraUnArticulo, respuestaMinima } from "./apertura";
 import { esMensajeDeSistema } from "./sistema";
 import { contieneMarcador, MARCADOR_POR_DEFECTO, registrarCierre } from "./cierre";
 import { completar, ErrorIA, hoyISO } from "./ia";
@@ -2779,7 +2779,12 @@ export async function enviarSeguimiento(
    * hace que el lunes no escriba.
    */
   const ultimoDelCliente = [...historial].reverse().find((m) => m.emisor === "cliente")?.content ?? null;
-  if (clienteAplazaCompra(ultimoDelCliente)) return false;
+  /*
+   * Ni al que dijo que vuelve, ni al que dijo que no. A quien cerró la compra
+   * —«no voy a continuar con la compra»— un recordatorio de «¿sigue
+   * interesado?» le llega como que aquí no escucha nadie.
+   */
+  if (clienteAplazaCompra(ultimoDelCliente) || clienteRenunciaALaCompra(ultimoDelCliente)) return false;
 
   let generada: RespuestaGenerada;
   try {

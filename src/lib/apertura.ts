@@ -351,7 +351,7 @@ export function respuestaMinima(
   if (preguntaDelCliente(opciones.ultimoDelCliente) === "otro_articulo") {
     return fraseDeTransferencia(d);
   }
-  if (clienteAplazaCompra(opciones.ultimoDelCliente)) {
+  if (clienteAplazaCompra(opciones.ultimoDelCliente) || clienteRenunciaALaCompra(opciones.ultimoDelCliente)) {
     return "Entiendo, no hay problema. Cuando esté listo para ordenar, escríbanos y con gusto le atendemos.";
   }
   const pideTalla = llevaTalla(descripcion, d);
@@ -712,6 +712,50 @@ const COMPRA_ESE_DIA =
  * nada: «Perfecto, hasta esa fecha. ¿Me facilita su número de teléfono para el
  * pedido?». Aquí casi nadie dice «no puedo ahora»: dice cuándo vuelve.
  */
+/**
+ * EL CLIENTE DICE QUE NO. Y un no no es un «ahora no»: es el final.
+ *
+ * El caso que paró la dueña (Costa Rica, 2026-09-09): «¿Me confirma qué talla
+ * necesita del cinturón reversible para poder finalizar su pedido?» → «No voy a
+ * continuar con la compra, gracias» → «Con mucho gusto. ¿Me regala su nombre
+ * completo para el pedido?». El cliente cerró la puerta y el agente le siguió
+ * pasando el formulario, y encima con un «con mucho gusto» que suena a que
+ * estaba de acuerdo. Eso no recupera una venta: la convierte en una queja.
+ *
+ * Se separa de `clienteAplazaCompra` porque no es lo mismo —el que aplaza
+ * vuelve, el que renuncia no— aunque el agente haga lo mismo con los dos: dejar
+ * de pedir datos y despedirse dejando la puerta abierta.
+ *
+ * SE HILA FINO A PROPÓSITO. «No me interesa el negro, prefiero el azul» está
+ * eligiendo color, no cancelando; «mejor no me mande dos» está corrigiendo la
+ * cantidad. Las frases que valen por sí solas —«no, gracias», «mejor no», «no
+ * me interesa»— solo cuentan cuando son el mensaje entero; las demás llevan
+ * dentro de qué se está hablando.
+ */
+const RENUNCIA =
+  /\bno (?:voy a |quiero |pienso |puedo )?(?:continuar|seguir|proceder)\b|\bno (?:lo|la|los|las) (?:quiero|voy a (?:llevar|comprar|tomar))\b|\bya no (?:lo |la |los |las )?(?:quiero|necesito|me interesa|voy a (?:llevar|comprar|ordenar))\b|\bdesisto\b|\bdejelo asi\b|\bolvid(?:elo|alo)\b|\bme arrepenti\b|\bno hago el pedido\b|\bno lo hago\b/;
+
+/** Las que solo valen si son el mensaje entero. Ver el comentario de arriba. */
+const RENUNCIA_A_SECAS =
+  /^(?:no|mejor no|no me interesa|ya no|no por ahora no|nada)[\s,.!]*(?:gracias|muchas gracias)?[\s,.!]*$|^(?:gracias)?[\s,.!]*(?:no me interesa|mejor no)[\s,.!]*(?:gracias)?[\s,.!]*$/;
+
+/** Cancelar o anular lo PIDE él, no lo pregunta: «¿se puede cancelar?» no cancela nada. */
+const PIDE_CANCELAR =
+  /\b(?:cancel|anul)(?:e|elo|ela|eme|emos|o|a|alo)\b|\b(?:quiero|deseo|prefiero|voy a|favor de|puede) (?:cancelar|anular)\b/;
+
+export function clienteRenunciaALaCompra(texto: string | null | undefined): boolean {
+  const t = llano(texto ?? "").trim();
+  if (!t) return false;
+
+  // Pedir que se cancele vale aunque lo escriba preguntando: «¿me lo puede
+  // cancelar?» es un no. Preguntar SI se puede, no: eso es una duda de quien
+  // todavía está comprando.
+  if (PIDE_CANCELAR.test(t) && !/\bse puede (cancelar|anular)\b|\bpuedo cancelar\b/.test(t)) return true;
+
+  if (t.includes("?")) return false;
+  return RENUNCIA_A_SECAS.test(t) || RENUNCIA.test(t);
+}
+
 export function clienteAplazaCompra(texto: string | null | undefined): boolean {
   const t = llano(texto ?? "").trim();
   if (!t) return false;

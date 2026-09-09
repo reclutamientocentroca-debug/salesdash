@@ -1011,6 +1011,37 @@ test("la tarifa de la zona que nombra el propio texto manda", () => {
  * teléfono para el pedido?». Insistirle a alguien que ya se despidió es lo
  * que hace que el lunes no escriba.
  */
+/**
+ * Y AL QUE DICE QUE NO, TAMPOCO. Y sin celebrárselo.
+ *
+ * La captura (Costa Rica, 2026-09-09): «No voy a continuar con la compra,
+ * gracias» → «Con mucho gusto. ¿Me regala su nombre completo para el pedido?».
+ */
+test("al cliente que dice que no se le deja ir, y no se le contesta «con mucho gusto»", () => {
+  const dijoQueNo = {
+    ...cr,
+    anuncio: "CINTURÓN REVERSIBLE PARA HOMBRE ₡9.000",
+    ultimoDelCliente: "No voy a continuar con la compra, gracias",
+    ultimoDelAgente: "¿Me confirma qué talla necesita del cinturón reversible para poder finalizar su pedido?",
+  };
+
+  const fallas = revisarConReglas("Con mucho gusto. ¿Me regala su nombre completo para el pedido?", dijoQueNo);
+  assert.ok(fallas.some((f) => f.includes("NO sigue con la compra")), "no se le siguen pidiendo datos");
+  assert.ok(fallas.some((f) => f.includes("celebrando un «no»")), "y no se le celebra la retirada");
+
+  // El resumen tampoco: un pedido que él acaba de rechazar no se levanta.
+  assert.ok(
+    revisarConReglas("📋 RESUMEN DEL PEDIDO\nNombre: Ana\nTOTAL A PAGAR: ₡12.500", dijoQueNo)
+      .some((f) => f.includes("no ha aceptado")),
+  );
+
+  // Y la despedida sí sale.
+  assert.deepEqual(
+    revisarConReglas("Entiendo, no hay problema. Cuando esté listo para ordenar, escríbanos y con gusto le atendemos.", dijoQueNo),
+    [],
+  );
+});
+
 test("al cliente que dice cuándo vuelve no se le siguen pidiendo datos del pedido", () => {
   const aplaza = {
     ...rd,
