@@ -604,7 +604,11 @@ export function resumenMecanico(
 function nombreDeLaZona(d: DatosPais, direccion: string, lugar?: string | null): string {
   const textos = [direccion, lugar ?? ""];
   for (const texto of textos) {
-    for (const z of d.envio.zonas) if (contieneLugar(texto, z.lugares)) return z.nombre;
+    // Con la misma excepción que la tarifa: si no cobra como la zona, tampoco
+    // se le dice al cliente que va a esa zona. Ver `zonaDelCliente`.
+    for (const z of d.envio.zonas) {
+      if (contieneLugar(texto, z.lugares) && !contieneLugar(texto, z.excepciones ?? [])) return z.nombre;
+    }
   }
   for (const texto of textos) {
     for (const entrada of d.envio.restoDelPais.lugares ?? []) {

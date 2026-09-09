@@ -37,6 +37,12 @@ export const RD: DatosPais = {
     zonas: [
       {
         nombre: "Gran Santo Domingo",
+        /*
+         * Boca Chica es provincia de Santo Domingo y así la escribe la gente
+         * —«Boca Chica, Santo Domingo»—, pero cobra como el interior: RD$290
+         * (la dueña, 2026-09-09). Andrés y La Caleta son ese mismo municipio.
+         */
+        excepciones: ["Boca Chica", "Andrés", "La Caleta"],
         // «Santo Domingo» reconoce también Santo Domingo Este, Norte y Oeste.
         // Debajo, los sectores y municipios que la gente escribe sin decir la
         // provincia: con ellos el agente sabe que es ciudad sin preguntar más.
@@ -71,7 +77,6 @@ export const RD: DatosPais = {
           "Pedro Brand",
           "San Antonio de Guerra",
           "Guerra",
-          "Boca Chica",
           "Los Mina",
           "Villa Duarte",
           "Alma Rosa",
@@ -106,8 +111,6 @@ export const RD: DatosPais = {
           "Las Américas",
           "Hainamosa",
           "Mendoza",
-          "Andrés",
-          "La Caleta",
           "Pantoja",
           "Hato Nuevo",
           "Ensanche Ozama",
@@ -137,8 +140,18 @@ export const RD: DatosPais = {
     restoDelPais: {
       costo: 290,
       modalidad: "a domicilio",
-      // Las provincias y ciudades del interior, como las escribe la gente.
+      /*
+       * Las provincias y ciudades del interior, como las escribe la gente.
+       *
+       * BOCA CHICA VA AQUÍ, no en el Gran Santo Domingo (la dueña, 2026-09-09):
+       * «Boca Chica es a 290». Con ella van Andrés y La Caleta, que son el mismo
+       * municipio y el mismo viaje del mensajero: cobrarle 250 a un barrio y 290
+       * al de al lado es la tienda perdiendo la diferencia en cada entrega.
+       */
       lugares: [
+        "Boca Chica",
+        "Andrés",
+        "La Caleta",
         "Santiago",
         "La Vega",
         "San Cristóbal",
@@ -290,7 +303,7 @@ export const RD: DatosPais = {
           "Los Mina", "Villa Duarte", "Alma Rosa", "San Isidro", "Invivienda", "Los Frailes",
           "Villa Faro", "Cancino", "Lucerna", "Hainamosa", "Mendoza", "Charles de Gaulle",
           "Las Américas", "Ensanche Ozama", "Los Tres Ojos", "Villa Carmen", "Los Trinitarios",
-          "Brisas del Este", "Katanga", "Boca Chica", "Andrés", "La Caleta",
+          "Brisas del Este", "Katanga",
         ],
       },
       {

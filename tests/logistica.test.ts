@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import * as D from "../src/lib/db";
 import { agenteDePais, bloqueDelPais, lugarEscritoPorElCliente, zonaDelCliente } from "../src/agents";
 import { armarSistema } from "../src/lib/agent";
+import { respuestaMinima } from "../src/lib/apertura";
 
 /**
  * EL ENVÍO SE DICE EN CUANTO EL CLIENTE ESCRIBE SU ZONA.
@@ -38,6 +39,44 @@ test("la zona dominicana se reconoce por lo que escribe la gente", () => {
   // Lo que no se reconoce no se adivina.
   assert.equal(zonaDelCliente(rd, "la 42 en negro"), null);
   assert.equal(zonaDelCliente(rd, ""), null);
+});
+
+/**
+ * BOCA CHICA COBRA COMO EL INTERIOR, aunque sea provincia de Santo Domingo.
+ *
+ * La dueña (2026-09-09): «Boca Chica es a 290». Estaba en la lista del Gran
+ * Santo Domingo, y encima el mapa la situaba dentro de Santo Domingo Este, así
+ * que por los dos caminos salía a RD$250: la tienda pagaba la diferencia en
+ * cada entrega. Andrés y La Caleta son el mismo municipio y el mismo viaje.
+ */
+test("Boca Chica, Andrés y La Caleta van a RD$290, y el «Santo Domingo» de la dirección no las abarata", () => {
+  const rd = agenteDePais("do")!;
+  const tarifa = (donde: string) => {
+    const z = zonaDelCliente(rd, donde);
+    return z === "resto" ? rd.envio.restoDelPais.costo : z ? z.costo : null;
+  };
+
+  for (const donde of [
+    "Boca Chica",
+    "boca chica",
+    "Calle 5 #22, Boca Chica, Santo Domingo",
+    "Andrés, Boca Chica",
+    "La Caleta, Santo Domingo Este",
+  ]) {
+    assert.equal(tarifa(donde), 290, `«${donde}» es interior`);
+  }
+
+  // Y la ciudad sigue siendo la ciudad: la excepción no se lleva a los demás.
+  for (const donde of ["Los Mina, Santo Domingo Este", "Santo Domingo", "Villa Mella", "Los Alcarrizos"]) {
+    assert.equal(tarifa(donde), 250, `«${donde}» sí es Gran Santo Domingo`);
+  }
+
+  // Y no se le dice al cliente que va a una zona que no le cobra: el mensaje
+  // nombra Boca Chica, no el Gran Santo Domingo.
+  const combo = { descripcion_anuncio: "COMBO 2 EN 1 cepillo secador + plancha RD$1,690" };
+  const ficha = { talla: null, color: null, direccion: "Calle 5 #22, Boca Chica, Santo Domingo", nombre: null, celular: null, cantidad: null };
+  const dice = respuestaMinima(rd, ficha, combo, {});
+  assert.ok(dice.startsWith("Perfecto, hasta Boca Chica el envío le sale en RD$290."), dice);
 });
 
 test("se toma el mensaje más reciente del cliente que nombre una zona", () => {

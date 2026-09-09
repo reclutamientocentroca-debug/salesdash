@@ -30,6 +30,15 @@ export interface ZonaDeEnvio {
    * Domingo» reconoce «Santo Domingo Este».
    */
   lugares: string[];
+  /**
+   * LOS QUE CAEN DENTRO DEL NOMBRE DE LA ZONA Y NO COBRAN COMO ELLA.
+   *
+   * Boca Chica está en la provincia de Santo Domingo y la gente la escribe así
+   * —«Calle 5, Boca Chica, Santo Domingo»—, pero su envío es el del interior
+   * (la dueña, 2026-09-09). Sin esto, el «Santo Domingo» de la dirección la
+   * metía en la zona de la ciudad y le cobraba de menos.
+   */
+  excepciones?: string[];
   /** Cuánto cuesta el envío aquí, en la moneda del país. */
   costo: number;
   /** Cómo llega el pedido: a domicilio con mensajero, por correo, retira… */

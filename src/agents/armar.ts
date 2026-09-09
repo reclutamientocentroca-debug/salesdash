@@ -50,7 +50,11 @@ export function zonaDelCliente(
 ): ZonaDeEnvio | "resto" | null {
   if (!donde?.trim()) return null;
 
-  const zona = d.envio.zonas.find((z) => contieneLugar(donde, z.lugares));
+  // Un lugar de la lista de excepciones manda sobre el nombre de la zona:
+  // «Boca Chica, Santo Domingo» no cobra como Santo Domingo. Ver `excepciones`.
+  const zona = d.envio.zonas.find(
+    (z) => contieneLugar(donde, z.lugares) && !contieneLugar(donde, z.excepciones ?? []),
+  );
   if (zona) return zona;
 
   // Un sitio conocido del país que no es zona especial: va como el resto.
