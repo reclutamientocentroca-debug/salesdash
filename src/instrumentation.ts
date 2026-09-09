@@ -49,9 +49,8 @@ export async function register(): Promise<void> {
   /*
    * El reloj de los seguimientos.
    *
-   * Cada diez minutos se mira quién se quedó en visto y a qué pedido le toca el
-   * aviso de que va en camino. Diez minutos y no uno porque nada de esto es
-   * urgente al minuto —el recordatorio sale «a las tres horas», no a las tres
+   * Cada diez minutos se mira quién se quedó en visto. Diez minutos y no uno
+   * porque nada de esto es urgente al minuto —el recordatorio sale «a las tres horas», no a las tres
    * horas y cero segundos— y cada vuelta abre la base para todas las cuentas
    * con agente encendido.
    *

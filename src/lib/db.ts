@@ -326,13 +326,15 @@ CREATE TABLE IF NOT EXISTS agentes (
   retardo_seg INTEGER NOT NULL DEFAULT 4,
   horario_activo INTEGER NOT NULL DEFAULT 0,
   horario_desde TEXT, horario_hasta TEXT,
-  /* SEGUIMIENTOS. Los dos unicos mensajes que el agente manda sin que el
-     cliente haya escrito, y por eso van con interruptor propio:
-     - visto: el cliente dejo la conversacion a medias y no volvio.
-     - entrega: horas despues del pedido, para que este pendiente al mensajero.
-     Solo salen en los numeros donde el agente ya contesta, nunca en los que
-     solo se vigilan: escribir sin que nadie lo espere es lo unico que este
-     panel hace por su cuenta, y no puede pasar en un numero ajeno. */
+  /* SEGUIMIENTOS. El unico mensaje que el agente manda sin que el cliente
+     haya escrito, y por eso va con interruptor propio: el del cliente
+     que dejo la conversacion a medias y no volvio. Solo sale en los numeros
+     donde el agente ya contesta, nunca en los que solo se vigilan: escribir
+     sin que nadie lo espere es lo unico que este panel hace por su cuenta, y
+     no puede pasar en un numero ajeno.
+     Las columnas recordatorio_entrega* son de un aviso que ya no existe —«su
+     pedido va en camino»— y no las lee nadie: se quedan porque quitarlas
+     obliga a rehacer la tabla en cada base que ya esta en produccion. */
   recordatorio_visto INTEGER NOT NULL DEFAULT 1,
   recordatorio_visto_horas INTEGER NOT NULL DEFAULT 3,
   recordatorio_entrega INTEGER NOT NULL DEFAULT 1,
@@ -1395,8 +1397,6 @@ export interface Agente {
   horario_activo: number; horario_desde: string | null; horario_hasta: string | null;
   /** Recordatorio al cliente que dejó la conversación a medias. */
   recordatorio_visto: number; recordatorio_visto_horas: number;
-  /** Aviso de que el pedido ya va en camino, horas después del cierre. */
-  recordatorio_entrega: number; recordatorio_entrega_horas: number;
   updated_at: number;
 }
 
@@ -2530,8 +2530,7 @@ const HEREDABLES = `nombre, negocio, tono, instrucciones, pais, conocimiento,
   modelo, modelo_respaldo, modelo_vision, modelo_audio,
   pasar_a_humano, silenciar_si_humano, retardo_seg, envio_cerca, envio_lejos,
   horario_activo, horario_desde, horario_hasta,
-  recordatorio_visto, recordatorio_visto_horas,
-  recordatorio_entrega, recordatorio_entrega_horas`;
+  recordatorio_visto, recordatorio_visto_horas`;
 
 /**
  * El agente de un canal, creándolo la primera vez que se pide.
@@ -2663,7 +2662,6 @@ const COLUMNAS_AGENTE = [
   "envio_cerca", "envio_lejos", "horario_activo",
   "horario_desde", "horario_hasta",
   "recordatorio_visto", "recordatorio_visto_horas",
-  "recordatorio_entrega", "recordatorio_entrega_horas",
 ] as const;
 
 export function actualizarAgente(
@@ -2679,10 +2677,16 @@ export function actualizarAgente(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Seguimientos — los dos mensajes que el agente manda sin que le escriban
+// Seguimientos — el mensaje que el agente manda sin que le escriban
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type TipoSeguimiento = "visto" | "entrega";
+/*
+ * Solo queda uno. El aviso de «su pedido ya va en camino con el mensajero» se
+ * quitó: lo mandaba el panel por su cuenta a quien no había pedido nada. La
+ * tabla sigue admitiendo 'entrega' porque hay filas viejas con ese tipo, pero
+ * ya no se escribe ninguna. Ver `enviarSeguimiento` en `agent.ts`.
+ */
+export type TipoSeguimiento = "visto";
 
 /**
  * Las cuentas donde hay un agente contestando en algún número.
@@ -2750,36 +2754,6 @@ export function conversacionesEnVisto(
              AND a.tipo IN ('pidio_humano', 'handoff_agente')
         )
       ORDER BY c.last_message_at ASC
-      LIMIT ?`,
-  ).all(orgId, canalId ?? 0, canalId ?? 0, ventana.desde, ventana.hasta, limite) as Conversacion[];
-}
-
-/**
- * Ventas cerradas hace ya un rato, para avisar de que el pedido va en camino.
- *
- * Mismo tope por arriba y por el mismo motivo: esto no puede despertarse un
- * día y escribirle a todo el que compró el mes pasado.
- */
-export function ventasParaRecordar(
-  orgId: number,
-  ventana: { desde: number; hasta: number },
-  limite = 20,
-  /** Un solo canal. Ver la nota de `conversacionesEnVisto`. */
-  canalId?: number,
-): Conversacion[] {
-  return s(
-    `SELECT c.* FROM conversations c
-       JOIN canales ca ON ca.id = c.canal_id
-      WHERE c.org_id = ?
-        AND (? = 0 OR c.canal_id = ?)
-        AND c.cerrado_por IN ('ia', 'humano')
-        AND c.fecha_cierre BETWEEN ? AND ?
-        AND ca.activo = 1 AND ca.agente_activo = 1 AND ca.contesta_ia = 0
-        AND NOT EXISTS (
-          SELECT 1 FROM seguimientos s
-           WHERE s.conversation_id = c.id AND s.tipo = 'entrega'
-        )
-      ORDER BY c.fecha_cierre ASC
       LIMIT ?`,
   ).all(orgId, canalId ?? 0, canalId ?? 0, ventana.desde, ventana.hasta, limite) as Conversacion[];
 }

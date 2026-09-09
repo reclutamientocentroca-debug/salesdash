@@ -2682,27 +2682,27 @@ async function atenderTurno(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Seguimientos — los dos mensajes que salen sin que el cliente escriba
+// Seguimientos — el único mensaje que sale sin que el cliente escriba
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * El aviso de que el pedido va en camino NO lo escribe el modelo.
+/*
+ * AQUÍ VIVÍA EL AVISO DE «SU PEDIDO YA VA EN CAMINO CON EL MENSAJERO».
  *
- * Es un mensaje de una sola frase, siempre el mismo, y lo único que cambia es
- * el nombre. Pedírselo a un modelo costaría dinero, tardaría, podría fallar y
- * —lo que de verdad importa— podría inventarse una hora de entrega o un plazo
- * que nadie prometió. Aquí no hay nada que decidir: el mensajero salió.
+ * Ya no se manda, en ningún país y con pedido o sin él. Salía solo, horas
+ * después de que algo marcara la conversación como cerrada, y esa marca no es
+ * una promesa que la tienda pueda cumplir: en el caso dominicano el cliente
+ * había dicho «cuando tenga el dinero completo yo le aviso», nunca hubo
+ * resumen, y aun así le llegó que su pedido iba en camino. No había pedido, ni
+ * mensajero, ni nada que esperar; lo que hubo fue una tienda diciéndole a un
+ * cliente algo que no era verdad, y él contestándolo en el chat.
+ *
+ * Un aviso de entrega solo puede darlo quien sabe que el mensajero salió, y eso
+ * no se sabe desde aquí. Cuando el paquete sale de verdad, lo avisa una
+ * persona.
  */
-function textoDeEntrega(nombre: string | null): string {
-  const quien = nombre?.trim().split(/\s+/)[0];
-  return (
-    `${quien ? `${quien}, s` : "S"}u pedido ya va en camino con el mensajero. ` +
-    "Esté pendiente a su teléfono para recibirlo."
-  );
-}
 
 /**
- * Manda uno de los dos seguimientos y lo deja registrado.
+ * Manda el recordatorio al que se quedó en visto y lo deja registrado.
  *
  * Vive AQUÍ, con el resto del agente, porque este sigue siendo el único módulo
  * que puede escribirle a un cliente. `seguimiento.ts` decide a quién le toca;
@@ -2737,87 +2737,79 @@ export async function enviarSeguimiento(
   }
   if (agente.horario_activo !== 1 && !enHoraDecente()) return false;
 
-  let texto: string;
+  /*
+   * El de «se quedó en visto» sí lo escribe el modelo: tiene que nombrar el
+   * artículo del que se estaba hablando, y eso está en el hilo. Un
+   * «¿sigue interesado?» a secas no rescata ninguna venta.
+   *
+   * La instrucción va como un turno del cliente porque la conversación tiene
+   * que terminar en uno —los modelos actuales rechazan lo contrario—, y va
+   * marcada como interna para que el modelo no la trate como algo que dijo
+   * el cliente ni la repita.
+   */
+  const historial = ultimosMensajes(orgId, conversationId, MAX_MENSAJES_CONTEXTO);
+  if (historial.length === 0) return false;
 
-  if (tipo === "entrega") {
-    // Sin el nombre de la cuenta: solo cuenta el que el cliente escribió, y
-    // ese ya va en el resumen. El aviso sale igual de bien sin nombre.
-    texto = textoDeEntrega(null);
-  } else {
-    /*
-     * El de «se quedó en visto» sí lo escribe el modelo: tiene que nombrar el
-     * artículo del que se estaba hablando, y eso está en el hilo. Un
-     * «¿sigue interesado?» a secas no rescata ninguna venta.
-     *
-     * La instrucción va como un turno del cliente porque la conversación tiene
-     * que terminar en uno —los modelos actuales rechazan lo contrario—, y va
-     * marcada como interna para que el modelo no la trate como algo que dijo
-     * el cliente ni la repita.
-     */
-    const historial = ultimosMensajes(orgId, conversationId, MAX_MENSAJES_CONTEXTO);
-    if (historial.length === 0) return false;
+  /*
+   * AL QUE DIJO CUÁNDO VUELVE NO SE LE RECUERDA NADA. El caso real de
+   * República Dominicana: «El lunes le llamo», y horas después le salió el
+   * recordatorio de «se quedó en visto» pidiéndole el teléfono. Ese chat no
+   * está en visto: está esperando al lunes, y escribirle antes es lo que
+   * hace que el lunes no escriba.
+   */
+  const ultimoDelCliente = [...historial].reverse().find((m) => m.emisor === "cliente")?.content ?? null;
+  if (clienteAplazaCompra(ultimoDelCliente)) return false;
 
-    /*
-     * AL QUE DIJO CUÁNDO VUELVE NO SE LE RECUERDA NADA. El caso real de
-     * República Dominicana: «El lunes le llamo», y horas después le salió el
-     * recordatorio de «se quedó en visto» pidiéndole el teléfono. Ese chat no
-     * está en visto: está esperando al lunes, y escribirle antes es lo que
-     * hace que el lunes no escriba.
-     */
-    const ultimoDelCliente = [...historial].reverse().find((m) => m.emisor === "cliente")?.content ?? null;
-    if (clienteAplazaCompra(ultimoDelCliente)) return false;
+  let generada: RespuestaGenerada;
+  try {
+    generada = await generarRespuesta(
+      orgId,
+      canal.id,
+      [...historial, mensajeInterno(orgId, conversationId, INSTRUCCION_VISTO)],
+      conv,
+      await reglaDePrecio(orgId, conv),
+      { telefono: conv.cliente_phone, nombre: conv.cliente_nombre },
+    );
+  } catch {
+    // Ni una anomalía: que no salga un recordatorio no es una avería que
+    // haya que enseñarle a nadie. El cliente no está esperando nada.
+    return false;
+  }
+  const texto = generada.texto;
 
-    let generada: RespuestaGenerada;
-    try {
-      generada = await generarRespuesta(
-        orgId,
-        canal.id,
-        [...historial, mensajeInterno(orgId, conversationId, INSTRUCCION_VISTO)],
-        conv,
-        await reglaDePrecio(orgId, conv),
-        { telefono: conv.cliente_phone, nombre: conv.cliente_nombre },
-      );
-    } catch {
-      // Ni una anomalía: que no salga un recordatorio no es una avería que
-      // haya que enseñarle a nadie. El cliente no está esperando nada.
+  /*
+   * EL RECORDATORIO PASA POR LAS MISMAS REGLAS QUE UNA RESPUESTA. El caso
+   * real: «¿Maestro, me regala su talla…?» salió por aquí sin que nadie lo
+   * revisara. Si no pasa las reglas no se manda: nadie lo estaba esperando,
+   * y un mensaje que nadie pidió tiene que ser impecable o no ser.
+   */
+  const datosPais = agenteDePais(agente.pais);
+  if (datosPais) {
+    const { revisarConReglas } = await import("./revisor");
+    const org = obtenerOrg(orgId);
+    const negocio = nombreDelNegocio(agente, canal, org ?? null);
+    const fallas = revisarConReglas(texto, {
+      esApertura: false,
+      datos: datosPais,
+      marcador: org?.marcador_cierre ?? MARCADOR_POR_DEFECTO,
+      nombresDeLaCasa: [agente.nombre, negocio, datosPais.nombreAgente ?? "", datosPais.tienda].filter(Boolean),
+      catalogo: textoDeLoQueVende(agente, listarCatalogo(orgId, true, canal.id)),
+      anuncio: anuncioParaModelo(anuncioVigente(conv)) || null,
+      ficha: fichaDelHilo(historial, agente.pais),
+      textosDelCliente: textosDelClienteEnSesion(historial),
+      textosDelAgente: textosDeLaCasaEnSesion(historial),
+      telefonoDelChat: conv.cliente_phone,
+      nombreDeCuenta: conv.cliente_nombre,
+      ultimoDelAgente: [...historial].reverse().find((m) => m.emisor !== "cliente")?.content ?? null,
+      bloqueDelPais: bloqueDelPais(
+        datosPais,
+        lugarEscritoPorElCliente(datosPais, mensajesDeLaSesion(historial)),
+        negocio,
+      ),
+    });
+    if (fallas.length > 0) {
+      console.log(`[seguimiento] el recordatorio de ${conversationId} no pasó las reglas y no se manda: ${fallas.join("; ")}`);
       return false;
-    }
-    texto = generada.texto;
-
-    /*
-     * EL RECORDATORIO PASA POR LAS MISMAS REGLAS QUE UNA RESPUESTA. El caso
-     * real: «¿Maestro, me regala su talla…?» salió por aquí sin que nadie lo
-     * revisara. Si no pasa las reglas no se manda: nadie lo estaba esperando,
-     * y un mensaje que nadie pidió tiene que ser impecable o no ser.
-     */
-    const datosPais = agenteDePais(agente.pais);
-    if (datosPais) {
-      const { revisarConReglas } = await import("./revisor");
-      const org = obtenerOrg(orgId);
-      const negocio = nombreDelNegocio(agente, canal, org ?? null);
-      const fallas = revisarConReglas(texto, {
-        esApertura: false,
-        datos: datosPais,
-        marcador: org?.marcador_cierre ?? MARCADOR_POR_DEFECTO,
-        nombresDeLaCasa: [agente.nombre, negocio, datosPais.nombreAgente ?? "", datosPais.tienda].filter(Boolean),
-        catalogo: textoDeLoQueVende(agente, listarCatalogo(orgId, true, canal.id)),
-        anuncio: anuncioParaModelo(anuncioVigente(conv)) || null,
-        ficha: fichaDelHilo(historial, agente.pais),
-        textosDelCliente: textosDelClienteEnSesion(historial),
-        textosDelAgente: textosDeLaCasaEnSesion(historial),
-        telefonoDelChat: conv.cliente_phone,
-        nombreDeCuenta: conv.cliente_nombre,
-        ultimoDelAgente: [...historial].reverse().find((m) => m.emisor !== "cliente")?.content ?? null,
-        bloqueDelPais: bloqueDelPais(
-          datosPais,
-          lugarEscritoPorElCliente(datosPais, mensajesDeLaSesion(historial)),
-          negocio,
-        ),
-      });
-      if (fallas.length > 0) {
-        console.log(`[seguimiento] el recordatorio de ${conversationId} no pasó las reglas y no se manda: ${fallas.join("; ")}`);
-        return false;
-      }
     }
   }
 

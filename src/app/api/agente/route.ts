@@ -61,8 +61,6 @@ function paraElPanel(a: Agente) {
     horario_hasta: a.horario_hasta,
     recordatorio_visto: a.recordatorio_visto === 1,
     recordatorio_visto_horas: a.recordatorio_visto_horas,
-    recordatorio_entrega: a.recordatorio_entrega === 1,
-    recordatorio_entrega_horas: a.recordatorio_entrega_horas,
   };
 }
 
@@ -154,14 +152,15 @@ const Cambio = z.object({
   horario_desde: z.string().regex(HORA, "La hora va como 09:00").nullable().optional(),
   horario_hasta: z.string().regex(HORA, "La hora va como 18:00").nullable().optional(),
   /*
-   * Los seguimientos. Las horas van acotadas por los dos lados: menos de una
+   * El seguimiento. Las horas van acotadas por los dos lados: menos de una
    * hora convierte el recordatorio en una insistencia encima del cliente, y
    * mas de una semana en un mensaje que ya no viene a cuento.
+   *
+   * El aviso de «su pedido va en camino» ya no existe y su interruptor tampoco:
+   * un panel no puede prometer una entrega que nadie despacho.
    */
   recordatorio_visto: z.boolean().optional(),
   recordatorio_visto_horas: z.number().int().min(1).max(168).optional(),
-  recordatorio_entrega: z.boolean().optional(),
-  recordatorio_entrega_horas: z.number().int().min(1).max(168).optional(),
 });
 
 /** Un booleano del panel a la columna INTEGER, dejando pasar el «sin cambio». */
@@ -212,8 +211,6 @@ export async function PATCH(req: NextRequest) {
       horario_hasta: d.horario_hasta,
       recordatorio_visto: bit(d.recordatorio_visto),
       recordatorio_visto_horas: d.recordatorio_visto_horas,
-      recordatorio_entrega: bit(d.recordatorio_entrega),
-      recordatorio_entrega_horas: d.recordatorio_entrega_horas,
     },
     canalId,
   );

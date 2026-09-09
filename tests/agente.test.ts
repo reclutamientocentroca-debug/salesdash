@@ -1301,25 +1301,101 @@ test("solo se recuerda a quien dejó la conversación a medias", () => {
   encender(false);
 });
 
-test("el aviso de pedido en camino sale una vez, y solo de las ventas cerradas", () => {
-  encender(true);
-  const t = D.ahora();
-  const ventana = { desde: t - 42 * 3600, hasta: t - 18 * 3600 };
+/**
+ * LA DIRECCIÓN QUE SACA EL MAPA TIENE QUE LLEGAR A LA FICHA, NO SOLO A LA BASE.
+ *
+ * El caso real (RD): el cliente mandó su ubicación, el mapa la resolvió como
+ * «Avenida Rómulo Betancourt, Renacimiento, Santo Domingo de Guzmán» —que es
+ * lo que enseña el panel— y el agente le contestó «Indique su dirección exacta
+ * de entrega.». La dirección se guardaba con un UPDATE y los mensajes que ya
+ * estaban en memoria seguían diciendo «[ubicación]»: de ahí sale la ficha del
+ * pedido, y la ficha decía que no había dirección.
+ */
+test("la ubicación resuelta se escribe en las listas de mensajes que ya se están leyendo", () => {
+  const id = hilo([
+    { emisor: "ia", content: "¿Cuál sería su dirección exacta de entrega?", hace: 120 },
+    { emisor: "cliente", content: "[ubicación]", hace: 60 },
+  ]);
+
+  // Las dos consultas del agente: la del prompt y la de la ficha. Son listas
+  // distintas y no comparten objetos, por eso se tocan las dos.
+  const paraElPrompt = D.listarMensajes(orgId, id);
+  const paraLaFicha = D.listarMensajes(orgId, id);
+  const pin = paraElPrompt[1]!;
+
+  const resuelto = "[ubicación] Avenida Rómulo Betancourt, Renacimiento, Santo Domingo de Guzmán";
+  ponerUbicacionResuelta([paraElPrompt, paraLaFicha], pin.id, resuelto);
+
+  assert.equal(paraElPrompt[1]!.content, resuelto);
+  assert.equal(paraLaFicha[1]!.content, resuelto, "la lista de la que sale la ficha también");
+
+  // Y con eso la ficha ya trae la dirección: no hay nada que volver a pedir.
+  const ficha = fichaDelHilo(paraLaFicha, "do");
+  assert.equal(ficha.direccion, "Avenida Rómulo Betancourt, Renacimiento, Santo Domingo de Guzmán");
+
+  // Un id que no está en el hilo no toca nada.
+  ponerUbicacionResuelta([paraElPrompt], -1, "no");
+  assert.equal(paraElPrompt[1]!.content, resuelto);
+});
+
+/**
+ * EL AVISO DE «SU PEDIDO YA VA EN CAMINO» SE QUITÓ, Y NO PUEDE VOLVER SOLO.
+ *
+ * Salía horas después de que algo marcara la conversación como cerrada, y esa
+ * marca no es un mensajero en la calle: en el caso dominicano el cliente había
+ * dicho «cuando tenga el dinero completo yo le aviso», nunca hubo resumen, y
+ * aun así le llegó que su pedido iba en camino. Lo contestó en el chat.
+ *
+ * Esta prueba barre el código en vez de mirar una función: el aviso no lo
+ * escribía el modelo —era una frase fija— así que mientras esa frase no esté
+ * escrita en ninguna parte, no hay forma de que salga. Los comentarios que
+ * cuentan por qué se quitó no cuentan; lo que no puede volver es una línea que
+ * la MANDE.
+ */
+test("ningún archivo puede mandar el aviso de que el pedido va en camino", async () => {
+  const { readdirSync, readFileSync, statSync } = await import("node:fs");
+  const { join } = await import("node:path");
+
+  const archivos: string[] = [];
+  (function recorrer(dir: string) {
+    for (const e of readdirSync(dir)) {
+      const ruta = join(dir, e);
+      if (statSync(ruta).isDirectory()) recorrer(ruta);
+      else if (/\.tsx?$/.test(e)) archivos.push(ruta);
+    }
+  })("src");
+
+  const sinComentarios = (f: string) =>
+    readFileSync(f, "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+
+  const culpables = archivos.filter((f) => /va en camino/i.test(sinComentarios(f)));
+
+  assert.deepEqual(
+    culpables,
+    [],
+    `Estos archivos vuelven a anunciar una entrega que nadie despachó: ${culpables.join(", ")}`,
+  );
+
+  // Y el barrido ya no tiene más que un seguimiento que mandar.
+  const { seguimientosDeCuenta } = await import("../src/lib/seguimiento");
+  D.actualizarAgente(orgId, { recordatorio_visto: 0 }, canalId);
 
   const vendida = hilo([{ emisor: "cliente", content: "la quiero", hace: 20 * 3600 }]);
-  D.sellarCierre(orgId, vendida, { cerradoPor: "ia", senal: "resumen_ia", fechaCierre: t - 20 * 3600 });
+  D.sellarCierre(orgId, vendida, {
+    cerradoPor: "ia",
+    senal: "resumen_ia",
+    fechaCierre: D.ahora() - 20 * 3600,
+  });
 
-  const abierta = hilo([{ emisor: "cliente", content: "lo pienso", hace: 20 * 3600 }]);
-
-  const ids = () => D.ventasParaRecordar(orgId, ventana).map((c) => c.id);
-
-  assert.ok(ids().includes(vendida), "la venta cerrada hace 20 horas entra");
-  assert.ok(!ids().includes(abierta), "una conversación sin cerrar no lleva aviso de entrega");
-
-  D.registrarSeguimiento(orgId, vendida, "entrega");
-  assert.ok(!ids().includes(vendida), "y no se repite");
-
+  encender(true);
+  assert.deepEqual(await seguimientosDeCuenta(orgId), { visto: 0 }, "una venta cerrada no genera nada");
+  assert.equal(
+    D.listarMensajes(orgId, vendida).length,
+    1,
+    "y al cliente que compró no le llega ni un mensaje más",
+  );
   encender(false);
+  D.actualizarAgente(orgId, { recordatorio_visto: 1 }, canalId);
 });
 
 /**

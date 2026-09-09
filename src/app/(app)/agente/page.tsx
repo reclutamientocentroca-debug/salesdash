@@ -38,8 +38,6 @@ function paraElPanel(a: Agente) {
     horario_hasta: a.horario_hasta,
     recordatorio_visto: a.recordatorio_visto === 1,
     recordatorio_visto_horas: a.recordatorio_visto_horas,
-    recordatorio_entrega: a.recordatorio_entrega === 1,
-    recordatorio_entrega_horas: a.recordatorio_entrega_horas,
   };
 }
 

@@ -1,17 +1,19 @@
 /**
  * SalesDash — seguimientos.
  *
- * Los dos únicos mensajes que salen sin que el cliente haya escrito nada:
+ * EL ÚNICO mensaje que sale sin que el cliente haya escrito nada:
  *
- *   1. EN VISTO. Habló el agente, el cliente no volvió y la conversación se
- *      quedó a medias. Pasadas unas horas se le escribe una vez para retomar:
- *      el artículo del que hablaban, que queda poco, y la pregunta que faltaba
- *      para cerrar. Una venta que se enfría no se recupera sola.
+ *   EN VISTO. Habló el agente, el cliente no volvió y la conversación se quedó
+ *   a medias. Pasadas unas horas se le escribe una vez para retomar: el
+ *   artículo del que hablaban, que queda poco, y la pregunta que faltaba para
+ *   cerrar. Una venta que se enfría no se recupera sola.
  *
- *   2. ENTREGA. Horas después de levantar el pedido, un aviso de que el
- *      mensajero ya salió para que el cliente esté pendiente. Con pago contra
- *      entrega, el paquete que nadie recibe vuelve al almacén y la venta se
- *      pierde después de estar hecha.
+ * Eran dos. El otro avisaba de que el pedido ya iba en camino con el mensajero,
+ * horas después de que la conversación quedara marcada como cerrada, y se
+ * quitó: esa marca no es un mensajero en la calle. En el caso dominicano el
+ * cliente había dicho «cuando tenga el dinero completo yo le aviso», nunca
+ * hubo resumen, y le llegó igual que su pedido iba en camino. Avisar de una
+ * entrega que nadie despachó es peor que no avisar de nada.
  *
  * REGLAS QUE NO SE ROMPEN
  *
@@ -32,7 +34,6 @@ import {
   listarCanales,
   obtenerAgente,
   orgsConAgente,
-  ventasParaRecordar,
   ahora,
 } from "./db";
 import { enviarSeguimiento } from "./agent";
@@ -52,7 +53,6 @@ const MAX_POR_VUELTA = 20;
 
 export interface ResumenBarrido {
   visto: number;
-  entrega: number;
 }
 
 /**
@@ -68,7 +68,7 @@ export interface ResumenBarrido {
  */
 export async function seguimientosDeCuenta(orgId: number): Promise<ResumenBarrido> {
   const t = ahora();
-  const salida: ResumenBarrido = { visto: 0, entrega: 0 };
+  const salida: ResumenBarrido = { visto: 0 };
 
   for (const canal of listarCanales(orgId)) {
     // Donde el agente no contesta tampoco insiste. La consulta lo vuelve a
@@ -92,20 +92,6 @@ export async function seguimientosDeCuenta(orgId: number): Promise<ResumenBarrid
           if (await enviarSeguimiento(orgId, c.id, "visto")) salida.visto++;
         }
       }
-
-      if (agente.recordatorio_entrega === 1) {
-        const corte = t - Math.max(agente.recordatorio_entrega_horas, 1) * 3600;
-        const pendientes = ventasParaRecordar(
-          orgId,
-          { desde: corte - VENTANA, hasta: corte },
-          MAX_POR_VUELTA,
-          canal.id,
-        );
-
-        for (const c of pendientes) {
-          if (await enviarSeguimiento(orgId, c.id, "entrega")) salida.entrega++;
-        }
-      }
     } catch (e) {
       console.error(`[seguimiento] falló el barrido del canal ${canal.id}`, e);
     }
@@ -122,23 +108,19 @@ export async function seguimientosDeCuenta(orgId: number): Promise<ResumenBarrid
  * en su propio try.
  */
 export async function barrerSeguimientos(): Promise<ResumenBarrido> {
-  const total: ResumenBarrido = { visto: 0, entrega: 0 };
+  const total: ResumenBarrido = { visto: 0 };
 
   for (const orgId of orgsConAgente()) {
     try {
       const r = await seguimientosDeCuenta(orgId);
       total.visto += r.visto;
-      total.entrega += r.entrega;
     } catch (e) {
       console.error(`[seguimiento] falló el barrido de la cuenta ${orgId}`, e);
     }
   }
 
-  if (total.visto > 0 || total.entrega > 0) {
-    console.log(
-      `[seguimiento] ${total.visto} recordatorio(s) a conversaciones en visto, ` +
-        `${total.entrega} aviso(s) de pedido en camino`,
-    );
+  if (total.visto > 0) {
+    console.log(`[seguimiento] ${total.visto} recordatorio(s) a conversaciones en visto`);
   }
 
   return total;

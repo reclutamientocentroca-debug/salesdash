@@ -44,8 +44,6 @@ interface Agente {
   horario_hasta: string | null;
   recordatorio_visto: boolean;
   recordatorio_visto_horas: number;
-  recordatorio_entrega: boolean;
-  recordatorio_entrega_horas: number;
 }
 
 /** Lo que impide o condiciona que el agente conteste. Lo calcula el servidor. */
@@ -1166,8 +1164,8 @@ export default function PanelAgente({
       {/* ── Seguimientos ───────────────────────────────────────────────────── */}
       <section className="tarjeta">
         <Apartado n={canal ? 8 : 7} titulo="Seguimiento automático">
-          Los dos únicos mensajes que el agente manda sin que el cliente escriba. Solo salen por los
-          números donde ya está encendido, y uno solo por conversación.
+          El único mensaje que el agente manda sin que el cliente escriba. Solo sale por los números
+          donde ya está encendido, y una sola vez por conversación.
         </Apartado>
 
         <div style={{ display: "grid", gap: 14 }}>
@@ -1186,25 +1184,6 @@ export default function PanelAgente({
                 style={{ width: 130 }}
                 value={agente.recordatorio_visto_horas}
                 onChange={(e) => cambiar("recordatorio_visto_horas", Number(e.target.value))}
-              />
-            </div>
-          )}
-
-          <Interruptor
-            activo={agente.recordatorio_entrega}
-            onChange={(v) => cambiar("recordatorio_entrega", v)}
-            etiqueta="Avisar de que el pedido va en camino"
-            descripcion="Horas después de levantar el pedido, el cliente recibe un aviso para que esté pendiente al mensajero. Con pago contra entrega, el paquete que nadie recibe se devuelve."
-          />
-
-          {agente.recordatorio_entrega && (
-            <div style={{ paddingLeft: 50 }}>
-              <label className="etiqueta-campo" htmlFor="entrega-horas">A las cuántas horas del pedido</label>
-              <input
-                id="entrega-horas" type="number" min={1} max={168} className="campo"
-                style={{ width: 130 }}
-                value={agente.recordatorio_entrega_horas}
-                onChange={(e) => cambiar("recordatorio_entrega_horas", Number(e.target.value))}
               />
             </div>
           )}
