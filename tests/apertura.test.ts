@@ -81,7 +81,9 @@ test("pedir otro artículo no es preguntar el precio de este: pasa a un represen
   // Otra talla, otro color o el precio por docena son de ESTE artículo: la venta sigue.
   assert.equal(preguntaDelCliente("¿Tienen otro color?"), null);
   assert.equal(preguntaDelCliente("¿hay otra talla?"), "tallas");
-  assert.equal(preguntaDelCliente("¿me sale más barato si llevo 3?"), null);
+  // Y desde el 2026-09-10 no solo «no es otro artículo»: es una pregunta de
+  // precio por cantidad, y se le contesta con el tramo que le toca.
+  assert.equal(preguntaDelCliente("¿me sale más barato si llevo 3?"), "precio_cantidad");
   assert.equal(preguntaDelCliente("cuanto cuesta?"), "precio");
   assert.equal(respuestaMinima(rd, vacia, combo, { ultimoDelCliente: "¿Tienen otro color?" }), "Indíquenos a qué dirección y provincia le enviamos.");
 });
@@ -145,6 +147,55 @@ test("cada país pide la dirección con sus palabras", () => {
     { emisor: "cliente" as const, content: "Los Alcarrizos, calle 3" },
   ];
   assert.equal(fichaDelPedido(hilo, rd).direccion, "Los Alcarrizos, calle 3");
+});
+
+/**
+ * AL POR MAYOR SE VENDE COMO UN PROFESIONAL: SE CONTESTA LO QUE PREGUNTA Y SE
+ * LE ENSEÑA EL ESCALÓN DE ARRIBA.
+ *
+ * La captura de la dueña (Messenger, 2026-09-10): «¿Cuál es el precio de una
+ * docena?» → «Indíquenos a qué dirección y provincia le enviamos.». Y su regla,
+ * en dos frases: «debe responder lo que el cliente pregunta o dice» y «debe
+ * vender como profesional de ventas al por mayor».
+ */
+test("una pregunta por el precio de varias se contesta, y se le enseña el tramo siguiente", () => {
+  const polos = { descripcion_anuncio: "POLOS BRONX ORIGINALES RD$1,400 C/U RD$1,190 al por mayor" };
+  const vacia = { talla: null, color: null, direccion: null, nombre: null, celular: null, cantidad: null };
+
+  // Como se pregunta aquí: con el pronombre en medio, o sin nombrar el precio.
+  for (const q of ["¿Cuál es el precio de una docena?", "¿a cómo me salen 3?", "¿y si llevo 6?", "¿en cuánto me sale la docena?", "¿a cómo me los deja llevando 4?"]) {
+    assert.equal(preguntaDelCliente(q), "precio_cantidad", q);
+  }
+  // Y lo que no pregunta por dinero, sigue sin preguntarlo.
+  assert.equal(preguntaDelCliente("si llevo la M me sirve?"), null, "eso pregunta por la talla");
+  assert.equal(preguntaDelCliente("Talla L"), null);
+
+  // Tres van al tramo de 3 a 11, y se le enseña la docena, que es más barata.
+  const tres = respuestaDirecta(rd, "¿a cómo me salen 3?", polos, null)!;
+  assert.ok(tres.startsWith("Las 3 unidades le salen a RD$1,190 cada una: RD$3,570."), tres);
+  assert.match(tres, /desde 12 le salen a RD\$990 cada una/);
+
+  // Con la docena ya pedida no hay nada mejor que ofrecer: no se insiste.
+  assert.equal(
+    respuestaDirecta(rd, "¿Cuál es el precio de una docena?", polos, null),
+    "Las 12 unidades le salen a RD$990 cada una: RD$11,880.",
+  );
+
+  /*
+   * Y SE CONTESTA EN CUALQUIER PASO DEL PEDIDO. El paso del teléfono salía
+   * derecho al costo del envío: la pregunta del cliente se quedaba sin
+   * contestar justo cuando se le pide un dato personal.
+   */
+  const conDireccion = { ...vacia, talla: "L", color: "azul", direccion: "Los Alcarrizos" };
+  const enElTelefono = respuestaMinima(rd, conDireccion, polos, { ultimoDelCliente: "¿Cuál es el precio de una docena?" });
+  assert.ok(enElTelefono.startsWith("Las 12 unidades le salen a RD$990 cada una: RD$11,880."), enElTelefono);
+  assert.match(enElTelefono, /el envío le sale en RD\$250/);
+  assert.match(enElTelefono, /¿Me facilita su número de teléfono para el pedido\?$/);
+
+  // Sin pregunta colgando, ese paso sigue siendo el de siempre.
+  assert.ok(
+    respuestaMinima(rd, conDireccion, polos, {}).startsWith("Perfecto, hasta Gran Santo Domingo el envío le sale en RD$250."),
+  );
 });
 
 /**

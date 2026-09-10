@@ -468,13 +468,22 @@ export function respuestaMinima(
     const donde = nombreDeLaZona(d, ficha.direccion ?? "", opciones.lugar);
     const yaLoPidio = !!opciones.ultimoDelAgente && /tel[eé]fono/i.test(opciones.ultimoDelAgente);
     /*
+     * Y PRIMERO LO SUYO. La dueña (2026-09-10): «debe responder lo que el
+     * cliente pregunta o dice». Este paso salía derecho al costo del envío y
+     * al teléfono, así que la pregunta que traía el cliente —«¿cuál es el
+     * precio de una docena?»— se quedaba sin contestar justo en el paso donde
+     * más caro sale: el de dar un dato personal.
+     */
+    const suyo = respuestaDirecta(d, opciones.ultimoDelCliente, anuncio, opciones.lugar);
+    const antes = suyo && suyo !== fraseDeTransferencia(d) ? `${suyo}\n` : "";
+    /*
      * Y SI SU ZONA NO FUNCIONA COMO EL RESTO, se le dice AQUÍ, con el costo, no
      * al final: en la provincia Independencia el pedido va por la guagua, se
      * retira en la parada y se paga antes de enviarlo. Enterarse de eso después
      * del resumen es enterarse tarde.
      */
     const aviso = zona !== "resto" && zona.avisoAlCliente ? ` ${zona.avisoAlCliente}` : "";
-    return `Perfecto, hasta ${donde} el envío le sale en ${importe(d, costo)}.${aviso}\n${yaLoPidio ? otraFormaDePreguntar(d, "celular", descripcion) : pregunta}`;
+    return `${antes}Perfecto, hasta ${donde} el envío le sale en ${importe(d, costo)}.${aviso}\n${yaLoPidio ? otraFormaDePreguntar(d, "celular", descripcion) : pregunta}`;
   }
 
   /*
@@ -867,8 +876,15 @@ const EN_LETRAS: Record<string, number> = {
 };
 
 /** El cliente pregunta cuánto cuesta. «A cómo sale» es la forma dominicana. */
+/*
+ * Y CON EL PRONOMBRE EN MEDIO, que es como se pregunta aquí: «¿a cómo ME salen
+ * 3?», «¿en cuánto ME sale la docena?». Sin admitirlo, esas dos no eran una
+ * pregunta de precio para esta casa y se quedaban sin contestar —o peor,
+ * contestadas con el precio de una— en el chat de quien estaba comprando al
+ * por mayor.
+ */
 const PREGUNTA_PRECIO =
-  /\b(precio|cuanto (cuesta|cuestan|vale|valen|es|son|sale|salen)|a\s*como (sale|salen|es|son|esta|estan|lo da|los da|la da|las da|me lo deja)|valor)\b/;
+  /\b(precio|cuanto (cuesta|cuestan|vale|valen|es|son|sale|salen)|(?:a\s*como|en cuanto)(?:\s+(?:me|nos|te|le|se|lo|los|la|las))*\s+(sale|salen|es|son|esta|estan|deja|dejas|da|dan|queda|quedan|cuesta|cuestan|vale|valen)|a\s*como (lo da|los da|la da|las da|me lo deja)|valor)\b/;
 
 /**
  * CUÁNTAS UNIDADES DICE EL CLIENTE QUE QUIERE, cuando lo dice él por su cuenta.
@@ -897,7 +913,7 @@ export function cantidadDicha(texto: string | null | undefined): number | null {
   if (/\b(de la (manana|tarde|noche)|[ap]\.?m)\b|\d:\d/.test(t)) return null;
 
   const pide =
-    "quiero|llevo|llevar|llevarme|necesito|deme|dame|mandeme|envieme|serian|seran|son|por|" +
+    "quiero|llevo|llevar|llevarme|llevando|llevaria|necesito|deme|dame|mandeme|envieme|serian|seran|son|por|" +
     "sale|salen|cuesta|cuestan|vale|valen";
   const letras = t.match(new RegExp(`\\b(?:${pide})\\s+(${Object.keys(EN_LETRAS).join("|")})\\b`));
   const conLetras = letras ? (EN_LETRAS[letras[1]!] ?? 0) : 0;
@@ -944,6 +960,16 @@ export function preguntaDelCliente(texto: string | null | undefined): PreguntaDe
      */
     const cuantas = cantidadDicha(texto);
     return cuantas !== null && cuantas >= 2 ? "precio_cantidad" : "precio";
+  }
+
+  /*
+   * «¿Y SI LLEVO 6?» PREGUNTA EL PRECIO SIN NOMBRARLO. Es como se pide el
+   * mayoreo aquí, y por eso pide una cantidad de verdad: «si llevo la M me
+   * sirve?» pregunta por la talla, no por el dinero.
+   */
+  if (/\bsi (?:me )?(?:llevo|compro|pido|ordeno|llevara|comprara)\b/.test(t)) {
+    const cuantas = cantidadDicha(texto);
+    if (cuantas !== null && cuantas >= 2) return "precio_cantidad";
   }
   // El mayoreo se pregunta también sin nombrar el precio: «¿venden por docena?».
   if (/\b(mayor|mayoreo|docenas?)\b/.test(t) && cantidadDicha(texto) !== null) return "precio_cantidad";
@@ -1009,7 +1035,25 @@ export function respuestaDirecta(
 
       const unidad = precioPorCantidad(d, texto, cuantas, base);
       const salen = d.trato === "tu" ? "te salen" : "le salen";
-      return `Las ${cuantas} unidades ${salen} a ${importe(d, unidad)} cada una: ${importe(d, unidad * cuantas)}.`;
+      const suyo = `Las ${cuantas} unidades ${salen} a ${importe(d, unidad)} cada una: ${importe(d, unidad * cuantas)}.`;
+
+      /*
+       * Y SE VENDE EL TRAMO DE ARRIBA. La dueña (2026-09-10): «debe vender como
+       * profesional de ventas al por mayor». Quien pregunta por seis está a
+       * seis de que le salgan más baratas, y quien no lo sabe compra seis. El
+       * escalón siguiente sale de la misma lista de precios —no se inventa
+       * nada— y se dice en la misma línea, sin insistir: se le enseña y sigue
+       * la venta.
+       */
+      const escalon = escalaDelArticulo(d, texto, base)?.tramos.find(
+        (t) => t.desde > cuantas && t.precio < unidad,
+      );
+      if (!escalon) return suyo;
+
+      return (
+        `${suyo} Y desde ${escalon.desde} ${salen} a ${importe(d, escalon.precio)} cada una: ` +
+        `${importe(d, escalon.precio * escalon.desde)} por ${escalon.desde}.`
+      );
     }
     case "envio": {
       const zona = zonaDelCliente(d, lugar);
