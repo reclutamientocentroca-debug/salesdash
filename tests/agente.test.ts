@@ -1425,6 +1425,50 @@ test("ningún archivo puede mandar el aviso de que el pedido va en camino", asyn
  * cliente volvía días después a comprar. Y desde fuera no había forma de saber
  * por qué nadie contestaba.
  */
+/**
+ * Y LA VENTA CERRADA TAMBIÉN CALLA AL AGENTE: la pantalla tiene que decirlo.
+ *
+ * La dueña (2026-09-10): «¿por qué la IA no está respondiendo ni volviendo a
+ * transferir?». Después del resumen el hilo es del representante —eso está
+ * bien— pero quien mira la conversación no veía ningún motivo: lo contaba la
+ * anomalía del handoff, y esa cualquiera la resuelve desde el panel. Resuelta,
+ * el hilo se quedaba mudo con la pantalla diciendo que todo iba bien.
+ */
+test("con la venta cerrada, el panel dice que el hilo es del representante y el botón lo devuelve", async () => {
+  encender(true);
+  const id = hilo([
+    { emisor: "cliente", content: "quiero el combo", hace: 900 },
+    { emisor: "ia", content: "Resumen de su pedido:\nTotal: RD$1,940", hace: 800 },
+    { emisor: "cliente", content: "ok gracias, ya lo recibí", hace: 5 },
+  ]);
+  D.sellarCierre(orgId, id, { cerradoPor: "ia", senal: "resumen_ia", fechaCierre: D.ahora() - 800 });
+
+  assert.equal(motivoDe(await atenderConversacion(orgId, canalId, id)), "pasado_a_asesor");
+
+  const callado = porQueCalla(orgId, canalId, id);
+  assert.equal(callado.callado, true);
+  assert.equal(callado.motivo, "pasado_a_asesor");
+  assert.ok(callado.explicacion?.includes("cerrada"), `lo dice con palabras del negocio: ${callado.explicacion}`);
+  assert.equal(callado.reversible, true, "y hay botón para deshacerlo");
+
+  // Y aunque alguien resuelva la anomalía —que es lo natural en el panel—, la
+  // pantalla sigue diciendo la verdad: el agente sigue callado por el cierre.
+  for (const a of D.listarAnomalias(orgId)) {
+    if (a.conversation_id === id) D.resolverAnomalia(orgId, a.id);
+  }
+  assert.equal(porQueCalla(orgId, canalId, id).motivo, "pasado_a_asesor", "el cierre sigue mandando");
+
+  // Devuelto por una persona, contesta: llega hasta el modelo, que en las
+  // pruebas no existe. La venta cerrada no se toca.
+  // (Devuelve cuántas anomalías cerró, y aquí ya no quedaba ninguna abierta.)
+  D.devolverALaIa(orgId, id);
+  assert.equal(porQueCalla(orgId, canalId, id).callado, false);
+  assert.equal(motivoDe(await atenderConversacion(orgId, canalId, id)), "fallo_modelo");
+  assert.notEqual(D.getConversation(orgId, id)?.fecha_cierre, null, "la venta sigue cerrada y contada");
+
+  encender(false);
+});
+
 test("el panel dice por qué calla el agente, y se le puede devolver el hilo", async () => {
   encender(true);
   const id = hilo([

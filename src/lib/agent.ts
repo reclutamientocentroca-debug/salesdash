@@ -1655,6 +1655,27 @@ export function porQueCalla(
     return callado("agente_apagado", "El agente está apagado en este número.");
   }
 
+  /*
+   * LA VENTA CERRADA CALLA AL AGENTE, y hasta ahora la pantalla no lo decía.
+   *
+   * Lo contaba la anomalía del handoff —y cualquiera la resuelve desde el
+   * panel—: resuelta, esta pantalla decía que el agente estaba contestando
+   * mientras `atenderConversacion` lo seguía parando por el cierre. Es
+   * exactamente el desajuste del que avisa la nota de arriba.
+   */
+  const hilo = getConversation(orgId, conversationId);
+  if (
+    hilo?.fecha_cierre != null &&
+    !(hilo.devuelta_a_ia_at !== null && hilo.devuelta_a_ia_at >= hilo.fecha_cierre)
+  ) {
+    return callado(
+      "pasado_a_asesor",
+      "La venta de este hilo ya está cerrada: después del resumen el chat es del representante. " +
+        "Si el cliente vuelve a escribir y quieres que el agente le conteste, devuélveselo.",
+      true,
+    );
+  }
+
   if (hayAnomaliaAbierta(orgId, conversationId, "handoff_agente")) {
     return callado(
       "pasado_a_asesor",
@@ -1899,7 +1920,17 @@ async function atenderTurno(
    * representante. Esta guarda va antes de percepción y del modelo para que
    * ningún camino genere una respuesta adicional.
    */
-  if (conv.fecha_cierre !== null) {
+  /*
+   * Salvo que una persona le haya devuelto el hilo DESPUÉS del cierre. Pulsar
+   * «Contesta la IA» es alguien mirando esta conversación y decidiendo que
+   * aquí sigue el agente; si ni eso lo despierta, el botón no sirve para nada
+   * en el único sitio donde más falta hace. La venta cerrada no se toca: sigue
+   * contada, con su fecha y su dueño.
+   */
+  const devueltoTrasElCierre =
+    conv.devuelta_a_ia_at !== null && conv.devuelta_a_ia_at >= conv.fecha_cierre!;
+
+  if (conv.fecha_cierre !== null && !devueltoTrasElCierre) {
     if (!hayAnomaliaAbierta(orgId, conversationId, "handoff_agente")) {
       ponerAtiende(orgId, conversationId, "humano");
       crearAnomalia(orgId, {
