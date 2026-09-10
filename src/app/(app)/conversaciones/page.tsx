@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Burbuja } from "@/components/panel/Burbuja";
+import Escribir from "@/components/panel/Escribir";
 import { Nube, Pastilla, Vacio, dinero, hace, tienePedido } from "@/components/panel/Piezas";
 import {
   bandeja,
@@ -349,6 +350,14 @@ export default async function PaginaConversaciones({ searchParams }: Props) {
                   </div>
                 )}
               </div>
+
+              {/*
+                Y AQUÍ SE LE CONTESTA. Hasta ahora esta bandeja se podía leer
+                entera y no había forma de escribirle al cliente sin coger el
+                teléfono: quien veía que la IA se había atascado tenía el hilo
+                delante y ninguna caja donde responder. Ver `Escribir.tsx`.
+              */}
+              <Escribir conversationId={abierta.id} atiende={abierta.atiende} />
             </>
           )}
         </div>

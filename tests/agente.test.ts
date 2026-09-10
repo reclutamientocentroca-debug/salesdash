@@ -348,7 +348,24 @@ test("al devolverle el hilo, la IA contesta el mensaje del cliente que quedó si
 
   // Ahora sí llega hasta el modelo —que en las pruebas no existe—: la pregunta
   // del cliente vuelve a estar sobre la mesa.
-  assert.equal(motivoDe(await atenderConversacion(orgId, canalId, id)), "fallo_modelo");
+  const retomada = await atenderConversacion(orgId, canalId, id);
+  assert.equal(motivoDe(retomada), "fallo_modelo");
+
+  /*
+   * Y LLEGA DE VERDAD: falla por falta de clave, no por la guarda.
+   *
+   * Esta línea es el fallo de Costa Rica (la dueña, 2026-09-09). Marcar cuál
+   * era el mensaje colgando no bastaba: el hilo que se le pasaba al modelo
+   * seguía terminando en el «le transfiero con un representante» del agente y
+   * `generarRespuesta` lo paraba con «la conversación no termina en un mensaje
+   * del cliente». El motivo era «fallo_modelo» igual —esta prueba pasaba— pero
+   * al modelo no se le llamaba nunca y el cliente no recibía nada.
+   */
+  assert.match(
+    (retomada.atendida === false && "detalle" in retomada ? retomada.detalle : "") || "",
+    /OPENROUTER_API_KEY/,
+    "el hilo devuelto no llegó al modelo: se paró en la guarda de «no termina en un mensaje del cliente»",
+  );
 
   // Pero si el equipo YA le contestó después de devolverlo, no hay nada colgando.
   hiloAnade(id, [{ emisor: "humano", content: "Sí, en azul lo tenemos.", hace: 0 }]);
@@ -2538,4 +2555,56 @@ test("el prompt no lleva ningún nombre de persona de ejemplo", () => {
       `«${nombre}» está escrito en el prompt: el modelo lo va a usar como si fuera el cliente`,
     );
   }
+});
+
+/**
+ * ═══ LO QUE ESCRIBE UNA PERSONA DESDE LA BANDEJA ═══
+ *
+ * El motor estaba y no lo probaba nadie. Ahora hay DOS pantallas que escriben
+ * por aquí —la bandeja de WhatsApp y la de Messenger e Instagram—, así que lo
+ * que garantiza esta función deja de ser un detalle de una pantalla.
+ *
+ * Lo que no puede fallar: EL AGENTE SE CALLA ANTES DE ENVIAR, no después.
+ * Entre el envío y el apagado hay segundos, y en esos segundos puede entrar un
+ * mensaje del cliente que despierte a la IA: dos voces contestando a la vez
+ * mientras el vendedor cree que ya tomó el chat. Por eso el hilo pasa a la
+ * persona AUNQUE EL ENVÍO FALLE.
+ */
+test("escribir a mano toma el chat antes de enviar, y el envío fallido no lo devuelve a la IA", async () => {
+  const { enviarAMano } = await import("../src/lib/agent");
+
+  const id = hilo([{ emisor: "cliente", content: "Buenas, ¿tienen el combo?", hace: 60 }]);
+  assert.equal(D.getConversation(orgId, id)!.atiende, "ia", "empieza contestando la IA");
+
+  // Un mensaje en blanco no toca nada: ni envía ni le quita el hilo a la IA.
+  const vacio = await enviarAMano(orgId, id, "   ");
+  assert.equal(vacio.ok, false);
+  assert.equal(D.getConversation(orgId, id)!.atiende, "ia", "un texto vacío no toma el chat");
+
+  // Una conversación de otra cuenta —o inexistente— tampoco.
+  const ajena = await enviarAMano(orgId, 999_999, "Hola");
+  assert.equal(ajena.ok, false);
+
+  /*
+   * Y con texto de verdad: el número de estas pruebas no está conectado, así
+   * que el envío falla. El error sube CON SUS PALABRAS y no como un «no se
+   * pudo enviar» genérico: los que se ven de verdad —la sesión caída, la
+   * ventana de 24 horas, el permiso que falta— se arreglan de tres formas
+   * distintas, y quien lo lee necesita saber cuál le tocó. Pero el chat YA es
+   * suyo.
+   */
+  const enviado = await enviarAMano(orgId, id, "Le confirmo que sí lo tenemos.");
+  assert.equal(enviado.ok, false, "sin número conectado no se puede enviar");
+  assert.ok(enviado.ok === false && enviado.error.trim().length > 0, "el error se dice, no se calla");
+  assert.equal(D.getConversation(orgId, id)!.atiende, "humano", "el chat es de la persona aunque el envío falle");
+
+  // Y nada que no se envió se cuela en el hilo.
+  const textos = D.listarMensajes(orgId, id).map((m) => m.content);
+  assert.equal(textos.includes("Le confirmo que sí lo tenemos."), false);
+
+  /*
+   * La otra mitad de la garantía —que con el hilo en manos de una persona el
+   * agente calla— la comprueba la prueba del interruptor, más arriba. Aquí lo
+   * que importa es que escribir a mano DEJA el hilo en ese estado.
+   */
 });

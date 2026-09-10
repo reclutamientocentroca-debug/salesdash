@@ -434,7 +434,7 @@ export default function BandejaMeta({
           <div ref={finDelHilo} />
         </div>
 
-        <div className="sd-meta-redactar">
+        <div className="sd-redactar">
           <div style={{ display: "flex", gap: 9, alignItems: "flex-end" }}>
             <textarea
               rows={1}

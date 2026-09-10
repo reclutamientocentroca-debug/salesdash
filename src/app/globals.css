@@ -2505,13 +2505,17 @@ body {
   color: var(--acc);
 }
 
-.sd-meta-redactar {
+/*
+ * La caja de escribirle al cliente. La usan las dos bandejas —la de WhatsApp y
+ * la de Messenger e Instagram— porque es la misma caja: ver `Escribir.tsx`.
+ */
+.sd-redactar {
   background: var(--card);
   border-top: 1px solid var(--line);
   padding: 12px 16px;
 }
 
-.sd-meta-redactar textarea {
+.sd-redactar textarea {
   flex: 1;
   border: 1px solid var(--line-2);
   border-radius: var(--radio-control);
@@ -2524,7 +2528,7 @@ body {
   background: var(--card);
 }
 
-.sd-meta-redactar textarea:disabled {
+.sd-redactar textarea:disabled {
   background: var(--soft);
   color: var(--ink-4);
 }
