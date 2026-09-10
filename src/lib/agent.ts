@@ -1742,6 +1742,40 @@ export function porQueCalla(
   return hablando;
 }
 
+/**
+ * POR QUÉ NO CONTESTÓ, EN PALABRAS DE QUIEN ATIENDE.
+ *
+ * La dueña (2026-09-10): «al devolverle la atención a la IA no está
+ * respondiendo y tiene que responder». Devolver el hilo dispara un intento, y
+ * ese intento puede acabar sin escribir nada —no había ningún mensaje del
+ * cliente pendiente, el modelo no contestó, el cliente sigue escribiendo—. Sin
+ * esto, el panel decía «listo» y en el chat no pasaba nada: quien pulsa el
+ * botón se queda mirando y sin saber a quién culpar.
+ *
+ * `porQueCalla` explica el silencio de ANTES; esto explica el de AHORA, el del
+ * intento que se acaba de hacer.
+ */
+export function porQueNoContesto(r: Resultado): string | null {
+  if (r.atendida) return null;
+
+  switch (r.motivo) {
+    case "ultimo_no_es_cliente":
+      return "No hay ningún mensaje del cliente sin contestar: el último del hilo es de la casa. El agente contestará en cuanto el cliente escriba.";
+    case "ya_contestado":
+      return "Ese mensaje ya estaba contestado: no se le manda dos veces lo mismo.";
+    case "cliente_sigue_hablando":
+      return "El cliente está escribiendo ahora mismo: el agente espera a que termine y contesta solo, con todo lo que diga.";
+    case "mensaje_de_sistema":
+      return "Lo último del hilo es un aviso interno de WhatsApp, no un mensaje del cliente.";
+    case "resumen_repetido":
+      return "Lo único que quedaba por decir era un resumen que ya se había mandado.";
+    case "fallo_modelo":
+      return `El modelo no respondió (${r.detalle}). Si se repite, revisa el modelo del agente y su respaldo en el panel del número.`;
+    default:
+      return null;
+  }
+}
+
 export type Resultado =
   | { atendida: false; motivo: MotivoSilencio }
   | { atendida: false; motivo: "fallo_modelo"; detalle: string }
@@ -1877,8 +1911,18 @@ async function atenderTurno(
     (() => {
       const suyo = [...historial].reverse().find((m) => m.emisor === "cliente");
       if (!suyo) return false;
+      /*
+       * ESTRICTAMENTE DESPUÉS, y esto no es una manía: las horas se guardan en
+       * SEGUNDOS. El equipo escribe y pulsa «Contesta la IA» en el mismo
+       * segundo —que es el gesto normal: se despide y le devuelve el hilo— y
+       * con un «>=» su propio mensaje contaba como «ya le contestaron después
+       * de devolverlo». El agente se quedaba callado y nadie sabía por qué.
+       *
+       * Lo que cuenta como contestado es lo que el equipo escriba DESPUÉS de
+       * pulsar el botón, no lo que escribió al pulsarlo.
+       */
       const desde = Math.max(suyo.created_at, conv.devuelta_a_ia_at!);
-      if (historial.some((m) => m.emisor !== "cliente" && m.created_at >= desde)) return false;
+      if (historial.some((m) => m.emisor !== "cliente" && m.created_at > desde)) return false;
 
       /*
        * Y EL HILO SE CORTA EN ESE MENSAJE, que es lo que faltaba.

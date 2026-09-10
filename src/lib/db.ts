@@ -2391,12 +2391,17 @@ export function huboHumanoReciente(orgId: number, conversationId: number, desde:
    * otra plataforma, entró como «humano», y el agente se calló dos horas
    * aunque ella le devolvió la atención. Devolver el hilo es decir «desde ahora
    * contesta la IA»: solo la calla lo que el equipo escriba DESPUÉS.
+   *
+   * Y DESPUÉS ES ESTRICTAMENTE DESPUÉS (la dueña, 2026-09-10): las horas se
+   * guardan en segundos, y el gesto normal es escribir la despedida y pulsar
+   * «Contesta la IA» en el mismo segundo. Con un «>=», ese último mensaje del
+   * propio equipo volvía a callar al agente que acababan de despertar.
    */
   const fila = s(
     `SELECT 1 AS x FROM messages m
       JOIN conversations c ON c.id = m.conversation_id
       WHERE m.org_id = ? AND m.conversation_id = ? AND m.emisor = 'humano'
-        AND m.created_at >= ? AND m.created_at >= COALESCE(c.devuelta_a_ia_at, 0)
+        AND m.created_at >= ? AND m.created_at > COALESCE(c.devuelta_a_ia_at, 0)
       LIMIT 1`,
   ).get(orgId, conversationId, desde) as { x: number } | undefined;
   return !!fila;

@@ -214,8 +214,9 @@ export async function POST(req: NextRequest, { params }: Ctx) {
    * pulsa el botón tiene que enterarse ahora, no cuando el cliente no reciba
    * respuesta.
    */
-  const { porQueCalla, atenderConversacion } = await import("@/lib/agent");
+  const { porQueCalla, atenderConversacion, porQueNoContesto } = await import("@/lib/agent");
   const estado = porQueCalla(orgId, conv.canal_id, conv.id);
+  let noContesto: string | null = null;
 
   /*
    * Y AL DEVOLVERLE EL HILO, CONTESTA YA. La dueña (2026-09-05): «si le
@@ -225,10 +226,29 @@ export async function POST(req: NextRequest, { params }: Ctx) {
    * equipo, no hay nada pendiente y `atenderConversacion` no hace nada.
    */
   if (datos.data.accion === "devolver_a_la_ia" && !estado.callado) {
-    void atenderConversacion(orgId, conv.canal_id, conv.id).catch((e) => {
+    /*
+     * Y SE ESPERA UN POCO A VER QUÉ PASA, para poder contarlo.
+     *
+     * La dueña (2026-09-10): «al devolverle la atención a la IA no está
+     * respondiendo». El intento puede acabar sin escribir nada —no había nada
+     * pendiente, el modelo no contestó— y esto se disparaba de espaldas: el
+     * panel decía «listo» y en el chat no pasaba nada.
+     *
+     * Con tope: si tarda más que la espera, se contesta igual y el intento
+     * sigue su camino. Un botón que se queda pensando medio minuto es un botón
+     * que nadie vuelve a pulsar, y lo que de verdad no puede pasar es que el
+     * cliente se quede sin respuesta por esperar a la pantalla.
+     */
+    const intento = atenderConversacion(orgId, conv.canal_id, conv.id).catch((e) => {
       console.error(`El agente falló al retomar la conversación ${conv.id}:`, e);
+      return null;
     });
+    const aTiempo = await Promise.race([
+      intento,
+      new Promise<undefined>((listo) => setTimeout(listo, 9_000)),
+    ]);
+    if (aTiempo) noContesto = porQueNoContesto(aTiempo);
   }
 
-  return NextResponse.json({ ok: true, cerradas, agente: estado });
+  return NextResponse.json({ ok: true, cerradas, agente: estado, noContesto });
 }

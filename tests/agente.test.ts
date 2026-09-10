@@ -17,6 +17,7 @@ import {
   loYaPreguntado,
   pideHumano,
   porQueCalla,
+  porQueNoContesto,
   revisarAgente,
 } from "../src/lib/agent";
 import { contieneMarcador, duenoDelCierre, registrarCierre } from "../src/lib/cierre";
@@ -317,10 +318,17 @@ test("devolver el hilo a la IA levanta el silencio del vendedor sin esperar dos 
   // Llega hasta el modelo, que en las pruebas no existe: el silencio se levantó.
   assert.equal(motivoDe(await atenderConversacion(orgId, canalId, id)), "fallo_modelo");
 
-  // Y si el equipo vuelve a escribir DESPUÉS de devolverlo, el silencio vuelve.
-  hiloAnade(id, [{ emisor: "humano", content: "yo sigo con este", hace: 0 }]);
+  /*
+   * Y si el equipo vuelve a escribir DESPUÉS de devolverlo, el silencio vuelve.
+   * «Después» es estrictamente después —de ahí el segundo de más—: escribir la
+   * despedida y devolver el hilo en el mismo segundo es un solo gesto, y ese no
+   * puede volver a callar al agente que se acaba de despertar.
+   */
+  hiloAnade(id, [{ emisor: "humano", content: "yo sigo con este", hace: -2 }]);
   assert.equal(motivoDe(await atenderConversacion(orgId, canalId, id)), "ultimo_no_es_cliente");
-  hiloAnade(id, [{ emisor: "cliente", content: "ok", hace: 0 }]);
+  // Y el cliente contesta a ESO, después: ahora sí hay algo que contestar, y
+  // el que calla al agente es el vendedor que acaba de escribir.
+  hiloAnade(id, [{ emisor: "cliente", content: "ok", hace: -3 }]);
   assert.equal(motivoDe(await atenderConversacion(orgId, canalId, id)), "vendedor_reciente");
 
   encender(false);
@@ -367,11 +375,72 @@ test("al devolverle el hilo, la IA contesta el mensaje del cliente que quedó si
     "el hilo devuelto no llegó al modelo: se paró en la guarda de «no termina en un mensaje del cliente»",
   );
 
-  // Pero si el equipo YA le contestó después de devolverlo, no hay nada colgando.
-  hiloAnade(id, [{ emisor: "humano", content: "Sí, en azul lo tenemos.", hace: 0 }]);
+  /*
+   * Pero si el equipo YA le contestó después de devolverlo, no hay nada
+   * colgando. Después de verdad: escribir y devolver el hilo en el mismo
+   * segundo es un solo gesto —la despedida del equipo— y ese no cuenta como
+   * contestarle por él.
+   */
+  hiloAnade(id, [{ emisor: "humano", content: "Sí, en azul lo tenemos.", hace: -2 }]);
   assert.equal(motivoDe(await atenderConversacion(orgId, canalId, id)), "ultimo_no_es_cliente");
 
   encender(false);
+});
+
+/**
+ * DESPEDIRSE Y DEVOLVER EL HILO ES UN SOLO GESTO.
+ *
+ * La dueña (2026-09-10): «al devolverle la atención a la IA no está
+ * respondiendo y tiene que responder». Las horas se guardan en SEGUNDOS, y el
+ * equipo escribe su última línea y pulsa «Contesta la IA» en el mismo segundo:
+ * ese mensaje suyo contaba como «ya le contestaron después de devolverlo» —y
+ * como «un vendedor acaba de escribir»—, así que el agente que acababan de
+ * despertar se quedaba mudo, sin que nada lo explicara.
+ */
+test("escribir y devolver el hilo en el mismo segundo no vuelve a callar al agente", async () => {
+  encender(true);
+  const id = hilo([
+    { emisor: "cliente", content: "¿me lo pueden mandar hoy?", hace: 400 },
+    { emisor: "ia", content: "Permítame un momento, le transfiero con un representante.", hace: 390 },
+  ]);
+
+  /*
+   * El equipo se despide y devuelve el hilo, todo en el mismo segundo. Se fija
+   * a mano la hora del mensaje —la del propio botón— para que la prueba no
+   * dependa de que el reloj no pase de segundo entre las dos líneas.
+   */
+  D.devolverALaIa(orgId, id);
+  const devuelta = D.getConversation(orgId, id)!.devuelta_a_ia_at!;
+  D.insertMessage(orgId, {
+    conversationId: id,
+    whapiMessageId: `despedida-${id}`,
+    emisor: "humano",
+    tipo: "texto",
+    content: "Ya le sigue atendiendo nuestra asistente.",
+    createdAt: devuelta,
+  });
+
+  assert.equal(porQueCalla(orgId, canalId, id).callado, false, "el panel no lo da por callado");
+  // Y contesta de verdad: llega al modelo, que en las pruebas no existe.
+  assert.equal(motivoDe(await atenderConversacion(orgId, canalId, id)), "fallo_modelo");
+
+  encender(false);
+});
+
+/** Y cuando el intento no escribe nada, se puede decir por qué. */
+test("el intento que no contesta se explica con palabras de quien atiende", () => {
+  assert.match(
+    porQueNoContesto({ atendida: false, motivo: "ultimo_no_es_cliente" })!,
+    /ningún mensaje del cliente sin contestar/,
+  );
+  assert.match(
+    porQueNoContesto({ atendida: false, motivo: "fallo_modelo", detalle: "sin clave" })!,
+    /El modelo no respondió \(sin clave\)/,
+  );
+  assert.match(porQueNoContesto({ atendida: false, motivo: "cliente_sigue_hablando" })!, /está escribiendo/);
+  assert.equal(porQueNoContesto({ atendida: true, messageId: "x", modelo: "m" }), null);
+  // Los silencios que el panel ya explica por su cuenta no se repiten aquí.
+  assert.equal(porQueNoContesto({ atendida: false, motivo: "vendedor_reciente" }), null);
 });
 
 test("si el cliente pide una persona, se calla y deja constancia", async () => {

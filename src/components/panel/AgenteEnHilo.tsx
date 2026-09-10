@@ -65,6 +65,11 @@ export default function AgenteEnHilo({
      * hace un minuto. Se dice AHORA, y no cuando el cliente se quede sin
      * respuesta.
      */
+    // Y si el intento ya terminó sin escribir nada, se dice por qué: ver
+    // `porQueNoContesto`.
+    if (accion === "devolver_a_la_ia" && !datos.agente?.callado && datos.noContesto) {
+      setError(datos.noContesto);
+    }
     if (accion === "devolver_a_la_ia" && datos.agente?.callado) {
       setError(datos.agente.explicacion ?? null);
     }
