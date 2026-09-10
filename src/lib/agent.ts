@@ -2228,6 +2228,8 @@ async function atenderTurno(
       ultimoDelCliente: ultimo.content,
       ultimoDelAgente: [...historial].reverse().find((m) => m.emisor !== "cliente")?.content ?? null,
       clienteEscribioSuNombre: clienteEscribioSuNombre(conv.cliente_nombre, historial, datosPais),
+      // El equipo le devolvió el hilo: aquí no se transfiere. Ver `transferenciaPermitida`.
+      retomado,
       bloqueDelPais: bloqueDelPais(
         datosPais,
         ubicacion?.direccion?.provincia ??
@@ -2336,6 +2338,7 @@ async function atenderTurno(
           ultimoDelCliente: ultimo.content,
           ultimoDelAgente: contexto.ultimoDelAgente,
           clienteCompartioUbicacion: contexto.clienteCompartioUbicacion,
+          retomado,
           lugar: contexto.lugarDelCliente,
           telefonoDelChat: conv.cliente_phone,
           marcador: contexto.marcador,

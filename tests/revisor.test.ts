@@ -3,6 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { agenteDePais, bloqueDelPais } from "../src/agents";
 import { clienteEscribioSuNombre } from "../src/lib/agent";
+import { respuestaMinima } from "../src/lib/apertura";
 import { correccionParaElAgente, revisarBorrador, revisarConReglas, transferenciaPermitida, type ContextoRevision } from "../src/lib/revisor";
 
 /**
@@ -962,6 +963,55 @@ test("en la provincia Independencia el revisor para el domicilio y el pago al re
   assert.deepEqual(
     revisarConReglas("Perfecto, hasta Gran Santo Domingo el envío le sale en RD$250 y paga al recibir.\n¿Me facilita su número de teléfono para el pedido?", enLaCapital),
     [],
+  );
+});
+
+/**
+ * SI EL EQUIPO LE DEVUELVE EL HILO, NO SE TRANSFIERE.
+ *
+ * La dueña (2026-09-10): «no respondió, y cuando le transferí para que responda,
+ * transfirió a un representante; esto no lo puede hacer». Pulsar «Contesta la
+ * IA» ES una persona diciendo que aquí contesta el agente. Devolver otra
+ * transferencia deja al cliente esperando y al equipo dando vueltas con el
+ * mismo hilo.
+ */
+test("con el hilo devuelto por el equipo, la transferencia no pasa", () => {
+  const transfiere = "Permítame un momento, le transfiero con un representante. [HANDOFF]";
+  const pideOtro = {
+    ...rd,
+    anuncio: "POLO BRONX RD$1,400",
+    ultimoDelCliente: "¿tiene otro modelo de más calidad?",
+    conFoto: true,
+  };
+
+  // Sin devolver el hilo, pedir otro artículo sí es motivo: lo manda el guion.
+  assert.equal(transferenciaPermitida(transfiere, pideOtro), true);
+
+  // Devuelto, no hay motivo que valga: contesta él.
+  const devuelto = { ...pideOtro, retomado: true };
+  assert.equal(transferenciaPermitida(transfiere, devuelto), false);
+  assert.ok(
+    revisarConReglas(transfiere, devuelto).some((f) => f.includes("sin motivo")),
+    "y el revisor para el borrador que se escapa",
+  );
+  // Tampoco por una foto que no tiene, ni porque pida hablar con alguien: eso
+  // último ya lo decidió la persona que le devolvió el chat.
+  assert.equal(transferenciaPermitida(transfiere, { ...devuelto, conFoto: false, ultimoDelCliente: "mándeme fotos" }), false);
+
+  // El resumen sí pasa: cerrar el pedido y pasarlo es el final bueno.
+  assert.equal(
+    transferenciaPermitida("Resumen de su pedido:\nTOTAL A PAGAR: RD$1,650\n[HANDOFF]", devuelto),
+    true,
+  );
+
+  // Y la respuesta de respaldo tampoco se despide: sigue el pedido.
+  const vacia = { talla: null, color: null, direccion: null, nombre: null, celular: null, cantidad: null };
+  assert.equal(
+    respuestaMinima(rd.datos, vacia, { descripcion_anuncio: "POLO BRONX RD$1,400" }, {
+      ultimoDelCliente: "¿tiene otro modelo de más calidad?",
+      retomado: true,
+    }),
+    "¿Qué talla le interesa?",
   );
 });
 

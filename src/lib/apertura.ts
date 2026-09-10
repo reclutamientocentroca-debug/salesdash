@@ -377,6 +377,11 @@ export function respuestaMinima(
     productoAnuncio?: string | null;
     /** Si el cliente mandó su ubicación por el mapa en esta sesión. */
     clienteCompartioUbicacion?: boolean;
+    /**
+     * El equipo acaba de devolverle el hilo para que conteste. Entonces no hay
+     * transferencia que valga: ver `transferenciaPermitida`.
+     */
+    retomado?: boolean;
   } = {},
 ): string {
   const descripcion = anuncio?.descripcion_anuncio ?? "";
@@ -391,7 +396,7 @@ export function respuestaMinima(
    * exacta de entrega.». Eso no contesta lo que preguntó y encima le pide la
    * dirección de un pedido que él no ha aceptado.
    */
-  if (preguntaDelCliente(opciones.ultimoDelCliente) === "otro_articulo") {
+  if (preguntaDelCliente(opciones.ultimoDelCliente) === "otro_articulo" && !opciones.retomado) {
     return fraseDeTransferencia(d);
   }
   if (clienteAplazaCompra(opciones.ultimoDelCliente) || clienteRenunciaALaCompra(opciones.ultimoDelCliente)) {
@@ -491,9 +496,12 @@ export function respuestaMinima(
     }
   }
 
-  // Y si el cliente preguntó algo, se le contesta antes de seguir.
+  // Y si el cliente preguntó algo, se le contesta antes de seguir. Con el hilo
+  // recién devuelto por el equipo, lo único que no vale es la despedida: ver
+  // `transferenciaPermitida`.
   const directa = respuestaDirecta(d, opciones.ultimoDelCliente, anuncio, opciones.lugar);
-  return directa ? `${directa}\n\n${pregunta}` : pregunta;
+  const contestacion = opciones.retomado && directa === fraseDeTransferencia(d) ? null : directa;
+  return contestacion ? `${contestacion}\n\n${pregunta}` : pregunta;
 }
 
 type PasoDelPedido = "talla" | "color" | "direccion" | "nombre" | "celular" | "resumen";

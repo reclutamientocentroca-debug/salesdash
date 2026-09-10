@@ -97,6 +97,12 @@ export interface ContextoRevision {
   ultimoDelAgente?: string | null;
   /** Si esta respuesta abre la conversación (o el cliente vuelve tras días). Solo ahí se saluda. */
   esApertura?: boolean;
+  /**
+   * EL EQUIPO LE ACABA DE DEVOLVER EL HILO para que conteste. Ver
+   * `transferenciaPermitida`: pulsar «Contesta la IA» y recibir otra
+   * transferencia deja al cliente esperando y al equipo dando vueltas.
+   */
+  retomado?: boolean;
 }
 
 /** Sin tildes ni mayúsculas. */
@@ -1360,6 +1366,21 @@ const SUENA_A_ARTICULO_AJENO =
  */
 export function transferenciaPermitida(borrador: string, ctx: ContextoRevision): boolean {
   if (contieneMarcador(borrador, ctx.marcador ?? MARCADOR_POR_DEFECTO)) return true;
+
+  /*
+   * SI EL EQUIPO ACABA DE DEVOLVERLE EL HILO, NO SE TRANSFIERE. Y ESTO VA
+   * ANTES QUE CUALQUIER MOTIVO.
+   *
+   * La dueña (2026-09-10): «no respondió, y cuando le transferí para que
+   * responda, transfirió a un representante; esto no lo puede hacer». Pulsar
+   * «Contesta la IA» ES una persona diciendo que aquí contesta el agente: una
+   * persona ya miró el chat y decidió eso. Devolver otra transferencia es
+   * dejar al cliente esperando y al equipo dando vueltas con el mismo hilo.
+   *
+   * El resumen sigue pasando —va arriba—: cerrar el pedido y pasarlo al
+   * representante es el final bueno, no una escapada.
+   */
+  if (ctx.retomado) return false;
   const pide = ctx.ultimoDelCliente ?? "";
   /*
    * Pedir una foto solo justifica transferir cuando NO hay foto que mandar.
