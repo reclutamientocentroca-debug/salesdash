@@ -744,7 +744,7 @@ function otraFormaDePreguntar(d: DatosPais, paso: PasoDelPedido, descripcion: st
 }
 
 /** De qué va la pregunta del cliente, si es una de las que se contestan solas. */
-export type PreguntaDelCliente = "ubicacion" | "envio" | "pago" | "precio" | "precio_cantidad" | "tallas" | "tiempo" | "otro_articulo";
+export type PreguntaDelCliente = "ubicacion" | "envio" | "pago" | "precio" | "precio_cantidad" | "tallas" | "tiempo" | "otro_articulo" | "producto";
 
 /**
  * EL CLIENTE PIDE OTRA COSA, NO ESTA. El caso real: «Tiene otro combo de más
@@ -772,7 +772,7 @@ const CUANDO_VUELVE =
 
 /** Que él vuelve a escribir, y ahí sobra el cuándo: «ya le aviso», «me comunico». */
 const VUELVE_SIN_FECHA =
-  /\b(ya le (digo|aviso|escribo|llamo|confirmo)|me comunico|nos hablamos|cualquier cosa le (aviso|escribo|llamo))\b/;
+  /\b((ya|yo) le (digo|aviso|escribo|llamo|confirmo)|me comunico|nos hablamos|cualquier cosa le (aviso|escribo|llamo))\b/;
 
 /** Que el que vuelve es ÉL, y dice qué día: «el lunes le llamo». */
 const VUELVE_EL_CLIENTE =
@@ -887,6 +887,31 @@ const PREGUNTA_PRECIO =
   /\b(precio|cuanto (cuesta|cuestan|vale|valen|es|son|sale|salen)|(?:a\s*como|en cuanto)(?:\s+(?:me|nos|te|le|se|lo|los|la|las))*\s+(sale|salen|es|son|esta|estan|deja|dejas|da|dan|queda|quedan|cuesta|cuestan|vale|valen)|a\s*como (lo da|los da|la da|las da|me lo deja)|valor)\b/;
 
 /**
+ * DE QUÉ ESTÁ HECHO, DE DÓNDE VIENE Y SI ES ORIGINAL.
+ *
+ * La dueña (2026-09-10), con la captura delante: «¿Dónde son hechos?» y el
+ * agente sin contestar. «Debe de saber de qué material, ya que en el anuncio lo
+ * dice: son originales.» Quien pregunta esto está comprobando que no le van a
+ * vender una copia: es de las últimas preguntas antes de dar el sí, y dejarla
+ * sin respuesta cuesta la venta entera.
+ *
+ * Preguntar por OTRO de mejor calidad no entra aquí: eso se mira antes, y es
+ * pedir otro artículo. Ver `PIDE_OTRO_ARTICULO`.
+ */
+const PREGUNTA_DE_QUE_SON =
+  /\b(de que (material|materiales|tela|telas?|cuero)|que (material|tela) (es|son|tiene|traen?)|de que (esta|estan) hech[oa]s?|donde (son|estan) hech[oa]s?|donde (se hacen|los hacen|las hacen|se fabrican|se producen)|de que pais|son originales|es original|de calidad|son de calidad|son buenos|son buenas|son de cuero|es de cuero|son de algodon|es de algodon)\b/;
+
+/** Los materiales que un anuncio nombra por su nombre. */
+const MATERIALES =
+  /\b(algod[oó]n|poli[eé]ster|licra|lycra|cuero|piel|lino|mezclilla|jean|denim|gabardina|nylon|seda|lana|dacr[oó]n|spandex|microfibra|ac[eé]ro inoxidable|acero inoxidable|silicona|cer[aá]mica)\b/i;
+
+/** ¿Este texto dice de qué es el artículo: su material, o que es original? */
+export function diceDeQueEs(texto: string | null | undefined): boolean {
+  const t = texto ?? "";
+  return /\boriginal(es)?\b/i.test(t) || MATERIALES.test(t);
+}
+
+/**
  * CUÁNTAS UNIDADES DICE EL CLIENTE QUE QUIERE, cuando lo dice él por su cuenta.
  *
  * «¿A cómo sale las 12?», «quiero tres polos», «¿y por docena?». Devuelve null
@@ -948,6 +973,7 @@ export function preguntaDelCliente(texto: string | null | undefined): PreguntaDe
   if (/\b(donde (estan|esta|queda|quedan|tuta|ta|se ubican|se encuentran|es la tienda|estan ubicados|los encuentro|puedo ir)|ubicad[oa]s?|tienda fisica|local fisico|direccion de la tienda)\b/.test(t)) return "ubicacion";
   if (/\b(envio|envios|envian|delivery|entregan|mandan)\b/.test(t) && /\?|cuanto|como|hacen|tienen|hay/.test(t)) return "envio";
   if (/\b(pago|pagar|pagos|se paga|forma de pago|contra entrega|transferencia|tarjeta|es seguro|es confiable|confiable)\b/.test(t)) return "pago";
+  if (PREGUNTA_DE_QUE_SON.test(t)) return "producto";
   if (PREGUNTA_PRECIO.test(t) && !/envio|delivery/.test(t)) {
     /*
      * «¿A CÓMO SALE LAS 12?» NO SE CONTESTA CON EL PRECIO DE UNA.
@@ -1000,6 +1026,32 @@ export function respuestaDirecta(
       return d.pagoAlCliente;
     case "tiempo":
       return "Entre 24 y 48 horas.";
+    /*
+     * DE QUÉ SON: lo que diga el anuncio, y ni una palabra más. Si ahí no está
+     * el material, no se inventa —null, y el guion se encarga: eso lo confirma
+     * el equipo y la venta sigue—.
+     */
+    case "producto": {
+      const descripcion = anuncio?.descripcion_anuncio ?? "";
+      const material = descripcion.match(MATERIALES)?.[0]?.toLowerCase() ?? null;
+      const original = /\boriginal(es)?\b/i.test(descripcion);
+      if (!material && !original) return null;
+
+      /*
+       * En singular o en plural, según el artículo. Y mirando su NOMBRE, que
+       * es la primera palabra: el nombre que sale de la descripción se lleva
+       * detrás los adjetivos del anuncio —«POLOS BRONX ORIGINALES Moderno,
+       * Fresco y duradero»— y mirar el final decía «es original» de unos polos.
+       */
+      const articulo = articuloDeLaDescripcion(descripcion, d.moneda.simbolo) ?? "";
+      const nombre = articulo.split(/\s+/).find((p) => /\p{L}{3}/u.test(p))?.toLowerCase() ?? "";
+      const plural = nombre.endsWith("s");
+      const es = plural ? "Son" : "Es";
+
+      if (material && original) return `${es} ${plural ? "originales" : "original"}, de ${material}.`;
+      if (material) return `${es} de ${material}.`;
+      return `${es} ${plural ? "originales" : "original"}.`;
+    }
     case "tallas": {
       const tallas = tallasDisponibles(anuncio?.descripcion_anuncio ?? "", d);
       return tallas ? `Las tallas disponibles son ${tallas}.` : null;

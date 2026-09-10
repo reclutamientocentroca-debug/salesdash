@@ -150,6 +150,46 @@ test("cada país pide la dirección con sus palabras", () => {
 });
 
 /**
+ * «¿DÓNDE SON HECHOS?» SE CONTESTA CON LO QUE DICE EL ANUNCIO.
+ *
+ * La dueña (2026-09-10): «debe de saber de qué material, ya que en el anuncio
+ * lo dice: son originales». Quien pregunta esto está comprobando que no le van
+ * a vender una copia —es de las últimas preguntas antes del sí— y se quedaba
+ * sin respuesta.
+ */
+test("a «de qué son» se le contesta con el material y el «original» del anuncio", () => {
+  const polos = { descripcion_anuncio: "🔥 POLOS BRONX ORIGINALES 🔥 Moderno, Fresco y duradero RD$1,400 C/U" };
+  const correa = { descripcion_anuncio: "CORREA REVERSIBLE cuero de primera RD$1,500" };
+  const camisas = { descripcion_anuncio: "CAMISAS DE LINO ORIGINALES RD$1,800" };
+  const mochila = { descripcion_anuncio: "MOCHILA ANTIRROBO 45 LITROS RD$2,000" };
+
+  for (const q of ["Donde son hechos", "¿de qué material son?", "¿son originales?", "¿de qué están hechos?"]) {
+    assert.equal(preguntaDelCliente(q), "producto", q);
+  }
+  // Pedir OTRO de mejor calidad no es esto: eso es pedir otro artículo.
+  assert.equal(preguntaDelCliente("¿tiene otro de mejor calidad?"), "otro_articulo");
+
+  // Se contesta con lo que hay escrito, en singular o en plural según el artículo.
+  assert.equal(respuestaDirecta(rd, "Donde son hechos", polos, null), "Son originales.");
+  assert.equal(respuestaDirecta(rd, "¿de qué material son?", correa, null), "Es de cuero.");
+  assert.equal(respuestaDirecta(rd, "¿de qué material son?", camisas, null), "Son originales, de lino.");
+
+  // Y lo que el anuncio no dice, no se inventa: ahí no hay respuesta mecánica.
+  assert.equal(respuestaDirecta(rd, "¿de qué material son?", mochila, null), null);
+
+  // Va delante del paso que tocaba, como cualquier pregunta del cliente.
+  const vacia = { talla: null, color: null, direccion: null, nombre: null, celular: null, cantidad: null };
+  assert.equal(
+    respuestaMinima(rd, vacia, polos, { ultimoDelCliente: "Donde son hechos" }),
+    "Son originales.\n\n¿Qué talla le interesa?",
+  );
+
+  // Y «yo le aviso» es «ya le aviso»: el que se despide no recibe formulario.
+  assert.equal(clienteAplazaCompra("Yo le aviso"), true);
+  assert.equal(clienteAplazaCompra("yo le llevo la talla"), false);
+});
+
+/**
  * AL POR MAYOR SE VENDE COMO UN PROFESIONAL: SE CONTESTA LO QUE PREGUNTA Y SE
  * LE ENSEÑA EL ESCALÓN DE ARRIBA.
  *

@@ -48,7 +48,7 @@ import { completarJson, ErrorIA } from "./ia";
 import { MODELO_ANALISIS, type Mensaje } from "./db";
 import { conLoVistoYOido } from "./percepcion";
 import { expresionesDelPais, pareceColor, pareceTalla, preguntasRepetidas, unidadesPorColores, type FichaDelPedido } from "./memoria";
-import { cantidadDicha, clienteAplazaCompra, clienteRenunciaALaCompra, esCorreaLocal, familiasNombradas, nombraUnArticulo, precioDeLaDescripcion, preguntaDelCliente, preguntaDeDireccion, PREGUNTA_COLOR } from "./apertura";
+import { cantidadDicha, clienteAplazaCompra, clienteRenunciaALaCompra, diceDeQueEs, esCorreaLocal, familiasNombradas, nombraUnArticulo, precioDeLaDescripcion, preguntaDelCliente, preguntaDeDireccion, respuestaDirecta, PREGUNTA_COLOR } from "./apertura";
 import { escalaDelArticulo, importe, precioPorCantidad, zonaDelCliente } from "@/agents";
 import { leerImporte } from "./moneda";
 import { contieneLugar } from "./envio";
@@ -835,6 +835,24 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
             `${cuantas} le salen a ${importe(d, unidad)} cada una —${importe(d, unidad * cuantas)} en total— y sigue la venta`,
         );
       }
+    }
+  }
+
+  /*
+   * «¿DÓNDE SON HECHOS?» SE CONTESTA CON LO QUE DICE EL ANUNCIO.
+   *
+   * La dueña (2026-09-10): «debe de saber de qué material, ya que en el anuncio
+   * lo dice: son originales». Quien pregunta esto está comprobando que no le
+   * van a vender una copia —es de las últimas preguntas antes del sí— y se
+   * quedaba sin respuesta. Solo se para cuando el anuncio SÍ lo dice: lo que no
+   * está escrito no se inventa, se confirma con el equipo y la venta sigue.
+   */
+  if (pregunta === "producto") {
+    const loQueDiceElAnuncio = respuestaDirecta(d, ctx.ultimoDelCliente, { descripcion_anuncio: ctx.anuncio ?? "" }, null);
+    if (loQueDiceElAnuncio && !diceDeQueEs(texto)) {
+      fallas.push(
+        `el cliente preguntó de qué es el artículo y la respuesta no se lo dice: cuéntaselo con lo que dice el anuncio —«${loQueDiceElAnuncio}»— y después sigue con el dato que falta`,
+      );
     }
   }
 

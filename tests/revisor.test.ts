@@ -1015,6 +1015,32 @@ test("con el hilo devuelto por el equipo, la transferencia no pasa", () => {
   );
 });
 
+/** Y el revisor no deja pasar la respuesta que se la salta. */
+test("preguntar de qué es el artículo se contesta con el anuncio, o el revisor para", () => {
+  const conAnuncio = {
+    ...rd,
+    anuncio: "POLOS BRONX ORIGINALES Moderno, Fresco y duradero RD$1,400",
+    ultimoDelCliente: "Donde son hechos",
+  };
+
+  assert.ok(
+    revisarConReglas("¿Qué talla le interesa?", conAnuncio).some((f) => f.includes("de qué es el artículo")),
+    "no se le puede contestar con el siguiente paso a secas",
+  );
+  assert.deepEqual(
+    revisarConReglas("Son originales, de la marca Bronx.\n¿Qué talla le interesa?", conAnuncio),
+    [],
+  );
+
+  // Lo que el anuncio no dice no se para: no se inventa un material.
+  const sinDato = { ...conAnuncio, anuncio: "MOCHILA ANTIRROBO 45 LITROS RD$2,000" };
+  assert.equal(
+    revisarConReglas("Eso se lo confirmo con el equipo. Indíquenos a qué dirección y provincia le enviamos.", sinDato)
+      .some((f) => f.includes("de qué es el artículo")),
+    false,
+  );
+});
+
 test("Costa Rica transfiere un artículo desconocido sin anuncio", () => {
   const ctx = { ...cr, anuncio: null, catalogo: "Catálogo:\n- Camisa de lino — ₡15.000", ultimoDelCliente: "Quiero una nevera" };
   assert.equal(
