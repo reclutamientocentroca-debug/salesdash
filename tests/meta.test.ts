@@ -13,9 +13,11 @@ import "./entorno";
 
 import * as D from "../src/lib/db";
 import { firmaValida, respuestaDeVerificacion } from "../src/lib/meta/firma";
+import { esAnuncioDeMeta } from "../src/lib/anuncio";
 import { destinosDelEvento, normalizarEvento } from "../src/lib/meta/normalize";
 import {
   anuncioParaPrompt,
+  explicarMotivo,
   fichaDeLaFoto,
   productoDeLaFotoParaPrompt,
   resolverAnuncio,
@@ -103,6 +105,38 @@ const eventoMensaje = (extra: Record<string, unknown> = {}) => ({
       ],
     },
   ],
+});
+
+/**
+ * UN ANUNCIO ABRE LA CONVERSACIÓN; UNA RESPUESTA NO ES UN ANUNCIO.
+ *
+ * La captura de la dueña (Costa Rica, 2026-09-10): al cliente se le había
+ * mandado una campaña de unas botas, llegó después por el anuncio de un combo
+ * de cepillo y plancha de ₡15.500, y el agente le abrió el chat con «Bota MR ·
+ * ₡42,750 · ¿Qué número calza?». La ficha de aquella campaña volvió pegada a su
+ * respuesta y entró como «el anuncio por el que escribe ahora».
+ */
+test("una respuesta que trae pegada la ficha de un mensaje nuestro no es un anuncio", () => {
+  const ficha = { sourceType: "ad", sourceId: "23851", title: "Bota MR", body: "₡42,750" };
+
+  // El clic de verdad: llega solo, sin nada citado detrás.
+  assert.equal(esAnuncioDeMeta({ externalAdReply: ficha }, false), true);
+
+  // La misma ficha, colgada de un mensaje que ya estaba en el chat.
+  assert.equal(esAnuncioDeMeta({ externalAdReply: ficha, quotedMessage: {} }, false), false, "citando");
+  assert.equal(esAnuncioDeMeta({ externalAdReply: ficha, stanzaId: "ABC123" }, false), false, "respondiendo");
+  assert.equal(esAnuncioDeMeta({ externalAdReply: ficha, isForwarded: true }, false), false, "reenviado");
+
+  // Y lo que ya se sabía: lo que sale de nuestro número nunca es un lead, y
+  // una vista previa de un enlace cualquiera tampoco.
+  assert.equal(esAnuncioDeMeta({ externalAdReply: ficha }, true), false, "lo mandamos nosotros");
+  assert.equal(
+    esAnuncioDeMeta({ externalAdReply: { title: "Camisa", sourceUrl: "https://tienda.com/camisa" } }, false),
+    false,
+    "una vista previa de un enlace no es un anuncio",
+  );
+  assert.equal(esAnuncioDeMeta(null, false), false);
+  assert.equal(esAnuncioDeMeta({}, false), false);
 });
 
 test("un mensaje entrante sale con su id, su cliente y en segundos", () => {
@@ -442,6 +476,48 @@ test("vinculado a un producto con precio, sí cotiza y el precio es el del catá
   assert.equal(c.puedeCotizar, true);
   assert.equal(c.motivo, "vinculado");
   assert.equal(c.producto?.precio, 1850, "el precio sale del catálogo, no del anuncio");
+});
+
+/**
+ * UN ANUNCIO MAL VINCULADO NO LE CAMBIA EL ARTÍCULO AL CLIENTE.
+ *
+ * La captura de la dueña (Costa Rica, 2026-09-10): un anuncio de «CEPILLO
+ * secador + PLANCHA, llévate los 2 por ₡15.500» apuntaba en el catálogo a
+ * «Bota MR, ₡42.750», y el agente abrió el chat con «Bota MR · ₡42,750 · ¿Qué
+ * número calza?». El prompt le decía, con esas palabras, que el producto del
+ * catálogo manda sobre lo que dijera el anuncio.
+ */
+test("si el producto vinculado es de otra cosa, manda el anuncio y se avisa", () => {
+  const { orgId } = cuentaConPagina("MalVinculado");
+  const bota = D.crearProducto(orgId, { nombre: "Bota MR", variantes: null, precio: 42750 });
+
+  D.registrarAnuncioVisto(orgId, "ad_combo", "Roplis cr. Telleria Pal.", {
+    texto: "Este combo es para ti. CEPILLO secador + PLANCHA ¡Llévate los 2 por solo ₡15.500!",
+  });
+  D.vincularAnuncioAProducto(orgId, "ad_combo", bota);
+
+  const c = resolverAnuncio(orgId, "ad_combo", "Roplis cr. Telleria Pal.");
+  assert.equal(c.puedeCotizar, false, "una bota no es lo que anuncia un combo de cepillo");
+  assert.equal(c.motivo, "producto_ajeno");
+  assert.match(explicarMotivo(c), /mal vinculado/i);
+
+  // Y el agente vende lo del anuncio: ni nombra ni cotiza la bota.
+  const prompt = anuncioParaPrompt(c);
+  assert.ok(prompt.includes("CEPILLO secador + PLANCHA"), "lo que el cliente vio sigue delante");
+  assert.equal(prompt.includes("Bota MR"), false, "el producto mal vinculado no se le nombra");
+  assert.match(prompt, /mal vinculado/i);
+
+  // Con el producto que sí es del anuncio, se cotiza como siempre.
+  const combo = D.crearProducto(orgId, { nombre: "Combo cepillo secador + plancha", variantes: null, precio: 15500 });
+  D.vincularAnuncioAProducto(orgId, "ad_combo", combo);
+  const bien = resolverAnuncio(orgId, "ad_combo", "Roplis cr. Telleria Pal.");
+  assert.equal(bien.puedeCotizar, true);
+  assert.equal(bien.motivo, "vinculado");
+
+  // Y un producto cuyo nombre no dice de qué familia es no acusa a nadie.
+  const raro = D.crearProducto(orgId, { nombre: "Roplis 3", variantes: null, precio: 9900 });
+  D.vincularAnuncioAProducto(orgId, "ad_combo", raro);
+  assert.equal(resolverAnuncio(orgId, "ad_combo", null).puedeCotizar, true, "sin familia, no se decide");
 });
 
 test("un producto sin precio tampoco deja cotizar", () => {

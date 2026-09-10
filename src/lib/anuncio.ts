@@ -60,6 +60,59 @@ export function anuncioVigente(
 }
 
 /**
+ * ¿ESTO ES UN ANUNCIO, O UN ENLACE CON VISTA PREVIA?
+ *
+ * WhatsApp usa el mismo `externalAdReply` para dos cosas: el clic en un
+ * anuncio de Meta y la vista previa de CUALQUIER enlace que alguien pegue en
+ * el chat. El caso real (Costa Rica, 2026-09-05): el vendedor le mandó al
+ * cliente un enlace de una camisa, esa vista previa entró como «el anuncio por
+ * el que escribe ahora», y el agente pasó a venderle la camisa a un cliente
+ * que había llegado por una faja.
+ *
+ * Un anuncio de verdad viene marcado: `sourceType: "ad"`, el identificador
+ * del anuncio, el `ctwaClid` del clic, o la atribución. Y nunca lo manda uno
+ * mismo: lo que sale de nuestro número es un enlace, no un lead.
+ *
+ * Y NUNCA VIENE CITANDO NI REENVIANDO. El caso de la dueña (Costa Rica,
+ * 2026-09-10): al cliente se le había mandado una campaña de unas botas, él
+ * llegó después por el anuncio de un combo de cepillo y plancha, y al
+ * responder —citando aquel mensaje nuestro— su respuesta trajo pegada la ficha
+ * de las botas. Eso entró como «el anuncio por el que escribe ahora» y el
+ * agente abrió el chat vendiéndole «Bota MR · ₡42.750 · ¿qué número calza?» a
+ * quien venía por un cepillo de ₡15.500.
+ *
+ * Un clic en un anuncio ABRE la conversación: llega solo, sin nada citado
+ * detrás. Lo que viene colgado de un mensaje que ya estaba en el chat es el
+ * contexto de ESE mensaje, no un lead nuevo.
+ */
+export function esAnuncioDeMeta(
+  ctx:
+    | {
+        // `title` y `body` no deciden nada aquí —son el producto y la promesa,
+        // y los lee quien guarda la conversación—, pero vienen en el mismo
+        // objeto y sin ellos no se puede escribir una ficha de verdad.
+        externalAdReply?: { sourceType?: string | null; sourceId?: string | null; ctwaClid?: string | null; showAdAttribution?: boolean | null; sourceUrl?: string | null; title?: string | null; body?: string | null } | null;
+        quotedMessage?: unknown;
+        stanzaId?: string | null;
+        isForwarded?: boolean | null;
+      }
+    | null
+    | undefined,
+  deMi: boolean,
+): boolean {
+  const a = ctx?.externalAdReply;
+  if (!a || deMi) return false;
+  if (ctx?.quotedMessage || ctx?.stanzaId || ctx?.isForwarded) return false;
+  return (
+    a.sourceType === "ad" ||
+    !!a.ctwaClid ||
+    !!a.sourceId ||
+    a.showAdAttribution === true ||
+    /\bfb\.me\b|facebook\.com\/ads|\bl\.instagram\.com\b/i.test(a.sourceUrl ?? "")
+  );
+}
+
+/**
  * Llegó por un anuncio.
  *
  * Se pregunta por el origen Y por el título porque Meta no siempre manda

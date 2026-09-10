@@ -21,7 +21,13 @@ export interface ContextoAnuncio {
   puedeCotizar: boolean;
   producto: { nombre: string; precio: number | null; variantes: string | null } | null;
   /** Por qué no se puede cotizar, para la anomalía y para el panel. */
-  motivo: "vinculado" | "sin_vincular" | "producto_borrado" | "producto_inactivo" | "sin_precio";
+  motivo:
+    | "vinculado"
+    | "sin_vincular"
+    | "producto_borrado"
+    | "producto_inactivo"
+    | "sin_precio"
+    | "producto_ajeno";
   /**
    * QUÉ DECÍA EL ANUNCIO. Su texto, y lo que se lee en su imagen.
    *
@@ -90,7 +96,47 @@ export function resolverAnuncio(
     return { adId, puedeCotizar: false, producto, motivo: "sin_precio", ...dicho };
   }
 
+  // Vinculado a otra cosa: el anuncio vende un cepillo y el producto es una
+  // bota. Ver `elProductoNoEsDelAnuncio`: manda lo que el cliente vio.
+  if (elProductoNoEsDelAnuncio(producto, dicho)) {
+    return { adId, puedeCotizar: false, producto, motivo: "producto_ajeno", ...dicho };
+  }
+
   return { adId, puedeCotizar: true, producto, motivo: "vinculado", ...dicho };
+}
+
+/**
+ * ¿EL PRODUCTO VINCULADO ES DE LO QUE HABLA EL ANUNCIO?
+ *
+ * El caso de la dueña (Costa Rica, 2026-09-10): un anuncio de «CEPILLO secador
+ * + PLANCHA, llévate los 2 por ₡15.500» estaba vinculado a «Bota MR, ₡42.750»,
+ * y el agente abrió el chat vendiéndole las botas a quien había pinchado en el
+ * combo: «Bota MR · ₡42.750 · ¿Qué número calza?». El prompt le decía, con esas
+ * palabras, que el producto del catálogo manda sobre lo que dijera el anuncio.
+ *
+ * Y manda —para el PRECIO, que es lo que se actualiza en el catálogo y no en un
+ * anuncio viejo—. Pero cuando lo vinculado es de otra familia, eso no es un
+ * precio actualizado: es una vinculación equivocada, y seguirla es contestarle
+ * a un cliente con un artículo que él no vio.
+ *
+ * Solo decide cuando las DOS partes nombran algo reconocible y no coinciden en
+ * nada: un producto llamado «Roplis 3» o un anuncio sin palabras de artículo no
+ * acusan a nadie. Ver `familiasNombradas`.
+ */
+function elProductoNoEsDelAnuncio(
+  producto: { nombre: string },
+  dicho: { texto: string | null; descripcionImagen: string | null },
+): boolean {
+  const delProducto = familiasNombradas(producto.nombre).map((f) => f.familia);
+  if (!delProducto.length) return false;
+
+  // El texto manda; la lectura de la imagen solo acompaña. Se miran los dos:
+  // un anuncio que es solo foto no tiene texto que comparar.
+  const delAnuncio = familiasNombradas([dicho.texto, dicho.descripcionImagen].filter(Boolean).join(" "))
+    .map((f) => f.familia);
+  if (!delAnuncio.length) return false;
+
+  return !delProducto.some((f) => delAnuncio.includes(f));
 }
 
 /** En castellano, para la anomalía que ve el dueño. */
@@ -104,6 +150,12 @@ export function explicarMotivo(c: ContextoAnuncio): string {
       return `El producto «${c.producto?.nombre}» del anuncio ${c.adId} está apagado en el catálogo.`;
     case "sin_precio":
       return `El producto «${c.producto?.nombre}» del anuncio ${c.adId} no tiene precio en el catálogo.`;
+    case "producto_ajeno":
+      return (
+        `El anuncio ${c.adId} está vinculado a «${c.producto?.nombre}», que no es de lo que habla el anuncio: ` +
+        "está mal vinculado. Mientras tanto el agente vende lo que dice el propio anuncio, con su precio, " +
+        "y no ofrece ese producto. Revisa la vinculación en Anuncios."
+      );
     default:
       return "";
   }
@@ -192,7 +244,9 @@ export function anuncioParaPrompt(c: ContextoAnuncio): string {
     return (
       contexto +
       [
-        "Este anuncio no está vinculado a ningún producto del catálogo, así que lo que dice ARRIBA es tu fuente: el artículo que sale ahí y el precio que anuncia son los buenos, y con eso vendes.",
+        c.motivo === "producto_ajeno"
+          ? "El producto que el catálogo tiene pegado a este anuncio es de otra cosa —está mal vinculado— así que NO lo uses ni lo nombres: lo que dice ARRIBA es tu fuente, el artículo que sale ahí y el precio que anuncia son los buenos, y con eso vendes."
+          : "Este anuncio no está vinculado a ningún producto del catálogo, así que lo que dice ARRIBA es tu fuente: el artículo que sale ahí y el precio que anuncia son los buenos, y con eso vendes.",
         "Si el catálogo o tus instrucciones tienen ese mismo artículo a otro precio, manda el catálogo: es lo que está vigente hoy.",
         /*
          * Y SI NO SABES QUÉ ES O CUÁNTO VALE, SE TRANSFIERE. NO SE CAMBIA DE

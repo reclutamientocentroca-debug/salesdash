@@ -39,6 +39,7 @@ import { join } from "node:path";
 import { actualizarCanal, ahora, anclasDeHistorial, canalesParaReconectar, obtenerCanalSinOrg, ponerPaisPorTelefono, rutaDatos, unificarConversacion, type Canal, type TipoMensaje } from "@/lib/db";
 import { ingerir, type MensajeEntrante } from "@/lib/ingesta";
 import { esDescargable, guardar } from "@/lib/media";
+import { esAnuncioDeMeta } from "./anuncio";
 import { direccionDelChat, esLid, jidDeDestino, normalizarTelefono } from "@/lib/telefono";
 import { textoConEnlace } from "@/lib/enlace";
 import { esClaveDeSistema } from "@/lib/sistema";
@@ -154,34 +155,6 @@ function sesionDe(canalId: number): Sesion {
  * La excepción es la ubicación: ahí no hay archivo que bajar y `mediaUrl` sale
  * de aquí con el enlace al mapa ya hecho.
  */
-/**
- * ¿ESTO ES UN ANUNCIO, O UN ENLACE CON VISTA PREVIA?
- *
- * WhatsApp usa el mismo `externalAdReply` para dos cosas: el clic en un
- * anuncio de Meta y la vista previa de CUALQUIER enlace que alguien pegue en
- * el chat. El caso real (Costa Rica, 2026-09-05): el vendedor le mandó al
- * cliente un enlace de una camisa, esa vista previa entró como «el anuncio por
- * el que escribe ahora», y el agente pasó a venderle la camisa a un cliente
- * que había llegado por una faja.
- *
- * Un anuncio de verdad viene marcado: `sourceType: "ad"`, el identificador
- * del anuncio, el `ctwaClid` del clic, o la atribución. Y nunca lo manda uno
- * mismo: lo que sale de nuestro número es un enlace, no un lead.
- */
-function esAnuncioDeMeta(
-  a: { sourceType?: string | null; sourceId?: string | null; ctwaClid?: string | null; showAdAttribution?: boolean | null; sourceUrl?: string | null } | null | undefined,
-  deMi: boolean,
-): boolean {
-  if (!a || deMi) return false;
-  return (
-    a.sourceType === "ad" ||
-    !!a.ctwaClid ||
-    !!a.sourceId ||
-    a.showAdAttribution === true ||
-    /\bfb\.me\b|facebook\.com\/ads|\bl\.instagram\.com\b/i.test(a.sourceUrl ?? "")
-  );
-}
-
 function traducir(m: WAMessage): MensajeEntrante | null {
   const id = m.key?.id;
   /*
@@ -235,7 +208,7 @@ function traducir(m: WAMessage): MensajeEntrante | null {
      * mensaje la enseñaba dos veces y hacía que un «Hola» pareciera un
      * párrafo. Aquí el mensaje se queda con lo que el cliente escribió.
      */
-    const esClicEnAnuncio = esAnuncioDeMeta(e.contextInfo?.externalAdReply, m.key?.fromMe === true);
+    const esClicEnAnuncio = esAnuncioDeMeta(e.contextInfo, m.key?.fromMe === true);
     // `matchedText` es la dirección de verdad; `text` es lo que escribió el
     // cliente, que puede llevar el enlace en medio de una frase.
     texto = esClicEnAnuncio
@@ -309,14 +282,16 @@ function traducir(m: WAMessage): MensajeEntrante | null {
    * `externalAdReply` viene colgado del `contextInfo` de ESE mensaje. Mirando
    * solo el de texto, ese cliente entraba como si hubiera escrito por su cuenta.
    */
-  const adjunto = (
+  const contexto = (
     real.extendedTextMessage ??
     real.imageMessage ??
     real.videoMessage ??
     real.audioMessage ??
     real.documentMessage
-  )?.contextInfo?.externalAdReply;
-  const anuncio = esAnuncioDeMeta(adjunto, m.key?.fromMe === true) ? adjunto : null;
+  )?.contextInfo;
+  const anuncio = esAnuncioDeMeta(contexto, m.key?.fromMe === true)
+    ? contexto?.externalAdReply
+    : null;
 
   return {
     id,
