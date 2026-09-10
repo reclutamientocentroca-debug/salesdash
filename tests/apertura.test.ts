@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { agenteDePais, precioPorCantidad } from "../src/agents";
 import { fichaDelPedido } from "../src/lib/memoria";
-import { aperturaSegura, articuloDeLaDescripcion, clienteAplazaCompra, clienteRenunciaALaCompra, llevaColor, llevaTalla, mensajeSinProducto, precioDeLaDescripcion, preguntaDelCliente, preguntaDeDireccion, primeraPregunta, respuestaDirecta, respuestaMinima, resumenMecanico, tallasDisponibles } from "../src/lib/apertura";
+import { aperturaSegura, articuloDeLaDescripcion, cantidadDicha, clienteAplazaCompra, clienteRenunciaALaCompra, llevaColor, llevaTalla, mensajeSinProducto, precioDeLaDescripcion, preguntaDelCliente, preguntaDeDireccion, primeraPregunta, respuestaDirecta, respuestaMinima, resumenMecanico, tallasDisponibles } from "../src/lib/apertura";
 import { contieneMarcador } from "../src/lib/cierre";
 
 /**
@@ -581,4 +581,76 @@ test("en Panamá una mochila se vende sin preguntar talla, color ni cantidad", (
   assert.equal(respuestaMinima(pa, vacia, mochila), "¿A qué corregimiento se lo enviamos?");
   const texto = aperturaSegura(pa, mochila, "¡Hola! Bienvenido(a).")!;
   assert.equal(/talla|color|cu[aá]nt/i.test(texto), false, texto);
+});
+
+/**
+ * EL CASO DE LA DUEÑA (2026-09-10), con la captura delante.
+ *
+ * «BUENO DIA ESTAM MUY BONITO ACOMO SALE LAS 12» → «Hola! Bienvenido(a) a
+ * RINCON DCM… POLOS BRONX ORIGINALES RD$1,400 ¿Qué talla le interesa?». Ella:
+ * «debe de responder, no le salen a 1,400 si son 12». El cliente preguntó por
+ * doce y se le contestó lo que cuesta uno, que es la respuesta a otra pregunta:
+ * la lista de precios por cantidad existe desde el día anterior y este mensaje
+ * —que lo escribe la apertura, sin modelo— no la miraba.
+ */
+test("preguntar por doce se contesta con el precio de doce, no con el de uno", () => {
+  const polos = {
+    producto_anuncio: "POLOS BRONX ORIGINALES",
+    descripcion_anuncio: "POLOS BRONX ORIGINALES Moderno, Fresco y duradero RD$1,400",
+  };
+  const pide = "BUENO DIA ESTAM MUY BONITO ACOMO SALE LAS  12";
+
+  assert.equal(preguntaDelCliente(pide), "precio_cantidad");
+  assert.equal(cantidadDicha(pide), 12);
+
+  const texto = aperturaSegura(rd, polos, saludo, pide)!;
+  assert.ok(texto.includes("Las 12 unidades le salen a RD$990 cada una: RD$11,880."), texto);
+  assert.ok(!texto.includes("RD$1,400"), "y la cifra de una unidad ya no sale, que es lo que contradecía");
+  assert.ok(texto.endsWith("¿Qué talla le interesa?"), "la venta sigue por donde iba");
+
+  // Los tramos de en medio cuentan igual, y la docena se pide por su nombre.
+  assert.ok(aperturaSegura(rd, polos, saludo, "cuanto cuestan 3 polos")!.includes("RD$1,190 cada una: RD$3,570"));
+  assert.ok(aperturaSegura(rd, polos, saludo, "a como sale la docena?")!.includes("RD$990 cada una: RD$11,880"));
+
+  // Sin cantidad, el mensaje de siempre: el precio del anuncio, tal cual.
+  const suelta = aperturaSegura(rd, polos, saludo, "hola, cuanto cuesta?")!;
+  assert.ok(suelta.includes("RD$1,400") && !suelta.includes("RD$990"));
+});
+
+/**
+ * Y NO TODO NÚMERO ES UNA CANTIDAD. En un chat de ventas un «12» es una talla,
+ * una hora o el final de un teléfono muchas más veces que una docena de polos:
+ * por eso solo se lee pegado a una pregunta de precio, y con las tallas y las
+ * horas fuera. Un descuento cotizado de más es dinero de la tienda.
+ */
+test("una talla, una hora o un precio no se leen como la cantidad que lleva", () => {
+  assert.equal(cantidadDicha("¿tienen talla 12?"), null);
+  assert.equal(cantidadDicha("¿a qué hora? ¿a las 12 de la mañana?"), null);
+  assert.equal(cantidadDicha("me interesa, cuesta 1,400?"), null);
+  assert.equal(cantidadDicha("mi número es 8095551212"), null);
+  assert.equal(cantidadDicha("hola, buenas"), null);
+  assert.equal(cantidadDicha("quiero uno"), null, "uno es la de siempre y no cambia ningún precio");
+
+  // Y una pregunta de precio a secas sigue siendo la de siempre.
+  assert.equal(preguntaDelCliente("cuanto cuesta?"), "precio");
+  assert.equal(preguntaDelCliente("a como sale?"), "precio");
+  assert.equal(preguntaDelCliente("a como sale las 12?"), "precio_cantidad");
+});
+
+/**
+ * SIN LISTA DE PRECIOS PARA ESE ARTÍCULO NO SE COTIZA NADA. Multiplicar el
+ * precio del anuncio por doce sería inventarse un mayoreo que nadie autorizó:
+ * el guion manda pasar eso a un representante, y la apertura se queda como
+ * estaba en vez de adelantarse.
+ */
+test("un artículo sin lista de precios por cantidad no se cotiza por docenas", () => {
+  const combo = {
+    producto_anuncio: "Combo 2 En 1",
+    descripcion_anuncio: "🔥 COMBO 2 EN 1 — SOLO RD$1,690 ✨ Cepillo secador + plancha alisadora.",
+  };
+
+  assert.equal(respuestaDirecta(rd, "a como salen 12?", combo), null);
+  const texto = aperturaSegura(rd, combo, saludo, "a como salen 12?")!;
+  assert.ok(texto.includes("RD$1,690"), texto);
+  assert.ok(!/RD\$20/.test(texto), "y de ahí no sale ninguna cifra multiplicada");
 });

@@ -48,8 +48,9 @@ import { completarJson, ErrorIA } from "./ia";
 import { MODELO_ANALISIS, type Mensaje } from "./db";
 import { conLoVistoYOido } from "./percepcion";
 import { expresionesDelPais, pareceColor, pareceTalla, preguntasRepetidas, unidadesPorColores, type FichaDelPedido } from "./memoria";
-import { clienteAplazaCompra, clienteRenunciaALaCompra, esCorreaLocal, familiasNombradas, nombraUnArticulo, preguntaDelCliente, preguntaDeDireccion, PREGUNTA_COLOR } from "./apertura";
-import { escalaDelArticulo, zonaDelCliente } from "@/agents";
+import { cantidadDicha, clienteAplazaCompra, clienteRenunciaALaCompra, esCorreaLocal, familiasNombradas, nombraUnArticulo, precioDeLaDescripcion, preguntaDelCliente, preguntaDeDireccion, PREGUNTA_COLOR } from "./apertura";
+import { escalaDelArticulo, importe, precioPorCantidad, zonaDelCliente } from "@/agents";
+import { leerImporte } from "./moneda";
 import { contieneLugar } from "./envio";
 import { obtenerPais } from "./paises";
 
@@ -788,7 +789,7 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
   const preguntaQueArticulo = !ctx.anuncio && PREGUNTA_QUE_ARTICULO.test(texto);
 
   if (
-    pregunta === "precio" &&
+    (pregunta === "precio" || pregunta === "precio_cantidad") &&
     !preguntaQueArticulo &&
     importes(texto, d.moneda.simbolo).length === 0 &&
     !HABLA_DE_TRANSFERIR.test(texto) &&
@@ -799,6 +800,36 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
         ? `el cliente preguntó el precio y la respuesta no lo dice: dáselo primero, con la cifra tal cual está escrita y en ${d.moneda.simbolo}, y después sigue con el dato que falta`
         : "el cliente preguntó el precio y no hay ninguno escrito en el anuncio ni en el catálogo: no te lo inventes, dile que le atiende un representante y transfiere",
     );
+  }
+
+  /*
+   * Y SI PREGUNTÓ POR VARIAS UNIDADES, LA CIFRA QUE VALE ES LA DE VARIAS.
+   *
+   * La dueña, con la captura delante (2026-09-10): «BUENO DIA ESTAM MUY BONITO
+   * ACOMO SALE LAS 12» → «POLOS BRONX ORIGINALES … RD$1,400 ¿Qué talla le
+   * interesa?». «Debe de responder: no le salen a 1,400 si son 12.» La regla de
+   * arriba daba esa respuesta por buena porque lleva un precio escrito, y lo
+   * lleva: el de UNA. La lista de precios por cantidad existe desde el 9 de
+   * septiembre y esto es lo que obliga a usarla.
+   *
+   * Solo cuando hay lista para este artículo y el tramo cambia la cifra: sin
+   * lista no hay nada que exigir, y de una o dos unidades el precio es el mismo
+   * de siempre.
+   */
+  if (pregunta === "precio_cantidad") {
+    const cuantas = cantidadDicha(ctx.ultimoDelCliente);
+    const fuentes = [ctx.catalogo, ctx.anuncio ?? ""].join("\n");
+    const base = leerImporte(precioDeLaDescripcion(ctx.anuncio ?? "", d.moneda.simbolo));
+
+    if (cuantas !== null && base !== null && escalaDelArticulo(d, fuentes, base)) {
+      const unidad = precioPorCantidad(d, fuentes, cuantas, base);
+      if (unidad !== base && !importes(texto, d.moneda.simbolo).includes(unidad)) {
+        fallas.push(
+          `el cliente preguntó por ${cuantas} unidades y la respuesta le da el precio de una: dile que las ` +
+            `${cuantas} le salen a ${importe(d, unidad)} cada una —${importe(d, unidad * cuantas)} en total— y sigue la venta`,
+        );
+      }
+    }
   }
 
   // El caso real: «¿Cuáles son los tamaños disponibles?» → «¿Qué talla necesita?».

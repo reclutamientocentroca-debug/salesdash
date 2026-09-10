@@ -29,7 +29,7 @@
  * el arreglo al país que lo pidió.
  */
 import type { DatosPais } from "@/agents";
-import { importe, precioPorCantidad, zonaDelCliente } from "@/agents/armar";
+import { escalaDelArticulo, importe, precioPorCantidad, zonaDelCliente } from "@/agents/armar";
 import { reColores, TALLAS_BASE } from "@/agents/base-comportamiento";
 import { FRASE_DE_TRANSFERENCIA, PREGUNTA_DIRECCION_RD } from "@/agents/paises/rd-guion";
 import { FRASE_DE_CIERRE_CR } from "@/agents/paises/cr-guion";
@@ -292,17 +292,28 @@ export function aperturaSegura(
   // El precio ya va en el mensaje; y pedir otro artículo, en el primer mensaje,
   // es pedir el de este anuncio: todavía no se le ha enseñado ninguno.
   const tipo = preguntaDelCliente(ultimoDelCliente);
+
+  /*
+   * Y SI LLEGÓ PREGUNTANDO POR VARIAS UNIDADES, LA CIFRA DEL MENSAJE ES LA DE
+   * VARIAS: sustituye a la del anuncio en vez de ponerse encima. Las dos juntas
+   * —«RD$11,880» y debajo «RD$1,400»— se contradicen en el primer mensaje, que
+   * es el que decide si el cliente sigue escribiendo.
+   */
+  const porCantidad = tipo === "precio_cantidad" ? respuestaDirecta(d, ultimoDelCliente, anuncio, null) : null;
+
   const directa =
-    tipo && tipo !== "precio" && tipo !== "otro_articulo" ? respuestaDirecta(d, ultimoDelCliente, anuncio, null) : null;
+    tipo && tipo !== "precio" && tipo !== "precio_cantidad" && tipo !== "otro_articulo"
+      ? respuestaDirecta(d, ultimoDelCliente, anuncio, null)
+      : null;
   const contestacion = directa ? `${directa}\n` : "";
 
   // Costa Rica y República Dominicana: el primer mensaje de los guiones de la dueña, en un solo globo.
   if (d.codigo === "cr" || d.codigo === "do") {
-    return `${saludo}\n${contestacion}${articulo}\n${precio}\n${primeraPregunta(descripcion, d)}`;
+    return `${saludo}\n${contestacion}${articulo}\n${porCantidad ?? precio}\n${primeraPregunta(descripcion, d)}`;
   }
 
-  const cuerpo = d.trato === "tu"
-    ? `${articulo} está disponible, en ${precio}.`
+  const cuerpo = porCantidad
+    ? `${articulo} está disponible. ${porCantidad}`
     : `${articulo} está disponible, en ${precio}.`;
 
   return `${saludo}\n\n${cuerpo}\n\n${primeraPregunta(descripcion, d)}`;
@@ -670,7 +681,7 @@ function otraFormaDePreguntar(d: DatosPais, paso: PasoDelPedido, descripcion: st
 }
 
 /** De qué va la pregunta del cliente, si es una de las que se contestan solas. */
-export type PreguntaDelCliente = "ubicacion" | "envio" | "pago" | "precio" | "tallas" | "tiempo" | "otro_articulo";
+export type PreguntaDelCliente = "ubicacion" | "envio" | "pago" | "precio" | "precio_cantidad" | "tallas" | "tiempo" | "otro_articulo";
 
 /**
  * EL CLIENTE PIDE OTRA COSA, NO ESTA. El caso real: «Tiene otro combo de más
@@ -795,6 +806,59 @@ export function tallasDisponibles(descripcion: string, d: DatosPais): string | n
   return null;
 }
 
+/** Los números escritos con letras que un cliente usa para pedir unidades. */
+const EN_LETRAS: Record<string, number> = {
+  un: 1, una: 1, uno: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6,
+  siete: 7, ocho: 8, nueve: 9, diez: 10, once: 11, doce: 12,
+};
+
+/** El cliente pregunta cuánto cuesta. «A cómo sale» es la forma dominicana. */
+const PREGUNTA_PRECIO =
+  /\b(precio|cuanto (cuesta|cuestan|vale|valen|es|son|sale|salen)|a\s*como (sale|salen|es|son|esta|estan|lo da|los da|la da|las da|me lo deja)|valor)\b/;
+
+/**
+ * CUÁNTAS UNIDADES DICE EL CLIENTE QUE QUIERE, cuando lo dice él por su cuenta.
+ *
+ * «¿A cómo sale las 12?», «quiero tres polos», «¿y por docena?». Devuelve null
+ * cuando no nombra ninguna cantidad, y una unidad tampoco cuenta: esa es la de
+ * siempre y no cambia ningún precio.
+ *
+ * SE LEE SOLO PEGADA A UNA PREGUNTA DE PRECIO —ver `preguntaDelCliente`—, y esa
+ * compañía es lo que la hace segura. Un «12» suelto en un chat de ventas es una
+ * talla, una hora o el final de un teléfono muchas más veces que una docena de
+ * polos; con «a cómo sale» delante, ya no.
+ */
+export function cantidadDicha(texto: string | null | undefined): number | null {
+  const t = llano(texto ?? "");
+  if (!t.trim()) return null;
+
+  // La docena, por su nombre, que es como se pide el mayoreo aquí.
+  if (/\bmedias? docenas?\b/.test(t)) return 6;
+  const docenas = t.match(/\b(\d{1,2}|un|una|dos|tres|cuatro)\s+docenas?\b/);
+  if (docenas) return 12 * (EN_LETRAS[docenas[1]!] ?? Number(docenas[1]) ?? 1);
+  if (/\bdocenas?\b/.test(t)) return 12;
+
+  // Una talla o una hora llevan números y no son una cantidad.
+  if (/\b(talla|tallas|numero|numeros|size)\b/.test(t)) return null;
+  if (/\b(de la (manana|tarde|noche)|[ap]\.?m)\b|\d:\d/.test(t)) return null;
+
+  const pide =
+    "quiero|llevo|llevar|llevarme|necesito|deme|dame|mandeme|envieme|serian|seran|son|por|" +
+    "sale|salen|cuesta|cuestan|vale|valen";
+  const letras = t.match(new RegExp(`\\b(?:${pide})\\s+(${Object.keys(EN_LETRAS).join("|")})\\b`));
+  const conLetras = letras ? (EN_LETRAS[letras[1]!] ?? 0) : 0;
+  if (conLetras >= 2) return conLetras;
+
+  const cifras =
+    t.match(/\b(?:las|los|unas|unos)\s+(\d{1,2})(?![\d.,:])/) ??
+    t.match(new RegExp(`\\b(?:${pide})\\s+(\\d{1,2})(?![\\d.,:])`)) ??
+    t.match(/(?<![\d.,])(\d{1,2})\s*(?:unidades?|piezas?|pares?|polos?|camisas?|articulos?)\b/);
+  if (!cifras) return null;
+
+  const n = Number(cifras[1]);
+  return n >= 2 && n <= 99 ? n : null;
+}
+
 /**
  * QUÉ PREGUNTÓ EL CLIENTE. Solo lo que tiene una respuesta fija en los datos
  * del país o en la descripción del anuncio: dónde están, el envío, cómo se
@@ -814,7 +878,21 @@ export function preguntaDelCliente(texto: string | null | undefined): PreguntaDe
   if (/\b(donde (estan|esta|queda|quedan|tuta|ta|se ubican|se encuentran|es la tienda|estan ubicados|los encuentro|puedo ir)|ubicad[oa]s?|tienda fisica|local fisico|direccion de la tienda)\b/.test(t)) return "ubicacion";
   if (/\b(envio|envios|envian|delivery|entregan|mandan)\b/.test(t) && /\?|cuanto|como|hacen|tienen|hay/.test(t)) return "envio";
   if (/\b(pago|pagar|pagos|se paga|forma de pago|contra entrega|transferencia|tarjeta|es seguro|es confiable|confiable)\b/.test(t)) return "pago";
-  if (/\b(precio|cuanto (cuesta|vale|es|sale)|valor)\b/.test(t) && !/envio|delivery/.test(t)) return "precio";
+  if (PREGUNTA_PRECIO.test(t) && !/envio|delivery/.test(t)) {
+    /*
+     * «¿A CÓMO SALE LAS 12?» NO SE CONTESTA CON EL PRECIO DE UNA.
+     *
+     * La dueña, con la captura delante (2026-09-10): el cliente abrió el chat
+     * preguntando por doce polos y le llegó el saludo con «RD$1,400», que es
+     * lo que cuesta uno. «Debe de responder: no le salen a 1,400 si son 12.»
+     * Preguntar por varias unidades es otra pregunta, y tiene otra respuesta:
+     * la lista de precios por cantidad, que ya existe. Ver `respuestaDirecta`.
+     */
+    const cuantas = cantidadDicha(texto);
+    return cuantas !== null && cuantas >= 2 ? "precio_cantidad" : "precio";
+  }
+  // El mayoreo se pregunta también sin nombrar el precio: «¿venden por docena?».
+  if (/\b(mayor|mayoreo|docenas?)\b/.test(t) && cantidadDicha(texto) !== null) return "precio_cantidad";
   return null;
 }
 
@@ -852,6 +930,32 @@ export function respuestaDirecta(
       if (!precio) return null;
       const articulo = articuloDeLaDescripcion(descripcion, d.moneda.simbolo);
       return articulo ? `${articulo} está en ${precio}.` : `Está en ${precio}.`;
+    }
+    /*
+     * LO QUE CUESTAN LAS QUE PIDE, no lo que cuesta una.
+     *
+     * Sale de la lista de precios por cantidad del país —los polos dominicanos
+     * van a RD$1,400 de una o dos, a RD$1,190 de tres a once y a RD$990 por
+     * docena— y de ningún otro sitio: aquí no se calcula ningún descuento.
+     *
+     * SIN LISTA PARA ESTE ARTÍCULO, NULL Y NADA MÁS. Multiplicar el precio del
+     * anuncio por doce sería cotizar un mayoreo que nadie ha autorizado, y el
+     * guion es explícito: el mayoreo sin precio escrito lo pasa un
+     * representante. Se queda entonces lo de siempre, que es lo que ya hace el
+     * bloque de mayoreo del prompt.
+     */
+    case "precio_cantidad": {
+      const descripcion = anuncio?.descripcion_anuncio ?? "";
+      const base = leerImporte(precioDeLaDescripcion(descripcion, d.moneda.simbolo));
+      const cuantas = cantidadDicha(ultimoDelCliente);
+      if (base === null || cuantas === null) return null;
+
+      const texto = `${descripcion} ${articuloDeLaDescripcion(descripcion, d.moneda.simbolo) ?? ""}`;
+      if (!escalaDelArticulo(d, texto, base)) return null;
+
+      const unidad = precioPorCantidad(d, texto, cuantas, base);
+      const salen = d.trato === "tu" ? "te salen" : "le salen";
+      return `Las ${cuantas} unidades ${salen} a ${importe(d, unidad)} cada una: ${importe(d, unidad * cuantas)}.`;
     }
     case "envio": {
       const zona = zonaDelCliente(d, lugar);

@@ -887,11 +887,34 @@ test("el precio por cantidad de los polos se cotiza y no se transfiere", () => {
     ultimoDelCliente: "¿a cómo la docena?",
   };
 
-  assert.deepEqual(revisarConReglas("Llevando 3 le salen a RD$1,190 cada uno.", polos), []);
+  // Cada borrador contesta a lo que preguntó el cliente: el precio de tres no
+  // contesta por la docena, y desde el 10 de septiembre eso lo para una regla.
+  assert.deepEqual(
+    revisarConReglas("Llevando 3 le salen a RD$1,190 cada uno.", { ...polos, ultimoDelCliente: "¿a cómo salen 3 polos?" }),
+    [],
+  );
   assert.deepEqual(revisarConReglas("La docena le sale a RD$990 cada uno, RD$11,880 en total.", polos), []);
   assert.ok(
     revisarConReglas("Se los dejo a RD$1,050 cada uno.", polos).some((f) => f.includes("no está escrito")),
     "y un precio que no es de la lista sigue siendo inventado",
+  );
+
+  /*
+   * Y LA CAPTURA DE LA DUEÑA (2026-09-10): «¿a cómo sale las 12?» contestado
+   * con «RD$1,400», que es lo que cuesta uno. La regla de contestar el precio
+   * la daba por buena —lleva una cifra escrita, y la lleva—, así que hace falta
+   * esta: si preguntó por doce, la cifra que vale es la de doce.
+   */
+  const porDoce = { ...polos, ultimoDelCliente: "BUENO DIA ESTAM MUY BONITO ACOMO SALE LAS  12" };
+  const conElDeUno = revisarConReglas("POLOS BRONX ORIGINALES RD$1,400 ¿Qué talla le interesa?", porDoce);
+  assert.ok(
+    conElDeUno.some((f) => f.includes("preguntó por 12 unidades") && f.includes("RD$990")),
+    `el precio de una no contesta por doce: ${JSON.stringify(conElDeUno)}`,
+  );
+  assert.deepEqual(
+    revisarConReglas("Las 12 le salen a RD$990 cada una: RD$11,880. ¿Qué talla le interesa?", porDoce),
+    [],
+    "y con la cifra del tramo, pasa",
   );
 
   const transfiere = "Permítame un momento, le paso con un representante. [HANDOFF]";
