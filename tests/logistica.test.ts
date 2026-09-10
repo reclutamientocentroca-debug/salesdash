@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import * as D from "../src/lib/db";
 import { agenteDePais, bloqueDelPais, lugarEscritoPorElCliente, zonaDelCliente } from "../src/agents";
 import { armarSistema } from "../src/lib/agent";
-import { respuestaMinima } from "../src/lib/apertura";
+import { respuestaMinima, resumenMecanico } from "../src/lib/apertura";
 
 /**
  * EL ENVÍO SE DICE EN CUANTO EL CLIENTE ESCRIBE SU ZONA.
@@ -77,6 +77,48 @@ test("Boca Chica, Andrés y La Caleta van a RD$290, y el «Santo Domingo» de la
   const ficha = { talla: null, color: null, direccion: "Calle 5 #22, Boca Chica, Santo Domingo", nombre: null, celular: null, cantidad: null };
   const dice = respuestaMinima(rd, ficha, combo, {});
   assert.ok(dice.startsWith("Perfecto, hasta Boca Chica el envío le sale en RD$290."), dice);
+});
+
+/**
+ * LA PROVINCIA INDEPENDENCIA NO ES A DOMICILIO NI CONTRA ENTREGA.
+ *
+ * La dueña (2026-09-10): «provincia Independencia, Jimaní, es por parada: debe
+ * pagar antes de enviar; por guagua, debe transferir antes de enviar». Allá no
+ * entra el mensajero, así que la tienda no puede cobrar al entregar: o el
+ * paquete sale sin cobrar, o el cliente espera en su casa a alguien que no va a
+ * ir. El agente lo decía todo al revés porque el país entero estaba escrito
+ * como «a domicilio y contra entrega, sin excepción».
+ */
+test("en Jimaní el pedido va por la parada y se paga antes de enviarlo", () => {
+  const rd = agenteDePais("do")!;
+  const combo = { descripcion_anuncio: "COMBO 2 EN 1 cepillo secador + plancha RD$1,690" };
+  const ficha = { talla: null, color: null, direccion: "Calle Duarte #12, Jimaní", nombre: null, celular: null, cantidad: null };
+
+  // La zona: misma tarifa del interior, otra forma de entregar y de cobrar.
+  const zona = zonaDelCliente(rd, "Jimaní");
+  assert.ok(zona !== null && zona !== "resto");
+  assert.equal(zona.costo, 290, "el envío no cambia");
+  assert.match(zona.modalidad, /guagua|parada/);
+  assert.match(zona.pago!, /ANTES de enviarlo/);
+
+  // Y se le dice CON el costo del envío, no después del resumen.
+  const dice = respuestaMinima(rd, ficha, combo, {});
+  assert.ok(dice.startsWith("Perfecto, hasta la provincia Independencia el envío le sale en RD$290."), dice);
+  assert.match(dice, /va por la guagua y usted lo retira en la parada/);
+  assert.match(dice, /transferencia antes de enviarlo/);
+
+  // El resumen no le promete contra entrega a quien ya transfirió.
+  const resumen = resumenMecanico(rd, { ...ficha, nombre: "Ana Pérez", celular: "8095551234" }, combo, { telefonoDelChat: "8095551234" })!;
+  assert.ok(resumen.includes("Forma de pago: transferencia por adelantado"), resumen);
+
+  // Y el resto del país no se entera: sigue a domicilio y contra entrega.
+  const enLaCapital = { ...ficha, direccion: "Los Mina, Santo Domingo Este" };
+  assert.equal(
+    respuestaMinima(rd, enLaCapital, combo, {}).split("\n")[0],
+    "Perfecto, hasta Gran Santo Domingo el envío le sale en RD$250.",
+  );
+  const suResumen = resumenMecanico(rd, { ...enLaCapital, nombre: "Ana Pérez", celular: "8095551234" }, combo, { telefonoDelChat: "8095551234" })!;
+  assert.ok(suResumen.includes("Forma de pago: contra entrega"));
 });
 
 test("se toma el mensaje más reciente del cliente que nombre una zona", () => {
@@ -300,10 +342,16 @@ test("en República Dominicana dos colores son dos unidades, y el por mayor no s
  * vayan como «Independencia (Jimaní, Duvergé)».
  */
 test("una provincia escrita a secas se sitúa por el mapa y se tarifa como interior", () => {
-  assert.equal(zonaDelCliente(rd, "Independencia"), "resto", "Independencia es interior: RD$290");
-  assert.equal(zonaDelCliente(rd, "Jimaní"), "resto");
-  assert.equal(zonaDelCliente(rd, "soy de Duvergé"), "resto");
-  assert.equal(zonaDelCliente(rd, "Calle independencia #3, Boca de cachón"), "resto");
+  assert.equal(zonaDelCliente(rd, "Independencia"), "resto", "«Independencia» a secas es interior: RD$290");
+  /*
+   * Los municipios de esa provincia tienen zona propia desde que la dueña dijo
+   * cómo se entrega allá (2026-09-10): la tarifa sigue siendo la del interior,
+   * lo que cambia es que va por la guagua y se paga antes de enviar.
+   */
+  for (const donde of ["Jimaní", "soy de Duvergé", "Calle independencia #3, Boca de cachón"]) {
+    const z = zonaDelCliente(rd, donde);
+    assert.ok(z !== null && z !== "resto" && z.costo === 290, `«${donde}» es la provincia Independencia, a RD$290`);
+  }
   // Un sector del mapa de la capital va con la tarifa de la ciudad.
   const ciudad = zonaDelCliente(rd, "vivo en Villa Duarte");
   assert.ok(ciudad !== null && ciudad !== "resto", "Villa Duarte es Santo Domingo Este: RD$250");

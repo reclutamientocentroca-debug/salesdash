@@ -46,6 +46,19 @@ export interface ZonaDeEnvio {
   /** Cómo y cuándo se paga en esta zona. Sin esto, vale la forma general. */
   pago?: string;
   /**
+   * Y cómo se escribe eso en la línea «Forma de pago:» del resumen, que la lee
+   * el cliente. Sin esto vale la del país. El caso: en la provincia
+   * Independencia el pedido se paga por transferencia antes de enviarlo, y el
+   * resumen no puede seguir diciéndole «contra entrega» a quien ya transfirió.
+   */
+  pagoEnResumen?: string;
+  /**
+   * Y CÓMO SE LE CUENTA AL CLIENTE, en una frase, cuando su zona no funciona
+   * como el resto del país: cómo le llega y cuándo paga. Va pegada al costo del
+   * envío, en el mismo mensaje, que es donde el cliente decide si sigue.
+   */
+  avisoAlCliente?: string;
+  /**
    * EN DOS PALABRAS, PARA EL MAPA: «A DOMICILIO, paga al recibir».
    *
    * Con ella cada lugar del mapa lleva escrito al lado cómo le llega el

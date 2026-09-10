@@ -925,6 +925,46 @@ test("el precio por cantidad de los polos se cotiza y no se transfiere", () => {
   assert.equal(transferenciaPermitida(transfiere, combo), true);
 });
 
+/**
+ * A JIMANÍ NO SE LE PROMETE MENSAJERO NI PAGO AL RECIBIR.
+ *
+ * La dueña (2026-09-10): en la provincia Independencia el pedido va por la
+ * guagua, se retira en la parada y se transfiere antes de enviarlo. Prometerle
+ * lo de siempre es un paquete que sale sin cobrar o un cliente esperando en su
+ * casa a alguien que no va a ir.
+ */
+test("en la provincia Independencia el revisor para el domicilio y el pago al recibir", () => {
+  const enJimani = {
+    ...rd,
+    anuncio: "COMBO 2 EN 1 RD$1,690",
+    ficha: { talla: null, color: null, direccion: "Calle Duarte #12, Jimaní", nombre: null, celular: null, cantidad: null },
+    ultimoDelCliente: "Calle Duarte #12, Jimaní",
+  };
+
+  const fallas = revisarConReglas(
+    "Perfecto, hasta Jimaní se lo llevamos a domicilio y paga al recibir. ¿Me facilita su número de teléfono?",
+    enJimani,
+  );
+  assert.ok(fallas.some((f) => f.includes("promete entrega a domicilio")), "allá no entra el mensajero");
+  assert.ok(fallas.some((f) => f.includes("paga al recibir")), "y no se cobra al entregar");
+
+  // Y lo que sí toca, pasa.
+  assert.deepEqual(
+    revisarConReglas(
+      "Perfecto, hasta la provincia Independencia el envío le sale en RD$290. Allá el pedido va por la guagua y usted lo retira en la parada, y el pago es por transferencia antes de enviarlo.\n¿Me facilita su número de teléfono para el pedido?",
+      enJimani,
+    ),
+    [],
+  );
+
+  // En la capital sigue mandando lo de siempre: a domicilio y contra entrega.
+  const enLaCapital = { ...enJimani, ficha: { ...enJimani.ficha, direccion: "Los Mina, Santo Domingo Este" }, ultimoDelCliente: "Los Mina" };
+  assert.deepEqual(
+    revisarConReglas("Perfecto, hasta Gran Santo Domingo el envío le sale en RD$250 y paga al recibir.\n¿Me facilita su número de teléfono para el pedido?", enLaCapital),
+    [],
+  );
+});
+
 test("Costa Rica transfiere un artículo desconocido sin anuncio", () => {
   const ctx = { ...cr, anuncio: null, catalogo: "Catálogo:\n- Camisa de lino — ₡15.000", ultimoDelCliente: "Quiero una nevera" };
   assert.equal(

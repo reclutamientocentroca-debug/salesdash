@@ -430,7 +430,14 @@ export function respuestaMinima(
     const costo = zona === "resto" ? d.envio.restoDelPais.costo : zona.costo;
     const donde = nombreDeLaZona(d, ficha.direccion ?? "", opciones.lugar);
     const yaLoPidio = !!opciones.ultimoDelAgente && /tel[eé]fono/i.test(opciones.ultimoDelAgente);
-    return `Perfecto, hasta ${donde} el envío le sale en ${importe(d, costo)}.\n${yaLoPidio ? otraFormaDePreguntar(d, "celular", descripcion) : pregunta}`;
+    /*
+     * Y SI SU ZONA NO FUNCIONA COMO EL RESTO, se le dice AQUÍ, con el costo, no
+     * al final: en la provincia Independencia el pedido va por la guagua, se
+     * retira en la parada y se paga antes de enviarlo. Enterarse de eso después
+     * del resumen es enterarse tarde.
+     */
+    const aviso = zona !== "resto" && zona.avisoAlCliente ? ` ${zona.avisoAlCliente}` : "";
+    return `Perfecto, hasta ${donde} el envío le sale en ${importe(d, costo)}.${aviso}\n${yaLoPidio ? otraFormaDePreguntar(d, "celular", descripcion) : pregunta}`;
   }
 
   /*
@@ -567,7 +574,14 @@ export function resumenMecanico(
     lineas.push(`Cantidad: ${cantidad}`);
     lineas.push(`Envio: ${importe(d, envio)}`);
     lineas.push(`TOTAL A PAGAR: ${importe(d, total)}`);
-    lineas.push("Forma de pago: contra entrega");
+    /*
+     * La forma de pago es la de SU zona, no la del país. En la provincia
+     * Independencia se transfiere antes de enviar (la dueña, 2026-09-10), y un
+     * resumen que le diga «contra entrega» a quien ya transfirió es una
+     * discusión en la puerta —o un paquete que sale sin cobrar—.
+     */
+    const formaDePago = zona !== "resto" && zona.pagoEnResumen ? zona.pagoEnResumen : "contra entrega";
+    lineas.push(`Forma de pago: ${formaDePago}`);
     lineas.push("✅ PEDIDO REGISTRADO", FRASE_DE_TRANSFERENCIA);
     return lineas.join("\n");
   }

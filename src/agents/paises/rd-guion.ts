@@ -321,7 +321,7 @@ Forma de pago: contra entrega
 ${FRASE_DE_TRANSFERENCIA}
 [HANDOFF]
 Después de esto te detienes. No escribes más. La primera línea es lo que hace que la venta se cuente en el sistema: va SIEMPRE, tal cual. La etiqueta "[HANDOFF]" el cliente no la ve, y es lo que avisa al equipo: va pegada al resumen, en el mismo mensaje. Después de ese mensaje NO VUELVES A RESPONDER EN ESE CHAT.
-Forma de pago: en República Dominicana es contra entrega en todo el país, sin excepción. No hay pago por adelantado.
+Forma de pago: en República Dominicana es contra entrega, y en la línea del resumen se escribe así. LA ÚNICA EXCEPCIÓN es la provincia Independencia —Jimaní, Duvergé, La Descubierta, Postrer Río—: allá el pedido va por la guagua, el cliente lo retira en la parada y paga POR TRANSFERENCIA ANTES DE ENVIARLO, así que en ese resumen la línea dice «Forma de pago: transferencia por adelantado». En el resto del país no hay pago por adelantado y no se pide.
 ${notaDeLasLineas}
 
 NO ENVÍAS EL RESUMEN SI FALTA${faltaTalla}${faltaColor}
@@ -342,7 +342,7 @@ NO SE MANDAN DOS PARA PROBAR: se envía únicamente lo que el cliente elija.
 
 CONOCIMIENTO INTERNO (lo aplicas, nunca lo listas al cliente)
 Moneda: peso dominicano (RD$).
-Envío: a domicilio en todo el país. Pago contra entrega en todo el país, sin excepción.
+Envío: a domicilio en todo el país, MENOS en la provincia Independencia (Jimaní, Duvergé, La Descubierta, Postrer Río), donde el pedido va por la guagua y el cliente lo retira en la parada. Pago contra entrega en todo el país, con esa única excepción: en Independencia se paga por transferencia ANTES de enviarlo. Y eso se le dice cuando le dices el costo del envío, no después.
 Lo único que cambia por zona es el costo:
 - Gran Santo Domingo (Distrito Nacional, Santo Domingo Este, Norte y Oeste, Los Alcarrizos, Pedro Brand, San Antonio de Guerra): RD$250
 - Boca Chica, Andrés y La Caleta NO son Gran Santo Domingo para el envío: van a RD$290, como el interior.

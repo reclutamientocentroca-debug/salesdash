@@ -136,6 +136,49 @@ export const RD: DatosPais = {
         costo: 250,
         modalidad: "a domicilio, con mensajero",
       },
+      /*
+       * LA PROVINCIA INDEPENDENCIA NO ES A DOMICILIO NI CONTRA ENTREGA.
+       *
+       * La dueña (2026-09-10): «provincia Independencia, Jimaní, es por parada:
+       * debe pagar antes de enviar, por guagua; debe transferir antes de
+       * enviar». Allí no llega el mensajero: el paquete viaja en la guagua y el
+       * cliente lo retira en la parada, así que la tienda no puede cobrar al
+       * entregar. Si el agente le promete lo de siempre —a domicilio y contra
+       * entrega—, o el paquete sale sin cobrar o el cliente se planta en su
+       * casa esperando a alguien que no va a ir.
+       *
+       * Se nombran los municipios que la gente escribe, y NO «Independencia» a
+       * secas: media capital tiene una calle Independencia, y una calle no
+       * cambia la forma de pago de un pedido.
+       */
+      {
+        // Se nombra así porque el agente lo dice tal cual: «hasta la provincia
+        // Independencia el envío le sale en RD$290».
+        nombre: "la provincia Independencia",
+        lugares: [
+          "Jimaní",
+          "provincia Independencia",
+          "Duvergé",
+          "La Descubierta",
+          "Postrer Río",
+          "Boca de Cachón",
+        ],
+        costo: 290,
+        /*
+         * Las dos frases se escriben EN POSITIVO, sin la coletilla de lo que no
+         * es. El revisor las lee para juzgar lo que escribe el agente —«¿esta
+         * zona es a domicilio?», «¿se paga al recibir?»— buscando las palabras
+         * dentro: un «ahí no entra el mensajero» la daba por entrega a
+         * domicilio, y un «ahí no hay contra entrega», por pago al recibir.
+         * Justo al revés. Lo que NO es se explica en el guion, no aquí.
+         */
+        modalidad: "va por la guagua y el cliente lo retira en la parada",
+        pago: "se paga por adelantado, por transferencia ANTES de enviarlo",
+        pagoEnResumen: "transferencia por adelantado",
+        avisoAlCliente:
+          "Allá el pedido va por la guagua y usted lo retira en la parada, y el pago es por " +
+          "transferencia antes de enviarlo.",
+      },
     ],
     restoDelPais: {
       costo: 290,
@@ -361,11 +404,16 @@ export const RD: DatosPais = {
   // ── Pago ───────────────────────────────────────────────────────────────
   pago:
     "Contra entrega: el cliente paga al recibir el pedido, en su mano, y puede revisar el " +
-    "producto antes de pagarle al mensajero. Igual en todo el país. No paga nada por adelantado. " +
-    "Si pregunta «¿es seguro?», esa es la respuesta.",
+    "producto antes de pagarle al mensajero. No paga nada por adelantado. " +
+    "Si pregunta «¿es seguro?», esa es la respuesta. " +
+    "CON UNA EXCEPCIÓN, la de la lista de zonas: en la provincia Independencia —Jimaní, Duvergé, " +
+    "La Descubierta, Postrer Río— el pedido va por la guagua, el cliente lo retira en la parada y " +
+    "paga por transferencia ANTES de enviarlo. Ahí no prometas contra entrega ni entrega a " +
+    "domicilio, aunque el cliente lo dé por hecho.",
   pagoAlCliente:
     "Se paga contra entrega: al recibir el pedido lo revisa en su mano y le paga al mensajero. " +
-    "No paga nada por adelantado.",
+    "No paga nada por adelantado. Solo en la provincia Independencia (Jimaní) es distinto: allá " +
+    "va por la guagua, se retira en la parada y se paga por transferencia antes de enviarlo.",
 
   // ── Ubicación ──────────────────────────────────────────────────────────
   ubicacion: {
