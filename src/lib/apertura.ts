@@ -57,7 +57,14 @@ const RELLENO = /^(¡?compra seguro!?|solo|oferta|promoci[oó]n|nuevo|nueva|disp
  */
 const FAMILIAS: { familia: string; palabras: string }[] = [
   { familia: "calzado", palabras: "zapatos?|zapatillas?|tenis|botas?|mocas[ií]n|mocasines|sandalias?|chancletas?|calzado" },
-  { familia: "camisas y polos", palabras: "camisas?|polos?|t-?shirts?|franelas?|blusas?|chacabanas?" },
+  /*
+   * «POLOCHE» ES EL POLO, en buen dominicano (la dueña, 2026-09-10). El caso:
+   * «Yo escribí por los polocheres» y el agente siguió con el calzado del
+   * anuncio —le mandó hasta la foto de unas botas— porque esa palabra no la
+   * conocía nadie aquí. No hace falta separarla por país como la «faja»: un
+   * poloche no es otra cosa en ningún sitio, es siempre un polo.
+   */
+  { familia: "camisas y polos", palabras: "camisas?|polos?|poloch(?:es?|er(?:es)?)|t-?shirts?|franelas?|blusas?|chacabanas?" },
   { familia: "pantalones", palabras: "pantal[oó]n|pantalones|jeans?|shorts?|bermudas?" },
   { familia: "ropa de vestir", palabras: "vestidos?|faldas?|conjuntos?|chaquetas?|abrigos?|su[eé]teres?|sudaderas?" },
   { familia: "ropa interior", palabras: "b[oó]xers?|underwear" },
@@ -95,7 +102,7 @@ export function familiasNombradas(texto: string): { familia: string; palabra: st
  * que se tiraba a la basura— porque «polo» no estaba aquí, aunque la tabla de
  * la tienda diga «Camisas, t-shirts, polos y boxers: de la S a la XXL».
  */
-const ROPA = /\b(camisas?|pantal[oó]n|pantalones|t-?shirts?|polos?|b[oó]xers?|correas?|cintur[oó]n|cinturones)\b/i;
+const ROPA = /\b(camisas?|pantal[oó]n|pantalones|t-?shirts?|polos?|poloch(?:es?|er(?:es)?)|b[oó]xers?|correas?|cintur[oó]n|cinturones)\b/i;
 const CALZADO = /\b(zapato|zapatos|calzado|tenis|bota|botas|mocas[ií]n|mocasines|sandalia|sandalias|zapatilla|zapatillas|chancleta|chancletas)\b/i;
 const COLORES = reColores("gi");
 
@@ -217,6 +224,31 @@ export function articuloDeLaDescripcion(descripcion: string, simbolo: string): s
     articulo = articulo.toLowerCase().replace(/(^|\s)(\p{L})/gu, (_, sep, l) => sep + l.toUpperCase());
   }
   return articulo;
+}
+
+/**
+ * ¿EL CLIENTE ESTÁ PIDIENDO OTRA COSA QUE LA DEL ANUNCIO?
+ *
+ * El caso de la dueña (2026-09-10): el anuncio era de calzado, el cliente
+ * escribió «Yo escribí por los polocheres» —los polos— y lo que le llegó fue la
+ * foto de unas botas con la pregunta del color. Enseñarle una foto de otro
+ * artículo no es un adorno de menos: es decirle que no se le ha leído.
+ *
+ * Solo dice que sí cuando el cliente nombra artículos y NINGUNO es de lo que
+ * anuncia el anuncio. Nombrar los dos —«¿los zapatos combinan con la camisa?»—
+ * no es cambiar de artículo, y ahí la foto sigue teniendo sentido.
+ */
+export function clientePideOtraFamilia(
+  textosDelCliente: string[],
+  descripcionDelAnuncio: string | null | undefined,
+): boolean {
+  const delAnuncio = familiasNombradas(descripcionDelAnuncio ?? "").map((f) => f.familia);
+  if (!delAnuncio.length) return false;
+
+  const suyas = [...new Set(familiasNombradas(textosDelCliente.join(" · ")).map((f) => f.familia))];
+  if (!suyas.length) return false;
+
+  return !suyas.some((f) => delAnuncio.includes(f));
 }
 
 /**
@@ -816,7 +848,7 @@ export function tallasDisponibles(descripcion: string, d: DatosPais): string | n
     return fila("Correas y cinturones");
   }
   if (/\b(pantal[oó]n|pantalones|jean|jeans|short|shorts|bermuda)\b/i.test(descripcion)) return fila("Pantalones");
-  if (/\b(camisas?|polos?|t-?shirts?|franelas?|blusas?|chacabanas?|su[eé]ter|sudadera|chaqueta|abrigo|b[oó]xers?|underwear)\b/i.test(descripcion)) return fila("Camisas, t-shirts, polos y boxers");
+  if (/\b(camisas?|polos?|poloch(?:es?|er(?:es)?)|t-?shirts?|franelas?|blusas?|chacabanas?|su[eé]ter|sudadera|chaqueta|abrigo|b[oó]xers?|underwear)\b/i.test(descripcion)) return fila("Camisas, t-shirts, polos y boxers");
   return null;
 }
 

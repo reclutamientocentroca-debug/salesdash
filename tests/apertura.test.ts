@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { agenteDePais, precioPorCantidad } from "../src/agents";
 import { fichaDelPedido } from "../src/lib/memoria";
-import { aperturaSegura, articuloDeLaDescripcion, cantidadDicha, clienteAplazaCompra, clienteRenunciaALaCompra, llevaColor, llevaTalla, mensajeSinProducto, precioDeLaDescripcion, preguntaDelCliente, preguntaDeDireccion, primeraPregunta, respuestaDirecta, respuestaMinima, resumenMecanico, tallasDisponibles } from "../src/lib/apertura";
+import { aperturaSegura, articuloDeLaDescripcion, cantidadDicha, clienteAplazaCompra, clientePideOtraFamilia, clienteRenunciaALaCompra, familiasNombradas, llevaColor, llevaTalla, mensajeSinProducto, precioDeLaDescripcion, preguntaDelCliente, preguntaDeDireccion, primeraPregunta, respuestaDirecta, respuestaMinima, resumenMecanico, tallasDisponibles } from "../src/lib/apertura";
 import { contieneMarcador } from "../src/lib/cierre";
 
 /**
@@ -182,6 +182,37 @@ test("los polos dominicanos cambian de precio con la cantidad", () => {
   assert.equal(total("1"), "TOTAL A PAGAR: RD$1,650", "1400 + 250 de envío");
   assert.equal(total("3"), "TOTAL A PAGAR: RD$3,820", "tres a 1,190 + 250");
   assert.equal(total("12"), "TOTAL A PAGAR: RD$12,130", "la docena a 990 + 250");
+});
+
+/**
+ * «POLOCHE» ES EL POLO, EN BUEN DOMINICANO.
+ *
+ * La captura de la dueña (2026-09-10): «Yo escribí por los polocheres» y el
+ * agente siguió con el calzado del anuncio —le mandó hasta la foto de unas
+ * botas y le preguntó el color— porque esa palabra no la conocía nadie en esta
+ * casa. Un poloche no es otra cosa en ningún país: es siempre un polo, con su
+ * talla y su color.
+ */
+test("«poloche» es el polo, y quien lo pide no recibe la foto del calzado", () => {
+  for (const dice of ["Yo escribí por los polocheres", "quiero un poloche", "el polocher blanco"]) {
+    assert.deepEqual(familiasNombradas(dice).map((f) => f.familia), ["camisas y polos"], dice);
+    assert.equal(llevaTalla(dice, rd), true, "lleva talla, como cualquier polo");
+    assert.equal(llevaColor(dice, rd), true);
+  }
+  assert.equal(tallasDisponibles("POLOCHES BRONX RD$1,400", rd), "de la S a la XXL");
+  assert.equal(primeraPregunta("POLOCHES BRONX RD$1,400", rd), "¿Qué talla le interesa?");
+
+  /*
+   * Y LA FOTO DEL ANUNCIO NO SALE SI ÉL VINO POR OTRA COSA: la foto es la del
+   * anuncio, y enseñarle unas botas a quien pidió polos es decirle que no se le
+   * ha leído.
+   */
+  const botas = "BOTA MR JONES cuero legítimo RD$3,500";
+  assert.equal(clientePideOtraFamilia(["Yo escribí por los polocheres"], botas), true);
+  assert.equal(clientePideOtraFamilia(["¿las botas vienen en negro?"], botas), false, "pregunta por lo del anuncio");
+  assert.equal(clientePideOtraFamilia(["¿esas botas combinan con la camisa?"], botas), false, "nombra las dos: sigue en lo suyo");
+  assert.equal(clientePideOtraFamilia(["hola, precio?"], botas), false, "no nombra ningún artículo");
+  assert.equal(clientePideOtraFamilia(["quiero polos"], null), false, "sin anuncio no hay nada que contradecir");
 });
 
 /**

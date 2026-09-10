@@ -493,6 +493,14 @@ export const RD: DatosPais = {
       "«claro que sí» para confirmar",
       "«chequea» para pedir que revisen algo",
     ],
+
+    /*
+     * La dueña (2026-09-10), con la captura delante: «el cliente pidió poloche,
+     * esto en buen dominicano es polo, y le envió el calzado».
+     */
+    sinonimos: [
+      "«poloche» o «polocher» es el POLO, la camisa de tipo polo: es un artículo de ropa y lleva talla y color. Nunca es un zapato ni una bota, y no es motivo para transferir",
+    ],
   },
 
   // ── El pie del resumen ─────────────────────────────────────────────────

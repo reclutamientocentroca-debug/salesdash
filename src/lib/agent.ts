@@ -45,7 +45,7 @@ import { descifrar } from "./auth";
 import { leer as leerArchivo } from "./media";
 import { formatearImporte, monedaDelPais } from "./moneda";
 import { anuncioParaModelo, anuncioVigente, type DatosAnuncio } from "./anuncio";
-import { aperturaSegura, clienteAplazaCompra, clienteRenunciaALaCompra, fraseDeTransferencia, laFotoAyudaAElegir, laFotoVaConEstaRespuesta, llevaColor, llevaTalla, nombraUnArticulo, respuestaMinima } from "./apertura";
+import { aperturaSegura, clienteAplazaCompra, clientePideOtraFamilia, clienteRenunciaALaCompra, fraseDeTransferencia, laFotoAyudaAElegir, laFotoVaConEstaRespuesta, llevaColor, llevaTalla, nombraUnArticulo, respuestaMinima } from "./apertura";
 import { esMensajeDeSistema } from "./sistema";
 import { contieneMarcador, MARCADOR_POR_DEFECTO, registrarCierre } from "./cierre";
 import { completar, ErrorIA, hoyISO } from "./ia";
@@ -2119,7 +2119,18 @@ async function atenderTurno(
    * cumplir—. Y va UNA vez por sesión: quien ya la vio no la necesita otra vez.
    */
   const { fotoDelHilo } = await import("@/lib/meta/contexto-anuncio");
-  const foto = fotoDelHilo(orgId, conv);
+  /*
+   * Y NO SALE SI EL CLIENTE VINO POR OTRA COSA. El caso de la dueña
+   * (2026-09-10): anuncio de calzado, «Yo escribí por los polocheres», y lo que
+   * le llegó fue la foto de unas botas con la pregunta del color. La foto es la
+   * DEL ANUNCIO: enseñársela a quien acaba de decir que quiere otra cosa es
+   * decirle que no se le ha leído. Ver `clientePideOtraFamilia`.
+   */
+  const otraFamilia = clientePideOtraFamilia(
+    textosDelClienteEnSesion(historial),
+    anuncioVigente(conv).descripcion_anuncio,
+  );
+  const foto = otraFamilia ? null : fotoDelHilo(orgId, conv);
   const fotoYaEnviada = mensajesDeLaSesion(historial).some(
     (m) => m.emisor === "ia" && m.tipo === "imagen",
   );
