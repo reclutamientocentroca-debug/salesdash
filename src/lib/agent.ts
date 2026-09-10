@@ -1191,6 +1191,43 @@ const AVISO_RETOMADO =
   "quedes callado. El último mensaje del cliente se quedó SIN RESPUESTA: contéstalo ahora, en un solo " +
   "mensaje, y sigue la venta por el paso que toque.";
 
+/**
+ * Y LO QUE EL EQUIPO LE DIJO DESPUÉS DE ESE MENSAJE, CONTADO EN EL AVISO.
+ *
+ * El hilo que ve el modelo se corta en el mensaje del cliente que quedó
+ * colgando —tiene que terminar en él para poder contestarlo—, así que lo que
+ * se escribió después se queda fuera. La despedida del propio agente da igual:
+ * el aviso ya dice que no vale. Lo que un COMPAÑERO le escribiera antes de
+ * devolver el hilo, no: el cliente lo leyó, y un agente que no lo sabe lo
+ * repite o lo contradice.
+ */
+function avisoDeHiloRetomado(dijoElEquipo: string[]): string {
+  if (!dijoElEquipo.length) return AVISO_RETOMADO;
+
+  return (
+    AVISO_RETOMADO +
+    "\n\nDESPUÉS de ese mensaje del cliente, un compañero del equipo le escribió esto por este mismo " +
+    "WhatsApp —ya lo leyó: no lo repitas ni lo contradigas—:\n" +
+    dijoElEquipo.map((t) => `- «${t.replace(/\s+/g, " ").trim().slice(0, 240)}»`).join("\n")
+  );
+}
+
+/**
+ * Lo que el equipo le escribió al cliente después del mensaje que ahora se
+ * contesta. Sale del historial COMPLETO, que es el único que todavía lo tiene:
+ * el que ve el modelo llega recortado. Ver `atenderTurno`.
+ */
+function loQueElEquipoDijoDespues(memoriaMensajes: Mensaje[], ultimo: Mensaje): string[] {
+  const donde = memoriaMensajes.findIndex((m) => m.id === ultimo.id);
+  if (donde < 0) return [];
+
+  return memoriaMensajes
+    .slice(donde + 1)
+    .filter((m) => m.emisor === "humano" && m.content.trim())
+    .map((m) => m.content)
+    .slice(-4);
+}
+
 export interface RespuestaGenerada {
   /** Lo que se le manda al cliente: ya sin la etiqueta `[HANDOFF]`. */
   texto: string;
@@ -1405,7 +1442,7 @@ export async function generarRespuesta(
             // La zona que el cliente escribió EN ESTA SESIÓN, para decirle SU tarifa.
             lugarResuelto ?? lugarEscritoPorElCliente(agenteDePais(agente.pais), mensajesDeLaSesion(mensajes)),
           ) + (reglaPrecio ? `\n\n${reglaPrecio}` : "") + memoria + ficha +
-          (retomado ? AVISO_RETOMADO : ""),
+          (retomado ? avisoDeHiloRetomado(loQueElEquipoDijoDespues(memoriaMensajes, ultimo)) : ""),
       },
       ...aHistorial(mensajes),
     ],
@@ -1804,6 +1841,25 @@ async function atenderTurno(
       if (!suyo) return false;
       const desde = Math.max(suyo.created_at, conv.devuelta_a_ia_at!);
       if (historial.some((m) => m.emisor !== "cliente" && m.created_at >= desde)) return false;
+
+      /*
+       * Y EL HILO SE CORTA EN ESE MENSAJE, que es lo que faltaba.
+       *
+       * El caso de Costa Rica (la dueña, 2026-09-09): se pulsaba «Contesta la
+       * IA» y el cliente seguía esperando. Marcar cuál era su mensaje no
+       * bastaba: el historial que se le pasaba al modelo seguía terminando en
+       * el «le transfiero con un representante» del propio agente, y
+       * `generarRespuesta` lo paraba en seco con su guarda de «la conversación
+       * no termina en un mensaje del cliente». Ni se llamaba al modelo, y
+       * encima quedaba una anomalía diciendo que el modelo no respondió.
+       *
+       * Lo que se corta son despedidas que ya no valen. Lo que un compañero le
+       * escribiera después de su mensaje no se pierde: va en el aviso, para
+       * que no lo repita. Ver `avisoDeHiloRetomado`.
+       */
+      const donde = historial.findIndex((m) => m.id === suyo.id);
+      if (donde < 0) return false;
+      historial = historial.slice(0, donde + 1);
       ultimo = suyo;
       return true;
     })();

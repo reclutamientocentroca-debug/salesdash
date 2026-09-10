@@ -241,3 +241,105 @@ test("a una pregunta por «la ropa», Costa Rica saluda y pregunta el artículo"
     false,
   );
 });
+
+/**
+ * AL DEVOLVERLE EL HILO, CONTESTA EL ÚLTIMO MENSAJE DEL CLIENTE.
+ *
+ * La dueña (Costa Rica, 2026-09-09): «al transferirle a la IA quiero que
+ * responda el mensaje del cliente, el último que envió». No pasaba: se pulsaba
+ * «Contesta la IA» y el chat se quedaba mudo. El hilo que se le daba al modelo
+ * seguía terminando en el «le transfiero con un representante» del propio
+ * agente, y esa conversación no se puede contestar —termina en el turno del
+ * asistente—: se paraba antes de llamar al modelo y quedaba una anomalía
+ * diciendo que el modelo no respondió, que era mentira.
+ *
+ * Lo que esta prueba fija es lo que ve el modelo: el hilo cortado en el
+ * mensaje del cliente que quedó colgando, el aviso de que el chat se lo han
+ * devuelto, y lo que la casa ya le escribió después de ese mensaje —para que
+ * no lo repita—.
+ */
+test("al devolverle el hilo, el modelo lo recibe terminando en el mensaje del cliente", async () => {
+  const { orgId, canal } = canalTico();
+  const { atenderConversacion } = await import("../src/lib/agent");
+  D.actualizarCanal(orgId, canal, { agente_activo: 1, contesta_ia: 0 });
+
+  const { conversacion } = D.getOrCreateConversation(orgId, canal, "50688887777", {
+    cuando: D.ahora() - 3_600,
+  });
+  const escribir = (emisor: D.Emisor, content: string, hace: number, i: number) =>
+    D.insertMessage(orgId, {
+      conversationId: conversacion.id,
+      whapiMessageId: `retomado-${i}`,
+      emisor, tipo: "texto", content, createdAt: D.ahora() - hace,
+    });
+
+  escribir("cliente", "Buenas, ¿cuánto vale el polo?", 600, 1);
+  escribir("ia", "Le cuesta ₡12.000. ¿Qué talla usa?", 560, 2);
+  escribir("cliente", "¿Me lo pueden mandar a Puntarenas?", 300, 3);
+  escribir("ia", "Permítame un momento, le transfiero con un representante.", 290, 4);
+  escribir("humano", "Buenas, en un momento le confirmo el envío.", 120, 5);
+
+  D.devolverALaIa(orgId, conversacion.id);
+
+  // El modelo no existe en las pruebas: se le pone uno de mentira para leer,
+  // palabra por palabra, lo que se le habría mandado.
+  const fetchOriginal = globalThis.fetch;
+  const claveOriginal = process.env.OPENROUTER_API_KEY;
+  process.env.OPENROUTER_API_KEY = "clave-de-pruebas";
+  /** Lo que se le pidió al modelo, en orden: la del agente es la primera. */
+  const peticiones: { role: string; content: string }[][] = [];
+
+  globalThis.fetch = (async (_u: string | URL | Request, init?: RequestInit) => {
+    peticiones.push(JSON.parse(String(init?.body)).messages);
+    return new Response(
+      JSON.stringify({
+        id: "x", model: "de-mentira",
+        choices: [{ message: { role: "assistant", content: "Sí, hasta Puntarenas va por correo." } }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  try {
+    // Sin socket de WhatsApp el envío falla: lo que se comprueba es lo que se
+    // le pidió al modelo, no que el mensaje saliera.
+    await atenderConversacion(orgId, canal, conversacion.id).catch(() => {});
+  } finally {
+    globalThis.fetch = fetchOriginal;
+    if (claveOriginal === undefined) delete process.env.OPENROUTER_API_KEY;
+    else process.env.OPENROUTER_API_KEY = claveOriginal;
+  }
+
+  const turnos = peticiones[0] ?? [];
+  assert.ok(turnos.length > 0, "no se llegó a llamar al modelo: el hilo devuelto se paró antes");
+
+  const ultimo = turnos[turnos.length - 1];
+  assert.equal(ultimo.role, "user", "la conversación tiene que terminar en el cliente");
+  assert.equal(
+    ultimo.content,
+    "¿Me lo pueden mandar a Puntarenas?",
+    "lo que se contesta es el último mensaje del cliente",
+  );
+
+  /*
+   * Y LA DESPEDIDA QUE YA NO VALE NO ESTÁ EN EL HILO. En el guion sí sigue
+   * —es la frase con la que se transfiere cuando toca—, pero como turno del
+   * agente se fue: leerse a sí mismo despidiéndose es lo que le hacía
+   * repetirlo o callarse.
+   */
+  assert.equal(
+    turnos.slice(1).some((m) => m.content.includes("le transfiero con un representante")),
+    false,
+    "la despedida que ya no vale sigue en el hilo del modelo",
+  );
+
+  const sistema = turnos[0].content;
+  assert.equal(turnos[0].role, "system");
+  assert.match(sistema, /EL EQUIPO TE HA DEVUELTO ESTE CHAT/);
+  assert.match(
+    sistema,
+    /Buenas, en un momento le confirmo el envío\./,
+    "el modelo tiene que saber lo que el equipo ya le escribió para no repetirlo",
+  );
+});
