@@ -80,9 +80,25 @@ export const CR: DatosPais = {
           "San Pedro de Montes de Oca",
           "Guadalupe de Goicoechea",
         ],
+        /*
+         * LOS CANTONES DE LA PROVINCIA DE SAN JOSÉ QUE NO SON DE ESTA ZONA.
+         *
+         * «Pérez Zeledón, San José» o «Ciudad Colón, San José» traen la
+         * provincia escrita, y el «San José» de la dirección los metía en la
+         * zona del mensajero: son interior y van por correo. Es el mismo
+         * arreglo que Boca Chica en República Dominicana —ver `excepciones`
+         * en `../tipos.ts`—, y manda sobre la lista de aquí abajo.
+         */
+        excepciones: [
+          "Pérez Zeledón", "San Isidro de El General", "Puriscal", "Santiago de Puriscal",
+          "Acosta", "San Ignacio de Acosta", "Mora", "Ciudad Colón", "Tarrazú", "San Marcos de Tarrazú",
+          "Dota", "Santa María de Dota", "León Cortés", "San Pablo de León Cortés", "Turrubares",
+        ],
         costo: 3500,
         modalidad: "entrega a domicilio",
         pago: "paga al recibir, como prefiera: en efectivo, por transferencia o por SINPE Móvil",
+        // Lo que se le escribe al lado a cada lugar del mapa. Ver `porZona`.
+        etiqueta: "A DOMICILIO, paga al recibir",
       },
     ],
     restoDelPais: {
@@ -101,11 +117,16 @@ export const CR: DatosPais = {
         "Sarapiquí", "Puriscal", "Tarrazú", "Dota", "León Cortés", "Acosta", "Turrubares",
         "San Ramón", "Grecia", "Naranjo", "Palmares", "Zarcero", "Sarchí", "Atenas", "Orotina",
         "San Mateo", "Poás", "Zona Sur", "Zona Norte", "Caribe",
+        // Cantones de la provincia de San José que son interior: sin ellos
+        // aquí, el «San José» de la dirección los mandaba a domicilio.
+        "Mora", "Ciudad Colón", "Santiago de Puriscal", "San Marcos de Tarrazú",
+        "Santa María de Dota", "San Ignacio de Acosta", "San Pablo de León Cortés",
       ],
       modalidad: "va por correo o encomienda y el cliente retira en la sucursal más cercana",
       pago:
         "se cobra ANTES de enviar: pago previo por SINPE Móvil o transferencia, y sin el " +
         "comprobante no sale el paquete",
+      etiqueta: "POR CORREO, el cliente retira en la sucursal y paga por adelantado",
     },
     direccion:
       "EN COSTA RICA NO HAY CALLE Y NÚMERO. Las direcciones se dan por referencias y distancias " +

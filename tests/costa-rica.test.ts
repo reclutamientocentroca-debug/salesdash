@@ -8,7 +8,7 @@ import { armarSistema, generarRespuesta } from "../src/lib/agent";
 import { agenteDePais } from "../src/agents";
 import { respuestaMinima } from "../src/lib/apertura";
 import { revisarConReglas, type ContextoRevision } from "../src/lib/revisor";
-import { bloqueDelPais } from "../src/agents";
+import { bloqueDelPais, zonaDelCliente } from "../src/agents";
 
 /**
  * COSTA RICA VA SOLA. ESTE ARCHIVO ES EL CANDADO.
@@ -342,4 +342,160 @@ test("al devolverle el hilo, el modelo lo recibe terminando en el mensaje del cl
     /Buenas, en un momento le confirmo el envío\./,
     "el modelo tiene que saber lo que el equipo ya le escribió para no repetirlo",
   );
+});
+
+/**
+ * TILARÁN NO ES A DOMICILIO, Y EL MAPA TIENE QUE DECIRLO.
+ *
+ * La dueña (Costa Rica, 2026-09-10): «Perfecto, hasta Tilarán en Guanacaste se
+ * lo llevamos a domicilio. El envío es ₡3.500 y paga al recibir.» En Tilarán
+ * no hay entrega a domicilio: va por correo, el cliente retira en la sucursal
+ * y se cobra ANTES de enviar.
+ *
+ * El mapa le daba al modelo el nombre del pueblo y nada más —la modalidad
+ * había que deducirla de dos listas separadas—, así que adivinaba. Ahora cada
+ * lugar del mapa lleva su grupo delante, y el revisor para la promesa.
+ */
+test("el mapa tico dice, lugar por lugar, qué va a domicilio y qué va por correo", () => {
+  const d = agenteDePais("cr")!;
+  const bloque = bloqueDelPais(d, "Tilarán, Guanacaste", "Tienda Tica");
+
+  // Guanacaste entera es correo, y Tilarán está dentro.
+  assert.match(bloque, /^- Guanacaste → POR CORREO[^\n]*\bTilarán\b/m);
+  // Y la provincia de San José, que tiene de los dos, sale partida en dos listas.
+  assert.match(
+    bloque,
+    /^- San José \(provincia\) → A DOMICILIO[^\n]* · POR CORREO[^\n]*Pérez Zeledón/m,
+  );
+
+  /*
+   * Y LA PROVINCIA ESCRITA EN LA DIRECCIÓN NO ABARATA EL CANTÓN: «Pérez
+   * Zeledón, San José» es interior, aunque traiga «San José» dentro. Es lo
+   * mismo que Boca Chica en República Dominicana.
+   */
+  assert.equal(zonaDelCliente(d, "Pérez Zeledón, San José"), "resto");
+  assert.equal(zonaDelCliente(d, "Ciudad Colón, San José"), "resto");
+  assert.equal(zonaDelCliente(d, "Tilarán, Guanacaste"), "resto");
+});
+
+test("el revisor tico para la entrega a domicilio en un cantón que va por correo", () => {
+  const d = agenteDePais("cr")!;
+  const conLugar = (lugar: string): ContextoRevision => ({
+    datos: d,
+    nombresDeLaCasa: [d.nombreAgente ?? "", d.tienda].filter(Boolean),
+    catalogo: "Catálogo:\n- Camisa de lino (S, M, L) — 25000",
+    anuncio: null,
+    bloqueDelPais: bloqueDelPais(d, lugar, "Tienda Tica"),
+    ficha: { talla: null, color: null, direccion: lugar, nombre: null, celular: null, cantidad: null },
+    lugarDelCliente: lugar,
+  });
+
+  // Lo que salió y no puede volver a salir.
+  const fallas = revisarConReglas(
+    "Perfecto, hasta Tilarán en Guanacaste se lo llevamos a domicilio. El envío es ₡3.500 y paga al recibir. " +
+      "¿Me facilita su número de teléfono para el pedido?",
+    conLugar("Tilarán, Guanacaste"),
+  );
+  assert.ok(fallas.some((f) => f.includes("le promete entrega a domicilio")), fallas.join(" | "));
+  assert.ok(fallas.some((f) => f.includes("paga al recibir")), fallas.join(" | "));
+
+  // Y lo que sí toca a esa misma dirección pasa limpio.
+  assert.deepEqual(
+    revisarConReglas(
+      "Perfecto, hasta Tilarán va por correo y lo retira en la sucursal más cercana. El envío es ₡3.500 y el " +
+        "pago va por adelantado, por SINPE o transferencia. ¿Me facilita su número de teléfono para el pedido?",
+      conLugar("Tilarán, Guanacaste"),
+    ),
+    [],
+  );
+
+  // En la zona del mensajero no se cambia nada: ahí el domicilio es lo correcto.
+  assert.deepEqual(
+    revisarConReglas(
+      "Perfecto, hasta Escazú se lo llevamos a domicilio. El envío es ₡3.500 y paga al recibir. " +
+        "¿Me facilita su número de teléfono para el pedido?",
+      conLugar("Escazú, San José"),
+    ),
+    [],
+  );
+  // Y prometerle correo y pago por adelantado a quien tiene mensajero también se para.
+  assert.ok(
+    revisarConReglas(
+      "Perfecto, hasta Escazú va por correo y el pago va por adelantado.",
+      conLugar("Escazú, San José"),
+    ).length > 0,
+  );
+});
+
+/**
+ * Y NO SE SALUDA OTRA VEZ: SE CONTESTA (la dueña, Costa Rica, 2026-09-10).
+ *
+ * El mismo fallo por el otro lado, y el que de verdad se veía en la bandeja.
+ * El mensaje que queda colgando ES, casi siempre, el primero de su sesión: el
+ * cliente pregunta hoy por una conversación de ayer, el agente transfiere,
+ * nadie le contesta y el hilo se devuelve. Con la sesión empezando ahí, «el
+ * agente todavía no ha escrito hoy» era cierto, saltaba la apertura mecánica
+ * —el saludo con el artículo y el precio, copiado del anuncio— y al cliente le
+ * llegaba la bienvenida por segunda vez. Su pregunta seguía sin respuesta.
+ *
+ * Devolver un hilo es decir «contesta lo que quedó sin contestar». Nunca es
+ * una apertura, por muy nueva que parezca la sesión.
+ *
+ * Se prueba sobre `generarRespuesta`, que es donde vive el atajo: con el hilo
+ * devuelto tiene que llegar hasta el modelo —y sin clave, fallar ahí— en vez
+ * de devolver el saludo sin preguntarle a nadie.
+ */
+test("un hilo devuelto no vuelve a saludar aunque el mensaje colgando abra sesión", async () => {
+  const { orgId, canal } = canalTico();
+  const { generarRespuesta } = await import("../src/lib/agent");
+  const claveOriginal = process.env.OPENROUTER_API_KEY;
+  delete process.env.OPENROUTER_API_KEY;
+
+  const t = D.ahora();
+  const { conversacion } = D.getOrCreateConversation(orgId, canal, "50688886666", { cuando: t - 3 * 86_400 });
+  const escribir = (emisor: D.Emisor, content: string, cuando: number, i: number) =>
+    D.insertMessage(orgId, {
+      conversationId: conversacion.id,
+      whapiMessageId: `sesion-${i}`,
+      emisor, tipo: "texto", content, createdAt: cuando,
+    });
+
+  /*
+   * Ayer se le saludó y se le presentó la camisa. HOY —más de doce horas
+   * después, así que para la memoria es otra sesión— pregunta por el envío.
+   * Ese es el mensaje que se queda colgando cuando el agente transfiere.
+   */
+  escribir("cliente", "Hola, info", t - 2 * 86_400, 1);
+  escribir("ia", "Hola, le asiste Mildred, un gusto.\n🖤 Camisa de lino 🖤\n₡25.000\n¿Qué talla le interesa?", t - 2 * 86_400 + 60, 2);
+  escribir("cliente", "¿Me la pueden mandar a Puntarenas?", t - 600, 3);
+
+  // El hilo tal cual se lo pasa `atenderTurno` cuando lo devuelven: cortado en
+  // el mensaje del cliente, sin la despedida del handoff.
+  const cortado = D.listarMensajes(orgId, conversacion.id);
+  const cliente = { telefono: "50688886666", nombre: null };
+
+  // La sesión empieza en ese mensaje: es lo que hacía creerse en la apertura.
+  const { esAperturaDeSesion } = await import("../src/lib/memoria");
+  assert.equal(esAperturaDeSesion(cortado), true, "para la memoria, hoy el agente no ha escrito");
+
+  try {
+    // Sin devolver el hilo, la apertura mecánica sigue siendo lo correcto: es
+    // un cliente que vuelve y todavía no se le ha saludado hoy.
+    const saludo = await generarRespuesta(orgId, canal, cortado, ANUNCIO, null, cliente);
+    assert.match(saludo.texto, /Hola, le asiste Mildred/, "sin devolver el hilo, se saluda");
+
+    /*
+     * Con el hilo devuelto, NO. Tiene que llegar al modelo —que aquí no existe
+     * porque se le ha quitado la clave— en vez de devolver el saludo de arriba
+     * sin preguntarle a nadie. Antes esta llamada devolvía la bienvenida.
+     */
+    await assert.rejects(
+      generarRespuesta(orgId, canal, cortado, ANUNCIO, null, cliente, null, cortado, null, false, true),
+      /modelo|clave|OPENROUTER/i,
+      "con el hilo devuelto salió el saludo otra vez en vez de contestarle",
+    );
+  } finally {
+    if (claveOriginal === undefined) delete process.env.OPENROUTER_API_KEY;
+    else process.env.OPENROUTER_API_KEY = claveOriginal;
+  }
 });

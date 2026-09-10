@@ -970,6 +970,50 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
     }
   }
 
+  /*
+   * 11b. CÓMO LE LLEGA EL PEDIDO Y CUÁNDO LO PAGA SON LOS DE SU ZONA.
+   *
+   * El caso de la dueña (Costa Rica, 2026-09-10): «Perfecto, hasta Tilarán en
+   * Guanacaste se lo llevamos a domicilio. El envío es ₡3.500 y paga al
+   * recibir.» Tilarán es interior: va por correo, el cliente retira en la
+   * sucursal y se cobra ANTES de enviar. La regla de arriba no lo veía porque
+   * mira el importe, y en Costa Rica el importe es el mismo en todo el país:
+   * lo que cambia por zona es justo esto. Prometerle el mensajero a quien
+   * tiene que ir a la sucursal es una devolución y un cobro que no se hizo.
+   *
+   * La zona la manda la frase si la frase nombra un lugar —igual que en la
+   * regla del importe—, y si no, la del cliente. Una frase con «no» dentro no
+   * se mira: ahí se está diciendo justo lo que NO es.
+   */
+  {
+    const zonaSuya = zonaDelCliente(d, ctx.ficha?.direccion) ?? zonaDelCliente(d, ctx.lugarDelCliente);
+    for (const frase of texto.split(/(?<=[.!?\n])\s+/)) {
+      if (/\bno\b/i.test(frase)) continue;
+      const zona = zonaDelCliente(d, frase) ?? zonaSuya;
+      if (zona === null) continue;
+
+      const suya = zona === "resto" ? d.envio.restoDelPais : zona;
+      const aDomicilio = /domicilio|mensajero/i.test(suya.modalidad);
+
+      if (!aDomicilio && PROMETE_DOMICILIO.test(frase)) {
+        fallas.push(
+          `le promete entrega a domicilio y a esa zona el pedido ${suya.modalidad}: dile cómo le llega de verdad`,
+        );
+      }
+      if (aDomicilio && VA_POR_CORREO.test(frase)) {
+        fallas.push(`le dice que va por correo y a esa zona le toca ${suya.modalidad}`);
+      }
+
+      const pago = suya.pago ?? "";
+      if (/antes de enviar|adelant|previo|anticipad/i.test(pago) && PAGA_AL_RECIBIR.test(frase)) {
+        fallas.push(`le dice que paga al recibir y en esa zona ${pago}`);
+      }
+      if (/al recibir|contra ?entrega/i.test(pago) && PAGO_POR_ADELANTADO.test(frase)) {
+        fallas.push(`le pide el pago por adelantado y en esa zona ${pago}`);
+      }
+    }
+  }
+
   // («Despachar» dejó de pararse el 2026-09-05: los guiones de la dueña cierran
   // con «¿Se lo despacho hoy mismo?».)
 
@@ -1066,6 +1110,25 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
 
   return [...new Set(fallas)];
 }
+
+/*
+ * CÓMO SUENA CADA MODALIDAD DE ENTREGA, Y CADA MOMENTO DE PAGO.
+ *
+ * Las usa la regla 11b: donde una zona va por correo, prometer el mensajero
+ * —o el pago al recibir— es lo que hay que parar, y al revés. Ver el caso de
+ * Tilarán ahí arriba.
+ */
+const PROMETE_DOMICILIO =
+  /a domicilio|se lo llev(amos|o)\b|se lo entregamos en|hasta su (casa|puerta)|el mensajero|le llega (hasta|a) su (casa|puerta)/i;
+
+const VA_POR_CORREO =
+  /por correo|correos de|encomienda|paqueter[ií]a|lo retira|retirarlo|pasa a retirar|(recoge|recoger)(lo)? en|sucursal/i;
+
+const PAGA_AL_RECIBIR =
+  /pag(a|ar[aá]|ue|ando) (usted )?al recibir|paga cuando (lo|le) (reciba|llegue|entreguen)|contra ?entrega|al momento de (la )?entrega|paga al momento/i;
+
+const PAGO_POR_ADELANTADO =
+  /por adelantado|por anticipado|antes de (enviar|despachar|salir)|pago previo|primero el pago/i;
 
 /** Cómo suena meter algo más en el pedido: «Perfecto, le añado un pantalón…». */
 const AÑADE_AL_PEDIDO = /\b(le |se lo |te |se te )?(a[ñn]ado|agrego|incluyo|sumo|pongo|añadimos|agregamos|incluimos)\b/i;

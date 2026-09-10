@@ -213,6 +213,50 @@ function bloqueDeEnvio(d: DatosPais, donde: string | null): string {
 }
 
 /**
+ * LA ETIQUETA DE UNA ZONA: lo que se le escribe al lado a cada lugar del mapa.
+ *
+ * La escribe el país cuando lo que cambia por zona no es el precio —en Costa
+ * Rica el envío vale lo mismo en todas partes y lo que cambia es si va a
+ * domicilio o por correo—. Donde lo que cambia es la tarifa, la etiqueta sale
+ * sola: el nombre de la zona con su importe.
+ */
+function etiquetaDeZona(d: DatosPais, zona: ZonaDeEnvio | "resto"): string {
+  if (zona === "resto") {
+    const r = d.envio.restoDelPais;
+    return r.etiqueta ?? `Resto del país (${importe(d, r.costo)})`;
+  }
+  return zona.etiqueta ?? `${zona.nombre} (${importe(d, zona.costo)})`;
+}
+
+/**
+ * LOS LUGARES DE UNA REGIÓN, REPARTIDOS POR LO QUE LE TOCA A CADA UNO.
+ *
+ * El caso de la dueña (Costa Rica, 2026-09-10): «Perfecto, hasta Tilarán en
+ * Guanacaste se lo llevamos a domicilio [...] y paga al recibir». Tilarán es
+ * interior: va por correo y se cobra ANTES de enviar. El mapa le daba el
+ * nombre del pueblo y nada más, así que el modelo tenía que adivinar cómo le
+ * llegaba —y adivinó lo que más se dice—. Aquí cada lugar va con su grupo
+ * delante, decidido por `zonaDelCliente`, que es la que tarifa de verdad: el
+ * mapa y el envío no pueden decir cosas distintas.
+ *
+ * Una región entera de un solo grupo sale con una sola etiqueta; las que
+ * están partidas —la provincia de San José tiene cantones de las dos— salen
+ * con las dos listas, cada una detrás de la suya.
+ */
+function porZona(d: DatosPais, lugares: string[]): string {
+  const grupos = new Map<string, string[]>();
+  for (const lugar of lugares) {
+    const zona = zonaDelCliente(d, lugar);
+    const etiqueta =
+      zona === null
+        ? "sin zona conocida, pregúntale el cantón antes de decirle nada del envío"
+        : etiquetaDeZona(d, zona);
+    grupos.set(etiqueta, [...(grupos.get(etiqueta) ?? []), lugar]);
+  }
+  return [...grupos].map(([etiqueta, ls]) => `${etiqueta}: ${ls.join(", ")}`).join(" · ");
+}
+
+/**
  * EL MAPA DEL PAÍS, escrito para el modelo.
  *
  * Un nombre de lugar que el modelo no reconoce se convierte en cualquier
@@ -225,7 +269,25 @@ function bloqueDelMapa(d: DatosPais): string {
   if (!m.regiones.length) return "";
 
   const lineas = [`EL MAPA DE ${d.nombre.toUpperCase()} — LOS LUGARES QUE VAS A OÍR NOMBRAR, por región:`];
-  for (const r of m.regiones) lineas.push(`- ${r.nombre}: ${r.lugares.join(", ")}.`);
+  const conZonas = d.envio.zonas.length > 0;
+
+  for (const r of m.regiones) {
+    if (!conZonas) {
+      lineas.push(`- ${r.nombre}: ${r.lugares.join(", ")}.`);
+      continue;
+    }
+    lineas.push(`- ${r.nombre} → ${porZona(d, r.lugares)}.`);
+  }
+
+  if (conZonas) {
+    lineas.push(
+      "LO QUE VA DELANTE DE CADA GRUPO ES LO QUE LE TOCA A ESOS LUGARES: la tarifa, cómo le llega el " +
+        "pedido y cuándo se paga, lo mismo que dice ENVÍO ahí arriba. NO SE DEDUCE de la provincia, ni " +
+        "del tamaño del pueblo, ni de lo que suene razonable: se lee aquí. Un lugar de un grupo nunca " +
+        "se trata como los del otro —ni al decirle cómo le llega, ni al cobrar, ni en el resumen—.",
+    );
+  }
+
   lineas.push(
     "CUALQUIERA DE ESTOS NOMBRES, escrito por el cliente, ES SU UBICACIÓN: te está diciendo dónde " +
       "vive, no un producto, ni una marca, ni otra cosa. Lo lees como su sector o su provincia, lo " +

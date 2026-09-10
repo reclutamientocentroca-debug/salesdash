@@ -45,6 +45,14 @@ export interface ZonaDeEnvio {
   modalidad: string;
   /** Cómo y cuándo se paga en esta zona. Sin esto, vale la forma general. */
   pago?: string;
+  /**
+   * EN DOS PALABRAS, PARA EL MAPA: «A DOMICILIO, paga al recibir».
+   *
+   * Con ella cada lugar del mapa lleva escrito al lado cómo le llega el
+   * pedido. Sin ella se pone el nombre de la zona con su tarifa, que es lo
+   * que distingue a las zonas donde lo que cambia es el precio.
+   */
+  etiqueta?: string;
 }
 
 /** Un tramo de la lista de precios: de tantas a tantas unidades, a tanto cada una. */
@@ -112,7 +120,14 @@ export interface DatosPais {
      * cuando el cliente las escribe: con ellas el agente le dice la tarifa
      * del interior de una vez, sin preguntarle la provincia otra vez.
      */
-    restoDelPais: { costo: number; modalidad: string; pago?: string; lugares?: string[] };
+    restoDelPais: {
+      costo: number;
+      modalidad: string;
+      pago?: string;
+      lugares?: string[];
+      /** La misma etiqueta corta de `ZonaDeEnvio.etiqueta`, para el mapa. */
+      etiqueta?: string;
+    };
     /** Cómo se da una dirección en este país, y qué dato la sitúa. */
     direccion: string;
     /** Sin estos datos no se levanta la orden. Los del país, no los del pedido. */

@@ -1317,7 +1317,24 @@ export async function generarRespuesta(
   const sesion = mensajesDeLaSesion(mensajes);
   const esPrimeraRespuesta = !sesion.some((m) => m.emisor === "ia");
   const ultimo = mensajes[mensajes.length - 1];
-  if (datosPais && (datosPais.codigo === "do" || datosPais.codigo === "cr") && esPrimeraRespuesta) {
+
+  /*
+   * SALVO EN UN HILO QUE ACABAN DE DEVOLVERLE: ahí no se saluda, se contesta.
+   *
+   * EL CASO REAL DE COSTA RICA (la dueña, 2026-09-10): «cuando transfiera a la
+   * IA responda el último mensaje del cliente». El hilo se devolvía, el hilo se
+   * cortaba bien en el mensaje colgando... y aquí saltaba la apertura mecánica
+   * y salía el saludo entero con el artículo y el precio, otra vez, en vez de
+   * la respuesta. Porque el mensaje que quedó colgando ES, casi siempre, el
+   * primero de su sesión: el cliente pregunta hoy por una conversación de ayer,
+   * el agente transfiere, nadie contesta y se devuelve el hilo. Con la sesión
+   * empezando en ese mensaje, «todavía no ha escrito el agente hoy» era cierto
+   * y la apertura se creía en su sitio.
+   *
+   * Devolver un hilo es decir «contesta lo que quedó sin contestar». Nunca es
+   * una apertura, por muy nueva que parezca la sesión.
+   */
+  if (datosPais && (datosPais.codigo === "do" || datosPais.codigo === "cr") && esPrimeraRespuesta && !retomado) {
     if (datosPais.codigo === "cr" && !anuncio && !mensajes.some((m) => m.emisor === "ia")) {
       return {
         texto: bienvenidaSinAnuncioCR(
@@ -2167,8 +2184,12 @@ async function atenderTurno(
    * sesión. Ver `esAperturaDeSesion`: antes bastaba con que el cliente
    * volviera, y entonces TODO ese día era «apertura» —el saludo entero salía
    * otra vez a mitad de pedido.
+   *
+   * Y un hilo devuelto NUNCA es una apertura: si el revisor para la respuesta,
+   * el respaldo tiene que ser la siguiente pregunta del pedido y no el saludo,
+   * que es por donde se colaba el mismo fallo de Costa Rica por segunda vez.
    */
-  const esApertura = esAperturaDeSesion(historial);
+  const esApertura = !retomado && esAperturaDeSesion(historial);
   if (datosPais) {
     const { correccionParaElAgente, revisarBorrador, transferenciaPermitida } = await import("./revisor");
     const org = obtenerOrg(orgId);
