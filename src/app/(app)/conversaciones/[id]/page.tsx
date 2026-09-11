@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import AgenteEnHilo from "@/components/panel/AgenteEnHilo";
 import AnalizarBoton from "@/components/panel/AnalizarBoton";
 import BorrarConversacionBoton from "@/components/panel/BorrarConversacionBoton";
-import { Burbuja } from "@/components/panel/Burbuja";
+import { Hilo } from "@/components/panel/Burbuja";
 import Escribir from "@/components/panel/Escribir";
 import { Nube, Pastilla, dinero, fechaYHora, tienePedido } from "@/components/panel/Piezas";
 import ProductoDeLaFoto from "@/components/panel/ProductoDeLaFoto";
@@ -75,11 +75,7 @@ export default async function PaginaConversacion({ params, searchParams }: Props
         <section className="tarjeta" style={{ background: "var(--page)", padding: 0, overflow: "hidden" }}>
           <h2 className="titulo-tarjeta" style={{ margin: "16px 17px 12px" }}>Hilo</h2>
 
-          <div className="sd-hilo" style={{ padding: "0 17px 16px" }}>
-            {mensajes.map((m) => (
-              <Burbuja key={m.id} m={m} anuncio={conv} />
-            ))}
-          </div>
+          <Hilo mensajes={mensajes} huso={huso} anuncio={conv} style={{ padding: "0 17px 16px" }} />
 
           {/* Se lee el hilo y se contesta en el mismo sitio: quien abre esta
               ficha porque algo se torció ya tiene aquí dónde escribir. */}

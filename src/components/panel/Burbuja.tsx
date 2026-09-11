@@ -1,8 +1,10 @@
+import { Fragment } from "react";
 import type { Mensaje } from "@/lib/db";
 import { urlServida } from "@/lib/media";
 import { esUbicacion, textoSinMarca } from "@/lib/ubicacion";
 import { sinFichaDelAnuncio } from "@/lib/enlace";
 import { Foto } from "@/components/panel/Foto";
+import { diaDelHilo, diaISO, horaDelMensaje } from "@/components/panel/Piezas";
 
 /**
  * Una burbuja del hilo.
@@ -24,11 +26,53 @@ const CATEGORIAS: Record<string, string> = {
   otro: "otro",
 };
 
+/**
+ * EL HILO, como en WhatsApp: cada globo con su hora y, cuando cambia el día,
+ * un rótulo en medio —«Hoy», «Ayer», «Martes», «3 de septiembre»—.
+ *
+ * Todo en la hora del país del número (`huso`): el servidor corre en UTC, y
+ * sin él un mensaje de las nueve de la noche en Santo Domingo caería en el
+ * día de mañana y con una hora que nadie allí reconoce.
+ */
+export function Hilo({
+  mensajes,
+  huso,
+  anuncio = null,
+  style,
+}: {
+  mensajes: Mensaje[];
+  huso?: string;
+  anuncio?: { producto_anuncio?: string | null; descripcion_anuncio?: string | null } | null;
+  style?: React.CSSProperties;
+}) {
+  return (
+    <div className="sd-hilo" style={style}>
+      {mensajes.map((m, i) => {
+        const dia = diaISO(m.created_at, huso);
+        const nuevoDia = i === 0 || diaISO(mensajes[i - 1]!.created_at, huso) !== dia;
+        return (
+          <Fragment key={m.id}>
+            {nuevoDia && (
+              <div className="sd-hilo-dia">
+                <span>{diaDelHilo(m.created_at, huso)}</span>
+              </div>
+            )}
+            <Burbuja m={m} anuncio={anuncio} hora={horaDelMensaje(m.created_at, huso)} />
+          </Fragment>
+        );
+      })}
+    </div>
+  );
+}
+
 export function Burbuja({
   m,
   anuncio = null,
+  hora,
 }: {
   m: Mensaje;
+  /** «3:42 p. m.»: va abajo a la derecha del globo, como en WhatsApp. */
+  hora?: string;
   /**
    * El anuncio por el que llegó el hilo. Si el mensaje del cliente lleva
    * pegada la ficha de ESE anuncio —pasaba con los clics en anuncios—, se
@@ -41,6 +85,7 @@ export function Burbuja({
     m.emisor === "cliente" ? "sd-burbuja-cliente" : m.emisor === "ia" ? "sd-burbuja-ia" : "sd-burbuja-humano";
 
   const archivo = urlServida(m.media_url);
+  const pie = hora ? <span className="sd-burbuja-hora">{hora}</span> : null;
 
   /*
    * Una nota de voz se escucha. Antes solo se veía «[nota de voz]», que en una
@@ -62,6 +107,7 @@ export function Burbuja({
             {m.transcripcion}
           </div>
         )}
+        {pie}
       </div>
     );
   }
@@ -85,6 +131,7 @@ export function Burbuja({
             {m.categoria_imagen && ` · ${CATEGORIAS[m.categoria_imagen] ?? m.categoria_imagen}`}
           </div>
         )}
+        {pie}
       </div>
     );
   }
@@ -115,6 +162,7 @@ export function Burbuja({
               Abrir en el mapa
             </a>
           )}
+          {pie}
         </span>
       </div>
     );
@@ -128,6 +176,7 @@ export function Burbuja({
     return (
       <div className={`sd-burbuja ${clase}`}>
         <FilaDeArchivo m={m} />
+        {pie}
       </div>
     );
   }
@@ -139,11 +188,17 @@ export function Burbuja({
     return (
       <div className={`sd-burbuja ${clase}`} style={{ fontStyle: "italic", opacity: 0.8 }}>
         Escribió desde el anuncio
+        {pie}
       </div>
     );
   }
 
-  return <div className={`sd-burbuja ${clase}`}>{texto}</div>;
+  return (
+    <div className={`sd-burbuja ${clase}`}>
+      {texto}
+      {pie}
+    </div>
+  );
 }
 
 /**

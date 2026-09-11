@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Burbuja } from "@/components/panel/Burbuja";
+import { Hilo } from "@/components/panel/Burbuja";
 import Escribir from "@/components/panel/Escribir";
 import { Nube, Pastilla, Vacio, dinero, fechaYHora, hace, tienePedido } from "@/components/panel/Piezas";
 import {
@@ -349,11 +349,7 @@ export default async function PaginaConversaciones({ searchParams }: Props) {
                 {mensajes.length === 0 ? (
                   <p className="tenue" style={{ fontSize: 13 }}>Esta conversación no tiene mensajes.</p>
                 ) : (
-                  <div className="sd-hilo">
-                    {mensajes.map((m) => (
-                      <Burbuja key={m.id} m={m} anuncio={abierta} />
-                    ))}
-                  </div>
+                  <Hilo mensajes={mensajes} huso={huso} anuncio={abierta} />
                 )}
               </div>
 

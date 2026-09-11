@@ -523,21 +523,56 @@ export function fechaHora(epoch: number | null): string {
  */
 export function fechaYHora(epoch: number | null, huso?: string): string {
   if (!epoch) return "—";
-  const cuando = new Date(epoch * 1000);
+  const hora = horaDelMensaje(epoch, huso);
+  const atras = diasAtras(epoch, huso);
+  if (atras === 0) return `hoy, ${hora}`;
+  if (atras === 1) return `ayer, ${hora}`;
+
   const zona = huso ? { timeZone: huso } : {};
-  const hora = cuando.toLocaleTimeString("es", { hour: "numeric", minute: "2-digit", hour12: true, ...zona });
-
-  const dia = (d: Date) => d.toLocaleDateString("en-CA", zona);
-  const ahora = new Date();
-  if (dia(cuando) === dia(ahora)) return `hoy, ${hora}`;
-  if (dia(cuando) === dia(new Date(ahora.getTime() - 86_400_000))) return `ayer, ${hora}`;
-
-  const otroAno = cuando.toLocaleDateString("en-CA", { year: "numeric", ...zona }) !==
-    ahora.toLocaleDateString("en-CA", { year: "numeric", ...zona });
-  const fecha = cuando.toLocaleDateString("es", {
-    day: "numeric", month: "short", ...(otroAno ? { year: "numeric" } : {}), ...zona,
+  const fecha = new Date(epoch * 1000).toLocaleDateString("es", {
+    day: "numeric", month: "short", ...(otroAno(epoch, huso) ? { year: "numeric" } : {}), ...zona,
   });
   return `${fecha}, ${hora}`;
+}
+
+/** «3:42 p. m.»: la hora de un mensaje, como la pone WhatsApp debajo del globo. */
+export function horaDelMensaje(epoch: number, huso?: string): string {
+  return new Date(epoch * 1000).toLocaleTimeString("es", {
+    hour: "numeric", minute: "2-digit", hour12: true, ...(huso ? { timeZone: huso } : {}),
+  });
+}
+
+/**
+ * El rótulo que separa los días en el hilo, como en WhatsApp: «Hoy», «Ayer»,
+ * el día de la semana si fue esta semana, y si no la fecha entera.
+ */
+export function diaDelHilo(epoch: number, huso?: string): string {
+  const atras = diasAtras(epoch, huso);
+  if (atras === 0) return "Hoy";
+  if (atras === 1) return "Ayer";
+  const zona = huso ? { timeZone: huso } : {};
+  const cuando = new Date(epoch * 1000);
+  const texto = atras > 1 && atras < 7
+    ? cuando.toLocaleDateString("es", { weekday: "long", ...zona })
+    : cuando.toLocaleDateString("es", {
+        day: "numeric", month: "long", ...(otroAno(epoch, huso) ? { year: "numeric" } : {}), ...zona,
+      });
+  return texto.charAt(0).toUpperCase() + texto.slice(1);
+}
+
+/** «2026-09-11»: el día del calendario de ese instante en el huso. */
+export function diaISO(epoch: number, huso?: string): string {
+  return new Date(epoch * 1000).toLocaleDateString("en-CA", huso ? { timeZone: huso } : {});
+}
+
+/** Cuántos días de calendario —no de 24 horas— hay entre ese día y hoy, allá. */
+function diasAtras(epoch: number, huso?: string): number {
+  const hoy = diaISO(Math.floor(Date.now() / 1000), huso);
+  return Math.round((Date.parse(hoy) - Date.parse(diaISO(epoch, huso))) / 86_400_000);
+}
+
+function otroAno(epoch: number, huso?: string): boolean {
+  return diaISO(epoch, huso).slice(0, 4) !== diaISO(Math.floor(Date.now() / 1000), huso).slice(0, 4);
 }
 
 export function hace(epoch: number | null): string {
