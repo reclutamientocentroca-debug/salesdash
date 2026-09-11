@@ -228,6 +228,29 @@ test("«todo» cuenta también la venta de anteayer, y un solo número cuenta so
   assert.equal(soloRD.facturado, 5 * 2500 + 0 + 2 * 3000 - 5000, "en pesos: 3 × 2500 + 2 × 3000");
 });
 
+test("la lista de Ventas trae justo las que cuentan las tarjetas: las de ese día, automatizadas o asistidas", () => {
+  const huso = D.husoDeLaCuenta(orgId);
+  const hoy = { ...rangoAEpochs("hoy", huso), huso };
+  const m = calcularMetricas(orgId, hoy);
+
+  // Todos los clientes escribieron anteayer: por llegada, hoy no habría ninguna.
+  assert.equal(D.listarVentas(orgId, hoy).length, 8, "las ocho que se cerraron hoy");
+  assert.equal(D.listarVentas(orgId, hoy, { cerradoPor: "ia" }).length, m.cierres_ia, "Automatizada: las mismas que la tarjeta");
+  assert.equal(D.listarVentas(orgId, hoy, { cerradoPor: "humano" }).length, m.cierres_humano, "Asistida: las mismas que la tarjeta");
+  assert.ok(D.listarVentas(orgId, hoy, { cerradoPor: "humano" }).every((v) => v.cerrado_por === "humano"));
+
+  // Un número y un quién: la cifra de una fila del dashboard, abierta.
+  const iaDeRD = D.listarVentas(orgId, { ...hoy, canalId: rd }, { cerradoPor: "ia" });
+  assert.equal(iaDeRD.length, 2, "las dos automatizadas de hoy en RD, sin la de anteayer");
+  assert.ok(iaDeRD.every((v) => v.canal_id === rd && (v.fecha_cierre ?? 0) >= hoy.desde));
+
+  // Con un día exacto del calendario, solo lo que se cerró ese día.
+  const dia = { desde: anteayer - 3600, hasta: anteayer + 3600, huso };
+  const deAnteayer = D.listarVentas(orgId, dia, { cerradoPor: "ia" });
+  assert.equal(deAnteayer.length, 1, "la automatizada de anteayer, y ninguna de las de hoy");
+  assert.equal(D.listarVentas(orgId, dia, { cerradoPor: "humano" }).length, 0);
+});
+
 test("la cuenta vive en la hora del país que más números tiene, y cada número en la suya", () => {
   assert.equal(D.husoDeLaCuenta(orgId), "America/Santo_Domingo", "empate a uno: el primero que se conectó");
   const m = calcularMetricas(orgId, { desde: 0, hasta: 9_999_999_999 });

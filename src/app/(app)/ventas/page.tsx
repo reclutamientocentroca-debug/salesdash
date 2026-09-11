@@ -2,7 +2,7 @@ import Link from "next/link";
 import AnalizarPerdidas from "@/components/panel/AnalizarPerdidas";
 import { FilasPorMoneda, Importes, Kpi, Pastilla, Vacio, dinero, fechaCorta } from "@/components/panel/Piezas";
 import { IconoMoneda, IconoPersona, IconoRayo, IconoVentas } from "@/components/panel/Iconos";
-import { conteoMotivosPerdida, listarCanales, listarConversaciones } from "@/lib/db";
+import { conteoMotivosPerdida, listarCanales, listarVentas } from "@/lib/db";
 import { calcularMetricas } from "@/lib/metrics";
 import { rangoDeLaCuenta, requerirSesion } from "@/lib/tenant";
 
@@ -17,12 +17,12 @@ export const dynamic = "force-dynamic";
 const LIMITE_LISTA = 500;
 
 interface Props {
-  searchParams: Promise<{ rango?: string; desde?: string; hasta?: string }>;
+  searchParams: Promise<{ rango?: string; desde?: string; hasta?: string; cerro?: string; canal?: string; solo?: string }>;
 }
 
 export default async function PaginaVentas({ searchParams }: Props) {
   const ctx = await requerirSesion();
-  const { rango: clave = "7d", desde, hasta } = await searchParams;
+  const { rango: clave = "7d", desde, hasta, cerro: cerroParam, canal: canalParam, solo } = await searchParams;
 
   /*
    * El mismo periodo que el resto del panel: la clave de rango, y por encima
@@ -35,18 +35,40 @@ export default async function PaginaVentas({ searchParams }: Props) {
   if (desde) parametros.set("desde", desde);
   if (hasta) parametros.set("hasta", hasta);
 
-  const rango = rangoDeLaCuenta(ctx.orgId, parametros);
+  /*
+   * Los filtros de la lista, también en la URL: quién cerró (`cerro`), qué
+   * número (`canal`) y si solo cuentan los leads de anuncio (`solo`). Son los
+   * que trae el enlace de cada cifra del dashboard, para que «Automatizada 3»
+   * de un número abra esas tres ventas y no otras.
+   */
+  const cerro = cerroParam === "ia" || cerroParam === "humano" ? cerroParam : undefined;
+  const canales = listarCanales(ctx.orgId);
+  const canal = canales.find((c) => c.id === Number(canalParam));
+  const soloAnuncio = solo === "anuncio";
+  if (canal) parametros.set("canal", String(canal.id));
+  if (soloAnuncio) parametros.set("solo", "anuncio");
+
+  const rango = { ...rangoDeLaCuenta(ctx.orgId, parametros), canalId: canal?.id, soloAnuncio };
 
   const m = calcularMetricas(ctx.orgId, rango);
-  const nombres = new Map(listarCanales(ctx.orgId).map((c) => [c.id, c.nombre]));
+  const nombres = new Map(canales.map((c) => [c.id, c.nombre]));
   // Cada venta se escribe en la moneda del número por el que entró.
   const monedas = new Map(m.por_canal.map((c) => [c.canal_id, c.moneda]));
   const motivos = conteoMotivosPerdida(ctx.orgId, rango);
 
-  const ventas = [
-    ...listarConversaciones(ctx.orgId, { ...rango, estado: "ia", limite: LIMITE_LISTA }),
-    ...listarConversaciones(ctx.orgId, { ...rango, estado: "humano", limite: LIMITE_LISTA }),
-  ].sort((a, b) => (b.fecha_cierre ?? 0) - (a.fecha_cierre ?? 0));
+  // Por el día en que se CERRÓ, como los KPIs: ver `listarVentas`.
+  const ventas = listarVentas(ctx.orgId, rango, { cerradoPor: cerro, limite: LIMITE_LISTA });
+
+  /** La misma página con un filtro puesto o quitado; el periodo se queda. */
+  const url = (cambios: Record<string, string | null>) => {
+    const p = new URLSearchParams(parametros);
+    if (cerro) p.set("cerro", cerro);
+    for (const [k, v] of Object.entries(cambios)) {
+      if (v === null) p.delete(k);
+      else p.set(k, v);
+    }
+    return `/ventas?${p.toString()}`;
+  };
 
   const totalPerdidas = motivos.reduce((n, x) => n + x.n, 0);
 
@@ -75,7 +97,10 @@ export default async function PaginaVentas({ searchParams }: Props) {
    * listando y cuál es el facturado del periodo entero.
    */
   const cerradasDelPeriodo = m.cierres_ia + m.cierres_humano;
-  const listaIncompleta = ventas.length < cerradasDelPeriodo;
+  const cerradasListables = cerro === "ia" ? m.cierres_ia : cerro === "humano" ? m.cierres_humano : cerradasDelPeriodo;
+  const listaIncompleta = ventas.length < cerradasListables;
+  const campoFacturado = cerro === "ia" ? "facturado_ia" : cerro === "humano" ? "facturado_humano" : "facturado";
+  const queCerro = cerro === "ia" ? "automatizada" : cerro === "humano" ? "asistida" : "";
 
   return (
     <>
@@ -121,30 +146,75 @@ export default async function PaginaVentas({ searchParams }: Props) {
           tono="neutro"
           pie={m.una_moneda ? undefined : <Importes lista={m.facturado_por_moneda} campo="promedio" />}
         />
-        <Kpi
-          etiqueta="Automatizada"
-          valor={m.cierres_ia}
-          icono={<IconoRayo tam={17} />}
-          tono="acento"
-          pie={<><Importes lista={m.facturado_por_moneda} campo="facturado_ia" color="var(--acc)" /> facturados</>}
-        />
-        <Kpi
-          etiqueta="Asistida"
-          valor={m.cierres_humano}
-          icono={<IconoPersona tam={17} />}
-          tono="azul"
-          pie={<><Importes lista={m.facturado_por_moneda} campo="facturado_humano" color="var(--blue)" /> facturados</>}
-        />
+        {/* Las dos tarjetas de quién cerró filtran la tabla: un clic y quedan
+            solo esas ventas del periodo, con su dinero; otro clic, todas. */}
+        <Link
+          href={url({ cerro: cerro === "ia" ? null : "ia" })}
+          className="sd-kpi-filtro acento"
+          aria-current={cerro === "ia" ? "true" : undefined}
+          title={cerro === "ia" ? "Ver todas las ventas" : "Ver solo las ventas automatizadas"}
+        >
+          <Kpi
+            etiqueta="Automatizada"
+            valor={m.cierres_ia}
+            icono={<IconoRayo tam={17} />}
+            tono="acento"
+            pie={<><Importes lista={m.facturado_por_moneda} campo="facturado_ia" color="var(--acc)" /> facturados</>}
+          />
+        </Link>
+        <Link
+          href={url({ cerro: cerro === "humano" ? null : "humano" })}
+          className="sd-kpi-filtro azul"
+          aria-current={cerro === "humano" ? "true" : undefined}
+          title={cerro === "humano" ? "Ver todas las ventas" : "Ver solo las ventas asistidas"}
+        >
+          <Kpi
+            etiqueta="Asistida"
+            valor={m.cierres_humano}
+            icono={<IconoPersona tam={17} />}
+            tono="azul"
+            pie={<><Importes lista={m.facturado_por_moneda} campo="facturado_humano" color="var(--blue)" /> facturados</>}
+          />
+        </Link>
       </div>
 
       <div className="sd-fila-3">
         <section className="tarjeta" style={{ padding: 0, overflow: "hidden" }}>
-          <h2 className="titulo-tarjeta" style={{ padding: "16px 17px 12px" }}>Cada venta</h2>
+          <div className="sd-ventas-cabecera">
+            <h2 className="titulo-tarjeta">
+              {cerro === "ia" ? "Ventas automatizadas" : cerro === "humano" ? "Ventas asistidas" : "Cada venta"}
+            </h2>
+            {/* Lo que está filtrando la tabla, a la vista y con su equis: una
+                lista recortada sin decir por qué parece una lista incompleta. */}
+            {(cerro || canal || soloAnuncio) && (
+              <div className="sd-ventas-filtros">
+                {cerro && (
+                  <Link href={url({ cerro: null })} className={`sd-filtro-quitar ${cerro === "ia" ? "acento" : "azul"}`}>
+                    Solo {queCerro}s <span aria-hidden>×</span>
+                  </Link>
+                )}
+                {canal && (
+                  <Link href={url({ canal: null })} className="sd-filtro-quitar">
+                    {canal.nombre} <span aria-hidden>×</span>
+                  </Link>
+                )}
+                {soloAnuncio && (
+                  <Link href={url({ solo: null })} className="sd-filtro-quitar">
+                    Solo leads de anuncio <span aria-hidden>×</span>
+                  </Link>
+                )}
+              </div>
+            )}
+          </div>
 
           {ventas.length === 0 ? (
             <Vacio
-              titulo="Aún no hay ventas cerradas en este rango"
-              texto="Analiza tus conversaciones para que el analista detecte los cierres."
+              titulo={cerro ? `No hubo ventas ${queCerro}s en este rango` : "Aún no hay ventas cerradas en este rango"}
+              texto={
+                cerro
+                  ? "Elige otro periodo en el calendario, o quita el filtro para ver todas las ventas."
+                  : "Analiza tus conversaciones para que el analista detecte los cierres."
+              }
             />
           ) : (
             <div style={{ overflowX: "auto" }}>
@@ -202,7 +272,7 @@ export default async function PaginaVentas({ searchParams }: Props) {
                     <td className="num" style={{ textAlign: "right" }}>{m.una_moneda ? dinero(suma.total, m.una_moneda) : "—"}</td>
                     <td className="num" style={{ textAlign: "right" }}>{m.una_moneda ? dinero(suma.envio, m.una_moneda) : "—"}</td>
                     <td className="num" style={{ textAlign: "right", color: "var(--amber)", whiteSpace: "nowrap" }}>
-                      {m.una_moneda ? dinero(suma.facturado, m.una_moneda) : <FilasPorMoneda lista={m.facturado_por_moneda} campo="facturado" color="var(--amber)" />}
+                      {m.una_moneda ? dinero(suma.facturado, m.una_moneda) : <FilasPorMoneda lista={m.facturado_por_moneda} campo={campoFacturado} color="var(--amber)" />}
                     </td>
                     <td style={{ paddingRight: 17 }} />
                   </tr>
@@ -213,8 +283,8 @@ export default async function PaginaVentas({ searchParams }: Props) {
 
           {listaIncompleta && (
             <p className="tenue" style={{ padding: "10px 17px 14px" }}>
-              Se listan las {ventas.length} ventas más recientes de {cerradasDelPeriodo}. El facturado
-              del periodo completo es <Importes lista={m.facturado_por_moneda} campo="facturado" />; usa un rango más corto para ver todas.
+              Se listan las {ventas.length} ventas{queCerro ? ` ${queCerro}s` : ""} más recientes de {cerradasListables}. El facturado
+              del periodo completo es <Importes lista={m.facturado_por_moneda} campo={campoFacturado} />; usa un rango más corto para ver todas.
             </p>
           )}
         </section>

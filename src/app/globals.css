@@ -1451,6 +1451,83 @@ body {
   margin-bottom: 16px;
 }
 
+/* ── Ventas: las tarjetas de quién cerró filtran la tabla ─────────────────── */
+
+.sd-kpi-filtro {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  border-radius: var(--radio-tarjeta);
+}
+
+.sd-kpi-filtro > .tarjeta {
+  height: 100%;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.sd-kpi-filtro:hover > .tarjeta {
+  border-color: var(--line-2);
+}
+
+.sd-kpi-filtro.acento[aria-current] > .tarjeta {
+  border-color: var(--acc);
+  box-shadow: 0 0 0 3px var(--acc-bg);
+}
+
+.sd-kpi-filtro.azul[aria-current] > .tarjeta {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px var(--blue-bg);
+}
+
+.sd-ventas-cabecera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  flex-wrap: wrap;
+  padding: 16px 17px 12px;
+}
+
+.sd-ventas-filtros {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.sd-filtro-quitar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 20px;
+  background: var(--soft);
+  color: var(--ink-2);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.sd-filtro-quitar.acento {
+  background: var(--acc-bg);
+  color: var(--acc);
+}
+
+.sd-filtro-quitar.azul {
+  background: var(--blue-bg);
+  color: var(--blue);
+}
+
+.sd-filtro-quitar span {
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0.7;
+}
+
+.sd-filtro-quitar:hover span {
+  opacity: 1;
+}
+
 /* ── Rejillas del dashboard ───────────────────────────────────────────────── */
 
 .sd-kpis {

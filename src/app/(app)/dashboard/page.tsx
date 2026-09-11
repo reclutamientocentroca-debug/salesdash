@@ -127,6 +127,19 @@ export default async function Dashboard({ searchParams }: Props) {
   const meta = m.por_canal.filter((c) => c.tipo === "meta");
   const lineasActivas = whatsapp.filter((c) => c.vinculado && c.estado === "conectado").length;
 
+  /*
+   * Las ventas de una cifra: Automatizada o Asistida de un número, en Ventas y
+   * con el MISMO periodo —fechas del calendario incluidas— y el mismo filtro de
+   * anuncio. La bandeja no filtra por fecha: con un día elegido, abría todas
+   * las automatizadas del número y no las de ese día.
+   */
+  const ventasDe = (canalId: number, cerro: "ia" | "humano") => {
+    const p = new URLSearchParams(parametros);
+    p.set("canal", String(canalId));
+    p.set("cerro", cerro);
+    return `/ventas?${p.toString()}`;
+  };
+
   return (
     <>
       <div className="sd-cabecera" style={{ marginBottom: 12 }}>
@@ -318,8 +331,8 @@ export default async function Dashboard({ searchParams }: Props) {
         enlaces={(c) => ({
           leads: `/conversaciones?rango=${clave}&canal=${c.canal_id}&solo=anuncio`,
           conversaciones: `/conversaciones?rango=${clave}&canal=${c.canal_id}`,
-          automatizada: `/conversaciones?rango=${clave}&canal=${c.canal_id}&estado=ia`,
-          asistida: `/conversaciones?rango=${clave}&canal=${c.canal_id}&estado=humano`,
+          automatizada: ventasDe(c.canal_id, "ia"),
+          asistida: ventasDe(c.canal_id, "humano"),
           revision: `/conversaciones?rango=${clave}&canal=${c.canal_id}&estado=revision`,
           ver: `/conversaciones?rango=${clave}&canal=${c.canal_id}`,
         })}
@@ -335,11 +348,11 @@ export default async function Dashboard({ searchParams }: Props) {
         filas={meta}
         parametros={parametros}
         vacio="Conecta una página de Facebook en Messenger y aquí verás cuánto cierra."
-        enlaces={() => ({
+        enlaces={(c) => ({
           leads: "/canales/meta",
           conversaciones: "/canales/meta",
-          automatizada: "/canales/meta",
-          asistida: "/canales/meta",
+          automatizada: ventasDe(c.canal_id, "ia"),
+          asistida: ventasDe(c.canal_id, "humano"),
           revision: "/revision",
           ver: "/canales/meta",
         })}
