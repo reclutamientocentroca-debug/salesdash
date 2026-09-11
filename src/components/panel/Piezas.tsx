@@ -514,6 +514,32 @@ export function fechaHora(epoch: number | null): string {
   });
 }
 
+/**
+ * «hoy, 3:42 p. m.», «ayer, 9:05 a. m.», «10 sept, 8:15 p. m.»: cuándo fue, con
+ * la hora, EN LA HORA DEL PAÍS del número. Sin huso, la del servidor.
+ *
+ * «Hace 2 d» no dice qué día fue ni a qué hora, y para cuadrar una factura con
+ * lo que pasó ese día hacen falta las dos cosas.
+ */
+export function fechaYHora(epoch: number | null, huso?: string): string {
+  if (!epoch) return "—";
+  const cuando = new Date(epoch * 1000);
+  const zona = huso ? { timeZone: huso } : {};
+  const hora = cuando.toLocaleTimeString("es", { hour: "numeric", minute: "2-digit", hour12: true, ...zona });
+
+  const dia = (d: Date) => d.toLocaleDateString("en-CA", zona);
+  const ahora = new Date();
+  if (dia(cuando) === dia(ahora)) return `hoy, ${hora}`;
+  if (dia(cuando) === dia(new Date(ahora.getTime() - 86_400_000))) return `ayer, ${hora}`;
+
+  const otroAno = cuando.toLocaleDateString("en-CA", { year: "numeric", ...zona }) !==
+    ahora.toLocaleDateString("en-CA", { year: "numeric", ...zona });
+  const fecha = cuando.toLocaleDateString("es", {
+    day: "numeric", month: "short", ...(otroAno ? { year: "numeric" } : {}), ...zona,
+  });
+  return `${fecha}, ${hora}`;
+}
+
 export function hace(epoch: number | null): string {
   if (!epoch) return "sin actividad";
   const seg = Math.max(0, Math.floor(Date.now() / 1000) - epoch);

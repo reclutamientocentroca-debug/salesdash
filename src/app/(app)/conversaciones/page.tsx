@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { Burbuja } from "@/components/panel/Burbuja";
 import Escribir from "@/components/panel/Escribir";
-import { Nube, Pastilla, Vacio, dinero, hace, tienePedido } from "@/components/panel/Piezas";
+import { Nube, Pastilla, Vacio, dinero, fechaYHora, hace, tienePedido } from "@/components/panel/Piezas";
 import {
   bandeja,
   getConversation,
+  husosDeLosCanales,
   listarCanales,
   listarMensajes,
   type EstadoCierre,
@@ -107,6 +108,8 @@ export default async function PaginaConversaciones({ searchParams }: Props) {
   // El número elegido, o el primero. Nunca «todos»: ver arriba.
   const pedido = Number(canalParam);
   const canal = canales.find((c) => c.id === pedido) ?? canales[0]!;
+  // Las horas de esta bandeja, en la del país del número: ver `fechaYHora`.
+  const huso = husosDeLosCanales(ctx.orgId).get(canal.id);
 
   /*
    * Lo escrito en el buscador de arriba filtra la bandeja de este número: por
@@ -248,7 +251,9 @@ export default async function PaginaConversaciones({ searchParams }: Props) {
               >
                 <div className="sd-chat-fila">
                   <span className="sd-chat-nombre">{c.cliente_nombre ?? `+${c.cliente_phone}`}</span>
-                  <span className="sd-chat-hora">{hace(c.last_message_at)}</span>
+                  <span className="sd-chat-hora" title={hace(c.last_message_at ?? c.fecha_inicio)}>
+                    {fechaYHora(c.last_message_at ?? c.fecha_inicio, huso)}
+                  </span>
                 </div>
 
                 <div className="sd-chat-previo">{vistaPrevia(c)}</div>
@@ -300,7 +305,8 @@ export default async function PaginaConversaciones({ searchParams }: Props) {
                     {abierta.cliente_nombre ?? "Sin nombre"}
                   </div>
                   <div className="num tenue" style={{ fontSize: 11.5 }}>
-                    +{abierta.cliente_phone} · escribió a {canal.nombre}
+                    +{abierta.cliente_phone} · escribió a {canal.nombre} · desde {fechaYHora(abierta.fecha_inicio, huso)}
+                    {abierta.fecha_cierre ? <> · cerrada {fechaYHora(abierta.fecha_cierre, huso)}</> : null}
                   </div>
                 </div>
 

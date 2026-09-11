@@ -3208,6 +3208,22 @@ function husoDelCanal(canal: { phone: string; pais: string }): string | null {
   return obtenerPais(codigo)?.husoHorario ?? null;
 }
 
+/**
+ * La hora de cada número, para escribir la fecha y la hora de sus mensajes y
+ * sus ventas como se leen allá. El servidor corre en UTC: sin esto, una venta
+ * de las nueve de la noche en Santo Domingo salía con la fecha de mañana.
+ */
+export function husosDeLosCanales(orgId: number): Map<number, string> {
+  const filas = s(
+    `SELECT ca.id AS canal_id, ca.phone, COALESCE(a.pais, '') AS pais
+       FROM canales ca
+       LEFT JOIN agentes a ON a.org_id = ca.org_id AND a.canal_id = ca.id
+      WHERE ca.org_id = ?`,
+  ).all(orgId) as { canal_id: number; phone: string; pais: string }[];
+  const deLaCuenta = husoDeLaCuenta(orgId);
+  return new Map(filas.map((f) => [f.canal_id, husoDelCanal(f) ?? deLaCuenta]));
+}
+
 /** Conteo por estado. La suma de estos cuatro DEBE ser el total de leads. */
 export function conteoPorEstado(orgId: number, r: Rango): Record<EstadoCierre, number> {
   const { where, val } = filtroRango(orgId, r);

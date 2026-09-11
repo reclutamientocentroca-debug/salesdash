@@ -1,8 +1,8 @@
 import Link from "next/link";
 import AnalizarPerdidas from "@/components/panel/AnalizarPerdidas";
-import { FilasPorMoneda, Importes, Kpi, Pastilla, Vacio, dinero, fechaCorta } from "@/components/panel/Piezas";
+import { FilasPorMoneda, Importes, Kpi, Pastilla, Vacio, dinero, fechaYHora } from "@/components/panel/Piezas";
 import { IconoMoneda, IconoPersona, IconoRayo, IconoVentas } from "@/components/panel/Iconos";
-import { conteoMotivosPerdida, listarCanales, listarVentas } from "@/lib/db";
+import { conteoMotivosPerdida, husosDeLosCanales, listarCanales, listarVentas } from "@/lib/db";
 import { calcularMetricas } from "@/lib/metrics";
 import { rangoDeLaCuenta, requerirSesion } from "@/lib/tenant";
 
@@ -54,6 +54,8 @@ export default async function PaginaVentas({ searchParams }: Props) {
   const nombres = new Map(canales.map((c) => [c.id, c.nombre]));
   // Cada venta se escribe en la moneda del número por el que entró.
   const monedas = new Map(m.por_canal.map((c) => [c.canal_id, c.moneda]));
+  // Y a la hora de su país: la de las nueve de la noche no puede salir con fecha de mañana.
+  const husos = husosDeLosCanales(ctx.orgId);
   const motivos = conteoMotivosPerdida(ctx.orgId, rango);
 
   // Por el día en que se CERRÓ, como los KPIs: ver `listarVentas`.
@@ -228,7 +230,7 @@ export default async function PaginaVentas({ searchParams }: Props) {
                     <th style={{ textAlign: "right" }}>Total</th>
                     <th style={{ textAlign: "right" }}>Envío</th>
                     <th style={{ textAlign: "right" }}>Facturado</th>
-                    <th style={{ textAlign: "right", paddingRight: 17 }}>Fecha</th>
+                    <th style={{ textAlign: "right", paddingRight: 17 }}>Fecha y hora</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -250,8 +252,8 @@ export default async function PaginaVentas({ searchParams }: Props) {
                       <td className="num" style={{ textAlign: "right", fontWeight: 600, whiteSpace: "nowrap" }}>
                         {dinero(Math.max((v.total ?? 0) - (v.envio ?? 0), 0), monedas.get(v.canal_id))}
                       </td>
-                      <td className="tenue" style={{ textAlign: "right", paddingRight: 17 }}>
-                        {fechaCorta(v.fecha_cierre)}
+                      <td className="tenue" style={{ textAlign: "right", paddingRight: 17, whiteSpace: "nowrap" }}>
+                        {fechaYHora(v.fecha_cierre, husos.get(v.canal_id))}
                       </td>
                     </tr>
                   ))}

@@ -5,11 +5,11 @@ import AnalizarBoton from "@/components/panel/AnalizarBoton";
 import BorrarConversacionBoton from "@/components/panel/BorrarConversacionBoton";
 import { Burbuja } from "@/components/panel/Burbuja";
 import Escribir from "@/components/panel/Escribir";
-import { Nube, Pastilla, dinero, fechaHora, tienePedido } from "@/components/panel/Piezas";
+import { Nube, Pastilla, dinero, fechaYHora, tienePedido } from "@/components/panel/Piezas";
 import ProductoDeLaFoto from "@/components/panel/ProductoDeLaFoto";
 import { llegoPorAnuncio } from "@/lib/anuncio";
 import { fichaDeLaFoto } from "@/lib/meta/contexto-anuncio";
-import { getConversation, listarCanales, listarMensajes } from "@/lib/db";
+import { getConversation, husosDeLosCanales, listarCanales, listarMensajes } from "@/lib/db";
 import { porQueCalla } from "@/lib/agent";
 import { requerirSesion } from "@/lib/tenant";
 
@@ -41,6 +41,7 @@ export default async function PaginaConversacion({ params, searchParams }: Props
 
   const mensajes = listarMensajes(ctx.orgId, conv.id);
   const canal = listarCanales(ctx.orgId).find((c) => c.id === conv.canal_id);
+  const huso = husosDeLosCanales(ctx.orgId).get(conv.canal_id);
   /* Por qué el agente contesta —o no— en este hilo. Ver `porQueCalla`: son
      lecturas de la base, ni una llamada a ningún modelo. */
   const agente = porQueCalla(ctx.orgId, conv.canal_id, conv.id);
@@ -124,8 +125,8 @@ export default async function PaginaConversacion({ params, searchParams }: Props
                   (llegoPorAnuncio(conv) ? "Anuncio sin título" : "—")
                 }
               />
-              <Dato etiqueta="Primer mensaje" valor={fechaHora(conv.fecha_inicio)} />
-              <Dato etiqueta="Cierre" valor={fechaHora(conv.fecha_cierre)} />
+              <Dato etiqueta="Primer mensaje" valor={fechaYHora(conv.fecha_inicio, huso)} />
+              <Dato etiqueta="Cierre" valor={fechaYHora(conv.fecha_cierre, huso)} />
             </dl>
 
             {/*
