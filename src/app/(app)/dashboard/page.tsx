@@ -1,5 +1,6 @@
 import Link from "next/link";
 import {
+  FacturasEnviadas,
   GraficoArea,
   Importes,
   Kpi,
@@ -261,6 +262,10 @@ export default async function Dashboard({ searchParams }: Props) {
           pie={
             <>
               Ticket promedio <Importes lista={m.facturado_por_moneda} campo="promedio" />
+              {/* Las facturas van aparte de las ventas: la de hoy puede ser de
+                  una venta de ayer, y esa venta cuenta ayer. */}
+              <br />
+              <FacturasEnviadas n={m.facturas_enviadas} deAntes={m.facturas_de_antes} />
             </>
           }
         />

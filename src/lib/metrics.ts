@@ -113,6 +113,14 @@ export interface Metricas {
   cierres_ia: number;
   /** Cerradas por una FOTO de factura sin resumen en el hilo. Asistidas. */
   cierres_humano: number;
+  /**
+   * LAS FACTURAS ENVIADAS EN EL PERIODO, que no son las ventas del periodo: la
+   * venta cuenta el día en que se cerró y la factura puede llegar después. De
+   * ellas, `facturas_de_antes` son de ventas cerradas antes del periodo, y así
+   * se dice en pantalla.
+   */
+  facturas_enviadas: number;
+  facturas_de_antes: number;
   sin_cerrar: number;
   revision: number;
   /** leads === cierres_ia + cierres_humano + sin_cerrar + revision */
@@ -185,6 +193,7 @@ export interface Metricas {
     sin_monto: number;
     moneda: Moneda;
     leads: number; leads_anuncio: number; cierres_ia: number; cierres_humano: number;
+    facturas: number; facturas_de_antes: number;
     sin_cerrar: number; revision: number;
     ventas: number; ventas_ia: number; ventas_humano: number; envios: number;
     tasa: number;
@@ -327,6 +336,8 @@ export function calcularMetricas(orgId: number, rango: Rango): Metricas {
     })),
     cierres_ia: cierres.ia,
     cierres_humano: cierres.humano,
+    facturas_enviadas: canales.reduce((a, c) => a + c.facturas, 0),
+    facturas_de_antes: canales.reduce((a, c) => a + c.facturas_de_antes, 0),
     sin_cerrar: estados.abierta,
     revision: estados.revision,
     // La invariante es por llegada: cada conversación del periodo está en uno
@@ -383,6 +394,8 @@ export function calcularMetricas(orgId: number, rango: Rango): Metricas {
       leads_anuncio: c.leads_anuncio,
       cierres_ia: c.cierres_ia,
       cierres_humano: c.cierres_humano,
+      facturas: c.facturas,
+      facturas_de_antes: c.facturas_de_antes,
       sin_cerrar: c.sin_cerrar,
       revision: c.revision,
       ventas: redondear(c.ventas),

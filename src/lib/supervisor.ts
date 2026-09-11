@@ -38,9 +38,9 @@
  */
 import { agenteDePais, type DatosPais } from "@/agents";
 import { pareceDireccion, pareceNombreDePersona } from "./memoria";
-import { analizarConversacion } from "./analyzer";
+import { analizarConversacion, apuntarFactura } from "./analyzer";
 import { barrerAnomalias } from "./anomalies";
-import { contieneMarcador, MARCADOR_POR_DEFECTO, sellarCierresPendientes } from "./cierre";
+import { esResumenDePedido, MARCADOR_POR_DEFECTO, sellarCierresPendientes } from "./cierre";
 import {
   ahora,
   asentadasSinAnalizar,
@@ -53,6 +53,7 @@ import {
   orgsConCanales,
   primerResumenDe,
   selladasSinAnalizar,
+  ventasPorFacturar,
   type Conversacion,
 } from "./db";
 
@@ -117,9 +118,10 @@ export function leerResumen(texto: string, marcador: string = MARCADOR_POR_DEFEC
   const lineas = texto.split(/\r?\n/);
   const raiz = llano(marcador.replace(/[:\s]+$/, ""));
 
-  // Desde la línea del marcador; si no se encuentra, desde el principio.
-  let inicio = lineas.findIndex((l) => llano(l).startsWith(raiz) || llano(l).includes(`${raiz} `));
-  if (inicio < 0) inicio = 0;
+  // Desde la línea del marcador; si no se encuentra, desde el principio —la
+  // primera línea incluida: un resumen que solo lleva «✅ PEDIDO REGISTRADO» al
+  // pie empieza directamente por «Nombre:»—.
+  const inicio = lineas.findIndex((l) => llano(l).startsWith(raiz) || llano(l).includes(`${raiz} `));
 
   const salida: ResumenLeido = { nombre: null, cel: null, direccion: null, total: null, producto: null, talla: null, color: null, cantidad: null };
 
@@ -250,7 +252,7 @@ export function revisarCierres(orgId: number, t: number = ahora()): RevisionDeCi
 
   const leidos: CierreLeido[] = [];
   for (const conv of cierresRecientesPorResumen(orgId, t - VENTANA_REPETIDOS)) {
-    const texto = primerResumenDe(orgId, conv.id, (c) => contieneMarcador(c, marcador));
+    const texto = primerResumenDe(orgId, conv.id, (c) => esResumenDePedido(c, marcador));
     if (texto === null) continue;
 
     const resumen = leerResumen(texto, marcador);
@@ -366,6 +368,31 @@ export async function analizarPendientes(
   return { analizadas, modeloCaido: false };
 }
 
+/** Cuánto atrás se busca la factura de una venta ya cerrada. */
+const VENTANA_FACTURA = 3 * UN_DIA;
+/** Cuántas ventas se miran por vuelta: cada foto es una llamada de visión. */
+const FACTURAS_POR_VUELTA = 4;
+
+/**
+ * El respaldo de la ingesta para la factura de las ventas ya cerradas: si al
+ * entrar la foto no se pudo mirar —el archivo aún bajando, el modelo caído—,
+ * aquí se vuelve a intentar. Solo ventas de los últimos días y pocas por
+ * vuelta. Ver `apuntarFactura`.
+ */
+async function buscarFacturas(orgId: number, t: number = ahora()): Promise<number> {
+  if (!process.env.OPENROUTER_API_KEY) return 0;
+  let marcadas = 0;
+  for (const conv of ventasPorFacturar(orgId, t - VENTANA_FACTURA, FACTURAS_POR_VUELTA)) {
+    try {
+      if (await apuntarFactura(orgId, conv.id)) marcadas++;
+    } catch (e) {
+      console.error(`[supervisor] no se pudo mirar la factura de la venta ${conv.id}`, e);
+      break;
+    }
+  }
+  return marcadas;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // La vuelta entera
 // ─────────────────────────────────────────────────────────────────────────────
@@ -402,6 +429,7 @@ export async function supervisarCuenta(
   const selladas = sellarCierresPendientes(orgId);
   const revision = revisarCierres(orgId);
   const analisis = await analizarPendientes(orgId, opciones.analisis ?? ANALISIS_POR_VUELTA);
+  if (!analisis.modeloCaido) await buscarFacturas(orgId);
   const anomalias = barrerAnomalias(orgId);
 
   return {

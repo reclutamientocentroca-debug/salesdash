@@ -25,7 +25,9 @@ import {
   crearAnomalia,
   getConversation,
   guardarDescripcionAnuncio,
+  fotosPorMirarTrasElCierre,
   listarMensajes,
+  marcarFacturada,
   marcarRevision,
   MODELO_ANALISIS,
   MODELO_VISION,
@@ -39,9 +41,9 @@ import {
   type Rango,
 } from "./db";
 import { ANUNCIO_SIN_DESCRIBIR, anuncioParaModelo } from "./anuncio";
-// El marcador lo reconoce `cierre.ts`, que es quien sella al entrar el mensaje.
+// El resumen lo reconoce `cierre.ts`, que es quien sella al entrar el mensaje.
 // Aquí se usa la MISMA función: dos formas de leerlo darían dos verdades.
-import { contieneMarcador } from "./cierre";
+import { confirmarVentaConFactura, esResumenDePedido } from "./cierre";
 import { completar, completarJson, ErrorIA, type Mensaje as MensajeIA } from "./ia";
 import { comoDataUrl } from "./media";
 import { describirImagen, transcribirAudio } from "./percepcion";
@@ -123,7 +125,7 @@ export async function buscarPrimeraSenal(
     if (texto.length && m.created_at > texto[0]!.cuando) break;
 
     const saliente = m.emisor === "ia" || m.emisor === "humano";
-    if (!saliente || !contieneMarcador(m.content, marcador)) continue;
+    if (!saliente || !esResumenDePedido(m.content, marcador)) continue;
 
     texto.push({ quien: "ia", senal: "resumen_ia", cuando: m.created_at, mensajeId: m.id });
   }
@@ -557,14 +559,43 @@ export async function analizarConversacion(
     analizada_at: yaSellada && falloModelo ? undefined : ahora(),
   });
 
+  const porFactura = senal === "imagen_factura" || senal === "imagen_comprobante";
+
+  if (!yaSellada && estado === "humano" && porFactura && senales[0]) {
+    /*
+     * ¿Es la factura de una venta que la IA ya cerró en otro hilo del mismo
+     * cliente? Entonces no es una venta nueva: esa venta queda facturada, en
+     * su día, y este hilo no se cuenta. Ver `ventaQueConfirmaLaFactura`.
+     */
+    const venta = confirmarVentaConFactura(orgId, conv, senales[0].cuando);
+    if (venta) {
+      actualizarConversacion(orgId, conversationId, {
+        justificacion: `Es la factura de la venta que la IA cerró en el chat #${venta.id}: esa venta queda facturada y no se cuenta dos veces.`,
+      });
+      estado = "abierta";
+      senal = null;
+    }
+  }
+
   if (estado === "ia" || estado === "humano") {
-    // La regla maestra vive en el UPDATE: si otro proceso selló primero, este
-    // no reclasifica nada.
-    const cuando = senales[0]?.cuando ?? conv.last_message_at ?? ahora();
+    /*
+     * LA FECHA ES LA DE LA SEÑAL QUE CIERRA: el resumen, o la primera factura.
+     *
+     * Cuando el cierre lo decidió el modelo leyendo el hilo —sin resumen ni
+     * factura reconocibles—, se toma el último mensaje DE TEXTO que mandamos, y
+     * no el último mensaje del hilo. Antes era el último del hilo, que en una
+     * venta de ayer suele ser la foto de la factura de hoy: la venta caía hoy.
+     *
+     * La regla maestra vive en el UPDATE: si otro proceso selló primero, este
+     * no reclasifica nada.
+     */
+    const ultimoTexto = [...completos].reverse().find((m) => m.emisor !== "cliente" && m.tipo === "texto");
+    const cuando = senales[0]?.cuando ?? ultimoTexto?.created_at ?? conv.last_message_at ?? ahora();
     sellarCierre(orgId, conversationId, {
       cerradoPor: estado,
       senal: senal ?? "sin_senal",
       fechaCierre: cuando,
+      facturadaAt: porFactura ? cuando : null,
     });
   } else if (estado === "revision") {
     marcarRevision(orgId, conversationId, justificacion ?? "Necesita una revisión humana.");
@@ -575,6 +606,34 @@ export async function analizarConversacion(
   if (actualizada) revisarConversacion(orgId, actualizada, mensajes);
 
   return { conversationId, estado, senal, justificacion, sellada: false };
+}
+
+/**
+ * LA FACTURA DE UNA VENTA QUE YA ESTÁ CERRADA.
+ *
+ * La IA cerró la venta con su resumen y, horas o un día después, el equipo
+ * manda la foto de la factura. Esa foto no crea otra venta ni la cambia de
+ * día: solo la marca como facturada, y eso es lo que alimenta «facturas
+ * enviadas hoy».
+ *
+ * Mira las fotos del equipo posteriores al cierre que nadie había mirado, en
+ * orden, y PARA en la primera factura: las siguientes —otra foto de la misma
+ * factura— ya no se pagan ni cuentan. Una venta que ya está facturada no entra.
+ * Devuelve true si esta vuelta la marcó.
+ */
+export async function apuntarFactura(orgId: number, conversationId: number): Promise<boolean> {
+  const conv = getConversation(orgId, conversationId);
+  if (!conv || conv.fecha_cierre === null || conv.facturada_at !== null) return false;
+  if (conv.cerrado_por !== "ia" && conv.cerrado_por !== "humano") return false;
+
+  const modeloVision = obtenerOrg(orgId)?.modelo_vision ?? MODELO_VISION;
+  for (const m of fotosPorMirarTrasElCierre(orgId, conversationId, conv.fecha_cierre)) {
+    const categoria = await describirImagen(orgId, modeloVision, m);
+    if (categoria === "factura" || categoria === "comprobante_pago") {
+      return marcarFacturada(orgId, conversationId, m.created_at);
+    }
+  }
+  return false;
 }
 
 function numeroODescartar(v: unknown): number | undefined {

@@ -19,12 +19,18 @@
  */
 import {
   asentarMontosSiFaltan,
+  deshacerVentaDuplicada,
+  marcarFacturada,
   obtenerOrg,
   orgsParaBarrerCierres,
+  primerResumenDe,
   reatribuirCierrePorResumen,
   salientesDeHilosPorSellar,
   sellarCierre,
+  ventasDeLaIaEntre,
+  type Conversacion,
   type Emisor,
+  type Mensaje,
 } from "./db";
 import { montosDelResumen } from "./moneda";
 
@@ -88,6 +94,138 @@ export function contieneMarcador(texto: string, marcador: string): boolean {
   return conDosPuntos.test(texto) || comoTitulo.test(texto);
 }
 
+/*
+ * «✅ PEDIDO REGISTRADO», en su propia línea: es la línea con la que TODOS los
+ * resúmenes de la IA terminan (ver `rd-guion.ts`, `cr-guion.ts`, `apertura.ts`)
+ * y la que la dueña señala como el cierre. Como en el título, delante y detrás
+ * solo cabe adorno: «su pedido quedó registrado» a mitad de frase no cierra.
+ */
+const PEDIDO_REGISTRADO = /^[^\p{L}\p{N}\n]*pedido registrado[^\p{L}\p{N}\n]*$/imu;
+
+/**
+ * ¿Es este mensaje el resumen de pedido de la IA? El marcador de la cuenta, o
+ * la línea «PEDIDO REGISTRADO».
+ *
+ * Con el marcador solo, un resumen que el modelo escribió sin el título —pero
+ * con su «✅ PEDIDO REGISTRADO» al pie— no cerraba nada: la venta la acababa
+ * cerrando la factura del día siguiente, como asistida y con la fecha de la
+ * factura.
+ */
+export function esResumenDePedido(texto: string, marcador: string): boolean {
+  return contieneMarcador(texto, marcador) || PEDIDO_REGISTRADO.test(texto);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// La fecha de la venta
+// ─────────────────────────────────────────────────────────────────────────────
+
+/*
+ * LA VENTA CUENTA EL DÍA EN QUE SE CERRÓ, NO EL DÍA DE LA FACTURA (la dueña,
+ * 2026-09-11). Una venta que la IA cerró ayer y el equipo facturó hoy es de
+ * ayer.
+ *
+ *   - AUTOMATIZADA: la fecha es la del resumen de la IA.
+ *   - ASISTIDA: no hubo resumen, así que la fecha es la de la PRIMERA foto de
+ *     factura que mandó el representante.
+ *
+ * La factura de una venta que ya existe no crea otra ni la mueve de día: la
+ * marca como facturada (`marcarFacturada`). Y las fotos siguientes de la misma
+ * factura no cuentan otra vez.
+ */
+
+const ES_FACTURA = (m: Mensaje) =>
+  m.emisor !== "cliente" && m.tipo === "imagen" &&
+  (m.categoria_imagen === "factura" || m.categoria_imagen === "comprobante_pago");
+
+/**
+ * Las dos señales del hilo, la primera de cada una. Solo con lo que ya está en
+ * la base: no mira ninguna foto nueva.
+ */
+export function senalesDelHilo(mensajes: Mensaje[], marcador: string): { resumen: Mensaje | null; factura: Mensaje | null } {
+  let resumen: Mensaje | null = null;
+  let factura: Mensaje | null = null;
+  for (const m of mensajes) {
+    if (!resumen && m.emisor !== "cliente" && esResumenDePedido(m.content, marcador)) resumen = m;
+    if (!factura && ES_FACTURA(m)) factura = m;
+    if (resumen && factura) break;
+  }
+  return { resumen, factura };
+}
+
+/**
+ * La fecha que le toca al cierre de `quien`, según la regla. Null si el hilo no
+ * tiene la señal de ese lado —un cierre que decidió el modelo leyendo el hilo—.
+ */
+export function fechaDelCierre(mensajes: Mensaje[], marcador: string, quien: "ia" | "humano"): number | null {
+  const { resumen, factura } = senalesDelHilo(mensajes, marcador);
+  if (quien === "ia") return resumen?.created_at ?? null;
+  return factura?.created_at ?? null;
+}
+
+/** Los últimos dígitos de un teléfono, para comparar escrito de dos formas. */
+const colaDelTelefono = (t: string | null | undefined) => {
+  const d = (t ?? "").replace(/\D/g, "");
+  return d.length >= 7 ? d.slice(-8) : null;
+};
+
+/** El teléfono que el cliente dio en el resumen: «Telefono: 809 555 1234». */
+export function telefonoDelResumen(texto: string): string | null {
+  const m = texto.match(/(?:tel[eé]fono|cel(?:ular)?|whatsapp)\s*:\s*([+\d][\d\s().-]{6,})/iu);
+  return m ? colaDelTelefono(m[1]) : null;
+}
+
+/** Cuánto antes de la factura puede haberse cerrado la venta que confirma. */
+const VENTANA_FACTURA = 7 * 24 * 60 * 60;
+
+/**
+ * ¿ESTA FACTURA ES DE UNA VENTA QUE YA EXISTE EN OTRO HILO?
+ *
+ * WhatsApp a veces parte al mismo cliente en dos hilos —su número y su `@lid`,
+ * o dos números de la cuenta—, y la factura del equipo cae en uno mientras el
+ * resumen de la IA está en el otro. Sin mirarlo, eso eran dos ventas: la de la
+ * IA el día del resumen y una asistida el día de la factura.
+ *
+ * Es la misma venta cuando hay una venta de la IA cerrada en los siete días
+ * anteriores a la factura y es del MISMO cliente: el mismo teléfono en el
+ * hilo, o el teléfono que el cliente dio en el resumen. Solo el teléfono: dos
+ * clientes pueden llamarse igual, pero no tener el mismo número.
+ */
+export function ventaQueConfirmaLaFactura(
+  orgId: number,
+  hilo: Conversacion,
+  facturaAt: number,
+  marcador: string = obtenerOrg(orgId)?.marcador_cierre ?? MARCADOR_POR_DEFECTO,
+): Conversacion | null {
+  const suyo = colaDelTelefono(hilo.cliente_phone);
+  if (!suyo) return null;
+
+  for (const venta of ventasDeLaIaEntre(orgId, facturaAt - VENTANA_FACTURA, facturaAt, hilo.id)) {
+    if (colaDelTelefono(venta.cliente_phone) === suyo) return venta;
+    const texto = primerResumenDe(orgId, venta.id, (c) => esResumenDePedido(c, marcador));
+    if (texto && telefonoDelResumen(texto) === suyo) return venta;
+  }
+  return null;
+}
+
+/**
+ * La factura de un hilo que es de otra venta: esa venta queda facturada y este
+ * hilo deja de contar como venta. Devuelve la venta confirmada, o null si la
+ * factura es de verdad una venta nueva.
+ */
+export function confirmarVentaConFactura(orgId: number, hilo: Conversacion, facturaAt: number): Conversacion | null {
+  const venta = ventaQueConfirmaLaFactura(orgId, hilo, facturaAt);
+  if (!venta) return null;
+  marcarFacturada(orgId, venta.id, facturaAt);
+  if (hilo.fecha_cierre !== null) {
+    deshacerVentaDuplicada(
+      orgId,
+      hilo.id,
+      `Es la factura de la venta que la IA cerró en el chat #${venta.id}: esa venta queda facturada y no se cuenta dos veces.`,
+    );
+  }
+  return venta;
+}
+
 export interface Cierre {
   quien: "ia" | "humano";
   senal: string;
@@ -146,7 +284,7 @@ export function registrarCierre(
   if (mensaje.emisor === "cliente") return false;
 
   const marcador = obtenerOrg(orgId)?.marcador_cierre ?? MARCADOR_POR_DEFECTO;
-  if (!contieneMarcador(mensaje.content, marcador)) return false;
+  if (!esResumenDePedido(mensaje.content, marcador)) return false;
 
   const cierre = duenoDelCierre(mensaje.emisor);
   if (!cierre) return false;
@@ -171,10 +309,12 @@ export function registrarCierre(
   }
 
   // Estaba cerrada. Solo se le quita la venta a una factura, y `WHERE` de
-  // `reatribuirCierrePorResumen` es quien lo garantiza.
+  // `reatribuirCierrePorResumen` es quien lo garantiza. La venta pasa al día
+  // del resumen; la hora de la factura queda como la de la factura.
   const reatribuido = reatribuirCierrePorResumen(orgId, conversationId, {
     cerradoPor: cierre.quien,
     senal: cierre.senal,
+    fechaCierre: mensaje.cuando,
   });
   if (reatribuido) asentarDinero();
   return reatribuido;
@@ -211,7 +351,7 @@ export function sellarCierresPendientes(orgId: number): number {
 
   for (const m of salientesDeHilosPorSellar(orgId)) {
     if (sellados.has(m.conversation_id)) continue;
-    if (!contieneMarcador(m.content, marcador)) continue;
+    if (!esResumenDePedido(m.content, marcador)) continue;
 
     const cerro = registrarCierre(orgId, m.conversation_id, {
       emisor: m.emisor,

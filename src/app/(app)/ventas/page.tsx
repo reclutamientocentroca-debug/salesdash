@@ -1,9 +1,10 @@
 import Link from "next/link";
 import AnalizarPerdidas from "@/components/panel/AnalizarPerdidas";
-import { FilasPorMoneda, Importes, Kpi, Pastilla, Vacio, dinero, fechaYHora } from "@/components/panel/Piezas";
+import { FacturasEnviadas, FilasPorMoneda, Importes, Kpi, Pastilla, Vacio, dinero, fechaYHora } from "@/components/panel/Piezas";
 import { IconoMoneda, IconoPersona, IconoRayo, IconoVentas } from "@/components/panel/Iconos";
 import { conteoMotivosPerdida, husosDeLosCanales, listarCanales, listarVentas } from "@/lib/db";
 import { calcularMetricas } from "@/lib/metrics";
+import { informeDeRecalculo } from "@/lib/recalculo";
 import { rangoDeLaCuenta, requerirSesion } from "@/lib/tenant";
 
 export const metadata = { title: "Ventas · SalesDash" };
@@ -57,6 +58,9 @@ export default async function PaginaVentas({ searchParams }: Props) {
   // Y a la hora de su país: la de las nueve de la noche no puede salir con fecha de mañana.
   const husos = husosDeLosCanales(ctx.orgId);
   const motivos = conteoMotivosPerdida(ctx.orgId, rango);
+  // El enlace al recálculo del histórico, el mes siguiente a hacerse: después ya no es noticia.
+  const recalculo = informeDeRecalculo(ctx.orgId);
+  const recalculoReciente = recalculo !== null && recalculo.creado_at > Math.floor(Date.now() / 1000) - 30 * 86_400;
 
   // Por el día en que se CERRÓ, como los KPIs: ver `listarVentas`.
   const ventas = listarVentas(ctx.orgId, rango, { cerradoPor: cerro, limite: LIMITE_LISTA });
@@ -114,9 +118,16 @@ export default async function PaginaVentas({ searchParams }: Props) {
           <p className="tenue" style={{ marginTop: 2 }}>
             {cerradasDelPeriodo} venta{cerradasDelPeriodo === 1 ? "" : "s"} cerrada
             {cerradasDelPeriodo === 1 ? "" : "s"} en el rango ·{" "}
-            <Importes lista={m.facturado_por_moneda} campo="facturado" /> facturados
+            <Importes lista={m.facturado_por_moneda} campo="facturado" /> facturados ·{" "}
+            <FacturasEnviadas n={m.facturas_enviadas} deAntes={m.facturas_de_antes} />
           </p>
         </div>
+        {/* Lo que movió el cambio de regla, para que nadie tenga que fiarse. */}
+        {recalculoReciente && (
+          <Link href="/ventas/recalculo" className="btn btn-tenue" style={{ textDecoration: "none", padding: "5px 10px", fontSize: 12.5 }}>
+            Ver el recálculo del histórico
+          </Link>
+        )}
       </div>
 
       <div className="sd-kpis" style={{ marginBottom: 14 }}>

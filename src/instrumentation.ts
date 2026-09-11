@@ -34,6 +34,31 @@ export async function register(): Promise<void> {
    */
   setTimeout(() => {
     void (async () => {
+      /*
+       * EL HISTÓRICO, CON LA REGLA DE LA FECHA DE CIERRE. Una vez por cuenta,
+       * y antes que el barrido: el informe tiene que ver las ventas como
+       * estaban. Lo que movió queda en /ventas/recalculo y aquí, en el registro.
+       */
+      try {
+        const { diasQueCambiaron, recalcularVentasPendientes } = await import("@/lib/recalculo");
+        for (const { orgId, informe } of recalcularVentasPendientes()) {
+          const r = informe.resumen;
+          console.log(
+            `[recalculo] cuenta ${orgId}: ${r.movidas_de_dia} venta(s) cambian de día, ` +
+              `${r.a_automatizada} pasan a automatizada, ${r.a_asistida} a asistida, ` +
+              `${r.duplicados} duplicada(s) quitada(s), ${r.selladas_nuevas} sin contar selladas`,
+          );
+          for (const d of diasQueCambiaron(informe)) {
+            console.log(
+              `[recalculo]   ${d.dia}: antes ${d.antes.ia} auto + ${d.antes.humano} asist = ${d.antes.ia + d.antes.humano}` +
+                ` → después ${d.despues.ia} auto + ${d.despues.humano} asist = ${d.despues.ia + d.despues.humano}`,
+            );
+          }
+        }
+      } catch (e) {
+        console.error("[arranque] no se pudo recalcular el histórico de ventas", e);
+      }
+
       try {
         const { barrerCierresPendientes } = await import("@/lib/cierre");
         const selladas = barrerCierresPendientes();

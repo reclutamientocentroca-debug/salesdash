@@ -657,11 +657,14 @@ test("una venta cerrada por la factura pasa a la IA cuando llega el resumen", ()
   const conv = D.getConversation(orgId, hilo);
   assert.equal(conv?.cerrado_por, "ia");
   assert.equal(conv?.senal_de_cierre, "resumen_ia");
-  assert.equal(
-    conv?.fecha_cierre,
-    1_700_000_200,
-    "la venta se cerró cuando se cerró: esto decide de quién es, no cuándo pasó",
-  );
+  /*
+   * La venta automatizada cuenta el día del RESUMEN, no el de la factura (la
+   * dueña, 2026-09-11). Antes aquí se afirmaba lo contrario —la fecha de la
+   * factura se quedaba— y era justo lo que ponía en el resumen de hoy una venta
+   * cerrada ayer. La hora de la foto no se pierde: es la de la factura.
+   */
+  assert.equal(conv?.fecha_cierre, 1_700_000_800, "la venta cuenta el día del resumen");
+  assert.equal(conv?.facturada_at, 1_700_000_200, "y la foto queda como la factura de esa venta");
 
   const m = calcularMetricas(orgId, RANGO);
   assert.equal(m.cierres_ia, antes.cierres_ia + 1);
@@ -683,7 +686,7 @@ test("la factura no reasigna una venta que ya cerró un resumen", () => {
 
   // Un vendedor manda su factura y se sella otra vez: no se mueve nada.
   assert.equal(
-    D.reatribuirCierrePorResumen(orgId, hilo, { cerradoPor: "humano", senal: "imagen_factura" }),
+    D.reatribuirCierrePorResumen(orgId, hilo, { cerradoPor: "humano", senal: "imagen_factura", fechaCierre: 1_700_009_000 }),
     false,
     "un cierre por resumen no se toca",
   );

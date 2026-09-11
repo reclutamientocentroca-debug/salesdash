@@ -7,11 +7,13 @@ import {
   getConversation,
   listarCanales,
   listarMensajes,
+  obtenerOrg,
   ponerAtiende,
   resolverRevision,
 } from "@/lib/db";
 import { fichaDeLaFoto } from "@/lib/meta/contexto-anuncio";
 import { anomaliaDeCorreccion } from "@/lib/analyzer";
+import { fechaDelCierre, MARCADOR_POR_DEFECTO } from "@/lib/cierre";
 import { sesionApi } from "@/lib/tenant";
 
 export const runtime = "nodejs";
@@ -162,7 +164,10 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
   const datos = Correccion.safeParse(await req.json().catch(() => null));
   if (!datos.success) return NextResponse.json({ error: "Indica quién cerró" }, { status: 400 });
 
-  resolverRevision(orgId, conv.id, datos.data.resolver);
+  // La fecha, si no tenía, la de la señal de ese lado: el resumen o la primera factura.
+  const marcador = obtenerOrg(orgId)?.marcador_cierre ?? MARCADOR_POR_DEFECTO;
+  const fecha = fechaDelCierre(listarMensajes(orgId, conv.id), marcador, datos.data.resolver);
+  resolverRevision(orgId, conv.id, datos.data.resolver, fecha);
   anomaliaDeCorreccion(orgId, conv.id, datos.data.resolver);
 
   return NextResponse.json({ ok: true, estado: datos.data.resolver });

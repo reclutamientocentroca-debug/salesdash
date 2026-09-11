@@ -2764,3 +2764,9 @@ body {
   background: var(--line);
   display: block;
 }
+
+/* Las facturas de ventas de días anteriores: se dicen, pero no son ventas del periodo. */
+.sd-facturas-antes {
+  color: var(--amber);
+  font-weight: 600;
+}

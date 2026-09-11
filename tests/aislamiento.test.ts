@@ -277,6 +277,9 @@ test("ninguna función de lectura de db.ts omite el orgId", async () => {
     // tienen algun numero, y desde ahi todo vuelve a ir con orgId.
 
     "orgsConCanales",
+    // El recálculo del histórico corre al arrancar, sin sesión: solo pregunta
+    // qué cuentas tienen ventas, y desde ahí todo vuelve a ir con orgId.
+    "orgsConVentas",
     // Ruta del disco, no una consulta.
     "rutaDatos",
     // El webhook de Meta no trae sesion: la cuenta se DEDUCE de la pagina o de

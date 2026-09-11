@@ -33,6 +33,7 @@ import {
   ahora,
   esDeIa,
   existeConversacion,
+  fotosPorMirarTrasElCierre,
   getConversation,
   getOrCreateConversation,
   insertMessage,
@@ -565,6 +566,36 @@ export async function ingerir(
             // El pedido se queda sin extraer, pero la venta ya está contada.
             // El barrido manual volverá a intentarlo.
             console.error(`No se pudo analizar la venta cerrada ${conversationId}:`, e);
+          }
+        }
+      }
+
+      /*
+       * LA FACTURA DE UNA VENTA YA CERRADA. El equipo manda la foto después
+       * del resumen —a veces al día siguiente—: se mira si es la factura y, si
+       * lo es, la venta queda facturada EN SU DÍA. No crea otra venta. Solo
+       * entran las ventas sin factura con fotos nuestras sin mirar después del
+       * cierre; lo demás no cuesta ni una llamada. Ver `apuntarFactura`.
+       */
+      const porFacturar = opciones.historico
+        ? []
+        : [...tocadas].filter((id) => {
+            const c = getConversation(orgId, id);
+            return (
+              c && c.fecha_cierre !== null && c.facturada_at === null &&
+              (c.cerrado_por === "ia" || c.cerrado_por === "humano") &&
+              fotosPorMirarTrasElCierre(orgId, id, c.fecha_cierre).length > 0
+            );
+          });
+
+      if (porFacturar.length > 0) {
+        const { apuntarFactura } = await import("@/lib/analyzer");
+        for (const conversationId of porFacturar) {
+          try {
+            await apuntarFactura(orgId, conversationId);
+          } catch (e) {
+            // La venta sigue contada en su día; la factura la vuelve a buscar el supervisor.
+            console.error(`No se pudo mirar la factura de la venta ${conversationId}:`, e);
           }
         }
       }

@@ -502,6 +502,26 @@ export function FilasPorMoneda({
   );
 }
 
+/**
+ * «3 facturas enviadas · 1 de ventas de días anteriores».
+ *
+ * Es un dato APARTE de las ventas: la venta cuenta el día en que se cerró, y
+ * la factura puede llegar al día siguiente. Las de ventas de días anteriores se
+ * dicen como tales para que nadie las sume a las ventas del periodo.
+ */
+export function FacturasEnviadas({ n, deAntes }: { n: number; deAntes: number }) {
+  return (
+    <span>
+      <strong style={{ color: "var(--ink)" }}>{n}</strong> factura{n === 1 ? "" : "s"} enviada{n === 1 ? "" : "s"}
+      {deAntes > 0 && (
+        <span className="sd-facturas-antes">
+          {" "}· {deAntes} de venta{deAntes === 1 ? "" : "s"} de días anteriores
+        </span>
+      )}
+    </span>
+  );
+}
+
 export function fechaCorta(epoch: number | null): string {
   if (!epoch) return "—";
   return new Date(epoch * 1000).toLocaleDateString("es", { day: "2-digit", month: "short" });

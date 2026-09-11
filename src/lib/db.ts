@@ -520,6 +520,18 @@ CREATE TABLE IF NOT EXISTS uso_modelo (
   fallos INTEGER NOT NULL DEFAULT 0,
   UNIQUE(org_id, dia, modelo, proposito)
 );
+
+/* LOS RECÁLCULOS DEL HISTÓRICO, uno por cuenta y por regla. Guarda las ventas
+   por día antes y después, para que el dueño vea qué movió cada cambio de
+   regla y no tenga que fiarse. La fila es también la marca de «ya se hizo»:
+   un recálculo no se repite en el siguiente arranque. Ver recalculo.ts. */
+CREATE TABLE IF NOT EXISTS recalculos (
+  org_id INTEGER NOT NULL REFERENCES orgs(id),
+  clave TEXT NOT NULL,
+  creado_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  informe TEXT NOT NULL,
+  PRIMARY KEY (org_id, clave)
+);
 `;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -807,6 +819,14 @@ function migrar(conexion: DB): void {
   agregarColumna("conversations", "foto_producto_id", "INTEGER");
   // Lo que vende el anuncio del lead, ya leído. Ver `producto_lead` arriba.
   agregarColumna("conversations", "producto_lead", "TEXT");
+  /*
+   * CUÁNDO SE ENVIÓ LA FACTURA de esta venta: la primera foto de factura o de
+   * comprobante que mandó el equipo. NO es la fecha de la venta —la venta
+   * cuenta el día en que se CERRÓ, `fecha_cierre`—: la factura solo la
+   * confirma. De aquí salen las «facturas enviadas hoy» del resumen, que
+   * pueden ser de ventas cerradas días atrás. Ver `marcarFacturada`.
+   */
+  agregarColumna("conversations", "facturada_at", "INTEGER");
 
   /*
    * agentes: los dos seguimientos.
@@ -1385,6 +1405,8 @@ export interface Conversacion {
   justificacion: string | null; datos_faltantes: string | null;
   motivo_perdida: string | null; analizada_at: number | null;
   fecha_inicio: number; fecha_cierre: number | null; last_message_at: number | null;
+  /** Cuándo mandó el equipo la primera foto de la factura. Ver `marcarFacturada`. */
+  facturada_at: number | null;
   /** Por dónde entró: 'whatsapp', 'messenger', 'instagram' o 'comentario'. */
   superficie: string | null;
   /** El anuncio de Meta que lo trajo. Se guarda del primer evento y no cambia. */
@@ -1956,11 +1978,28 @@ export function unificarConversacion(
     s(`DELETE FROM seguimientos WHERE org_id = ? AND conversation_id = ?`).run(orgId, origen.id);
 
     /*
-     * El cierre no se pisa: si el hilo bueno ya tenía su venta sellada, esa se
-     * queda. Solo se hereda la del `@lid` cuando el destino estaba abierto, que
-     * es justo el caso que hacía desaparecer ventas del dashboard.
+     * UNA SOLA VENTA, y la que manda es la que cerró el pedido.
+     *
+     * Se hereda la del `@lid` cuando el destino estaba abierto —el caso que
+     * hacía desaparecer ventas del dashboard— y TAMBIÉN cuando el destino solo
+     * tenía la factura y el `@lid` el resumen: es la misma venta, la cerró el
+     * resumen y cuenta el día del resumen. Sin esto, el resumen de ayer en un
+     * hilo y la factura de hoy en el otro acababan en una venta asistida de hoy.
+     * Entre dos cierres del mismo tipo, el primero. Una corrección manual del
+     * destino no se toca.
      */
-    const heredaCierre = destino.fecha_cierre === null && origen.fecha_cierre !== null;
+    const porFactura = (c: Conversacion) =>
+      c.senal_de_cierre === "imagen_factura" || c.senal_de_cierre === "imagen_comprobante";
+    const heredaCierre =
+      origen.fecha_cierre !== null &&
+      (destino.fecha_cierre === null ||
+        (destino.senal_de_cierre !== "correccion_manual" &&
+          ((porFactura(destino) && !porFactura(origen) && origen.senal_de_cierre === "resumen_ia") ||
+            (porFactura(destino) === porFactura(origen) && origen.fecha_cierre < destino.fecha_cierre))));
+    // La factura de los dos hilos, la primera que hubo.
+    const facturas = [origen.facturada_at, destino.facturada_at].filter((f): f is number => f !== null);
+    if (heredaCierre && destino.fecha_cierre !== null && porFactura(destino)) facturas.push(destino.fecha_cierre);
+    const facturadaAt = facturas.length ? Math.min(...facturas) : null;
 
     s(
       `UPDATE conversations SET
@@ -1978,6 +2017,7 @@ export function unificarConversacion(
          cerrado_por = CASE WHEN ? = 1 THEN ? ELSE cerrado_por END,
          senal_de_cierre = CASE WHEN ? = 1 THEN ? ELSE senal_de_cierre END,
          fecha_cierre = CASE WHEN ? = 1 THEN ? ELSE fecha_cierre END,
+         facturada_at = ?,
          total = COALESCE(total, ?),
          envio = COALESCE(envio, ?),
          producto_vendido = COALESCE(producto_vendido, ?),
@@ -1998,6 +2038,7 @@ export function unificarConversacion(
       heredaCierre ? 1 : 0, origen.cerrado_por,
       heredaCierre ? 1 : 0, origen.senal_de_cierre,
       heredaCierre ? 1 : 0, origen.fecha_cierre,
+      facturadaAt,
       origen.total,
       origen.envio,
       origen.producto_vendido,
@@ -2059,12 +2100,32 @@ export function actualizarConversacion(orgId: number, id: number, campos: Partia
  */
 export function sellarCierre(orgId: number, id: number, cierre: {
   cerradoPor: "ia" | "humano"; senal: string; fechaCierre: number;
+  /** Si lo que cierra es la propia factura, la venta nace ya facturada. */
+  facturadaAt?: number | null;
 }): boolean {
   const r = s(
     `UPDATE conversations
-        SET cerrado_por = ?, senal_de_cierre = ?, fecha_cierre = ?
+        SET cerrado_por = ?, senal_de_cierre = ?, fecha_cierre = ?,
+            facturada_at = COALESCE(facturada_at, ?)
       WHERE org_id = ? AND id = ? AND fecha_cierre IS NULL`,
-  ).run(cierre.cerradoPor, cierre.senal, cierre.fechaCierre, orgId, id);
+  ).run(cierre.cerradoPor, cierre.senal, cierre.fechaCierre, cierre.facturadaAt ?? null, orgId, id);
+  return r.changes > 0;
+}
+
+/**
+ * LA FACTURA CONFIRMA LA VENTA; NO LA CREA NI LA MUEVE DE DÍA.
+ *
+ * La venta ya existe —la cerró el resumen de la IA— y el equipo manda la foto
+ * de la factura, quizá al día siguiente. Esto solo apunta cuándo: la venta se
+ * queda en el día en que se cerró. Vale la PRIMERA foto: las siguientes de la
+ * misma factura no cambian nada, ni cuentan otra vez. Devuelve true si esta
+ * foto fue la que la marcó.
+ */
+export function marcarFacturada(orgId: number, id: number, cuando: number): boolean {
+  const r = s(
+    `UPDATE conversations SET facturada_at = ?
+      WHERE org_id = ? AND id = ? AND (facturada_at IS NULL OR facturada_at > ?)`,
+  ).run(cuando, orgId, id, cuando);
   return r.changes > 0;
 }
 
@@ -2103,18 +2164,23 @@ export function asentarMontosSiFaltan(
  * ellos manda— y una corrección manual, menos todavía: esa la firmó una
  * persona.
  *
- * `fecha_cierre` NO se toca. La venta se cerró cuando se cerró; esto decide de
- * quién es, no cuándo pasó, y moverla falsearía los tiempos de cierre.
+ * Y SE LLEVA SU FECHA. La venta automatizada cuenta el día del resumen, no el
+ * de la factura (la dueña, 2026-09-11: «la venta cuenta el día en que se
+ * cerró, no el día de la factura»). Antes aquí la fecha no se tocaba, y una
+ * venta que el resumen cerró ayer se quedaba contada el día en que llegó la
+ * foto. La hora de esa foto no se pierde: pasa a `facturada_at`, que es lo que
+ * de verdad era.
  */
 export function reatribuirCierrePorResumen(orgId: number, id: number, cierre: {
-  cerradoPor: "ia" | "humano"; senal: string;
+  cerradoPor: "ia" | "humano"; senal: string; fechaCierre: number;
 }): boolean {
   const r = s(
     `UPDATE conversations
-        SET cerrado_por = ?, senal_de_cierre = ?
+        SET cerrado_por = ?, senal_de_cierre = ?, fecha_cierre = ?,
+            facturada_at = COALESCE(facturada_at, fecha_cierre)
       WHERE org_id = ? AND id = ?
         AND senal_de_cierre IN ('imagen_factura', 'imagen_comprobante')`,
-  ).run(cierre.cerradoPor, cierre.senal, orgId, id);
+  ).run(cierre.cerradoPor, cierre.senal, cierre.fechaCierre, orgId, id);
   return r.changes > 0;
 }
 
@@ -2126,14 +2192,21 @@ export function marcarRevision(orgId: number, id: number, justificacion: string)
   ).run(justificacion, orgId, id);
 }
 
-/** Corrección manual desde la bandeja. Es lo único que rompe el sellado. */
-export function resolverRevision(orgId: number, id: number, quien: "ia" | "humano"): void {
+/**
+ * Corrección manual desde la bandeja. Es lo único que rompe el sellado.
+ *
+ * La fecha, si no la tenía, es la de la señal que cierra según quién —el
+ * resumen, o la primera factura—, la calcula `fechaDelCierre` en `cierre.ts`.
+ * Con el último mensaje, una venta confirmada hoy de un pedido de ayer se
+ * contaba hoy, que es justo lo que no puede pasar.
+ */
+export function resolverRevision(orgId: number, id: number, quien: "ia" | "humano", fecha?: number | null): void {
   s(
     `UPDATE conversations
         SET cerrado_por = ?, senal_de_cierre = 'correccion_manual',
-            fecha_cierre = COALESCE(fecha_cierre, last_message_at, unixepoch())
+            fecha_cierre = COALESCE(fecha_cierre, ?, last_message_at, unixepoch())
       WHERE org_id = ? AND id = ?`,
-  ).run(quien, orgId, id);
+  ).run(quien, fecha ?? null, orgId, id);
 }
 
 export function contarRevisiones(orgId: number): number {
@@ -3487,6 +3560,20 @@ export function metricasPorCanal(orgId: number, r: Rango) {
         ventas_ia: number; ventas_humano: number; envios: number; con_monto: number;
       };
 
+      /*
+       * LAS FACTURAS ENVIADAS EN EL PERIODO, aparte de las ventas: la factura
+       * de hoy puede ser de una venta que se cerró ayer, y esa venta cuenta
+       * ayer. Por eso van en su propia cifra, con las de ventas de días
+       * anteriores contadas aparte para decirlo en pantalla.
+       */
+      const facturas = s(
+        `SELECT COUNT(*) AS facturas,
+                COALESCE(SUM(CASE WHEN fecha_cierre < ? THEN 1 ELSE 0 END), 0) AS facturas_de_antes
+           FROM conversations
+          WHERE org_id = ? AND canal_id = ? AND cerrado_por IN ('ia','humano')
+            AND facturada_at >= ? AND facturada_at <= ?${propio.soloAnuncio ? ` AND ${DE_ANUNCIO}` : ""}`,
+      ).get(periodo.desde, orgId, ca.canal_id, periodo.desde, periodo.hasta) as { facturas: number; facturas_de_antes: number };
+
       return {
         canal_id: ca.canal_id,
         nombre: ca.nombre,
@@ -3501,6 +3588,7 @@ export function metricasPorCanal(orgId: number, r: Rango) {
         hasta: periodo.hasta,
         ...llegaron,
         ...vendieron,
+        ...facturas,
       };
     });
 
@@ -4196,6 +4284,115 @@ export function dudarDelCierre(orgId: number, id: number, justificacion: string)
         AND cerrado_por = 'ia' AND senal_de_cierre = 'resumen_ia'`,
   ).run(justificacion, orgId, id);
   return r.changes > 0;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// La factura de cada venta. Ver `marcarFacturada` y `cierre.ts`.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Las fotos que mandó el equipo DESPUÉS de cerrarse la venta y que nadie ha
+ * mirado todavía (`descripcion_imagen` nula: la visión, al fallar, también
+ * escribe, así que una foto que no se pudo leer no se vuelve a pagar).
+ */
+export function fotosPorMirarTrasElCierre(orgId: number, conversationId: number, desde: number): Mensaje[] {
+  return s(
+    `SELECT * FROM messages
+      WHERE org_id = ? AND conversation_id = ? AND emisor <> 'cliente'
+        AND tipo = 'imagen' AND descripcion_imagen IS NULL AND created_at >= ?
+      ORDER BY created_at ASC, id ASC`,
+  ).all(orgId, conversationId, desde) as Mensaje[];
+}
+
+/**
+ * Ventas recientes sin factura apuntada que tienen fotos del equipo sin mirar
+ * después del cierre: ahí puede estar la factura. Solo las de los últimos días
+ * —mirar fotos cuesta visión, y una factura llega en horas, no en meses—.
+ */
+export function ventasPorFacturar(orgId: number, desde: number, limite: number): Conversacion[] {
+  return s(
+    `SELECT c.* FROM conversations c
+      WHERE c.org_id = ? AND c.cerrado_por IN ('ia','humano') AND c.facturada_at IS NULL
+        AND c.fecha_cierre >= ?
+        AND EXISTS (
+          SELECT 1 FROM messages m
+           WHERE m.org_id = c.org_id AND m.conversation_id = c.id AND m.emisor <> 'cliente'
+             AND m.tipo = 'imagen' AND m.descripcion_imagen IS NULL AND m.created_at >= c.fecha_cierre)
+      ORDER BY c.fecha_cierre DESC
+      LIMIT ?`,
+  ).all(orgId, desde, limite) as Conversacion[];
+}
+
+/**
+ * Las ventas de la IA de la cuenta cerradas entre `desde` y `hasta`, fuera de
+ * `excluir`. Son las candidatas a ser LA MISMA venta que una factura que llegó
+ * por otro hilo. Ver `ventaQueConfirmaLaFactura` en `cierre.ts`.
+ */
+export function ventasDeLaIaEntre(orgId: number, desde: number, hasta: number, excluir: number): Conversacion[] {
+  return s(
+    `SELECT * FROM conversations
+      WHERE org_id = ? AND id <> ? AND cerrado_por = 'ia' AND senal_de_cierre = 'resumen_ia'
+        AND fecha_cierre BETWEEN ? AND ?
+      ORDER BY fecha_cierre DESC`,
+  ).all(orgId, excluir, desde, hasta) as Conversacion[];
+}
+
+/**
+ * UNA FACTURA QUE NO ES OTRA VENTA: el hilo deja de contar como venta.
+ *
+ * Es la foto de la factura de una venta que ya cerró la IA en otro hilo del
+ * mismo cliente. Contarla sería contar dos veces la misma venta: el hilo vuelve
+ * a abierto con la explicación, y la venta de verdad queda marcada como
+ * facturada. Las corregidas a mano no se tocan.
+ */
+export function deshacerVentaDuplicada(orgId: number, id: number, justificacion: string): boolean {
+  const r = s(
+    `UPDATE conversations
+        SET cerrado_por = 'abierta', senal_de_cierre = NULL, fecha_cierre = NULL,
+            justificacion = ?, analizada_at = unixepoch()
+      WHERE org_id = ? AND id = ? AND COALESCE(senal_de_cierre, '') <> 'correccion_manual'`,
+  ).run(justificacion, orgId, id);
+  return r.changes > 0;
+}
+
+/** Todas las conversaciones con cierre sellado de una cuenta. Para el recálculo. */
+export function conversacionesSelladas(orgId: number): Conversacion[] {
+  return s(
+    `SELECT * FROM conversations WHERE org_id = ? AND fecha_cierre IS NOT NULL ORDER BY fecha_cierre ASC, id ASC`,
+  ).all(orgId) as Conversacion[];
+}
+
+/**
+ * Reescribe el cierre de una venta con lo que dice la regla. SOLO para el
+ * recálculo del histórico (`recalculo.ts`): fuera de ahí, un cierre sellado no
+ * se mueve más que por las vías de arriba.
+ */
+export function reescribirCierre(orgId: number, id: number, cierre: {
+  cerradoPor: EstadoCierre; senal: string | null; fechaCierre: number; facturadaAt: number | null;
+}): void {
+  s(
+    `UPDATE conversations
+        SET cerrado_por = ?, senal_de_cierre = ?, fecha_cierre = ?, facturada_at = ?
+      WHERE org_id = ? AND id = ?`,
+  ).run(cierre.cerradoPor, cierre.senal, cierre.fechaCierre, cierre.facturadaAt, orgId, id);
+}
+
+/** El informe de un recálculo ya hecho, o null. */
+export function obtenerRecalculo(orgId: number, clave: string): { creado_at: number; informe: string } | null {
+  return (s(`SELECT creado_at, informe FROM recalculos WHERE org_id = ? AND clave = ?`)
+    .get(orgId, clave) as { creado_at: number; informe: string } | undefined) ?? null;
+}
+
+/** Apunta un recálculo. Devuelve false si ya estaba: nunca se hace dos veces. */
+export function guardarRecalculo(orgId: number, clave: string, informe: string): boolean {
+  return s(`INSERT OR IGNORE INTO recalculos (org_id, clave, informe) VALUES (?, ?, ?)`)
+    .run(orgId, clave, informe).changes > 0;
+}
+
+/** Las cuentas con alguna venta sellada: el recálculo del arranque pasa por cada una. */
+export function orgsConVentas(): number[] {
+  return (s(`SELECT DISTINCT org_id FROM conversations WHERE fecha_cierre IS NOT NULL ORDER BY org_id`)
+    .all() as { org_id: number }[]).map((f) => f.org_id);
 }
 
 /** Ventas selladas que todavía facturan cero: el pedido está sin extraer. */
