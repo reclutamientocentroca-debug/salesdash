@@ -2922,6 +2922,26 @@ export function listarProductosAnunciados(orgId: number): ProductoAnunciadoFila[
 }
 
 /**
+ * LA RAÍZ DE UNA PALABRA DE ARTÍCULO, para que dos formas de decir lo mismo
+ * casen.
+ *
+ * La dueña (2026-09-11): «recuerda que los polos y los poloches» son lo mismo.
+ * El catálogo de lo anunciado se buscaba palabra a palabra, así que la tienda
+ * anunciaba «POLOS BRONX» y el cliente que escribía «quiero unos poloches» —o
+ * «un polo», en singular— no lo encontraba: se quedaba sin precio y el agente,
+ * sin nada que vender.
+ *
+ * Dos pasos, y los mismos a los dos lados de la comparación: el poloche es el
+ * polo —en todas sus formas— y el plural se deja en singular.
+ */
+function raizDeArticulo(palabra: string): string {
+  if (/^poloch(e|es|er|eres)$/.test(palabra)) return "polo";
+  if (palabra.endsWith("ones") && palabra.length > 5) return palabra.slice(0, -2); // cinturones → cinturon
+  if (palabra.endsWith("s") && palabra.length > 4) return palabra.slice(0, -1); // polos → polo
+  return palabra;
+}
+
+/**
  * EL PRODUCTO ANUNCIADO QUE NOMBRA ESTE TEXTO, si es de esta tienda.
  *
  * El caso: el cliente escribe «quiero unos poloches» sin pinchar ningún
@@ -2937,13 +2957,16 @@ export function buscarProductoAnunciado(orgId: number, texto: string | null | un
   const t = llanoDeProducto(texto ?? "");
   if (!t) return null;
 
-  const palabrasDelCliente = new Set(t.split(/[^\p{L}\p{N}]+/u).filter((p) => p.length >= 4));
+  const palabras = (x: string) =>
+    x.split(/[^\p{L}\p{N}]+/u).filter((p) => p.length >= 4).map(raizDeArticulo);
+
+  const palabrasDelCliente = new Set(palabras(t));
   if (!palabrasDelCliente.size) return null;
 
   let mejor: { fila: ProductoAnunciadoFila; aciertos: number } | null = null;
 
   for (const fila of listarProductosAnunciados(orgId)) {
-    const suyas = fila.nombre_llano.split(/[^\p{L}\p{N}]+/u).filter((p) => p.length >= 4);
+    const suyas = palabras(fila.nombre_llano);
     const aciertos = suyas.filter((p) => palabrasDelCliente.has(p)).length;
     if (aciertos > 0 && (!mejor || aciertos > mejor.aciertos)) mejor = { fila, aciertos };
   }

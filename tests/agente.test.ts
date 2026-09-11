@@ -1418,6 +1418,35 @@ test("el anuncio del lead se lee una vez y el agente vende con ese precio, sin t
   );
 });
 
+/**
+ * POLO Y POLOCHE SON LO MISMO, TAMBIÉN AL BUSCAR LO ANUNCIADO.
+ *
+ * La dueña (2026-09-11): «recuerda que los polos y los poloches». El catálogo
+ * de lo anunciado se buscaba palabra a palabra: la tienda anunciaba «POLOS
+ * BRONX» y quien escribía «quiero unos poloches» —o «un polo», en singular— no
+ * lo encontraba, y se quedaba sin precio.
+ */
+test("quien pide poloches encuentra los polos anunciados, y al revés", () => {
+  const { orgId: tienda } = D.crearOrgConDueno({
+    negocio: "Polos", color: "#123456", nombre: "D", email: "polos@prueba.com", passwordHash: "x",
+  });
+  D.guardarProductoAnunciado(tienda, { nombre: "POLOS BRONX ORIGINALES", precio: 1400 });
+
+  for (const dice of ["quiero unos poloches", "un poloche", "polocheres", "un polo", "quiero polos"]) {
+    assert.equal(D.buscarProductoAnunciado(tienda, dice)?.precio, 1400, dice);
+  }
+
+  const { orgId: otra } = D.crearOrgConDueno({
+    negocio: "Poloches", color: "#123456", nombre: "D", email: "poloches@prueba.com", passwordHash: "x",
+  });
+  D.guardarProductoAnunciado(otra, { nombre: "POLOCHES BRONX", precio: 1400 });
+  assert.equal(D.buscarProductoAnunciado(otra, "quiero unos polos")?.precio, 1400, "y al revés");
+
+  // Lo que no es un polo sigue sin ser un polo.
+  assert.equal(D.buscarProductoAnunciado(tienda, "quiero una nevera"), null);
+  assert.equal(D.buscarProductoAnunciado(tienda, "quiero unos zapatos"), null);
+});
+
 // ── Etiqueta de asesor y seguimientos ───────────────────────────────────────
 
 /**
