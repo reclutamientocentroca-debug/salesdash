@@ -3,7 +3,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { agenteDePais, bloqueDelPais } from "../src/agents";
 import { clienteEscribioSuNombre } from "../src/lib/agent";
-import { respuestaMinima } from "../src/lib/apertura";
+import { respuestaMinima, resumenMecanico } from "../src/lib/apertura";
+import { fichaDelPedido } from "../src/lib/memoria";
 import { correccionParaElAgente, revisarBorrador, revisarConReglas, transferenciaPermitida, type ContextoRevision } from "../src/lib/revisor";
 
 /**
@@ -1038,6 +1039,69 @@ test("preguntar de qué es el artículo se contesta con el anuncio, o el revisor
     revisarConReglas("Eso se lo confirmo con el equipo. Indíquenos a qué dirección y provincia le enviamos.", sinDato)
       .some((f) => f.includes("de qué es el artículo")),
     false,
+  );
+});
+
+/**
+ * MEDIA DOCENA ES SEIS, Y A RD$1,190 CADA UNA.
+ *
+ * La dueña (2026-09-11): «me le está dando al cliente media docena al precio de
+ * uno; media docena es a 1,190 cada una, verifica qué se está filtrando». La
+ * pregunta se contestaba bien; lo que se filtraba era el pedido: la cantidad
+ * que el cliente decía no llegaba a la ficha —solo se apuntaba si se
+ * preguntaba, y no se pregunta nunca—, y el resumen salía con una unidad a
+ * precio de una. Y si el modelo escribía las seis a RD$1,400, el revisor lo
+ * daba por bueno porque esa cuenta «se explica» con cifras conocidas.
+ */
+test("la media docena llega al pedido y se cobra al precio de seis", () => {
+  const polos = "POLOS BRONX ORIGINALES RD$1,400 C/U RD$1,190 al por mayor";
+
+  // 1. La ficha se queda con las que dijo él, aunque nadie se lo preguntara.
+  const ficha = fichaDelPedido(
+    [
+      { emisor: "ia", content: "POLOS BRONX ORIGINALES\nRD$1,400\n¿Qué talla le interesa?", created_at: 1_760_000_000 },
+      { emisor: "cliente", content: "quiero media docena, talla L", created_at: 1_760_000_060 },
+    ],
+    rd.datos,
+  );
+  assert.equal(ficha.cantidad, "6");
+
+  // 2. El resumen de la casa cobra las seis a RD$1,190.
+  const mecanico = resumenMecanico(
+    rd.datos,
+    { ...ficha, color: "azul", direccion: "Los Alcarrizos", nombre: "Ana Pérez", celular: "8095551234" },
+    { descripcion_anuncio: polos },
+    { telefonoDelChat: "8095551234" },
+  )!;
+  assert.ok(mecanico.includes("Cantidad: 6"), mecanico);
+  assert.ok(mecanico.includes("TOTAL A PAGAR: RD$7,390"), "6 × 1,190 + 250 de envío");
+
+  // 3. Y el revisor para el resumen del modelo que se equivoca en cualquiera de las dos.
+  const ctx = {
+    ...rd,
+    anuncio: polos,
+    marcador: "Resumen:",
+    textosDelCliente: ["quiero media docena, talla L", "azul", "Los Alcarrizos", "Ana Pérez", "8095551234"],
+    ultimoDelCliente: "Ana Pérez",
+    telefonoDelChat: "8095551234",
+  };
+  const resumen = (cantidad: number, total: string) =>
+    `📋 RESUMEN DEL PEDIDO\nNombre: Ana Pérez\nTelefono: 8095551234\nDireccion: Los Alcarrizos\n` +
+    `Producto: Polos Bronx Originales\nTalla: L\nColor: azul\nCantidad: ${cantidad}\nEnvio: RD$250\n` +
+    `TOTAL A PAGAR: ${total}\nForma de pago: contra entrega\n✅ PEDIDO REGISTRADO`;
+
+  assert.ok(
+    revisarConReglas(resumen(1, "RD$1,650"), ctx).some((f) => f.includes("pidió 6 unidades")),
+    "una unidad a quien pidió seis",
+  );
+  assert.ok(
+    revisarConReglas(resumen(6, "RD$8,650"), ctx).some((f) => f.includes("no el precio de una")),
+    "las seis a precio de una",
+  );
+  assert.equal(
+    revisarConReglas(resumen(6, "RD$7,390"), ctx).some((f) => /unidades|precio de una/.test(f)),
+    false,
+    "y las seis a RD$1,190 pasan",
   );
 });
 

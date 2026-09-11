@@ -1128,6 +1128,49 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
     }
 
     /*
+     * 12c-bis. LAS QUE PIDIÓ, Y AL PRECIO DE ESAS.
+     *
+     * La dueña (2026-09-11): «me le está dando al cliente media docena al
+     * precio de uno; media docena es a 1,190 cada una». La pregunta se
+     * contestaba bien, y luego el resumen salía con «Cantidad: 1», o con las
+     * seis a RD$1,400: un total que el revisor daba por bueno porque 1,400 por
+     * seis más el envío «se explica» con cifras conocidas. Aquí se mira lo que
+     * de verdad se le debe cobrar.
+     */
+    {
+      const pidio = Math.max(0, ...(ctx.textosDelCliente ?? []).map((t) => cantidadDicha(t) ?? 0));
+      const dice = leido.cantidad && /\d/.test(leido.cantidad) ? Number(leido.cantidad.replace(/\D/g, "")) : 1;
+
+      if (pidio >= 2 && dice < pidio) {
+        fallas.push(
+          `el cliente pidió ${pidio} unidades y el resumen dice «Cantidad: ${dice}»: escribe «Cantidad: ${pidio}» y cóbralas al precio que les toca`,
+        );
+      }
+
+      /*
+       * Y EL TOTAL CON EL PRECIO DEL TRAMO. Solo con una lista de precios por
+       * cantidad para este artículo: sin ella, el precio del anuncio es el de
+       * cada una y no hay nada que comprobar.
+       */
+      const fuentes = ctx.anuncio ?? ctx.catalogo ?? "";
+      const base = leerImporte(precioDeLaDescripcion(fuentes, d.moneda.simbolo) ?? "");
+      const unidades = Math.max(dice, pidio);
+      const total = leido.total ? importes(leido.total, d.moneda.simbolo)[0] ?? Number(leido.total.replace(/[^\d.]/g, "")) : null;
+
+      if (base !== null && unidades >= 2 && total) {
+        const cadaUna = precioPorCantidad(d, fuentes, unidades, base);
+        const envios = [d.envio.restoDelPais.costo, ...d.envio.zonas.map((z) => z.costo), 0];
+        const cuadra = envios.some((e) => igual(cadaUna * unidades + e, total));
+        if (cadaUna !== base && !cuadra) {
+          fallas.push(
+            `el total del resumen no sale al precio de ${unidades} unidades: a ${unidades} les toca ${d.moneda.simbolo}${cadaUna.toLocaleString("es-DO")} cada una ` +
+              `—${d.moneda.simbolo}${(cadaUna * unidades).toLocaleString("es-DO")} más el envío—, no el precio de una`,
+          );
+        }
+      }
+    }
+
+    /*
      * 12d. DOS COLORES SON DOS UNIDADES (la dueña, RD, 2026-09-07).
      *
      * La captura: «Talla: Rojo y azul XL», «Cantidad: 1» y el total con el

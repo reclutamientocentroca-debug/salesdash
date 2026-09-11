@@ -43,7 +43,7 @@
  */
 import { agenteDePais, zonaDelCliente, type DatosPais } from "@/agents";
 import { reColores } from "@/agents/base-comportamiento";
-import { nombraUnArticulo } from "./apertura";
+import { cantidadDicha, nombraUnArticulo } from "./apertura";
 import { nombresDeLugar } from "./envio";
 import { esUbicacion, textoSinMarca } from "./ubicacion";
 
@@ -491,6 +491,19 @@ function fichaDe(sesion: MensajeDeMemoria[], datos: DatosPais | null): FichaDelP
         const talla = m.content.match(TALLA_DICHA);
         if (talla) ficha.talla = talla[1].toUpperCase();
       }
+      /*
+       * Y CUÁNTAS, DICHO POR ÉL. La dueña (2026-09-11): «me le está dando al
+       * cliente media docena al precio de uno; media docena es a 1,190 cada
+       * una». La pregunta se contestaba bien, pero la cantidad no llegaba nunca
+       * al pedido: la ficha solo la apuntaba cuando se PREGUNTABA, y la
+       * cantidad no se pregunta nunca. El resumen salía con «Cantidad: 1» a
+       * precio de una, a quien había pedido seis.
+       *
+       * Vale también dentro de una pregunta —«¿a cómo la media docena?» ya dice
+       * cuántas quiere—, y el último que la diga manda: el cliente se corrige.
+       */
+      const cuantas = cantidadDicha(m.content);
+      if (cuantas !== null && cuantas >= 2) ficha.cantidad = String(cuantas);
       continue;
     }
     // La pregunta de una persona del equipo también cuenta: el cliente le

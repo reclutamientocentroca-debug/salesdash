@@ -3442,8 +3442,7 @@ export function metricasPorCanal(orgId: number, r: Rango) {
     .filter((ca) => r.canalId === undefined || ca.canal_id === r.canalId)
     .map((ca) => {
       const pais = ca.pais || paisDeTelefono(ca.phone)?.codigo || "";
-      const huso = husoDelCanal(ca) ?? r.huso ?? husoDelServidor();
-      const periodo = periodoEnHuso(r, huso);
+      const { huso, periodo } = periodoDelCanal(ca, r);
       const propio: Rango = { ...r, desde: periodo.desde, hasta: periodo.hasta, canalId: ca.canal_id };
 
       const cohorte = filtroRango(orgId, propio);
@@ -3491,6 +3490,57 @@ export function metricasPorCanal(orgId: number, r: Rango) {
 
   // Los que más traen arriba; el id desempata para que dos en cero no bailen.
   return filas.sort((a, b) => b.leads - a.leads || a.canal_id - b.canal_id);
+}
+
+/** El periodo de un número en la hora de su país. Ver `metricasPorCanal`. */
+function periodoDelCanal(ca: { phone: string; pais: string }, r: Rango) {
+  const huso = husoDelCanal(ca) ?? r.huso ?? husoDelServidor();
+  return { huso, periodo: periodoEnHuso(r, huso) };
+}
+
+/**
+ * LAS VENTAS DEL PERIODO, UNA A UNA: exactamente las que cuentan los KPIs.
+ *
+ * Gemela de los cierres de `metricasPorCanal`: cada venta entra por el día en
+ * que se CERRÓ y en la hora del país de su número. Listarlas por el día en que
+ * el cliente escribió —como hace `listarConversaciones`— daba otra lista: con
+ * un día elegido, la tarjeta decía «Automatizada 4» y la tabla enseñaba las
+ * ventas de los clientes que llegaron ese día, que no son esas cuatro.
+ *
+ * Con `cerradoPor`, solo las automatizadas o solo las asistidas.
+ */
+export function listarVentas(
+  orgId: number,
+  r: Rango,
+  filtros: { cerradoPor?: "ia" | "humano"; limite?: number } = {},
+): Conversacion[] {
+  const canales = s(
+    `SELECT ca.id AS canal_id, ca.phone, COALESCE(a.pais, '') AS pais
+       FROM canales ca
+       LEFT JOIN agentes a ON a.org_id = ca.org_id AND a.canal_id = ca.id
+      WHERE ca.org_id = ?`,
+  ).all(orgId) as { canal_id: number; phone: string; pais: string }[];
+
+  const tramos = canales
+    .filter((ca) => r.canalId === undefined || ca.canal_id === r.canalId)
+    .map((ca) => ({ canal_id: ca.canal_id, ...periodoDelCanal(ca, r).periodo }));
+  if (tramos.length === 0) return [];
+
+  const cond = [
+    "org_id = ?",
+    filtros.cerradoPor ? "cerrado_por = ?" : "cerrado_por IN ('ia','humano')",
+    `(${tramos.map(() => "(canal_id = ? AND fecha_cierre >= ? AND fecha_cierre <= ?)").join(" OR ")})`,
+  ];
+  const val: unknown[] = [orgId];
+  if (filtros.cerradoPor) val.push(filtros.cerradoPor);
+  for (const t of tramos) val.push(t.canal_id, t.desde, t.hasta);
+  if (r.soloAnuncio) cond.push(DE_ANUNCIO);
+
+  return s(
+    `SELECT * FROM conversations WHERE ${cond.join(" AND ")}
+      ORDER BY fecha_cierre DESC, id DESC
+      LIMIT ?`,
+  ).all(...val, filtros.limite ?? 500) as Conversacion[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
