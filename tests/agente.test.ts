@@ -16,6 +16,7 @@ import {
   quitarResumenRepetido,
   loYaPreguntado,
   pideHumano,
+  loQueSeVendeAqui,
   porQueCalla,
   porQueNoContesto,
   revisarAgente,
@@ -24,6 +25,9 @@ import { contieneMarcador, duenoDelCierre, registrarCierre } from "../src/lib/ci
 import { leerEtiquetaDeAsesor, ponerUbicacionResuelta } from "../src/lib/agent";
 import { fichaDelHilo } from "../src/lib/memoria";
 import { ingerir } from "../src/lib/ingesta";
+import { aperturaSegura } from "../src/lib/apertura";
+import { transferenciaPermitida } from "../src/lib/revisor";
+import { agenteDePais, bloqueDelPais } from "../src/agents";
 import { direccionDelChat, jidDeDestino } from "../src/lib/telefono";
 import { laFotoAyudaAElegir, laFotoVaConEstaRespuesta } from "../src/lib/apertura";
 import type { Resultado } from "../src/lib/agent";
@@ -1318,6 +1322,100 @@ test("se contesta a la dirección de WhatsApp, no a los dígitos del identificad
   const { conversacion, nueva } = D.getOrCreateConversation(orgId, canalId, "123456789012345");
   assert.equal(nueva, false, "el mensaje tenía que haber abierto el hilo");
   assert.equal(conversacion.cliente_jid, "123456789012345@lid");
+});
+
+/**
+ * EL PRECIO DEL LEAD NO SE PIERDE, Y CON ÉL NO SE TRANSFIERE.
+ *
+ * La dueña (2026-09-11): el cliente llega por un anuncio de poloches, el agente
+ * reconoce el artículo y no tiene el precio, así que le dice que un
+ * representante se lo confirma. El anuncio traía la cifra escrita —la escribió
+ * el negocio— pero solo llega en el primer mensaje: se lee ahí y se guarda en
+ * dos sitios, la conversación de ese cliente y el catálogo de lo anunciado.
+ */
+test("el anuncio del lead se lee una vez y el agente vende con ese precio, sin transferir", async () => {
+  encender(false);
+  const rd = agenteDePais("do")!;
+  D.actualizarAgente(orgId, { pais: "do" }, canalId);
+  const canal = D.obtenerCanal(orgId, canalId)!;
+
+  const ANUNCIO =
+    "🔥 POLOCHES BRONX ORIGINALES 🔥 Moderno, Fresco y duradero 🎽 RD$1,400 C/U RD$1,190 al por mayor 📦 ENVÍO A TODO EL PAÍS";
+
+  await ingerir(
+    canal,
+    [{
+      id: "lead-poloches", deMi: false, chatId: "18095557777@s.whatsapp.net", tipo: "texto",
+      content: "Hola, quiero información", mediaUrl: null, cuando: D.ahora(), nombre: "Ana",
+      deAnuncio: true, productoAnuncio: "Rincondcm", descripcionAnuncio: ANUNCIO, metaAdId: "ad-poloches",
+    }],
+    { dentroDePeticion: false },
+  );
+
+  // 1. Queda leído en la conversación de ese cliente.
+  const hilo = D.getOrCreateConversation(orgId, canalId, "18095557777").conversacion;
+  const leido = JSON.parse(D.getConversation(orgId, hilo.id)!.producto_lead!);
+  assert.match(leido.nombre, /POLOCHES BRONX/i);
+  assert.equal(leido.precio, 1400);
+  assert.equal(leido.precioMayor, 1190, "el de por mayor también, que es el que se pregunta");
+
+  // 2. Y en el catálogo de lo que la tienda anuncia, para el que escriba mañana.
+  const anunciado = D.buscarProductoAnunciado(orgId, "quiero unos poloches");
+  assert.equal(anunciado?.precio, 1400);
+  assert.equal(D.buscarProductoAnunciado(orgId, "quiero una nevera"), null, "lo que no se anuncia no aparece");
+
+  /*
+   * 3. Con eso, el agente vende. Aunque el texto del anuncio no vuelva a
+   * llegar —que es lo que pasaba—, el precio sigue delante y la apertura sale
+   * entera: artículo, precio y la pregunta que toca.
+   */
+  const conElLead = { ...D.getConversation(orgId, hilo.id)!, descripcion_anuncio: null, anuncio_actual_descripcion: null };
+  const seVende = loQueSeVendeAqui(orgId, conElLead, [], rd.moneda.simbolo);
+  assert.match(seVende.descripcion_anuncio!, /RD\$1,400/);
+
+  const apertura = aperturaSegura(rd, seVende, "Hola! Bienvenido(a) a RINCON DCM. Gracias por escribirnos.")!;
+  assert.match(apertura, /RD\$1,400/, "le dice el precio");
+  assert.match(apertura, /¿Qué talla le interesa\?$/, "y sigue el flujo normal");
+  assert.equal(/anuncio/i.test(apertura), false, "sin nombrarle el anuncio");
+
+  // 4. El cliente que escribe días después sin pinchar nada: se le reconoce.
+  const otro = D.getOrCreateConversation(orgId, canalId, "18095558888").conversacion;
+  const porSuCuenta = loQueSeVendeAqui(
+    orgId,
+    D.getConversation(orgId, otro.id)!,
+    [{ emisor: "cliente", content: "buenas, quiero unos poloches", created_at: D.ahora() } as D.Mensaje],
+    rd.moneda.simbolo,
+  );
+  assert.match(porSuCuenta.descripcion_anuncio!, /RD\$1,400/);
+
+  // 5. Y lo que no está en ningún sitio sigue sin precio: ESO sí se transfiere.
+  const sinNada = loQueSeVendeAqui(
+    orgId,
+    D.getConversation(orgId, otro.id)!,
+    [{ emisor: "cliente", content: "quiero una nevera de 12 pies", created_at: D.ahora() } as D.Mensaje],
+    rd.moneda.simbolo,
+  );
+  assert.equal(sinNada.descripcion_anuncio, null);
+
+  const ctx = (anuncio: string | null) => ({
+    datos: rd,
+    nombresDeLaCasa: ["Orlanda", "RINCON DCM"],
+    catalogo: "",
+    anuncio,
+    bloqueDelPais: bloqueDelPais(rd, null, "RINCON DCM"),
+    ultimoDelCliente: "hola",
+  });
+  const transfiere = "Permítame un momento, le transfiero con un representante. [HANDOFF]";
+  assert.equal(
+    transferenciaPermitida(transfiere, ctx(seVende.descripcion_anuncio ?? null) as never),
+    false,
+    "con el precio del lead delante no hay nada que transferir",
+  );
+  assert.equal(
+    transferenciaPermitida(transfiere, ctx(null) as never),
+    true,
+    "sin precio en ninguna parte, sí",
+  );
 });
 
 // ── Etiqueta de asesor y seguimientos ───────────────────────────────────────

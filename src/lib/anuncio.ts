@@ -15,7 +15,9 @@
  *      producto, y el analista no sabe atribuirle la venta a nada.
  */
 
-import { articuloDeLaDescripcion } from "./apertura";
+import { articuloDeLaDescripcion, precioDeLaDescripcion } from "./apertura";
+import { reColores } from "@/agents/base-comportamiento";
+import { leerImporte } from "./moneda";
 
 /**
  * Lo que queda escrito cuando la imagen de un anuncio no se pudo mirar.
@@ -110,6 +112,113 @@ export function esAnuncioDeMeta(
     a.showAdAttribution === true ||
     /\bfb\.me\b|facebook\.com\/ads|\bl\.instagram\.com\b/i.test(a.sourceUrl ?? "")
   );
+}
+
+/**
+ * LO QUE VENDE EL ANUNCIO, LEÍDO UNA VEZ Y GUARDADO.
+ *
+ * El caso de la dueña (2026-09-11): el cliente llega por un anuncio de
+ * «poloches», el agente reconoce el artículo y no tiene el precio, así que le
+ * dice que un representante se lo confirma. Eso es un lead pagado que se cae en
+ * la primera respuesta.
+ *
+ * El anuncio trae el precio escrito —lo escribió el propio negocio— y hasta
+ * ahora se leía al vuelo en cada respuesta, del texto que hubiera en la
+ * conversación. Si ese texto no llegaba, o lo pisaba otro, no había precio en
+ * ninguna parte. Aquí se lee UNA vez, en cuanto entra el lead, y se guarda: en
+ * la conversación de ese cliente y en el catálogo de lo anunciado, que sirve
+ * para el que escriba mañana sin pinchar nada.
+ *
+ * No inventa: si el anuncio no trae precio, `precio` sale null y el agente
+ * sigue sin poder cotizar —eso sí es motivo de transferir—.
+ */
+export interface ProductoAnunciado {
+  /** Cómo se llama, en corto: lo que se le dice al cliente y va en el resumen. */
+  nombre: string;
+  /** El precio de una unidad, en números. Null si el anuncio no lo escribe. */
+  precio: number | null;
+  /** El de por mayor, si el anuncio lo trae al lado. */
+  precioMayor: number | null;
+  /** Las tallas que nombra el anuncio, tal cual. */
+  tallas: string | null;
+  /** Los colores que nombra el anuncio, separados por coma. */
+  colores: string | null;
+  /** El texto entero del anuncio, que es lo que se le prometió al cliente. */
+  descripcion: string | null;
+}
+
+/** Cómo suena el precio por mayor en un anuncio dominicano. */
+const AL_POR_MAYOR = /\b(al por mayor|por mayor|mayorista|mayoreo|docena|revendedor)\b/i;
+
+/** «Tallas de la S a la XXL», «Talla: 30 a 42», «S M L XL». */
+const TALLAS_ESCRITAS =
+  /\btallas?\s*:?\s*((?:de\s+la\s+)?[\dsmlx]+(?:\s*(?:a\s+la|a|-|\/|,|y)\s*[\dsmlx]+)+)/i;
+
+/**
+ * LEE EL ANUNCIO Y SACA EL PRODUCTO. Null si no se puede nombrar el artículo:
+ * sin nombre no hay nada que guardar ni que buscar después.
+ */
+export function leerProductoDelAnuncio(
+  titulo: string | null | undefined,
+  descripcion: string | null | undefined,
+  simbolo: string,
+): ProductoAnunciado | null {
+  const texto = [titulo, descripcion].filter((t) => t?.trim()).join(" · ");
+  if (!texto.trim()) return null;
+
+  /*
+   * EL NOMBRE SALE DE LA DESCRIPCIÓN, que es donde el anuncio dice qué vende.
+   * El título es el de la campaña —«Rincondcm»— y sirve de respaldo cuando no
+   * hay texto, no para pegarlo delante del artículo.
+   */
+  const nombre =
+    articuloDeLaDescripcion(descripcion?.trim() ?? "", simbolo) ??
+    articuloDeLaDescripcion(titulo?.trim() ?? "", simbolo) ??
+    titulo?.trim() ??
+    null;
+  if (!nombre) return null;
+
+  /*
+   * LOS IMPORTES, EN ORDEN. El primero es el precio de una unidad —así lo
+   * escribe la publicidad, «RD$1,400 c/u»— y el segundo, si el texto habla de
+   * mayoreo, es el del por mayor: «RD$1,400 C/U RD$1,190 al por mayor».
+   */
+  const simboloEscapado = simbolo.replace(/[.*+?^${}()|[\]\\]/g, (c) => `\\${c}`);
+  const importes = [...texto.matchAll(new RegExp(`${simboloEscapado}\\s?\\d[\\d.,]*`, "g"))]
+    .map((m) => leerImporte(m[0]))
+    .filter((n): n is number => n !== null);
+
+  const precio = importes[0] ?? leerImporte(precioDeLaDescripcion(texto, simbolo) ?? "");
+  const segundo = importes.find((n) => n !== precio && n < (precio ?? Infinity)) ?? null;
+  const precioMayor = AL_POR_MAYOR.test(texto) ? segundo : null;
+
+  const tallas = texto.match(TALLAS_ESCRITAS)?.[1]?.trim() ?? null;
+  const colores = [...new Set([...texto.matchAll(reColores("gi"))].map((m) => m[0].toLowerCase()))];
+
+  return {
+    nombre,
+    precio: precio ?? null,
+    precioMayor,
+    tallas,
+    colores: colores.length ? colores.join(", ") : null,
+    descripcion: descripcion?.trim() || null,
+  };
+}
+
+/**
+ * EL PRODUCTO, ESCRITO COMO UNA DESCRIPCIÓN DE ANUNCIO.
+ *
+ * Para que todo lo que ya sabe leer una descripción —la apertura, la respuesta
+ * mecánica, el resumen, el revisor— siga funcionando igual sin enterarse de que
+ * el precio ya no salió del texto del anuncio sino de lo guardado.
+ */
+export function textoDelProducto(p: ProductoAnunciado, simbolo: string): string {
+  const partes = [p.nombre];
+  if (p.precio !== null) partes.push(`${simbolo}${p.precio.toLocaleString("es-DO")}`);
+  if (p.precioMayor !== null) partes.push(`${simbolo}${p.precioMayor.toLocaleString("es-DO")} al por mayor`);
+  if (p.tallas) partes.push(`Tallas: ${p.tallas}`);
+  if (p.colores) partes.push(`Colores: ${p.colores}`);
+  return partes.join(" · ");
 }
 
 /**

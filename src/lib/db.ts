@@ -206,6 +206,15 @@ CREATE TABLE IF NOT EXISTS conversations (
   /* CUÁNDO SE LE DEVOLVIÓ EL HILO A LA IA por última vez. Lo que escribió el
      equipo antes de ese momento ya no la calla: el botón manda. */
   devuelta_a_ia_at INTEGER,
+  /* LO QUE VENDE EL ANUNCIO POR EL QUE LLEGÓ ESTE CLIENTE, ya leído: nombre,
+     precio, precio por mayor, tallas y colores, en JSON. Lo lee
+     leerProductoDelAnuncio(), en anuncio.ts.
+
+     El anuncio trae el precio escrito y solo llega en el primer mensaje: si no
+     se lee y se guarda en ese momento, a la tercera respuesta el agente ya no
+     sabe cuanto vale lo que esta vendiendo y acaba diciendo que un
+     representante se lo confirma. Eso es un lead pagado que se cae. */
+  producto_lead TEXT,
   fecha_inicio INTEGER NOT NULL DEFAULT (unixepoch()),
   fecha_cierre INTEGER, last_message_at INTEGER,
   UNIQUE(canal_id, cliente_phone)
@@ -353,6 +362,33 @@ CREATE TABLE IF NOT EXISTS seguimientos (
   tipo TEXT NOT NULL CHECK(tipo IN ('visto','entrega')),
   enviado_at INTEGER NOT NULL DEFAULT (unixepoch()),
   UNIQUE(conversation_id, tipo)
+);
+
+/* LO QUE LA TIENDA ANUNCIA, con su precio, leido de los propios anuncios.
+
+   No es el catalogo que escribe la duena a mano —ese es la tabla catalogo— sino lo
+   que la publicidad ya dijo ahi fuera: el nombre, el precio, el de por mayor,
+   las tallas y los colores tal como salieron en el anuncio. Sirve para el
+   cliente que escribe DIAS DESPUES sin pinchar nada —«quiero unos poloches»—,
+   que hasta ahora llegaba a un agente sin ningun precio delante.
+
+   Una fila por tienda y producto: el nombre llano es la llave, asi que el
+   mismo producto anunciado diez veces se actualiza en vez de duplicarse. */
+CREATE TABLE IF NOT EXISTS productos_anunciados (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id INTEGER NOT NULL REFERENCES orgs(id),
+  /* El nombre sin tildes ni mayusculas: la llave con la que se reconoce. */
+  nombre_llano TEXT NOT NULL,
+  nombre TEXT NOT NULL,
+  precio REAL,
+  precio_mayor REAL,
+  tallas TEXT,
+  colores TEXT,
+  descripcion TEXT,
+  /* De que anuncio salio, para poder mirarlo si algo no cuadra. */
+  ad_id TEXT,
+  actualizado_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  UNIQUE(org_id, nombre_llano)
 );
 
 CREATE TABLE IF NOT EXISTS catalogo (
@@ -769,6 +805,8 @@ function migrar(conexion: DB): void {
    * aquí, en SU hilo, y solo vale para él.
    */
   agregarColumna("conversations", "foto_producto_id", "INTEGER");
+  // Lo que vende el anuncio del lead, ya leído. Ver `producto_lead` arriba.
+  agregarColumna("conversations", "producto_lead", "TEXT");
 
   /*
    * agentes: los dos seguimientos.
@@ -1359,6 +1397,11 @@ export interface Conversacion {
    * anuncio es de todos, esa foto es suya. Ver `fijarProductoDeLaFoto`.
    */
   foto_producto_id: number | null;
+  /**
+   * LO QUE VENDE EL ANUNCIO QUE TRAJO A ESTE CLIENTE, en JSON: nombre, precio,
+   * precio por mayor, tallas y colores. Ver `leerProductoDelAnuncio`.
+   */
+  producto_lead: string | null;
 }
 
 export interface Mensaje {
@@ -2791,6 +2834,123 @@ export function registrarSeguimiento(
  * —y sus precios, que no llevan moneda escrita— como si fueran suyos, en
  * colones. Un combo de RD$1,690 le salía al cliente tico como ₡1.690.
  */
+/**
+ * LO QUE VENDE EL ANUNCIO DE ESTE CLIENTE, guardado en su conversación.
+ *
+ * Se pisa siempre: si el cliente vuelve por otro anuncio, lo que vale es el de
+ * ahora —igual que `anuncio_actual_*`—. Y se guarda aunque no traiga precio: el
+ * nombre, las tallas y los colores también hacen falta, y el precio puede
+ * llegar del catálogo de anunciados.
+ */
+export function guardarProductoLead(orgId: number, conversationId: number, producto: unknown): void {
+  s(`UPDATE conversations SET producto_lead = ? WHERE org_id = ? AND id = ?`)
+    .run(JSON.stringify(producto), orgId, conversationId);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Lo que la tienda ANUNCIA, con su precio
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ProductoAnunciadoFila {
+  id: number;
+  org_id: number;
+  nombre_llano: string;
+  nombre: string;
+  precio: number | null;
+  precio_mayor: number | null;
+  tallas: string | null;
+  colores: string | null;
+  descripcion: string | null;
+  ad_id: string | null;
+  actualizado_at: number;
+}
+
+/** Sin tildes ni mayúsculas, que es como se compara un nombre de producto. */
+function llanoDeProducto(nombre: string): string {
+  return nombre.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+/**
+ * GUARDA LO QUE DICE UN ANUNCIO, o lo actualiza si ya estaba.
+ *
+ * El precio manda: un anuncio nuevo del mismo producto trae el precio de hoy y
+ * pisa al de la campaña anterior. Lo que no se pisa es lo que el anuncio nuevo
+ * no diga —las tallas, los colores—: perder un dato por un anuncio más escueto
+ * sería cambiar información buena por nada.
+ *
+ * Sin precio no se guarda: este catálogo existe para poder cotizar, y una fila
+ * sin cifra no sirve para eso y sí ensucia la búsqueda.
+ */
+export function guardarProductoAnunciado(
+  orgId: number,
+  p: { nombre: string; precio: number | null; precioMayor?: number | null; tallas?: string | null; colores?: string | null; descripcion?: string | null; adId?: string | null },
+): void {
+  const nombre = p.nombre.trim();
+  if (!nombre || p.precio === null || p.precio === undefined) return;
+
+  s(
+    `INSERT INTO productos_anunciados
+       (org_id, nombre_llano, nombre, precio, precio_mayor, tallas, colores, descripcion, ad_id, actualizado_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
+     ON CONFLICT(org_id, nombre_llano) DO UPDATE SET
+       nombre        = excluded.nombre,
+       precio        = excluded.precio,
+       precio_mayor  = COALESCE(excluded.precio_mayor, productos_anunciados.precio_mayor),
+       tallas        = COALESCE(excluded.tallas,       productos_anunciados.tallas),
+       colores       = COALESCE(excluded.colores,      productos_anunciados.colores),
+       descripcion   = COALESCE(excluded.descripcion,  productos_anunciados.descripcion),
+       ad_id         = COALESCE(excluded.ad_id,        productos_anunciados.ad_id),
+       actualizado_at = unixepoch()`,
+  ).run(
+    orgId,
+    llanoDeProducto(nombre),
+    nombre,
+    p.precio,
+    p.precioMayor ?? null,
+    p.tallas ?? null,
+    p.colores ?? null,
+    p.descripcion ?? null,
+    p.adId ?? null,
+  );
+}
+
+/** Todo lo anunciado por esta tienda, de lo más reciente a lo más viejo. */
+export function listarProductosAnunciados(orgId: number): ProductoAnunciadoFila[] {
+  return s(
+    `SELECT * FROM productos_anunciados WHERE org_id = ? ORDER BY actualizado_at DESC LIMIT 200`,
+  ).all(orgId) as ProductoAnunciadoFila[];
+}
+
+/**
+ * EL PRODUCTO ANUNCIADO QUE NOMBRA ESTE TEXTO, si es de esta tienda.
+ *
+ * El caso: el cliente escribe «quiero unos poloches» sin pinchar ningún
+ * anuncio. Ese nombre lo anunció la tienda la semana pasada, con su precio, y
+ * hasta ahora el agente no tenía dónde mirarlo.
+ *
+ * Se compara PALABRA A PALABRA y no por parecido: se exige que el texto del
+ * cliente traiga una palabra del nombre que sea del artículo —«poloches»,
+ * «combo»— y no un «de», un «para» ni el nombre de la tienda. Gana el que más
+ * palabras comparta; a igualdad, el anunciado más recientemente.
+ */
+export function buscarProductoAnunciado(orgId: number, texto: string | null | undefined): ProductoAnunciadoFila | null {
+  const t = llanoDeProducto(texto ?? "");
+  if (!t) return null;
+
+  const palabrasDelCliente = new Set(t.split(/[^\p{L}\p{N}]+/u).filter((p) => p.length >= 4));
+  if (!palabrasDelCliente.size) return null;
+
+  let mejor: { fila: ProductoAnunciadoFila; aciertos: number } | null = null;
+
+  for (const fila of listarProductosAnunciados(orgId)) {
+    const suyas = fila.nombre_llano.split(/[^\p{L}\p{N}]+/u).filter((p) => p.length >= 4);
+    const aciertos = suyas.filter((p) => palabrasDelCliente.has(p)).length;
+    if (aciertos > 0 && (!mejor || aciertos > mejor.aciertos)) mejor = { fila, aciertos };
+  }
+
+  return mejor?.fila ?? null;
+}
+
 export function listarCatalogo(orgId: number, soloActivos = false, canalId?: number): Producto[] {
   const suyos = canalId === undefined ? "" : "AND (canal_id = 0 OR canal_id = ?)";
   return s(

@@ -17,6 +17,7 @@
  */
 import {
   ahora,
+  buscarProductoAnunciado,
   contarRespuestasIa,
   crearAnomalia,
   guardarAdjuntoAnuncio,
@@ -44,8 +45,8 @@ import {
 import { descifrar } from "./auth";
 import { leer as leerArchivo } from "./media";
 import { formatearImporte, monedaDelPais } from "./moneda";
-import { anuncioParaModelo, anuncioVigente, type DatosAnuncio } from "./anuncio";
-import { aperturaSegura, clienteAplazaCompra, clientePideOtraFamilia, clienteRenunciaALaCompra, fraseDeTransferencia, laFotoAyudaAElegir, laFotoVaConEstaRespuesta, llevaColor, llevaTalla, nombraUnArticulo, respuestaMinima } from "./apertura";
+import { anuncioParaModelo, anuncioVigente, textoDelProducto, type DatosAnuncio, type ProductoAnunciado } from "./anuncio";
+import { aperturaSegura, clienteAplazaCompra, clientePideOtraFamilia, precioDeLaDescripcion, clienteRenunciaALaCompra, fraseDeTransferencia, laFotoAyudaAElegir, laFotoVaConEstaRespuesta, llevaColor, llevaTalla, nombraUnArticulo, respuestaMinima } from "./apertura";
 import { esMensajeDeSistema } from "./sistema";
 import { contieneMarcador, MARCADOR_POR_DEFECTO, registrarCierre } from "./cierre";
 import { completar, ErrorIA, hoyISO } from "./ia";
@@ -79,6 +80,86 @@ import { bloqueDePais, obtenerPais, saludoDelPais, type Pais } from "./paises";
 import { bloqueDeEnvio } from "./envio";
 import { conLoVistoYOido, modelosDePercepcion, percibir } from "./percepcion";
 import { ubicacionParaModelo, validarUbicacion, type UbicacionValidada } from "./ubicacion";
+
+/**
+ * QUÉ SE VENDE EN ESTE HILO, Y CUÁNTO VALE.
+ *
+ * El caso de la dueña (2026-09-11): el cliente llega por un anuncio de
+ * poloches, el agente reconoce el artículo y no tiene el precio, así que le
+ * contesta que un representante se lo confirma. Un lead pagado que se cae en la
+ * primera respuesta.
+ *
+ * El precio está escrito en tres sitios, y se miran en este orden:
+ *
+ *   1. EL ANUNCIO DE AHORA, si su texto trae la cifra. Es lo que el cliente
+ *      acaba de ver y manda sobre todo lo demás.
+ *   2. LO QUE SE LEYÓ DE SU ANUNCIO al entrar el lead —`producto_lead`—, que es
+ *      el mismo anuncio pero ya leído: sobrevive a que el texto no vuelva a
+ *      llegar en los mensajes siguientes, que es lo que rompía esto.
+ *   3. EL CATÁLOGO DE LO ANUNCIADO, buscando por lo que el cliente NOMBRA. Para
+ *      el que escribe días después sin pinchar nada: «quiero unos poloches».
+ *
+ * Devuelve siempre algo —aunque sea el anuncio pelado, sin precio— porque lo
+ * que no puede es cambiarle el artículo al cliente. Sin precio en ninguno de
+ * los tres, el agente sigue sin cotizar: eso sí es motivo de transferir, y lo
+ * decide el guion.
+ */
+export function loQueSeVendeAqui(
+  orgId: number,
+  conv: Conversacion,
+  historial: Mensaje[],
+  simbolo: string,
+): DatosAnuncio {
+  const delAnuncio = anuncioVigente(conv);
+  const conPrecio = (d: DatosAnuncio) =>
+    !!precioDeLaDescripcion(d.descripcion_anuncio ?? "", simbolo);
+
+  if (conPrecio(delAnuncio)) return delAnuncio;
+
+  // 2. Lo que se leyó de su anuncio cuando entró el lead.
+  const suyo = leerProductoLead(conv.producto_lead);
+  if (suyo?.precio != null) {
+    return {
+      origen: delAnuncio.origen ?? "anuncio",
+      producto_anuncio: delAnuncio.producto_anuncio ?? suyo.nombre,
+      descripcion_anuncio: textoDelProducto(suyo, simbolo),
+    };
+  }
+
+  // 3. Lo que la tienda anunció y el cliente nombra ahora.
+  const loQueDijo = textosDelClienteEnSesion(historial).join(" · ");
+  const anunciado = buscarProductoAnunciado(orgId, loQueDijo);
+  if (anunciado?.precio != null) {
+    return {
+      origen: delAnuncio.origen,
+      producto_anuncio: delAnuncio.producto_anuncio ?? anunciado.nombre,
+      descripcion_anuncio: textoDelProducto(
+        {
+          nombre: anunciado.nombre,
+          precio: anunciado.precio,
+          precioMayor: anunciado.precio_mayor,
+          tallas: anunciado.tallas,
+          colores: anunciado.colores,
+          descripcion: anunciado.descripcion,
+        },
+        simbolo,
+      ),
+    };
+  }
+
+  return delAnuncio;
+}
+
+/** El producto del lead, tal como se guardó. Null si no hay o no se puede leer. */
+function leerProductoLead(json: string | null): ProductoAnunciado | null {
+  if (!json?.trim()) return null;
+  try {
+    const p = JSON.parse(json) as ProductoAnunciado;
+    return p?.nombre ? p : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * LA DIRECCIÓN RESUELTA VUELVE AL HILO QUE SE ESTÁ LEYENDO, no solo a la base.
@@ -2201,9 +2282,20 @@ async function atenderTurno(
    * DEL ANUNCIO: enseñársela a quien acaba de decir que quiere otra cosa es
    * decirle que no se le ha leído. Ver `clientePideOtraFamilia`.
    */
+  /*
+   * LO QUE SE VENDE EN ESTE HILO, con su precio, mirado una vez y usado por
+   * todos: el prompt, la apertura, la respuesta mecánica y el revisor. Ver
+   * `loQueSeVendeAqui`: es el anuncio de siempre cuando trae la cifra, y lo
+   * leído del lead o del catálogo de anunciados cuando no.
+   */
+  const paisDelHilo = agenteDePais(agente.pais);
+  const seVende = paisDelHilo
+    ? loQueSeVendeAqui(orgId, conv, historial, paisDelHilo.moneda.simbolo)
+    : anuncioVigente(conv);
+
   const otraFamilia = clientePideOtraFamilia(
     textosDelClienteEnSesion(historial),
-    anuncioVigente(conv).descripcion_anuncio,
+    seVende.descripcion_anuncio,
   );
   const foto = otraFamilia ? null : fotoDelHilo(orgId, conv);
   const fotoYaEnviada = mensajesDeLaSesion(historial).some(
@@ -2218,7 +2310,7 @@ async function atenderTurno(
       orgId,
       canalId,
       historial,
-      anuncioVigente(conv),
+      seVende,
       reglaPrecio,
       { telefono: conv.cliente_phone, nombre: conv.cliente_nombre },
       ubicacion,
@@ -2287,7 +2379,7 @@ async function atenderTurno(
       marcador: org?.marcador_cierre ?? MARCADOR_POR_DEFECTO,
       nombresDeLaCasa: [agente.nombre, agente.negocio, datosPais.nombreAgente ?? "", datosPais.tienda].filter(Boolean),
       catalogo: textoDeLoQueVende(agente, listarCatalogo(orgId, true, canalId)),
-      anuncio: [anuncioParaModelo(anuncioVigente(conv), datosPais.moneda.simbolo), reglaPrecio].filter(Boolean).join("\n\n") || null,
+      anuncio: [anuncioParaModelo(seVende, datosPais.moneda.simbolo), reglaPrecio].filter(Boolean).join("\n\n") || null,
       ficha: fichaDelHilo(memoriaMensajes, agente.pais),
       clienteCompartioUbicacion: clienteCompartioUbicacion(historial),
       textosDelCliente: textosDelClienteEnSesion(historial),
@@ -2328,7 +2420,7 @@ async function atenderTurno(
           orgId,
           canalId,
           historial,
-          anuncioVigente(conv),
+          seVende,
           [reglaPrecio, correccionParaElAgente(veredicto)].filter(Boolean).join("\n\n"),
           cliente,
           ubicacion,
@@ -2373,7 +2465,7 @@ async function atenderTurno(
        * En todos los casos queda una anomalía con el motivo, para verlo.
        */
       const apertura = esApertura
-        ? aperturaSegura(datosPais, anuncioVigente(conv), saludoDe(datosPais, agente.nombre, negocio), ultimo.content)
+        ? aperturaSegura(datosPais, seVende, saludoDe(datosPais, agente.nombre, negocio), ultimo.content)
         : null;
 
       /*
@@ -2409,7 +2501,7 @@ async function atenderTurno(
         });
         respuesta = { ...respuesta, texto: candidata, pideAsesor: false };
       } else {
-        const minima = respuestaMinima(datosPais, contexto.ficha, anuncioVigente(conv), {
+        const minima = respuestaMinima(datosPais, contexto.ficha, seVende, {
           ultimoDelCliente: ultimo.content,
           ultimoDelAgente: contexto.ultimoDelAgente,
           clienteCompartioUbicacion: contexto.clienteCompartioUbicacion,
@@ -2417,7 +2509,7 @@ async function atenderTurno(
           lugar: contexto.lugarDelCliente,
           telefonoDelChat: conv.cliente_phone,
           marcador: contexto.marcador,
-          productoAnuncio: anuncioVigente(conv)?.producto_anuncio ?? null,
+          productoAnuncio: seVende.producto_anuncio ?? null,
         });
         crearAnomalia(orgId, {
           conversationId,

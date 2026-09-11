@@ -39,6 +39,9 @@ import {
   marcarActividadCanal,
   anuncioMetaPorAdId,
   guardarImagenGrandeAnuncio,
+  guardarProductoAnunciado,
+  guardarProductoLead,
+  obtenerAgente,
   registrarAnuncioVisto,
   type Canal,
   type Emisor,
@@ -269,6 +272,42 @@ export async function ingerir(
        */
       if (!m.deMi && m.cuando < conversacion.fecha_inicio) {
         adelantarInicio(orgId, conversacion.id, m.cuando);
+      }
+
+      /*
+       * LO QUE VENDE EL ANUNCIO, LEÍDO AQUÍ Y GUARDADO.
+       *
+       * El caso de la dueña (2026-09-11): el cliente llega por un anuncio de
+       * poloches, el agente reconoce el artículo y no tiene el precio, así que
+       * le dice que un representante se lo confirma. El anuncio traía el
+       * precio escrito —lo escribió el negocio— pero solo llega en ESTE
+       * mensaje: si no se lee ahora, a la tercera respuesta ya no existe.
+       *
+       * Se guarda en dos sitios y por dos razones: en la conversación, para
+       * este cliente y todo lo que venga detrás; y en el catálogo de lo
+       * anunciado, para el que escriba dentro de tres días sin pinchar nada.
+       */
+      if (!m.deMi && (m.productoAnuncio || m.descripcionAnuncio)) {
+        try {
+          const { agenteDePais } = await import("@/agents");
+          const { leerProductoDelAnuncio } = await import("@/lib/anuncio");
+          const simbolo = agenteDePais(obtenerAgente(orgId, canal.id).pais)?.moneda.simbolo;
+
+          const producto = simbolo
+            ? leerProductoDelAnuncio(m.productoAnuncio, m.descripcionAnuncio, simbolo)
+            : null;
+
+          if (producto) {
+            guardarProductoLead(orgId, conversacion.id, producto);
+            // Al catálogo solo lo que trae precio: una fila sin cifra no sirve
+            // para cotizar y sí ensucia la búsqueda. Ver `guardarProductoAnunciado`.
+            guardarProductoAnunciado(orgId, { ...producto, adId: m.metaAdId ?? null });
+          }
+        } catch (e) {
+          // Que no se pueda leer el anuncio no puede tirar la ingesta: el
+          // mensaje entra igual y el agente sigue con lo que ya sabía.
+          console.error(`[ingesta] no se pudo leer el producto del anuncio en ${conversacion.id}`, e);
+        }
       }
 
       /*

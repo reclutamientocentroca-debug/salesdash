@@ -3,6 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { agenteDePais, precioPorCantidad } from "../src/agents";
 import { fichaDelPedido } from "../src/lib/memoria";
+import { leerProductoDelAnuncio, textoDelProducto } from "../src/lib/anuncio";
 import { aperturaSegura, articuloDeLaDescripcion, cantidadDicha, clienteAplazaCompra, clientePideOtraFamilia, clienteRenunciaALaCompra, familiasNombradas, llevaColor, llevaTalla, mensajeSinProducto, precioDeLaDescripcion, preguntaDelCliente, preguntaDeDireccion, primeraPregunta, respuestaDirecta, respuestaMinima, resumenMecanico, tallasDisponibles } from "../src/lib/apertura";
 import { contieneMarcador } from "../src/lib/cierre";
 
@@ -147,6 +148,41 @@ test("cada país pide la dirección con sus palabras", () => {
     { emisor: "cliente" as const, content: "Los Alcarrizos, calle 3" },
   ];
   assert.equal(fichaDelPedido(hilo, rd).direccion, "Los Alcarrizos, calle 3");
+});
+
+/**
+ * EL ANUNCIO SE LEE UNA VEZ: nombre, precio, por mayor, tallas y colores.
+ *
+ * Es lo que se guarda del lead para no volver a depender de que el texto del
+ * anuncio siga llegando en los mensajes siguientes. Ver `leerProductoDelAnuncio`.
+ */
+test("del anuncio se leen el producto, el precio y el de por mayor", () => {
+  const p = leerProductoDelAnuncio(
+    "Rincondcm",
+    "🔥 POLOCHES BRONX ORIGINALES 🔥 Moderno, Fresco y duradero 🎽 RD$1,400 C/U RD$1,190 al por mayor. Tallas: S a la XXL. Colores: azul, negro y blanco",
+    "RD$",
+  )!;
+  assert.match(p.nombre, /POLOCHES BRONX ORIGINALES/i, "el nombre sale del texto, no del título de la campaña");
+  assert.equal(p.precio, 1400);
+  assert.equal(p.precioMayor, 1190);
+  assert.equal(p.tallas, "S a la XXL");
+  assert.equal(p.colores, "azul, negro, blanco");
+
+  // Y escrito como una descripción, que es lo que ya sabe leer todo lo demás.
+  const texto = textoDelProducto(p, "RD$");
+  assert.equal(precioDeLaDescripcion(texto, "RD$"), "RD$1,400");
+  assert.equal(primeraPregunta(texto, rd), "¿Qué talla le interesa?");
+
+  // Sin la palabra «mayor» al lado, un segundo importe no es un precio por mayor.
+  const combo = leerProductoDelAnuncio(null, "COMBO 2 EN 1 — SOLO RD$1,690 ✨ Cepillo + plancha", "RD$")!;
+  assert.equal(combo.precio, 1690);
+  assert.equal(combo.precioMayor, null);
+
+  // Un anuncio sin cifra no inventa ninguna: se queda sin precio.
+  const sinPrecio = leerProductoDelAnuncio("Rincondcm", "Escríbenos para más información", "RD$")!;
+  assert.equal(sinPrecio.precio, null);
+  // Y sin nada que nombrar, no hay producto que guardar.
+  assert.equal(leerProductoDelAnuncio(null, null, "RD$"), null);
 });
 
 /**
