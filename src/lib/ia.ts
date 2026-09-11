@@ -42,6 +42,15 @@ function cliente(): OpenAI {
   }));
 }
 
+/**
+ * Solo para las pruebas: el cliente se guarda con el `fetch` y la clave del
+ * momento en que se creó, y una prueba que pone un modelo de mentira después
+ * de otra que ya lo creó hablaría con el de verdad.
+ */
+export function _olvidarCliente(): void {
+  clienteCache = null;
+}
+
 export function hoyISO(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;

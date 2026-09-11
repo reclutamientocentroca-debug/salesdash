@@ -2674,7 +2674,7 @@ async function atenderTurno(
    * colgadas del mismo comentario se leen como dos personas contestando a la
    * vez delante de todo el mundo.
    */
-  const partes = partirEnMensajes(respuesta.texto, {
+  let partes = partirEnMensajes(respuesta.texto, {
     saludoAparte:
       conv.superficie !== "comentario" &&
       // Los guiones de la dueña —el dominicano (2026-09-05) y el tico
@@ -2774,11 +2774,81 @@ async function atenderTurno(
    * primer turno quedara registrado. Se compara el mensaje completo y se
    * descarta solo si ya salió idéntico en esta conversación; una respuesta
    * distinta a una pregunta nueva sigue pasando.
+   *
+   * Y CALLARSE NO ES LA SALIDA CUANDO LO REPETIDO ES DE ANTES. El caso de la
+   * dueña (RD, 2026-09-11): «Los alcarrizo», la IA contestó con el envío y el
+   * teléfono, y al pulsar «Contesta la IA» volvía a salirle exactamente eso.
+   * Se tiraba, y el panel decía «ese mensaje ya estaba contestado» a quien
+   * acababa de devolverle el hilo para que contestara. Ella: «quiero que al
+   * transferir de una conteste».
+   *
+   * Así que se separan dos cosas:
+   *   - lo idéntico que ya salió PARA ESTOS MISMOS MENSAJES del cliente —desde
+   *     el primero que sigue sin respuesta, y después de devolverle el hilo—
+   *     es mandar dos veces lo mismo: eso sigue sin salir;
+   *   - lo idéntico que se dijo ANTES —antes de que el cliente contestara, o
+   *     antes de devolverle el hilo— no se repite palabra por palabra: se
+   *     pregunta lo que falta del pedido de OTRA FORMA (`respuestaMinima`, que
+   *     ya sabe no repetir la pregunta que acaba de salir). Solo si tampoco
+   *     así sale algo nuevo, se calla.
    */
-  const textoNuevo = llanoDeUnaLinea(respuesta.texto);
-  const yaSalioIgual = listarMensajes(orgId, conversationId)
-    .some((m) => m.emisor === "ia" && llanoDeUnaLinea(m.content) === textoNuevo);
-  if (yaSalioIgual) {
+  let inicioDelTurno = ultimo.created_at;
+  for (let i = historial.length - 1; i >= 0 && historial[i]!.emisor === "cliente"; i--) {
+    inicioDelTurno = historial[i]!.created_at;
+  }
+  const deLaIa = listarMensajes(orgId, conversationId).filter((m) => m.emisor === "ia");
+  const yaDicho = (texto: string) => deLaIa.filter((m) => llanoDeUnaLinea(m.content) === llanoDeUnaLinea(texto));
+  const iguales = yaDicho(respuesta.texto);
+  const dobleEnvio = iguales.some(
+    (m) => m.created_at >= inicioDelTurno && (conv.devuelta_a_ia_at === null || m.created_at >= conv.devuelta_a_ia_at),
+  );
+
+  let otraForma: string | null = null;
+  if (iguales.length > 0 && !dobleEnvio && datosPais) {
+    const candidata = respuestaMinima(datosPais, fichaDelHilo(memoriaMensajes, agente.pais), seVende, {
+      ultimoDelCliente: ultimo.content,
+      // Lo que iba a salir repetido: así la pregunta sale con otras palabras.
+      ultimoDelAgente: respuesta.texto,
+      clienteCompartioUbicacion: clienteCompartioUbicacion(historial),
+      retomado,
+      lugar:
+        ubicacion?.direccion?.provincia ??
+        ubicacion?.zona?.nombre ??
+        lugarResuelto ??
+        lugarEscritoPorElCliente(datosPais, mensajesDeLaSesion(historial)),
+      telefonoDelChat: conv.cliente_phone,
+      marcador: marcadorOrg,
+      productoAnuncio: seVende.producto_anuncio ?? null,
+    });
+    /*
+     * Vale si no es lo último que el cliente leyó de la IA. Volver a pedir un
+     * dato que se pidió hace rato —con las dos formas de preguntarlo ya
+     * gastadas— es insistir, no repetirse; mandarle dos veces seguidas el
+     * mismo mensaje, sí.
+     */
+    const ultimaDeLaIa = deLaIa[deLaIa.length - 1]?.content ?? "";
+    const distinta = (a: string, b: string) => llanoDeUnaLinea(a) !== llanoDeUnaLinea(b);
+    if (candidata.trim() && distinta(candidata, respuesta.texto) && distinta(candidata, ultimaDeLaIa)) {
+      otraForma = candidata;
+    }
+  }
+
+  if (otraForma) {
+    crearAnomalia(orgId, {
+      conversationId,
+      tipo: "respuesta_repetida",
+      severidad: "media",
+      detalle:
+        "La respuesta de la IA era idéntica a un mensaje anterior suyo. En vez de callarse, " +
+        `preguntó lo que falta del pedido con otras palabras: «${otraForma}».`,
+    });
+    respuesta = {
+      ...respuesta,
+      texto: otraForma,
+      pideAsesor: contieneMarcador(otraForma, marcadorOrg) || otraForma.trim() === fraseDeTransferencia(datosPais!),
+    };
+    partes = partirEnMensajes(otraForma, { saludoAparte: false, marcador: marcadorOrg });
+  } else if (iguales.length > 0) {
     crearAnomalia(orgId, {
       conversationId,
       tipo: "respuesta_repetida",

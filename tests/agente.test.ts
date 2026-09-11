@@ -31,6 +31,7 @@ import { agenteDePais, bloqueDelPais } from "../src/agents";
 import { direccionDelChat, jidDeDestino } from "../src/lib/telefono";
 import { laFotoAyudaAElegir, laFotoVaConEstaRespuesta } from "../src/lib/apertura";
 import type { Resultado } from "../src/lib/agent";
+import { _olvidarCliente } from "../src/lib/ia";
 
 /** Estrecha la unión: si el agente respondió, la prueba debe fallar aquí. */
 function motivoDe(r: Resultado): string {
@@ -2847,4 +2848,90 @@ test("escribir a mano toma el chat antes de enviar, y el envío fallido no lo de
    * agente calla— la comprueba la prueba del interruptor, más arriba. Aquí lo
    * que importa es que escribir a mano DEJA el hilo en ese estado.
    */
+});
+
+/**
+ * AL DEVOLVERLE EL HILO, CONTESTA: SI LE SALE LO MISMO, CON OTRAS PALABRAS.
+ *
+ * El caso de la dueña (RD, 2026-09-11): el cliente dio «Los alcarrizo», la IA
+ * le contestó con el envío y el teléfono, y al pulsar «Contesta la IA» el panel
+ * decía «Ese mensaje ya estaba contestado» y no salía nada: al agente le volvía
+ * a salir exactamente la respuesta de antes, y la guarda contra repeticiones la
+ * tiraba. Ella: «quiero que al transferir de una conteste». Ahora pregunta lo
+ * que falta del pedido de otra forma, y lo repetido palabra por palabra no sale.
+ */
+test("al devolver el hilo, si la respuesta sale igual que la de antes, contesta con otras palabras", async () => {
+  const prueba = D.crearOrgConDueno({
+    negocio: "Devolver y contestar",
+    color: "#12876a",
+    nombre: "Dueña",
+    email: `devolver-${Date.now()}@local`,
+    passwordHash: "hash",
+  });
+  const canal = D.crearCanal(prueba.orgId, {
+    nombre: "rincon",
+    phone: `1809${Date.now().toString().slice(-7)}`,
+    tokenCifrado: "x",
+    webhookSecret: "s",
+    whapiChannelId: null,
+    estado: "conectado",
+  });
+  D.actualizarAgente(prueba.orgId, { pais: "do", nombre: "Ana", negocio: "RINCON DCM" }, canal);
+  D.actualizarCanal(prueba.orgId, canal, { agente_activo: 1, contesta_ia: 0 });
+
+  const { conversacion } = D.getOrCreateConversation(prueba.orgId, canal, "18098977562", { cuando: D.ahora() - 3_600 });
+  D.db.prepare(
+    `UPDATE conversations SET origen = 'anuncio', producto_anuncio = ?, descripcion_anuncio = ?,
+            anuncio_actual_producto = ?, anuncio_actual_descripcion = ? WHERE id = ?`,
+  ).run("Combo 2 En 1", "COMBO 2 EN 1 — SOLO RD$1,690", "Combo 2 En 1", "COMBO 2 EN 1 — SOLO RD$1,690", conversacion.id);
+
+  const escribir = (emisor: D.Emisor, content: string, hace: number, i: number) =>
+    D.insertMessage(prueba.orgId, {
+      conversationId: conversacion.id, whapiMessageId: `devolver-${i}`,
+      emisor, tipo: "texto", content, createdAt: D.ahora() - hace,
+    });
+  escribir("cliente", "¡Hola! Me gustaría conseguir más información sobre esto.", 900, 1);
+  escribir("ia", "Indíquenos a qué dirección y provincia le enviamos.", 880, 2);
+  escribir("cliente", "Los alcarrizo", 600, 3);
+  // Lo que la IA ya le contestó —la dirección pedida de la otra forma—, y lo
+  // que le vuelve a salir, idéntico, al devolverle el hilo.
+  const YA_DICHO = "¿Cuál es su dirección exacta de entrega, con el sector y la provincia?";
+  escribir("ia", YA_DICHO, 590, 4);
+
+  D.devolverALaIa(prueba.orgId, conversacion.id);
+
+  const fetchOriginal = globalThis.fetch;
+  const claveOriginal = process.env.OPENROUTER_API_KEY;
+  process.env.OPENROUTER_API_KEY = "clave-de-pruebas";
+  // El cliente del modelo se guarda con el `fetch` de cuando se creó: se olvida.
+  _olvidarCliente();
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        id: "x", model: "de-mentira",
+        choices: [{ message: { role: "assistant", content: YA_DICHO } }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    )) as typeof fetch;
+
+  let r: Resultado | unknown;
+  try {
+    // Sin socket de WhatsApp el envío falla: eso ya es que intentó contestar.
+    r = await atenderConversacion(prueba.orgId, canal, conversacion.id).catch((e) => e);
+  } finally {
+    globalThis.fetch = fetchOriginal;
+    _olvidarCliente();
+    if (claveOriginal === undefined) delete process.env.OPENROUTER_API_KEY;
+    else process.env.OPENROUTER_API_KEY = claveOriginal;
+  }
+
+  assert.notDeepEqual(r, { atendida: false, motivo: "ya_contestado" }, "al devolverle el hilo, contesta");
+
+  const aviso = D.listarAnomalias(prueba.orgId).find((a) => a.tipo === "respuesta_repetida");
+  assert.ok(aviso, "queda dicho que la respuesta salía repetida");
+  const otra = aviso!.detalle?.match(/«([\s\S]*)»/)?.[1] ?? "";
+  assert.ok(otra.trim(), "y qué se le mandó en su lugar");
+  assert.notEqual(otra.trim(), YA_DICHO, "lo que sale no es lo mismo palabra por palabra");
+  assert.match(otra, /direcci[oó]n/i, "sigue con el dato que falta: la dirección");
 });
