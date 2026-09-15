@@ -286,6 +286,10 @@ test("ninguna función de lectura de db.ts omite el orgId", async () => {
     // la cuenta de Instagram, que es lo unico que manda Meta. Misma clase que
     // canalPorWebhook, y a partir de ahi todo vuelve a ir con orgId.
     "canalMetaPorDestino",
+    // La app de Meta es una sola para toda la plataforma: el diagnóstico de
+    // superadmin solo pregunta si hay alguna cuenta de Instagram conectada,
+    // para saber si la app tiene que suscribirse también a sus directos.
+    "hayInstagramConectado",
     // Registra el evento ANTES de saber de quien es: un webhook de una pagina
     // que nadie conecto tambien se guarda, y es justo el que hace falta mirar
     // cuando alguien dice que conecto la pagina y no le llega nada. El orgId va

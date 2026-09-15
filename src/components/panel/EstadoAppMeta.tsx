@@ -38,6 +38,8 @@ interface Webhook {
   faltan: string[];
   reparada: boolean;
   error: string | null;
+  /** Los directos de Instagram: otro objeto de la app. Null si no hay cuentas conectadas. */
+  instagram?: Webhook | null;
 }
 
 interface Estado {
@@ -213,6 +215,45 @@ export default function EstadoAppMeta() {
               página está suscrita a él: comprobar la página no basta.
             </p>
           </div>
+
+          {/*
+            LOS DIRECTOS DE INSTAGRAM, que son otro objeto de la app. Solo se
+            enseña si hay alguna cuenta conectada: sin esta suscripción no entra
+            ni un mensaje de Instagram, tampoco los de un anuncio.
+          */}
+          {estado.webhook.instagram && (
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 12.5, marginBottom: 5 }}>
+                Mensajes directos de Instagram
+              </div>
+              {!estado.webhook.instagram.leida ? (
+                <div className="aviso aviso-ambar" role="status">
+                  {estado.webhook.instagram.error ?? "Meta no dijo a qué está suscrita la app en Instagram."}
+                </div>
+              ) : estado.webhook.instagram.callbackUrl && !estado.webhook.instagram.callbackNuestra ? (
+                <div className="aviso aviso-error" role="alert">
+                  Instagram entrega los avisos en <span className="num">{estado.webhook.instagram.callbackUrl}</span>,
+                  que no es este servidor. Tendría que ser{" "}
+                  <span className="num">{estado.webhook.instagram.callbackEsperada}</span>.
+                </div>
+              ) : estado.webhook.instagram.faltan.length > 0 ? (
+                <div className="aviso aviso-error" role="alert">
+                  Faltan por suscribir: <span className="num">{estado.webhook.instagram.faltan.join(", ")}</span>.
+                  Sin «messages» no llega ningún directo de Instagram, tampoco los de un anuncio.
+                  {estado.webhook.instagram.error && <> {estado.webhook.instagram.error}</>}
+                </div>
+              ) : (
+                <div className="aviso" role="status">
+                  {estado.webhook.instagram.reparada
+                    ? "Arreglado: la app no estaba suscrita a los directos de Instagram y ya lo está."
+                    : "La app está suscrita a los directos de Instagram."}
+                </div>
+              )}
+              <p className="tenue" style={{ fontSize: 12.5, marginTop: 5 }}>
+                Va en tu app → Webhooks → Instagram.
+              </p>
+            </div>
+          )}
 
           {/*
             LO QUE FALTA Y LA URL DE VUELTA VAN FUERA DEL «SI META CONTESTÓ».

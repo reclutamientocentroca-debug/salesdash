@@ -1267,6 +1267,7 @@ test("una app suscrita a todo pasa la revisión sin declarar nada", async () => 
     assert.equal(r.callbackNuestra, true);
     assert.deepEqual(r.faltan, []);
     assert.equal(r.reparada, false);
+    assert.equal(r.instagram, null, "sin Instagram conectado no se mira ni se declara");
 
     // Volver a declarar una suscripción que ya está bien reescribe la dirección
     // de entrega en cada comprobación. No se toca.
@@ -1325,6 +1326,56 @@ test("una app sin «feed» se detecta y se completa sin perder lo que ya tenía"
       (declarado as unknown as { callback_url?: string })?.callback_url,
       "https://panel.ejemplo.com/api/meta/webhook",
     );
+  } finally {
+    graph.restaurar();
+    restaurar();
+  }
+});
+
+/**
+ * LOS DIRECTOS DE INSTAGRAM SON OTRO OBJETO DE LA APP.
+ *
+ * La dueña (2026-09-15): «si el cliente escribe por un anuncio en Instagram,
+ * también la IA debe responder». La revisión solo declaraba el objeto `page`:
+ * con eso Messenger entraba, pero si la app no estaba suscrita al objeto
+ * `instagram` no llegaba ni un directo de Instagram —tampoco los de un
+ * anuncio— y la IA no tenía nada que contestar.
+ */
+test("con Instagram conectado, la app se suscribe también a los directos de Instagram", async () => {
+  const { revisarSuscripcionApp } = await import("../src/lib/meta/app");
+  const restaurar = conApp({});
+
+  const WEBHOOK = "https://panel.ejemplo.com/api/meta/webhook";
+  let camposInstagram: string[] | null = null;
+  const declarados: Record<string, unknown>[] = [];
+
+  const graph = fingirGraph((_url, metodo, cuerpo) => {
+    if (metodo === "POST") {
+      declarados.push(cuerpo ?? {});
+      if (cuerpo?.object === "instagram") camposInstagram = String(cuerpo.fields ?? "").split(",");
+      return { ok: true, datos: { success: true } };
+    }
+    const data: unknown[] = [
+      { object: "page", callback_url: WEBHOOK, active: true, fields: SUSCRITA_A_TODO.map((name) => ({ name })) },
+    ];
+    if (camposInstagram) {
+      data.push({ object: "instagram", callback_url: WEBHOOK, active: true, fields: camposInstagram.map((name) => ({ name })) });
+    }
+    return { ok: true, datos: { data } };
+  });
+
+  try {
+    const r = await revisarSuscripcionApp(true, { instagram: true });
+
+    assert.equal(r.reparada, false, "Messenger ya estaba bien: no se vuelve a declarar");
+    assert.ok(r.instagram, "con una cuenta de Instagram conectada, Instagram se revisa");
+    assert.equal(r.instagram!.reparada, true);
+    assert.deepEqual(r.instagram!.faltan, [], "y se comprueba DESPUÉS de declarar");
+    assert.ok(r.instagram!.campos.includes("messages"), "sin esto no llega ningún directo de Instagram");
+
+    assert.equal(declarados.length, 1, "solo se declara lo que faltaba: Instagram");
+    assert.equal(declarados[0]!.object, "instagram");
+    assert.equal(declarados[0]!.callback_url, WEBHOOK);
   } finally {
     graph.restaurar();
     restaurar();

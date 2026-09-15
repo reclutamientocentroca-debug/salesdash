@@ -22,7 +22,7 @@
  * este archivo ni se guarda.
  */
 import { ErrorMeta, versionGraph } from "./graph";
-import { CAMPOS_SUSCRIPCION } from "./paginas";
+import { CAMPOS_SUSCRIPCION, CAMPOS_SUSCRIPCION_INSTAGRAM } from "./paginas";
 
 /** Quién puede conectar mientras la app siga en Desarrollo. */
 export interface RolApp {
@@ -194,7 +194,7 @@ export async function revisarApp(): Promise<RevisionApp> {
  *
  * Esto mira la lista 1, que es la que no se veía desde ninguna pantalla.
  */
-export interface SuscripcionApp {
+export interface EstadoSuscripcion {
   /** Meta contestó a qué tiene suscrito la app. Falso es «no se pudo leer». */
   leida: boolean;
   /** La dirección a la que Meta dice que manda los eventos, tal cual. */
@@ -216,6 +216,20 @@ export interface SuscripcionApp {
   reparada: boolean;
   /** Lo que dijo Meta cuando algo falló, con SU texto. */
   error: string | null;
+}
+
+/**
+ * LA SUSCRIPCIÓN DE LA APP, para Messenger y —si hay alguna cuenta conectada—
+ * para Instagram.
+ *
+ * Instagram es OTRO objeto de la app, con su propia dirección y sus propios
+ * campos. Suscribir cada cuenta de Instagram a la app no basta: si la app no
+ * declara el objeto `instagram`, Meta no entrega ni un mensaje directo —tampoco
+ * los de un anuncio— y la IA no tiene nada que contestar. `null` cuando no se
+ * pidió mirar Instagram.
+ */
+export interface SuscripcionApp extends EstadoSuscripcion {
+  instagram: EstadoSuscripcion | null;
 }
 
 /** A dónde manda Meta los eventos. Sale de `APP_URL`, no hay variable propia. */
@@ -244,8 +258,8 @@ async function mandar(ruta: string, cuerpo: Record<string, unknown>, token: stri
   return datos;
 }
 
-/** Lo que la app tiene declarado para el objeto `page`, tal cual lo cuenta Meta. */
-function leerPage(datos: Record<string, unknown>) {
+/** Lo que la app tiene declarado para un objeto (`page`, `instagram`), tal cual lo cuenta Meta. */
+function leerObjeto(datos: Record<string, unknown>, objeto: "page" | "instagram") {
   const lista = Array.isArray(datos.data) ? datos.data : [];
 
   for (const bruto of lista) {
@@ -255,7 +269,7 @@ function leerPage(datos: Record<string, unknown>) {
       active?: unknown;
       fields?: unknown;
     };
-    if (s.object !== "page") continue;
+    if (s.object !== objeto) continue;
 
     const campos = (Array.isArray(s.fields) ? s.fields : [])
       .map((f) => {
@@ -285,14 +299,30 @@ function leerPage(datos: Record<string, unknown>) {
  * un diagnóstico que solo informa lo deja igual de parado. Con `reparar` en
  * falso solo mira, que es lo que hace falta en una pantalla de estado.
  */
-export async function revisarSuscripcionApp(reparar = true): Promise<SuscripcionApp> {
+export async function revisarSuscripcionApp(
+  reparar = true,
+  opciones: { instagram?: boolean } = {},
+): Promise<SuscripcionApp> {
+  const page = await revisarObjeto("page", CAMPOS_SUSCRIPCION, reparar);
+  const instagram = opciones.instagram
+    ? await revisarObjeto("instagram", CAMPOS_SUSCRIPCION_INSTAGRAM, reparar)
+    : null;
+  return { ...page, instagram };
+}
+
+/** Un objeto de la suscripción de la app, con las mismas reglas para los dos. */
+async function revisarObjeto(
+  objeto: "page" | "instagram",
+  necesarios: readonly string[],
+  reparar: boolean,
+): Promise<EstadoSuscripcion> {
   const appId = (process.env.META_APP_ID ?? "").trim();
   const secreto = (process.env.META_APP_SECRET ?? "").trim();
   const esperada = urlDelWebhook();
 
-  const vacio: SuscripcionApp = {
+  const vacio: EstadoSuscripcion = {
     leida: false, callbackUrl: null, callbackEsperada: esperada, callbackNuestra: false,
-    activa: false, campos: [], faltan: [...CAMPOS_SUSCRIPCION], reparada: false, error: null,
+    activa: false, campos: [], faltan: [...necesarios], reparada: false, error: null,
   };
 
   if (!appId || !secreto) {
@@ -303,9 +333,9 @@ export async function revisarSuscripcionApp(reparar = true): Promise<Suscripcion
   }
 
   const token = tokenDeApp(appId, secreto);
-  const leer = async () => leerPage(await pedir(`${appId}/subscriptions`, "", token));
+  const leer = async () => leerObjeto(await pedir(`${appId}/subscriptions`, "", token), objeto);
 
-  let page: ReturnType<typeof leerPage>;
+  let page: ReturnType<typeof leerObjeto>;
   try {
     page = await leer();
   } catch (e) {
@@ -316,30 +346,33 @@ export async function revisarSuscripcionApp(reparar = true): Promise<Suscripcion
   }
 
   const estado = (
-    p: NonNullable<ReturnType<typeof leerPage>>,
+    p: NonNullable<ReturnType<typeof leerObjeto>>,
     reparada: boolean,
-  ): SuscripcionApp => ({
+  ): EstadoSuscripcion => ({
     leida: true,
     callbackUrl: p.callbackUrl,
     callbackEsperada: esperada,
     callbackNuestra: !!esperada && p.callbackUrl === esperada,
     activa: p.activa,
     campos: p.campos,
-    faltan: CAMPOS_SUSCRIPCION.filter((c) => !p.campos.includes(c)),
+    faltan: necesarios.filter((c) => !p.campos.includes(c)),
     reparada,
     error: null,
   });
 
-  if (page && CAMPOS_SUSCRIPCION.every((c) => page!.campos.includes(c))) {
+  if (page && necesarios.every((c) => page!.campos.includes(c))) {
     return estado(page, false);
   }
 
-  const actual: SuscripcionApp = page
+  const actual: EstadoSuscripcion = page
     ? estado(page, false)
     : {
         ...vacio,
         leida: true,
-        error: "La app no tiene suscrito el objeto «page»: no le llega ningún evento.",
+        error:
+          objeto === "page"
+            ? "La app no tiene suscrito el objeto «page»: no le llega ningún evento."
+            : "La app no tiene suscrito el objeto «instagram»: no le llega ningún mensaje directo de Instagram.",
       };
 
   if (!reparar) return actual;
@@ -377,13 +410,13 @@ export async function revisarSuscripcionApp(reparar = true): Promise<Suscripcion
    * `CAMPOS_SUSCRIPCION` se perdería: arreglar los comentarios no puede apagar
    * nada que ya estuviera funcionando.
    */
-  const union = [...new Set([...(page?.campos ?? []), ...CAMPOS_SUSCRIPCION])];
+  const union = [...new Set([...(page?.campos ?? []), ...necesarios])];
 
   try {
     await mandar(
       `${appId}/subscriptions`,
       {
-        object: "page",
+        object: objeto,
         callback_url: esperada,
         verify_token: verify,
         fields: union.join(","),

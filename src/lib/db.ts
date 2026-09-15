@@ -3701,6 +3701,23 @@ export function crearPaginaMeta(orgId: number, datos: {
  * directos de Instagram llegan con el ID de la cuenta de IG, no con el de la
  * página, aunque los mande el mismo webhook y sean el mismo canal.
  */
+/**
+ * ¿HAY ALGUNA CUENTA DE INSTAGRAM CONECTADA EN LA PLATAFORMA?
+ *
+ * De ello depende si la app de Meta tiene que suscribirse también al objeto
+ * `instagram`: sin esa suscripción no llega ni un mensaje directo de Instagram
+ * —tampoco los de un anuncio— y la IA no tiene nada que contestar. No lleva
+ * `orgId` porque la app de Meta es una sola para toda la plataforma; solo lo
+ * pregunta el diagnóstico de superadmin. Ver `revisarSuscripcionApp`.
+ */
+export function hayInstagramConectado(): boolean {
+  return !!s(
+    `SELECT 1 AS x FROM canales
+      WHERE tipo = 'meta' AND activo = 1 AND meta_ig_id IS NOT NULL AND meta_ig_id <> ''
+      LIMIT 1`,
+  ).get();
+}
+
 export function canalMetaPorDestino(destinoId: string): Canal | undefined {
   return s(
     `SELECT * FROM canales
