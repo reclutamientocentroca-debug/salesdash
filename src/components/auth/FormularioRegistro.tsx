@@ -37,13 +37,36 @@ export default function FormularioRegistro() {
     }
 
     setCargando(true);
+
+    /*
+     * Tres finales distintos, igual que en la pantalla de entrada.
+     *
+     * Leer un JSON que no llega revienta dentro del mismo `try` que la
+     * petición, así que un servidor roto y un cable desenchufado daban el mismo
+     * «revisa tu internet». Con la cuenta a estrenar es todavía peor que al
+     * entrar: manda a mirar el wifi a quien acaba de darse de alta, y lo que
+     * está mal es el despliegue.
+     */
     try {
       const r = await fetch("/api/auth/registro", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(datos),
       });
-      const respuesta = await r.json();
+
+      // El servidor CONTESTÓ. Si lo que mandó no es un JSON con su explicación,
+      // es que se rompió por dentro, y eso se dice tal cual: con el código, que
+      // es lo primero que pregunta cualquiera que pueda ayudar.
+      const respuesta = await r.json().catch(() => null);
+
+      if (!respuesta) {
+        setError(
+          `El servidor respondió con un error (${r.status}). No es tu conexión: el panel no está bien. ` +
+            "Vuelve a intentarlo en un minuto y, si sigue igual, hay que mirar el servidor.",
+        );
+        setCargando(false);
+        return;
+      }
 
       if (!r.ok) {
         setError(respuesta.error ?? "No pudimos crear la cuenta. Intenta de nuevo.");
@@ -54,7 +77,11 @@ export default function FormularioRegistro() {
       // primer número, que es lo único que hace falta para empezar a medir.
       router.push("/numeros");
     } catch {
-      setError("No hay conexión con el servidor. Revisa tu internet e intenta de nuevo.");
+      // Aquí sí: la petición no llegó a ninguna parte.
+      setError(
+        "No se pudo hablar con el servidor. Puede ser tu internet o que el panel esté caído o " +
+          "reiniciándose; si acabas de desplegar, espera un minuto y vuelve a intentarlo.",
+      );
       setCargando(false);
     }
   }

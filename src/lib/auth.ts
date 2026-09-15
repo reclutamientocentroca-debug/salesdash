@@ -11,6 +11,11 @@
 import argon2 from "argon2";
 import { SignJWT, jwtVerify } from "jose";
 import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from "node:crypto";
+// Sin dependencias a propósito: lo comparte con /api/salud, que no puede
+// arrastrar argon2. Ver `secreto.ts`.
+import { COMO_GENERARLO, problemaDelSecreto } from "./secreto";
+
+export { problemaDelSecreto } from "./secreto";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Secreto y claves derivadas
@@ -21,14 +26,11 @@ import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from "node:cr
  * una máquina sin el .env aunque solo esté compilando.
  */
 function secreto(): string {
-  const s = process.env.SESSION_SECRET;
-  if (!s || s.length < 32) {
-    throw new Error(
-      "Falta SESSION_SECRET o es demasiado corto (mínimo 32 caracteres). " +
-        "Genera uno con: node -e \"console.log(require('crypto').randomBytes(48).toString('base64url'))\"",
-    );
+  const problema = problemaDelSecreto();
+  if (problema) {
+    throw new Error(`${problema[0]!.toUpperCase()}${problema.slice(1)}. ${COMO_GENERARLO}`);
   }
-  return s;
+  return process.env.SESSION_SECRET!;
 }
 
 /** Deriva una clave de 32 bytes por propósito. Nunca se reusa la misma. */

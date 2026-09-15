@@ -1,6 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { existsSync, accessSync, readFileSync, statSync, constants } from "node:fs";
 import { dirname, resolve } from "node:path";
+// De `secreto.ts` y no de `auth.ts`: esto es el health check del despliegue
+// y no puede arrastrar argon2, un módulo nativo que al fallar lo tumbaría.
+import { problemaDelSecreto } from "@/lib/secreto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -130,6 +133,23 @@ export function GET(req: NextRequest) {
     }
   }
 
+  /*
+   * EL AVISO QUE FALTABA, y es el más grave de todos.
+   *
+   * Sin SESSION_SECRET no hay cookie que firmar: ni se entra ni se puede
+   * crear una cuenta. La aplicación arranca, las pantallas se ven, y cada
+   * intento muere en un 500. Esto respondía «ok: true» mientras tanto, o sea
+   * que el único sitio que sirve para diagnosticar desde fuera decía que todo
+   * estaba bien. Se comprueba, nunca se lee el valor.
+   */
+  const secretoRoto = problemaDelSecreto();
+  if (secretoRoto) {
+    avisos.push(
+      `Sesiones rotas: ${secretoRoto}. Nadie puede entrar ni registrarse — cada intento ` +
+        "responde con un error del servidor. Ponla en el entorno y vuelve a desplegar.",
+    );
+  }
+
   if (!process.env.OPENROUTER_API_KEY) {
     avisos.push("Falta OPENROUTER_API_KEY: no se puede analizar ni responder.");
   }
@@ -166,6 +186,8 @@ export function GET(req: NextRequest) {
         montajes_detectados: montajesDeDatos(),
       },
       configurado: {
+        // Sin esto no entra nadie: va el primero a propósito.
+        sesiones: !secretoRoto,
         openrouter: !!process.env.OPENROUTER_API_KEY,
         correo: correo.utilizable,
         correo_destinatarios: correo.destinatarios,
