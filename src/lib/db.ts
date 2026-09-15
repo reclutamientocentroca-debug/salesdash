@@ -2534,13 +2534,18 @@ export function contarRespuestasIa(orgId: number, conversationId: number, desde:
 /**
  * Los últimos mensajes que escribió el agente en un hilo, del más nuevo al más
  * viejo. Se usa para reconocer un bucle: el agente repitiendo la misma frase.
+ *
+ * `desde` acota a los recientes, y no es un detalle: un bucle pasa en minutos.
+ * Sin ventana, tres respuestas iguales dejaban ese hilo mudo PARA SIEMPRE —las
+ * tres seguían siendo las últimas, porque el agente ya no volvía a escribir—, y
+ * el cliente que volvía tres días después no recibía nada.
  */
-export function ultimasRespuestasIa(orgId: number, conversationId: number, n: number): string[] {
+export function ultimasRespuestasIa(orgId: number, conversationId: number, n: number, desde = 0): string[] {
   const filas = s(
     `SELECT content FROM messages
-      WHERE org_id = ? AND conversation_id = ? AND emisor = 'ia'
+      WHERE org_id = ? AND conversation_id = ? AND emisor = 'ia' AND created_at >= ?
       ORDER BY created_at DESC, id DESC LIMIT ?`,
-  ).all(orgId, conversationId, n) as { content: string }[];
+  ).all(orgId, conversationId, desde, n) as { content: string }[];
   return filas.map((f) => f.content);
 }
 

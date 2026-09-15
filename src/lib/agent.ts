@@ -77,6 +77,9 @@ import {
   type DatosPais,
 } from "../agents";
 import { bloqueDePais, obtenerPais, saludoDelPais, type Pais } from "./paises";
+// El horario de atención se mide en la hora del país del número, no en la del
+// servidor, que corre en UTC. Ver `dentroDeHorario`.
+import { husoValido, minutosDelDiaEn } from "./rango";
 import { bloqueDeEnvio } from "./envio";
 import { conLoVistoYOido, modelosDePercepcion, percibir } from "./percepcion";
 import { ubicacionParaModelo, validarUbicacion, type UbicacionValidada } from "./ubicacion";
@@ -220,6 +223,16 @@ const MAX_RESPUESTAS_HORA = 30;
  * palabra, así que esto no puede cortar una conversación sana.
  */
 const SE_REPITE = 3;
+
+/**
+ * Y DENTRO DE UNA HORA: un bucle pasa en minutos.
+ *
+ * Sin ventana, tres respuestas iguales callaban ese hilo para siempre —seguían
+ * siendo las tres últimas, porque el agente ya no escribía— y el cliente que
+ * volvía al día siguiente tampoco recibía nada. Que no se repita la frase lo
+ * sigue garantizando la guarda de antes de enviar.
+ */
+const VENTANA_BUCLE = 60 * 60;
 /**
  * Cuánto de la conversación recuerda el agente al contestar.
  *
@@ -491,8 +504,33 @@ export function pideHumano(texto: string): boolean {
   return LO_PIDE.test(limpio.slice(0, quien.index));
 }
 
-/** "20:00"–"02:00" también es un horario válido: cruza la medianoche. */
-export function dentroDeHorario(desde: string | null, hasta: string | null, fecha = new Date()): boolean {
+/**
+ * LA HORA EN LA QUE VIVE ESTE NÚMERO: la de su país.
+ *
+ * Un número sin país cae en la del servidor, que es lo que había para todos.
+ */
+function husoDelAgente(agente: { pais: string | null }): string | null {
+  return obtenerPais(agente.pais)?.husoHorario ?? null;
+}
+
+/**
+ * "20:00"–"02:00" también es un horario válido: cruza la medianoche.
+ *
+ * Y LA HORA ES LA DEL PAÍS DEL NÚMERO, no la del servidor.
+ *
+ * El contenedor corre en UTC. Con la hora del servidor, un horario de 9:00 a
+ * 21:00 puesto para Santo Domingo se aplicaba de 9 a 21 UTC —de 5 de la mañana
+ * a 5 de la tarde allá—: el agente dejaba de contestar a media tarde, todos los
+ * días, justo en las horas de más venta. En Panamá el corte caía a las 4 y en
+ * Costa Rica a las 3. Sin huso se sigue usando la del servidor, que es lo que
+ * vale para el chat de prueba.
+ */
+export function dentroDeHorario(
+  desde: string | null,
+  hasta: string | null,
+  fecha = new Date(),
+  huso?: string | null,
+): boolean {
   if (!desde || !hasta) return true;
 
   const aMinutos = (hhmm: string) => {
@@ -500,7 +538,9 @@ export function dentroDeHorario(desde: string | null, hasta: string | null, fech
     return (h ?? 0) * 60 + (m ?? 0);
   };
 
-  const ahoraMin = fecha.getHours() * 60 + fecha.getMinutes();
+  const ahoraMin = husoValido(huso)
+    ? minutosDelDiaEn(huso, fecha.getTime())
+    : fecha.getHours() * 60 + fecha.getMinutes();
   const d = aMinutos(desde);
   const h = aMinutos(hasta);
 
@@ -725,7 +765,7 @@ export function revisarAgente(orgId: number, canalId: number): RevisionAgente {
     );
   }
 
-  if (agente.horario_activo === 1 && !dentroDeHorario(agente.horario_desde, agente.horario_hasta)) {
+  if (agente.horario_activo === 1 && !dentroDeHorario(agente.horario_desde, agente.horario_hasta, new Date(), husoDelAgente(agente))) {
     avisos.push(
       `Ahora mismo está fuera del horario (${agente.horario_desde ?? "?"}–${agente.horario_hasta ?? "?"}): ` +
         "volverá a contestar dentro de la franja.",
@@ -1796,14 +1836,14 @@ export function porQueCalla(
     );
   }
 
-  if (agente.horario_activo === 1 && !dentroDeHorario(agente.horario_desde, agente.horario_hasta)) {
+  if (agente.horario_activo === 1 && !dentroDeHorario(agente.horario_desde, agente.horario_hasta, new Date(), husoDelAgente(agente))) {
     return callado(
       "fuera_de_horario",
       `Fuera del horario de atención (${agente.horario_desde ?? "?"}–${agente.horario_hasta ?? "?"}).`,
     );
   }
 
-  const ultimas = ultimasRespuestasIa(orgId, conversationId, SE_REPITE);
+  const ultimas = ultimasRespuestasIa(orgId, conversationId, SE_REPITE, t - VENTANA_BUCLE);
   const repetida = ultimas[0]?.trim();
   if (repetida && ultimas.length === SE_REPITE && ultimas.every((r) => r.trim() === repetida)) {
     return callado(
@@ -2124,7 +2164,7 @@ async function atenderTurno(
   }
 
   // ── Horario ─────────────────────────────────────────────────────────────
-  if (agente.horario_activo === 1 && !dentroDeHorario(agente.horario_desde, agente.horario_hasta)) {
+  if (agente.horario_activo === 1 && !dentroDeHorario(agente.horario_desde, agente.horario_hasta, new Date(), husoDelAgente(agente))) {
     return { atendida: false, motivo: "fuera_de_horario" };
   }
 
@@ -2133,7 +2173,7 @@ async function atenderTurno(
    * Se para por REPETIRSE, no por hablar mucho. Una venta larga es una venta,
    * no una avería; el agente diciendo tres veces exactamente lo mismo sí lo es.
    */
-  const ultimas = ultimasRespuestasIa(orgId, conversationId, SE_REPITE);
+  const ultimas = ultimasRespuestasIa(orgId, conversationId, SE_REPITE, t - VENTANA_BUCLE);
   const repetida = ultimas[0]?.trim();
 
   if (
@@ -2302,6 +2342,9 @@ async function atenderTurno(
     (m) => m.emisor === "ia" && m.tipo === "imagen",
   );
 
+  // El país del número: decide el guion, el revisor y la respuesta de reserva.
+  const datosPais = agenteDePais(agente.pais);
+
   let respuesta: RespuestaGenerada;
   try {
     // `conv` lleva el anuncio que abrió el hilo: producto y promesa. Es lo que
@@ -2339,7 +2382,59 @@ async function atenderTurno(
     return { atendida: false, motivo: "fallo_modelo", detalle };
   }
 
-  if (!respuesta.texto) return { atendida: false, motivo: "fallo_modelo", detalle: "respuesta vacía" };
+  /*
+   * ── EL MODELO NO ESCRIBIÓ NADA, PERO EL CLIENTE SIGUE AHÍ ───────────────
+   *
+   * Pasa de verdad: los guiones de RD y de Costa Rica terminan en «[HANDOFF]»,
+   * y el modelo a veces manda SOLO esa etiqueta. La etiqueta se quita —el
+   * cliente no tiene que verla— y el texto se queda vacío: el turno terminaba
+   * aquí, sin mandar nada, sin transferir a nadie y sin dejar ni un aviso en el
+   * panel. Desde fuera, la IA «deja de responder» y nadie sabe por qué.
+   *
+   * Ahora se sigue con la siguiente pregunta del pedido, que es lo que haría
+   * un vendedor. Si el modelo pedía una persona, eso se decide más abajo como
+   * siempre. Solo si ni eso da nada se calla, y entonces con su anomalía.
+   */
+  if (!respuesta.texto.trim()) {
+    const relleno = datosPais
+      ? respuestaMinima(datosPais, fichaDelHilo(memoriaMensajes, agente.pais), seVende, {
+          ultimoDelCliente: ultimo.content,
+          ultimoDelAgente: [...historial].reverse().find((m) => m.emisor !== "cliente")?.content ?? null,
+          clienteCompartioUbicacion: clienteCompartioUbicacion(historial),
+          retomado,
+          lugar:
+            ubicacion?.direccion?.provincia ??
+            ubicacion?.zona?.nombre ??
+            lugarResuelto ??
+            lugarEscritoPorElCliente(datosPais, mensajesDeLaSesion(historial)),
+          telefonoDelChat: conv.cliente_phone,
+          marcador: obtenerOrg(orgId)?.marcador_cierre ?? MARCADOR_POR_DEFECTO,
+          productoAnuncio: seVende.producto_anuncio ?? null,
+        })
+      : "";
+
+    if (!relleno.trim()) {
+      crearAnomalia(orgId, {
+        conversationId,
+        tipo: "agente_sin_modelo",
+        severidad: "alta",
+        detalle:
+          "El modelo devolvió una respuesta vacía y no había con qué seguir el pedido. " +
+          "El cliente se quedó sin respuesta: contéstale tú.",
+      });
+      return { atendida: false, motivo: "fallo_modelo", detalle: "respuesta vacía" };
+    }
+
+    crearAnomalia(orgId, {
+      conversationId,
+      tipo: "respuesta_vacia",
+      severidad: "media",
+      detalle:
+        "El modelo no escribió nada —a veces manda solo la etiqueta de transferencia—, así que " +
+        `se siguió con la pregunta que tocaba del pedido: «${relleno}».`,
+    });
+    respuesta = { ...respuesta, texto: relleno };
+  }
 
   /*
    * ── EL REVISOR, ANTES DE MANDAR ─────────────────────────────────────────
@@ -2356,7 +2451,6 @@ async function atenderTurno(
    *
    * Solo en canales con archivo de país: el revisor juzga contra ese archivo.
    */
-  const datosPais = agenteDePais(agente.pais);
   /*
    * ¿ESTO ES LA APERTURA? Solo si el agente todavía no ha escrito en esta
    * sesión. Ver `esAperturaDeSesion`: antes bastaba con que el cliente
@@ -3081,10 +3175,10 @@ export async function enviarSeguimiento(
    * recordatorio a las tres de la mañana lo manda el panel solo, a un cliente
    * que no ha hecho nada, y despierta a quien lo recibe.
    */
-  if (agente.horario_activo === 1 && !dentroDeHorario(agente.horario_desde, agente.horario_hasta)) {
+  if (agente.horario_activo === 1 && !dentroDeHorario(agente.horario_desde, agente.horario_hasta, new Date(), husoDelAgente(agente))) {
     return false;
   }
-  if (agente.horario_activo !== 1 && !enHoraDecente()) return false;
+  if (agente.horario_activo !== 1 && !enHoraDecente(new Date(), husoDelAgente(agente))) return false;
 
   /*
    * El de «se quedó en visto» sí lo escribe el modelo: tiene que nombrar el
@@ -3227,11 +3321,14 @@ function mensajeInterno(orgId: number, conversationId: number, texto: string): M
  * Una hora a la que se le puede escribir a alguien que no ha preguntado nada.
  *
  * Solo se aplica cuando la cuenta no tiene horario propio: si lo tiene, ese
- * manda. De 8 de la mañana a 9 de la noche, hora del servidor.
+ * manda. De 8 de la mañana a 9 de la noche EN EL PAÍS del número: con la hora
+ * del servidor, los recordatorios de Costa Rica salían a las dos de la mañana.
  */
-function enHoraDecente(fecha = new Date()): boolean {
-  const h = fecha.getHours();
-  return h >= 8 && h < 21;
+function enHoraDecente(fecha = new Date(), huso?: string | null): boolean {
+  const minutos = husoValido(huso)
+    ? minutosDelDiaEn(huso, fecha.getTime())
+    : fecha.getHours() * 60 + fecha.getMinutes();
+  return minutos >= 8 * 60 && minutos < 21 * 60;
 }
 
 /**

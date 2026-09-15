@@ -58,6 +58,19 @@ export function fechaISOEn(huso: string, epochSegundos: number): string {
 }
 
 /**
+ * QUÉ HORA ES ALLÁ, en minutos desde la medianoche: 14:30 son 870.
+ *
+ * El servidor corre en UTC. Sin esto, un horario de atención de 9:00 a 21:00
+ * puesto para Santo Domingo se aplicaba de 9 a 21 UTC —de 5 de la mañana a 5
+ * de la tarde allá— y el agente se callaba a media tarde, que es cuando más se
+ * vende. Ver `dentroDeHorario` en agent.ts.
+ */
+export function minutosDelDiaEn(huso: string, ms: number = Date.now()): number {
+  const p = partesEn(huso, ms);
+  return p.h * 60 + p.mi;
+}
+
+/**
  * Las 00:00:00 del día (año, mes, día) EN EL HUSO, como epoch en milisegundos.
  * El desfase se lee en el propio instante para que un cambio de hora no
  * desplace el día: los tres países no lo tienen, pero el cuarto podría.

@@ -219,6 +219,40 @@ test("el horario nocturno cruza la medianoche", () => {
 });
 
 /**
+ * EL HORARIO ES EL DEL PAÍS DEL NÚMERO, NO EL DEL SERVIDOR.
+ *
+ * La dueña (2026-09-12): «la IA deja de responder al cliente en ocasiones». El
+ * contenedor corre en UTC, así que un horario de 9:00 a 21:00 puesto para
+ * Santo Domingo se aplicaba de 9 a 21 UTC: el agente se callaba a las 5 de la
+ * tarde de allá —a las 4 en Panamá y a las 3 en Costa Rica—, todos los días y
+ * en las horas de más venta.
+ */
+test("el horario de atención se mide en la hora del país, no en la del servidor", () => {
+  const RD = "America/Santo_Domingo";  // UTC-4
+  const PA = "America/Panama";         // UTC-5
+  const CR = "America/Costa_Rica";     // UTC-6
+
+  // Las 19:00 UTC: las 3 de la tarde en RD, las 2 en Panamá y la 1 en Costa Rica.
+  const tarde = new Date(Date.UTC(2026, 8, 12, 19, 0));
+  assert.equal(dentroDeHorario("09:00", "21:00", tarde), true, "en UTC son las 19:00 y todavía cabe");
+
+  // Las 23:00 UTC: las 7 de la tarde en RD. Se vende, y el agente tiene que contestar.
+  const noche = new Date(Date.UTC(2026, 8, 12, 23, 0));
+  assert.equal(dentroDeHorario("09:00", "21:00", noche), false, "con la hora del servidor se callaba");
+  assert.equal(dentroDeHorario("09:00", "21:00", noche, RD), true, "en Santo Domingo son las 19:00");
+  assert.equal(dentroDeHorario("09:00", "21:00", noche, PA), true, "en Panamá, las 18:00");
+  assert.equal(dentroDeHorario("09:00", "21:00", noche, CR), true, "en Costa Rica, las 17:00");
+
+  // Y de madrugada allá sigue callado, que es para lo que está el horario.
+  const madrugada = new Date(Date.UTC(2026, 8, 12, 9, 0));
+  assert.equal(dentroDeHorario("09:00", "21:00", madrugada, RD), false, "en Santo Domingo son las 5 de la mañana");
+  assert.equal(dentroDeHorario("09:00", "21:00", madrugada, CR), false, "en Costa Rica, las 3");
+
+  // Un huso que no existe no deja mudo a nadie: se cae al del servidor.
+  assert.equal(dentroDeHorario("00:00", "23:59", noche, "Marte/Olympus"), true);
+});
+
+/**
  * EL CASO DE LA DUEÑA (RD, 2026-09-08): el cliente mandó una nota de voz que no
  * se entendió y, en seguida, otra. Salieron las dos respuestas seguidas: «No
  * logré entender el último mensaje…» y, pegado, «Perfecto, hasta Guayacánal el
@@ -570,6 +604,105 @@ test("tres veces la misma frase sí es un bucle, y ahí para", async () => {
     D.listarAnomalias(orgId).find((a) => a.conversation_id === id && a.tipo === "agente_en_bucle"),
     "debe quedar registrado que el agente se detuvo",
   );
+});
+
+/**
+ * PERO EL BUCLE CADUCA. El agente no puede quedarse mudo en ese chat para
+ * siempre: un bucle pasa en minutos, y sin ventana las tres frases iguales
+ * seguían siendo las tres últimas para siempre —el agente ya no escribía—, así
+ * que el cliente que volvía al día siguiente tampoco recibía nada. Es una de
+ * las razones por las que «la IA deja de responder en ocasiones».
+ */
+test("el bucle de anteayer no deja mudo el chat de hoy", async () => {
+  encender(true);
+  const ayer = 36 * 3600;
+  const id = hilo([
+    { emisor: "cliente", content: "hola", hace: ayer + 900 },
+    { emisor: "ia", content: "¿Qué talla necesita?", hace: ayer + 800 },
+    { emisor: "cliente", content: "?", hace: ayer + 700 },
+    { emisor: "ia", content: "¿Qué talla necesita?", hace: ayer + 600 },
+    { emisor: "cliente", content: "??", hace: ayer + 500 },
+    { emisor: "ia", content: "¿Qué talla necesita?", hace: ayer + 400 },
+    // Vuelve al día siguiente, con otra cosa.
+    { emisor: "cliente", content: "buenas, ¿tienen la talla M?", hace: 5 },
+  ]);
+
+  assert.equal(porQueCalla(orgId, canalId, id).callado, false, "hoy el agente tiene que poder contestar");
+  const r = await atenderConversacion(orgId, canalId, id);
+  assert.notEqual(motivoDe(r), "limite_por_hora", "el bucle de anteayer ya no lo frena");
+});
+
+/**
+ * EL MODELO QUE SOLO MANDA «[HANDOFF]» NO PUEDE DEJAR MUDO AL AGENTE.
+ *
+ * Los guiones de RD y Costa Rica terminan en esa etiqueta, y el modelo a veces
+ * manda solo eso. Al quitarla —el cliente no tiene que verla— el texto quedaba
+ * vacío y el turno terminaba sin mandar nada y sin avisar a nadie.
+ */
+test("si el modelo contesta solo con la etiqueta, se sigue con la pregunta del pedido", async () => {
+  const prueba = D.crearOrgConDueno({
+    negocio: "Etiqueta sola",
+    color: "#12876a",
+    nombre: "Dueña",
+    email: `etiqueta-${Date.now()}@local`,
+    passwordHash: "hash",
+  });
+  const canal = D.crearCanal(prueba.orgId, {
+    nombre: "Ventas",
+    phone: `1809${Date.now().toString().slice(-7)}`,
+    tokenCifrado: "x",
+    webhookSecret: "s",
+    whapiChannelId: null,
+    estado: "conectado",
+  });
+  D.actualizarAgente(prueba.orgId, { pais: "do", nombre: "Ana", negocio: "RINCON DCM" }, canal);
+  D.actualizarCanal(prueba.orgId, canal, { agente_activo: 1, contesta_ia: 0 });
+
+  const { conversacion } = D.getOrCreateConversation(prueba.orgId, canal, "18095551111", { cuando: D.ahora() - 600 });
+  D.db.prepare(
+    `UPDATE conversations SET origen = 'anuncio', producto_anuncio = ?, descripcion_anuncio = ?,
+            anuncio_actual_producto = ?, anuncio_actual_descripcion = ? WHERE id = ?`,
+  ).run("Combo 2 En 1", "COMBO 2 EN 1 — SOLO RD$1,690", "Combo 2 En 1", "COMBO 2 EN 1 — SOLO RD$1,690", conversacion.id);
+  const escribir = (emisor: D.Emisor, content: string, hace: number, i: number) =>
+    D.insertMessage(prueba.orgId, {
+      conversationId: conversacion.id, whapiMessageId: `etiqueta-${i}`,
+      emisor, tipo: "texto", content, createdAt: D.ahora() - hace,
+    });
+  // Con el agente ya hablando en esta sesión: así el turno pasa por el modelo
+  // y no por la apertura mecánica, que es la que se salta la llamada.
+  escribir("cliente", "¡Hola! Quiero más información", 300, 1);
+  escribir("ia", "Combo 2 En 1\nRD$1,690\n¿A qué dirección se lo enviamos?", 280, 2);
+  escribir("cliente", "¿me lo envían a Santiago?", 30, 3);
+
+  const fetchOriginal = globalThis.fetch;
+  const claveOriginal = process.env.OPENROUTER_API_KEY;
+  process.env.OPENROUTER_API_KEY = "clave-de-pruebas";
+  _olvidarCliente();
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        id: "x", model: "de-mentira",
+        choices: [{ message: { role: "assistant", content: "[HANDOFF]" } }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    )) as typeof fetch;
+
+  let r: Resultado | unknown;
+  try {
+    // Sin socket de WhatsApp el envío falla: eso ya es que intentó contestar.
+    r = await atenderConversacion(prueba.orgId, canal, conversacion.id).catch((e) => e);
+  } finally {
+    globalThis.fetch = fetchOriginal;
+    _olvidarCliente();
+    if (claveOriginal === undefined) delete process.env.OPENROUTER_API_KEY;
+    else process.env.OPENROUTER_API_KEY = claveOriginal;
+  }
+
+  assert.notDeepEqual(r, { atendida: false, motivo: "fallo_modelo", detalle: "respuesta vacía" }, "no se queda mudo");
+  const aviso = D.listarAnomalias(prueba.orgId).find((a) => a.tipo === "respuesta_vacia");
+  assert.ok(aviso, "y queda dicho en el panel que el modelo no escribió nada");
+  assert.match(aviso!.detalle ?? "", /«[^»]+»/, "con lo que se mandó en su lugar");
 });
 
 /** Y el cortafuegos de siempre sigue ahí, solo que con sitio para vender. */
