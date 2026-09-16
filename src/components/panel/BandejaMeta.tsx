@@ -66,6 +66,8 @@ interface Hilo {
   mensajes: MensajeHilo[];
   /** Qué es y cuánto vale lo que sale en la foto de este chat. Ver `ProductoDeLaFoto`. */
   foto: FichaDeLaFoto | null;
+  /** Lo que de verdad decía el anuncio de Meta: su texto y su enlace. */
+  anuncio: { descripcion: string | null; enlace: string | null } | null;
 }
 
 type Filtro = "todo" | "mensajes" | "comentarios" | "pendientes";
@@ -511,13 +513,33 @@ export default function BandejaMeta({
               <Par etiqueta="Total" valor={dinero(conv.total)} />
             </dl>
 
-            {/* Y lo que ese anuncio prometía, que es lo que el cliente leyó
-                antes de escribir. Estaba en la base y no lo enseñaba nadie. */}
-            {conv.descripcion_anuncio && (
-              <p style={{ fontSize: 12, lineHeight: 1.5, color: "var(--ink-2)", margin: "-6px 0 16px" }}>
-                <strong style={{ color: "var(--ink)" }}>Prometía:</strong> {conv.descripcion_anuncio}
-              </p>
-            )}
+            {/*
+              Y LO QUE ESE ANUNCIO PROMETÍA, que es lo que el cliente leyó antes
+              de escribir. `descripcion_anuncio` solo se rellena en WhatsApp; en
+              Meta el texto real vive en `anuncios_meta` y llega aparte, en
+              `hilo.anuncio` — es el mismo que ya usa el agente para cotizar.
+            */}
+            {(() => {
+              const prometia = conv.descripcion_anuncio || hilo?.anuncio?.descripcion;
+              const enlace = hilo?.anuncio?.enlace;
+              if (!prometia && !enlace) return null;
+              return (
+                <div style={{ margin: "-6px 0 16px" }}>
+                  {prometia && (
+                    <p style={{ fontSize: 12, lineHeight: 1.5, color: "var(--ink-2)", margin: 0 }}>
+                      <strong style={{ color: "var(--ink)" }}>Prometía:</strong> {prometia}
+                    </p>
+                  )}
+                  {enlace && (
+                    <p style={{ fontSize: 12, margin: "4px 0 0" }}>
+                      <a href={enlace} target="_blank" rel="noreferrer noopener">
+                        Ver el anuncio ↗
+                      </a>
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
 
             {hilo?.foto && (
               <div style={{ borderTop: "1px solid var(--line)", padding: "15px 0", marginBottom: 1 }}>

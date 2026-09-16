@@ -3,6 +3,7 @@ import { Hilo } from "@/components/panel/Burbuja";
 import Escribir from "@/components/panel/Escribir";
 import { Nube, Pastilla, Vacio, dinero, fechaYHora, hace, tienePedido } from "@/components/panel/Piezas";
 import {
+  anuncioMetaPorAdId,
   bandeja,
   getConversation,
   husosDeLosCanales,
@@ -11,7 +12,7 @@ import {
   type EstadoCierre,
   type FilaBandeja,
 } from "@/lib/db";
-import { llegoPorAnuncio } from "@/lib/anuncio";
+import { descripcionUtil, llegoPorAnuncio } from "@/lib/anuncio";
 import { requerirSesion } from "@/lib/tenant";
 
 export const metadata = { title: "Conversaciones · SalesDash" };
@@ -145,6 +146,21 @@ export default async function PaginaConversaciones({ searchParams }: Props) {
   const abierta = elegido === null ? undefined : getConversation(ctx.orgId, elegido);
 
   const mensajes = abierta ? listarMensajes(ctx.orgId, abierta.id) : [];
+
+  /*
+   * LO QUE DE VERDAD DECÍA EL ANUNCIO, para Messenger e Instagram.
+   *
+   * `descripcion_anuncio` de la conversación solo se rellena en WhatsApp: el
+   * `externalAdReply` trae el cuerpo del anuncio en el mismo mensaje. En Meta
+   * ese texto no viaja por ahí —Meta no lo manda en el referral—, así que se
+   * pide aparte a la Graph API y se guarda en `anuncios_meta`, por `ad_id`. Es
+   * justo el texto que ya usa el agente para cotizar (`contexto-anuncio.ts`);
+   * sin enseñarlo aquí, la dueña no tiene forma de comprobar con qué precio
+   * está vendiendo.
+   */
+  const anuncioMeta = abierta?.meta_ad_id ? anuncioMetaPorAdId(ctx.orgId, abierta.meta_ad_id) : undefined;
+  const descripcionDelAnuncio =
+    abierta?.descripcion_anuncio || anuncioMeta?.texto || descripcionUtil(anuncioMeta?.descripcion_imagen);
 
   /*
    * Cuántos de estos chats los trajo un anuncio.
@@ -339,8 +355,15 @@ export default async function PaginaConversaciones({ searchParams }: Props) {
                 >
                   <strong>Llegó por un anuncio</strong>
                   {abierta.producto_anuncio ? `: ${abierta.producto_anuncio}` : ""}
-                  {abierta.descripcion_anuncio && (
-                    <div className="tenue" style={{ marginTop: 2 }}>{abierta.descripcion_anuncio}</div>
+                  {descripcionDelAnuncio && (
+                    <div className="tenue" style={{ marginTop: 2 }}>{descripcionDelAnuncio}</div>
+                  )}
+                  {anuncioMeta?.enlace && (
+                    <div style={{ marginTop: 2 }}>
+                      <a href={anuncioMeta.enlace} target="_blank" rel="noreferrer noopener">
+                        Ver el anuncio ↗
+                      </a>
+                    </div>
                   )}
                 </div>
               )}

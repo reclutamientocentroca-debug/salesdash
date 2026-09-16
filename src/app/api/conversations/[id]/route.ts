@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import {
+  anuncioMetaPorAdId,
   devolverALaIa,
   eliminarConversacion,
   fijarProductoDeLaFoto,
@@ -14,6 +15,7 @@ import {
 import { fichaDeLaFoto } from "@/lib/meta/contexto-anuncio";
 import { anomaliaDeCorreccion } from "@/lib/analyzer";
 import { fechaDelCierre, MARCADOR_POR_DEFECTO } from "@/lib/cierre";
+import { descripcionUtil } from "@/lib/anuncio";
 import { sesionApi } from "@/lib/tenant";
 
 export const runtime = "nodejs";
@@ -35,12 +37,25 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
   const canal = listarCanales(orgId).find((c) => c.id === conv.canal_id);
   const mensajes = listarMensajes(orgId, conv.id);
 
+  /*
+   * LO QUE DE VERDAD DECÍA EL ANUNCIO. `conv.descripcion_anuncio` solo se
+   * rellena en WhatsApp —el `externalAdReply` trae el cuerpo en el mismo
+   * mensaje—; en Meta ese texto se pide aparte a la Graph API y vive en
+   * `anuncios_meta`, por `ad_id`. Es el mismo texto que ya usa el agente para
+   * cotizar (`contexto-anuncio.ts`): sin mandarlo aquí, la bandeja no tiene
+   * forma de enseñarlo.
+   */
+  const anuncioMeta = conv.meta_ad_id ? anuncioMetaPorAdId(orgId, conv.meta_ad_id) : undefined;
+
   return NextResponse.json({
     conversacion: {
       ...conv,
       canal: canal?.nombre ?? "—",
       datos_faltantes: leerLista(conv.datos_faltantes),
     },
+    anuncio: anuncioMeta
+      ? { descripcion: anuncioMeta.texto?.trim() || descripcionUtil(anuncioMeta.descripcion_imagen), enlace: anuncioMeta.enlace }
+      : null,
     foto: fichaDeLaFoto(orgId, conv, mensajes),
     mensajes: mensajes.map((m) => ({
       id: m.id,
