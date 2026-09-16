@@ -198,6 +198,89 @@ test("un mensaje sin id de Meta no se guarda", () => {
 });
 
 /*
+ * EL ENLACE QUE COMPARTE EL CLIENTE, NO UNA FOTO NI UN AUDIO.
+ *
+ * Cuando alguien comparte un producto por Messenger —de la página, de un
+ * Marketplace, de cualquier web— Meta no manda `image` ni `audio`: manda un
+ * adjunto `fallback` con el título de la página y su URL, sin descripción.
+ * Antes esto caía en «otro» y el mensaje se guardaba como «(fallback)»: el
+ * agente no sabía qué había compartido el cliente y terminaba dando el
+ * producto o el precio que le salieran, casi nunca el del enlace.
+ */
+test("un enlace compartido trae el título de la página, no '(fallback)'", () => {
+  const [m] = normalizarEvento(
+    eventoMensaje({
+      message: {
+        mid: "m_enlace1",
+        attachments: [
+          {
+            type: "fallback",
+            payload: {
+              title: "Camisa manga larga — RD$1,850",
+              url: "https://tienda.example/p/8834",
+            },
+          },
+        ],
+      },
+    }),
+    PAGINA,
+  );
+
+  assert.ok(m);
+  assert.equal(m.tipo, "texto");
+  assert.match(m.content, /Camisa manga larga — RD\$1,850/);
+  assert.notEqual(m.content, "(fallback)");
+});
+
+/** Compartir algo de dentro de Meta (una publicación, un producto) llega como `post` o `ig_post`. */
+test("compartir una publicación de Meta (post/ig_post) también trae su título", () => {
+  const [m] = normalizarEvento(
+    eventoMensaje({
+      message: {
+        mid: "m_post1",
+        attachments: [{ type: "post", payload: { title: "Faja moldeadora talla M", url: "https://fb.me/xyz" } }],
+      },
+    }),
+    PAGINA,
+  );
+
+  assert.ok(m);
+  assert.match(m.content, /Faja moldeadora talla M/);
+});
+
+/** Lo que escribió el cliente sigue yendo delante de la ficha del enlace. */
+test("el texto del cliente y la ficha del enlace van juntos, el texto primero", () => {
+  const [m] = normalizarEvento(
+    eventoMensaje({
+      message: {
+        mid: "m_enlace2",
+        text: "¿tienen esto?",
+        attachments: [{ type: "fallback", payload: { title: "Sandalias playeras", url: "https://tienda.example/p/1" } }],
+      },
+    }),
+    PAGINA,
+  );
+
+  assert.ok(m);
+  const lineas = m.content.split("\n");
+  assert.equal(lineas[0], "¿tienen esto?");
+  assert.match(lineas[1], /Sandalias playeras/);
+});
+
+/** Sin título, no hay ficha que pegar: queda igual que antes. */
+test("un fallback sin título no inventa nada, se queda con lo de siempre", () => {
+  const [m] = normalizarEvento(
+    eventoMensaje({
+      message: { mid: "m_enlace3", attachments: [{ type: "fallback", payload: { url: "https://tienda.example/p/9" } }] },
+    }),
+    PAGINA,
+  );
+
+  assert.ok(m);
+  assert.equal(m.content, "(fallback)");
+});
+
+/*
  * EL REFERRAL, CON LA FORMA QUE META MANDA DE VERDAD.
  *
  * Esta prueba pasaba con un `ad_title` colgado del `referral`, que es una forma

@@ -10,6 +10,7 @@
  * una lista.
  */
 import type { MensajeEntrante } from "@/lib/ingesta";
+import { textoConEnlace } from "@/lib/enlace";
 
 /** Por dónde entró el hilo. Se guarda en la conversación, no en el canal. */
 export type Superficie = "messenger" | "instagram" | "comentario";
@@ -175,7 +176,25 @@ function normalizarMensaje(
   const tipoAdjunto = texto(primero.type);
   const url = texto(objeto(primero.payload).url) || null;
 
-  const contenido = texto(mensaje.text);
+  /*
+   * UN ENLACE COMPARTIDO NO ES UNA FOTO NI UN AUDIO.
+   *
+   * Cuando el cliente comparte un producto —de la página, de un Marketplace o
+   * de cualquier web— Messenger no manda `image` ni `audio`: manda un adjunto
+   * `fallback` (o `post`/`ig_post` si comparte algo de dentro de Meta) con el
+   * título de la página y su URL, sin descripción. Esto caía en «otro» y el
+   * mensaje se guardaba como «(fallback)»: el agente no sabía qué había
+   * compartido el cliente y contestaba con el producto o el precio que le
+   * salieran, casi nunca el del enlace. El título entra igual que en WhatsApp
+   * (`enlace.ts`): pegado al mensaje y marcado como enlace, no como algo que
+   * escribió el cliente.
+   */
+  const esEnlaceCompartido = tipoAdjunto === "fallback" || tipoAdjunto === "post" || tipoAdjunto === "ig_post";
+  const tituloEnlace = esEnlaceCompartido ? texto(objeto(primero.payload).title) || null : null;
+
+  const contenido = esEnlaceCompartido
+    ? textoConEnlace(texto(mensaje.text), { titulo: tituloEnlace, url })
+    : texto(mensaje.text);
 
   // Un mensaje sin texto ni adjunto no aporta nada al hilo ni al modelo.
   if (!contenido && !url) return null;
