@@ -426,6 +426,44 @@ test("con el artículo de su foto ya confirmado, vendérselo no lo para el revis
 });
 
 /**
+ * LA FOTO QUE MANDA EL CLIENTE ES PUBLICIDAD DE LA MISMA TIENDA (2026-09-17).
+ *
+ * La dueña: un cliente mandó la foto de un anuncio propio —«Zapatos De
+ * Caballero, DCM Estilo», RD$2,500 escrito encima— y el agente cotizó otra
+ * cifra. Antes de este arreglo la foto del cliente NO era una fuente de
+ * precios para el revisor —solo el catálogo y el anuncio lo eran—, así que un
+ * precio leído ahí se paraba igual que uno inventado, aunque estuviera escrito
+ * tal cual en la imagen. Ver `fotoDeProductoDelClienteEnSesion`.
+ */
+test("el precio que trae la foto del cliente no se para como inventado", () => {
+  // Catálogo limpio a propósito: sin él, «2500» de los mocasines de `rd`
+  // explicaría la cifra por casualidad y la prueba no probaría nada.
+  const sinFoto = { ...rd, anuncio: null, catalogo: "Catálogo:\n(sin catálogo cargado)" };
+
+  // Sin la foto delante, esa cifra no se explica con nada: se para.
+  assert.ok(
+    revisarConReglas("Zapatos De Caballero está en RD$2,500. ¿Qué talla le interesa?", sinFoto)
+      .some((f) => f.includes("RD$2500")),
+  );
+
+  // Con la foto del cliente delante, en esta sesión, el mismo precio pasa.
+  const conFotoDelCliente = {
+    ...sinFoto,
+    fotoDelCliente: "Producto: Zapatos De Caballero, DCM Estilo. Colores: marrón, gris, blanco/negro. Precio: RD$2,500.",
+  };
+  assert.deepEqual(
+    revisarConReglas("Zapatos De Caballero está en RD$2,500. ¿Qué talla le interesa?", conFotoDelCliente),
+    [],
+  );
+
+  // Pero no cualquier cifra: una que no está ni en la foto ni en el catálogo sigue inventada.
+  assert.ok(
+    revisarConReglas("Zapatos De Caballero está en RD$1,990. ¿Qué talla le interesa?", conFotoDelCliente)
+      .some((f) => f.includes("RD$1990")),
+  );
+});
+
+/**
  * EL COSTO DEL ENVÍO NO ES EL PRECIO DEL ARTÍCULO (la dueña, 2026-09-08).
  *
  * Un anuncio de polos que era solo una foto, sin precio en ninguna parte, y la

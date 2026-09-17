@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as D from "../src/lib/db";
 import { armarSistema, revisarAgente } from "../src/lib/agent";
-import { conLoVistoYOido, percibir } from "../src/lib/percepcion";
+import { conLoVistoYOido, fotoDeProductoDelClienteEnSesion, percibir } from "../src/lib/percepcion";
 import { PAISES, bloqueDePais, obtenerPais, paisDeTelefono } from "../src/lib/paises";
 import {
   enlaceDeMapa,
@@ -469,6 +469,52 @@ test("una foto y una nota de voz llegan al modelo como texto", () => {
   // Sin describir, se queda como estaba: el prompt le dice al agente que ahí
   // pida el dato por escrito en vez de inventárselo.
   assert.equal(conLoVistoYOido(base), "[imagen]");
+});
+
+/**
+ * LA FOTO DE PRODUCTO QUE MANDA EL CLIENTE, PARA EL REVISOR (2026-09-17).
+ *
+ * La dueña: un cliente mandó la foto de un anuncio propio con el precio
+ * escrito encima y el agente cotizó otra cifra. `fotoDeProductoDelClienteEnSesion`
+ * es lo que le da al revisor ese precio como fuente válida — ver revisor.test.ts.
+ */
+test("la foto de producto del cliente se rescata de la sesión, y solo esa", () => {
+  const base: D.Mensaje = {
+    id: 1,
+    org_id: orgId,
+    conversation_id: 1,
+    whapi_message_id: null,
+    emisor: "cliente",
+    tipo: "imagen",
+    descripcion_imagen: null,
+    categoria_imagen: null,
+    transcripcion: null,
+    media_url: "local:1/x.jpg",
+    content: "[imagen]",
+    created_at: D.ahora(),
+  };
+
+  // Sin ninguna foto de producto, no hay nada que rescatar.
+  assert.equal(fotoDeProductoDelClienteEnSesion([base]), null);
+
+  // Un comprobante de pago no cuenta como foto de producto.
+  const comprobante = { ...base, id: 2, categoria_imagen: "comprobante_pago" as const, descripcion_imagen: "Transferencia RD$1,850" };
+  assert.equal(fotoDeProductoDelClienteEnSesion([comprobante]), null);
+
+  // La última foto de producto de la sesión, sí.
+  const zapatos = {
+    ...base,
+    id: 3,
+    categoria_imagen: "foto_producto" as const,
+    descripcion_imagen: "Zapatos De Caballero, DCM Estilo. Precio: RD$2,500.",
+  };
+  assert.equal(fotoDeProductoDelClienteEnSesion([comprobante, zapatos]), "Zapatos De Caballero, DCM Estilo. Precio: RD$2,500.");
+
+  // Una foto de producto de HACE DÍAS —otra sesión— no es la de este pedido.
+  const vieja = { ...zapatos, id: 4, created_at: D.ahora() - 20 * 3600, descripcion_imagen: "Camisa vieja RD$900" };
+  const actual = { ...zapatos, id: 5, created_at: D.ahora() };
+  assert.equal(fotoDeProductoDelClienteEnSesion([vieja, actual]), "Zapatos De Caballero, DCM Estilo. Precio: RD$2,500.");
+  assert.equal(fotoDeProductoDelClienteEnSesion([vieja]), "Camisa vieja RD$900", "sola, sigue siendo la de su sesión");
 });
 
 test("el prompt le explica al agente qué hacer con fotos y audios", () => {

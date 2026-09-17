@@ -81,7 +81,7 @@ import { bloqueDePais, obtenerPais, saludoDelPais, type Pais } from "./paises";
 // servidor, que corre en UTC. Ver `dentroDeHorario`.
 import { husoValido, minutosDelDiaEn } from "./rango";
 import { bloqueDeEnvio } from "./envio";
-import { conLoVistoYOido, modelosDePercepcion, percibir } from "./percepcion";
+import { conLoVistoYOido, fotoDeProductoDelClienteEnSesion, modelosDePercepcion, percibir } from "./percepcion";
 import { ubicacionParaModelo, validarUbicacion, type UbicacionValidada } from "./ubicacion";
 
 /**
@@ -2474,6 +2474,7 @@ async function atenderTurno(
       nombresDeLaCasa: [agente.nombre, agente.negocio, datosPais.nombreAgente ?? "", datosPais.tienda].filter(Boolean),
       catalogo: textoDeLoQueVende(agente, listarCatalogo(orgId, true, canalId)),
       anuncio: [anuncioParaModelo(seVende, datosPais.moneda.simbolo), reglaPrecio].filter(Boolean).join("\n\n") || null,
+      fotoDelCliente: fotoDeProductoDelClienteEnSesion(historial),
       ficha: fichaDelHilo(memoriaMensajes, agente.pais),
       clienteCompartioUbicacion: clienteCompartioUbicacion(historial),
       textosDelCliente: textosDelClienteEnSesion(historial),
@@ -3038,7 +3039,7 @@ async function atenderTurno(
       });
 
       if (enviados.length === 0) {
-        return { atendida: false, motivo: "fallo_modelo", detalle: "no se pudo enviar" };
+        return { atendida: false, motivo: "fallo_modelo", detalle: causa };
       }
       break;
     }
@@ -3243,6 +3244,7 @@ export async function enviarSeguimiento(
       nombresDeLaCasa: [agente.nombre, negocio, datosPais.nombreAgente ?? "", datosPais.tienda].filter(Boolean),
       catalogo: textoDeLoQueVende(agente, listarCatalogo(orgId, true, canal.id)),
       anuncio: anuncioParaModelo(anuncioVigente(conv)) || null,
+      fotoDelCliente: fotoDeProductoDelClienteEnSesion(historial),
       ficha: fichaDelHilo(historial, agente.pais),
       textosDelCliente: textosDelClienteEnSesion(historial),
       textosDelAgente: textosDeLaCasaEnSesion(historial),

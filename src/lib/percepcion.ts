@@ -33,6 +33,7 @@ import {
 } from "./db";
 import { completar, completarJson, ErrorIA, type Mensaje as MensajeIA } from "./ia";
 import { comoDataUrl } from "./media";
+import { mensajesDeLaSesion } from "./memoria";
 
 export const CATEGORIAS: CategoriaImagen[] = [
   "factura",
@@ -48,16 +49,32 @@ interface DescripcionImagen {
   productos_detectados?: string[];
 }
 
+/*
+ * LA DUEÑA (2026-09-17): un cliente mandó la foto de un anuncio propio —«Zapatos
+ * De Caballero, DCM Estilo», RD$2,500 escrito encima de la foto— y el agente
+ * contestó con otro precio, RD$1,990, sacado de quién sabe dónde. La foto SÍ
+ * traía el precio: lo que faltó fue leerlo. «una línea de qué se ve» describía
+ * el artículo y los colores, nunca el precio ni las tallas escritas encima —eso
+ * es justo lo que trae media publicidad de esta tienda, y es la misma cifra que
+ * el cliente ya vio antes de mandar la foto. Ver `promptAnuncio`, hermano de
+ * este prompt para la creatividad del propio anuncio.
+ */
 const PROMPT_VISION = `Eres un analista de ventas. Mira la imagen y clasifícala.
 
 Responde SOLO con este JSON, sin texto adicional y sin backticks:
-{"categoria":"factura|comprobante_pago|foto_producto|otro","descripcion":"una línea de qué se ve","monto_detectado":null,"productos_detectados":[]}
+{"categoria":"factura|comprobante_pago|foto_producto|otro","descripcion":"dos o tres frases de qué se ve","monto_detectado":null,"productos_detectados":[]}
 
 Criterios:
 - factura: una factura, recibo o nota de pedido emitida por el negocio
 - comprobante_pago: captura de una transferencia, depósito o pago del cliente
 - foto_producto: una foto del artículo, para que el cliente lo vea
-- otro: cualquier otra cosa`;
+- otro: cualquier otra cosa
+
+Si es "foto_producto", en la descripción incluye SIEMPRE, cuando se vea:
+- CUALQUIER precio, cifra u oferta escrita en la imagen, copiada tal cual (muchas veces va encima de la foto, no solo en el pie).
+- Los colores que aparecen.
+- Las tallas o medidas que se lean, copiadas tal cual.
+No inventes ningún dato que no esté escrito o visible en la imagen.`;
 
 const PROMPT_AUDIO = `Transcribe literalmente este audio de una conversación de venta por WhatsApp.
 
@@ -311,6 +328,28 @@ export function conLoVistoYOido(m: Mensaje): string {
   }
 
   return m.content;
+}
+
+/**
+ * LA ÚLTIMA FOTO DE PRODUCTO QUE MANDÓ EL CLIENTE EN ESTA SESIÓN, tal como la
+ * describió la visión —con su precio, si se leía uno—.
+ *
+ * La dueña (2026-09-17): un cliente mandó la foto de un anuncio propio —«Zapatos
+ * De Caballero, DCM Estilo», con el precio escrito encima— y el agente cotizó
+ * otra cifra. La foto de un producto que manda el cliente es publicidad de esta
+ * misma tienda tantas veces como la creatividad del propio anuncio, así que lo
+ * que trae escrito encima vale igual: ver `promptAnuncio`, en `analyzer.ts`, que
+ * es la misma regla para la foto del anuncio.
+ *
+ * Solo la de ESTA sesión: una foto de hace tres días no es la de este pedido, y
+ * pegarla dejaría vivo un precio que ya no viene al caso.
+ */
+export function fotoDeProductoDelClienteEnSesion(historial: Mensaje[]): string | null {
+  const ultima = mensajesDeLaSesion(historial)
+    .filter((m) => m.emisor === "cliente" && m.categoria_imagen === "foto_producto")
+    .at(-1);
+  const descripcion = ultima?.descripcion_imagen?.trim();
+  return descripcion && descripcion !== SIN_DESCRIBIR ? descripcion : null;
 }
 
 /** Los modelos por defecto, para quien no tenga elegido uno propio. */

@@ -71,6 +71,14 @@ export interface ContextoRevision {
   /** Lo que el agente tenía delante para cotizar. */
   catalogo: string;
   anuncio: string | null;
+  /**
+   * LA FOTO DE PRODUCTO QUE MANDÓ EL CLIENTE EN ESTA SESIÓN, si trajo precio.
+   *
+   * Vale igual que `anuncio`: la publicidad de esta tienda que el cliente
+   * reenvía —con el precio escrito encima— no es menos fuente que la
+   * creatividad del propio anuncio. Ver `fotoDeProductoDelClienteEnSesion`.
+   */
+  fotoDelCliente?: string | null;
   /** El bloque del país tal cual lo leyó el agente, para que el revisor use el mismo. */
   bloqueDelPais: string;
   /** Lo que el cliente ya dijo del pedido. Ver `memoria.ts`. */
@@ -174,7 +182,7 @@ const FORMAS_DE_PAGO = /contra entrega|contraentrega|transferencia|\bsinpe\b|\by
  * escribe el dueño como le sale: «RD$1,500», «1500 pesos», «Precio: 1.500».
  */
 function cifrasConocidas(ctx: ContextoRevision): number[] {
-  const fuentes = [ctx.catalogo, ctx.anuncio ?? ""].join("\n");
+  const fuentes = [ctx.catalogo, ctx.anuncio ?? "", ctx.fotoDelCliente ?? ""].join("\n");
   const salida = new Set<number>();
 
   /*
@@ -332,7 +340,7 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
   // son la misma palabra. Los nombres del mapa del país que llevan «sabana»
   // dentro se apartan: nombrar el barrio no es ofrecer un producto.
   {
-    const fuentes = llano(`${ctx.catalogo}\n${ctx.anuncio ?? ""}`);
+    const fuentes = llano(`${ctx.catalogo}\n${ctx.anuncio ?? ""}\n${ctx.fotoDelCliente ?? ""}`);
     const lugaresConSabana = [
       ...d.envio.zonas.flatMap((z) => z.lugares),
       ...(d.envio.restoDelPais.lugares ?? []),
@@ -1338,8 +1346,12 @@ export function preguntaDeVarianteSinVariante(borrador: string, ctx: ContextoRev
    * El caso real: un combo de cepillo y plancha, y un catálogo con camisas
    * «talla S a XL»: la palabra «talla» del catálogo dejaba pasar «¿qué talla
    * le interesa?» para el combo.
+   *
+   * Sin anuncio pero con una foto de producto que mandó el cliente en esta
+   * sesión, esa foto manda igual: es la misma evidencia de qué es ESTE
+   * artículo, solo que llegó por el chat y no por el clic en la publicidad.
    */
-  const fuentes = llano(ctx.anuncio ? ctx.anuncio : ctx.catalogo);
+  const fuentes = llano(ctx.anuncio || ctx.fotoDelCliente || ctx.catalogo);
   const fallas: string[] = [];
 
   const sinVariantesDelPais = ctx.datos.tallas.sinTallaNiColor.map((s) => llano(s));
