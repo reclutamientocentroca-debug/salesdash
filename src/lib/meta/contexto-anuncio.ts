@@ -1,15 +1,23 @@
 /**
  * Del anuncio al producto, y del producto al precio.
  *
- * LA REGLA: el precio sale del catálogo, NUNCA del modelo. El anuncio dice qué
- * se prometió; el catálogo dice qué hay y a cuánto. Cuando los dos no coinciden
- * manda el catálogo, y cuando el anuncio no está vinculado a ningún producto el
- * agente no cotiza: pasa el hilo a una persona.
+ * LA REGLA (la dueña, 2026-09-17): el precio lo manda el anuncio, NUNCA el
+ * modelo y NUNCA el catálogo por encima de él. El anuncio es lo que el
+ * cliente vio y lo que este negocio publicó; el catálogo llena lo que el
+ * anuncio no dice —el nombre para hablar igual, las variantes, y el precio
+ * cuando el anuncio de verdad no trae ninguno—. Si el vínculo del anuncio en
+ * el catálogo está mal hecho, eso ya no cambia el precio: lo único que
+ * cambia es que no hay variantes de más que ofrecer.
  *
- * Esa última parte es la que importa. Un agente que se inventa un precio hace
- * una venta a un precio que el negocio no puede sostener, y el cliente ya lo
- * leyó: no hay forma de desdecirlo sin quedar mal. Callar y pasar el hilo es
- * peor experiencia y mejor negocio.
+ * Y cuando el anuncio no está vinculado a ningún producto, tampoco se suelta
+ * el lead: se vende con lo que el propio anuncio dice, que también lo
+ * publicó y lo pagó este negocio.
+ *
+ * Lo que sigue intacto es no inventar. Un agente que se inventa un precio
+ * hace una venta a un precio que el negocio no puede sostener, y el cliente
+ * ya lo leyó: no hay forma de desdecirlo sin quedar mal. Sin precio en
+ * ningún sitio —ni el anuncio, ni el catálogo— no se cotiza: se pasa el
+ * hilo a una persona.
  */
 import { anuncioMetaPorAdId, fotoDelAnuncio, productoPorId, registrarAnuncioVisto, type Conversacion, type Mensaje } from "@/lib/db";
 import { descripcionUtil, llegoPorAnuncio } from "@/lib/anuncio";
@@ -162,6 +170,17 @@ export function explicarMotivo(c: ContextoAnuncio): string {
 }
 
 /**
+ * ¿EL ANUNCIO TRAE SU PROPIO PRECIO ESCRITO? En su texto, o en lo que se leyó
+ * de su imagen. Con símbolos genéricos: aquí no se sabe el país del cliente,
+ * y los tres —RD$, ₡, B/. o US$— tienen la misma pinta de siempre: el signo
+ * pegado a una cifra.
+ */
+const TRAE_PRECIO = /(?:RD\$|US\$|B\/\.|₡|\$)\s?\d/;
+function anuncioTraePrecio(c: { texto: string | null; descripcionImagen: string | null }): boolean {
+  return TRAE_PRECIO.test(c.texto ?? "") || TRAE_PRECIO.test(c.descripcionImagen ?? "");
+}
+
+/**
  * El bloque que se le añade al prompt.
  *
  * NO sustituye a `anuncioParaModelo`: aquel cuenta qué se le prometió al
@@ -247,7 +266,14 @@ export function anuncioParaPrompt(c: ContextoAnuncio): string {
         c.motivo === "producto_ajeno"
           ? "El producto que el catálogo tiene pegado a este anuncio es de otra cosa —está mal vinculado— así que NO lo uses ni lo nombres: lo que dice ARRIBA es tu fuente, el artículo que sale ahí y el precio que anuncia son los buenos, y con eso vendes."
           : "Este anuncio no está vinculado a ningún producto del catálogo, así que lo que dice ARRIBA es tu fuente: el artículo que sale ahí y el precio que anuncia son los buenos, y con eso vendes.",
-        "Si el catálogo o tus instrucciones tienen ese mismo artículo a otro precio, manda el catálogo: es lo que está vigente hoy.",
+        /*
+         * EL CATÁLOGO NO MANDA SOBRE EL ANUNCIO, NUNCA (la dueña, 2026-09-17):
+         * ni siquiera cuando por el nombre parece el mismo artículo. Antes esta
+         * línea decía lo contrario —que el catálogo ganaba si tenía «ese mismo
+         * artículo» a otro precio—, y eso era la misma grieta del vínculo mal
+         * hecho: bastaba con que el catálogo tuviera ALGO de nombre parecido.
+         */
+        "Si el catálogo tiene un artículo de nombre parecido a otro precio, eso NO lo cambia: el precio de este chat es el del anuncio, no el de un artículo parecido del catálogo.",
         /*
          * Y SI NO SABES QUÉ ES O CUÁNTO VALE, SE TRANSFIERE. NO SE CAMBIA DE
          * ARTÍCULO. El caso de la dueña: el cliente pidió tres pantalones y el
@@ -266,12 +292,28 @@ export function anuncioParaPrompt(c: ContextoAnuncio): string {
   if (p.variantes) partes.push(`(${p.variantes})`);
   partes.push(`— ${p.precio}`);
 
+  /*
+   * EL CATÁLOGO NO MANDA SOBRE EL ANUNCIO, NUNCA (la dueña, 2026-09-17).
+   *
+   * Hasta aquí, con el anuncio vinculado a un producto, el precio del
+   * catálogo se imponía siempre sobre el del propio anuncio —era la defensa
+   * contra un anuncio viejo con un precio que ya subió—. Pero un vínculo
+   * puede estar mal hecho sin que sea una familia distinta —«producto_ajeno»
+   * no lo ve todo—, y ahí el catálogo terminaba mandando un precio que el
+   * cliente nunca vio anunciado. La dueña lo zanjó: lo que diga el anuncio,
+   * en su texto o en su imagen, es lo que se cotiza siempre que diga algo. El
+   * catálogo solo llena lo que el anuncio no dice —el nombre para hablar
+   * igual con el cliente, las variantes, y el precio cuando el anuncio no
+   * trae ninguno—.
+   */
   return (
     contexto +
     [
       "El anuncio que trajo a este cliente corresponde a este producto del catálogo, y ESE es el artículo que vendes en este chat, con ese mismo nombre:",
       partes.join(" "),
-      "Ese precio es el bueno. Si el anuncio prometía otro —en su texto o escrito sobre su imagen—, no lo confirmes ni lo niegues: dile que lo revisas con el equipo.",
+      anuncioTraePrecio(c)
+        ? "PERO EL PRECIO LO MANDA EL ANUNCIO, no el catálogo: si arriba —en su texto, o en lo que se leyó de su imagen— hay un precio escrito, ESE es el que cotizas, tal cual está escrito, y no el del catálogo. El precio del catálogo de arriba solo vale si el anuncio no trae ningún precio escrito en ningún sitio."
+        : "Y como el anuncio no traía ningún precio escrito, ese precio del catálogo es el bueno.",
     ].join("\n")
   );
 }

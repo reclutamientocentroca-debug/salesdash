@@ -558,7 +558,48 @@ test("vinculado a un producto con precio, sí cotiza y el precio es el del catá
 
   assert.equal(c.puedeCotizar, true);
   assert.equal(c.motivo, "vinculado");
-  assert.equal(c.producto?.precio, 1850, "el precio sale del catálogo, no del anuncio");
+  // Este anuncio no traía ningún precio propio (ni texto ni imagen), así que
+  // el del catálogo es el que llena el hueco. Ver la prueba de abajo para el
+  // caso en que el anuncio SÍ trae uno.
+  assert.equal(c.producto?.precio, 1850);
+});
+
+/**
+ * EL ANUNCIO MANDA SOBRE EL CATÁLOGO, SIEMPRE QUE DIGA ALGO (la dueña, 2026-09-17).
+ *
+ * Antes, con el anuncio vinculado, el precio del catálogo se imponía sobre
+ * el que trajera el propio anuncio —era la defensa contra un anuncio viejo
+ * con un precio ya desactualizado—. Pero un vínculo puede estar mal hecho
+ * sin ser de otra familia —el caso de «polo vs. chacabana»—, y ahí el
+ * catálogo terminaba mandando un precio que el cliente nunca vio anunciado.
+ * Ahora manda el anuncio: el catálogo solo llena el precio cuando el
+ * anuncio de verdad no trae ninguno.
+ */
+test("con el anuncio vinculado, si trae su propio precio, ese manda sobre el del catálogo", () => {
+  const { orgId } = cuentaConPagina("AnuncioManda");
+  const productoId = D.crearProducto(orgId, {
+    nombre: "Polos Bronx Originales", variantes: "S, M, L, XL", precio: 1850,
+  });
+
+  D.registrarAnuncioVisto(orgId, "ad_con_precio", "Polos Bronx", {
+    texto: "POLOS BRONX ORIGINALES, RD$1,400 cada uno.",
+  });
+  D.vincularAnuncioAProducto(orgId, "ad_con_precio", productoId);
+
+  const c = resolverAnuncio(orgId, "ad_con_precio", "Polos Bronx");
+  assert.equal(c.puedeCotizar, true);
+  assert.equal(c.producto?.precio, 1850, "el dato del catálogo sigue ahí, para quien lo lea");
+
+  const prompt = anuncioParaPrompt(c);
+  assert.match(prompt, /EL PRECIO LO MANDA EL ANUNCIO/);
+  assert.ok(prompt.includes("RD$1,400"), "el precio del anuncio está delante");
+
+  // Sin precio propio en el anuncio, el del catálogo sigue llenando el hueco.
+  D.registrarAnuncioVisto(orgId, "ad_sin_precio_propio", "Polos Bronx", { texto: "Los de siempre, calidad Bronx." });
+  D.vincularAnuncioAProducto(orgId, "ad_sin_precio_propio", productoId);
+  const sinPrecioPropio = anuncioParaPrompt(resolverAnuncio(orgId, "ad_sin_precio_propio", "Polos Bronx"));
+  assert.match(sinPrecioPropio, /el anuncio no traía ningún precio escrito/);
+  assert.ok(sinPrecioPropio.includes("1850"));
 });
 
 /**
