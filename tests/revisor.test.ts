@@ -1460,7 +1460,7 @@ test("a una camisa se le pregunta la talla antes que la provincia, y «Le confir
   assert.deepEqual(revisarConReglas("Indíquenos a qué dirección y provincia le enviamos.", conTalla), []);
   // Y el «Le confirmo» con todo, también.
   const completo = { ...conTalla, ficha: { ...conTalla.ficha, direccion: "Calle 3, Los Mina, Santo Domingo Este", nombre: "Pedro Sabater" }, textosDelCliente: ["M", "Calle 3, Los Mina, Santo Domingo Este", "Pedro Sabater"], ultimoDelCliente: "Pedro Sabater" };
-  assert.deepEqual(revisarConReglas("Le confirmo: Polos Bronx Originales, talla M, a nombre de Pedro Sabater, entrega en Calle 3, Los Mina, Santo Domingo Este.\nSon RD$1,400 más RD$250 de envío, total RD$1,650, y se paga al recibir.\n¿Se lo despacho hoy mismo?", completo), []);
+  assert.deepEqual(revisarConReglas("Le confirmo: Camisa Bronx Original, talla M, a nombre de Pedro Sabater, entrega en Calle 3, Los Mina, Santo Domingo Este.\nSon RD$1,400 más RD$250 de envío, total RD$1,650, y se paga al recibir.\n¿Se lo despacho hoy mismo?", completo), []);
 });
 
 /**

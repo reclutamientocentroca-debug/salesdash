@@ -322,7 +322,7 @@ test("los polos dominicanos cambian de precio con la cantidad", () => {
  */
 test("«poloche» es el polo, y quien lo pide no recibe la foto del calzado", () => {
   for (const dice of ["Yo escribí por los polocheres", "quiero un poloche", "el polocher blanco"]) {
-    assert.deepEqual(familiasNombradas(dice).map((f) => f.familia), ["camisas y polos"], dice);
+    assert.deepEqual(familiasNombradas(dice).map((f) => f.familia), ["polos"], dice);
     assert.equal(llevaTalla(dice, rd), true, "lleva talla, como cualquier polo");
     assert.equal(llevaColor(dice, rd), true);
   }

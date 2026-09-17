@@ -63,8 +63,18 @@ const FAMILIAS: { familia: string; palabras: string }[] = [
    * anuncio —le mandó hasta la foto de unas botas— porque esa palabra no la
    * conocía nadie aquí. No hace falta separarla por país como la «faja»: un
    * poloche no es otra cosa en ningún sitio, es siempre un polo.
+   *
+   * Y EL POLO NO ES LA CHACABANA, aunque los dos sean camisas (la dueña,
+   * 2026-09-17): un anuncio de «POLOS BRONX ORIGINALES» estaba vinculado en
+   * el catálogo a «Chacabanas de manga corta», y como antes las dos vivían en
+   * la misma familia «camisas y polos», esta comprobación no veía nada raro
+   * —para ella, un anuncio de camisas vinculado a una camisa—. El agente abrió
+   * cotizando la chacabana y su precio a quien había pinchado en el polo.
+   * Separadas, un anuncio de polos vinculado a una chacabana sí se nota.
    */
-  { familia: "camisas y polos", palabras: "camisas?|polos?|poloch(?:es?|er(?:es)?)|t-?shirts?|franelas?|blusas?|chacabanas?" },
+  { familia: "camisas y blusas", palabras: "camisas?|t-?shirts?|franelas?|blusas?" },
+  { familia: "polos", palabras: "polos?|poloch(?:es?|er(?:es)?)" },
+  { familia: "chacabanas", palabras: "chacabanas?" },
   { familia: "pantalones", palabras: "pantal[oó]n|pantalones|jeans?|shorts?|bermudas?" },
   { familia: "ropa de vestir", palabras: "vestidos?|faldas?|conjuntos?|chaquetas?|abrigos?|su[eé]teres?|sudaderas?" },
   { familia: "ropa interior", palabras: "b[oó]xers?|underwear" },

@@ -603,6 +603,43 @@ test("si el producto vinculado es de otra cosa, manda el anuncio y se avisa", ()
   assert.equal(resolverAnuncio(orgId, "ad_combo", null).puedeCotizar, true, "sin familia, no se decide");
 });
 
+/**
+ * UN POLO VINCULADO A UNA CHACABANA TAMBIÉN ES OTRA COSA (2026-09-17).
+ *
+ * La captura de la dueña: un cliente llegó por «🔥POLOS BRONX ORIGINALES🔥»
+ * y el agente abrió cotizando «Chacabanas de manga corta, RD$1,200» —un
+ * artículo que nadie mencionó—. Las dos son camisas, y hasta este arreglo
+ * vivían en la MISMA familia de `familiasNombradas`, así que la comprobación
+ * de arriba —pensada para «un cepillo no es una bota»— no veía nada raro en
+ * «un polo tampoco es una chacabana»: para ella, un anuncio de camisas
+ * vinculado a una camisa. Separar las familias es lo que hace que esto SÍ
+ * se note, con la misma regla de siempre.
+ */
+test("un polo vinculado a una chacabana también avisa: son camisas, pero no la misma", () => {
+  const { orgId } = cuentaConPagina("PoloVsChacabana");
+  const chacabana = D.crearProducto(orgId, { nombre: "Chacabanas de manga corta", variantes: null, precio: 1200 });
+
+  D.registrarAnuncioVisto(orgId, "ad_polos", "🔥POLOS BRONX ORIGINALES🔥", {
+    texto: "🔥POLOS BRONX ORIGINALES🔥 Codigo BROX Moderno, Fresco y duradero RD$1,400 C/U RD$1,190 al por mayor",
+  });
+  D.vincularAnuncioAProducto(orgId, "ad_polos", chacabana);
+
+  const c = resolverAnuncio(orgId, "ad_polos", "🔥POLOS BRONX ORIGINALES🔥");
+  assert.equal(c.puedeCotizar, false, "una chacabana no es lo que anuncia un polo");
+  assert.equal(c.motivo, "producto_ajeno");
+
+  const prompt = anuncioParaPrompt(c);
+  assert.ok(prompt.includes("POLOS BRONX"), "lo que el cliente vio sigue delante");
+  assert.equal(prompt.includes("Chacabanas"), false, "el producto mal vinculado no se le nombra");
+
+  // Con el polo de verdad vinculado, sí se cotiza.
+  const polo = D.crearProducto(orgId, { nombre: "Polos Bronx Originales", variantes: null, precio: 1400 });
+  D.vincularAnuncioAProducto(orgId, "ad_polos", polo);
+  const bien = resolverAnuncio(orgId, "ad_polos", "🔥POLOS BRONX ORIGINALES🔥");
+  assert.equal(bien.puedeCotizar, true);
+  assert.equal(bien.motivo, "vinculado");
+});
+
 test("un producto sin precio tampoco deja cotizar", () => {
   // El caso traicionero: el producto está bien vinculado y el agente creería
   // que puede hablar de dinero. No hay dinero que decir.

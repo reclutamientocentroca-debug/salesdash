@@ -22,7 +22,7 @@ import {
   revisarAgente,
 } from "../src/lib/agent";
 import { contieneMarcador, duenoDelCierre, registrarCierre } from "../src/lib/cierre";
-import { leerEtiquetaDeAsesor, ponerUbicacionResuelta } from "../src/lib/agent";
+import { instruccionVisto, leerEtiquetaDeAsesor, ponerUbicacionResuelta } from "../src/lib/agent";
 import { fichaDelHilo } from "../src/lib/memoria";
 import { ingerir } from "../src/lib/ingesta";
 import { aperturaSegura } from "../src/lib/apertura";
@@ -1601,6 +1601,30 @@ test("la etiqueta de pasar a un asesor se quita del mensaje y se anota", () => {
   // Y un mensaje normal no se toca.
   const normal = leerEtiquetaDeAsesor("¿Qué talla necesita?");
   assert.deepEqual(normal, { texto: "¿Qué talla necesita?", pideAsesor: false });
+});
+
+/**
+ * EL RECORDATORIO DE «SE QUEDÓ EN VISTO» DICE LAS POCAS UNIDADES, PERO DEL
+ * ARTÍCULO CORRECTO.
+ *
+ * La dueña (2026-09-17, captura): un cliente que preguntaba por unas
+ * «Chacabanas de manga corta, RD$1,200» recibió al día siguiente un
+ * recordatorio de «la Chaqueta Kenneth Cole Original», que nadie había
+ * mencionado en ese chat. La táctica de «quedan pocas unidades» la quiere la
+ * dueña (2026-09-17): lo que está mal es que cambie el artículo. Con el
+ * artículo del anuncio delante, la instrucción lo nombra ella misma en vez de
+ * dejar que el modelo elija cualquiera del catálogo; sin él, prohíbe nombrar
+ * otro artículo.
+ */
+test("el recordatorio dice pocas unidades, pero del artículo del anuncio y no de otro", () => {
+  const conProducto = instruccionVisto("Chacabanas de manga corta");
+  assert.ok(conProducto.includes("«Chacabanas de manga corta»"), "nombra el artículo tal cual, no uno del catálogo");
+  assert.equal(/kenneth cole|chaqueta/i.test(conProducto), false, "no puede colarse un artículo que no es este");
+  assert.ok(/pocas unidades/i.test(conProducto), "la escasez sigue pidiéndose: la dueña la quiere");
+
+  const sinProducto = instruccionVisto(null);
+  assert.ok(/no nombres ning[uú]n otro art[ií]culo/i.test(sinProducto), "sin anuncio, prohíbe inventar cuál es");
+  assert.ok(/pocas unidades/i.test(sinProducto));
 });
 
 /**

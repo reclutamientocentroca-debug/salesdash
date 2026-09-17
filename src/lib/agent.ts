@@ -3214,7 +3214,7 @@ export async function enviarSeguimiento(
     generada = await generarRespuesta(
       orgId,
       canal.id,
-      [...historial, mensajeInterno(orgId, conversationId, INSTRUCCION_VISTO)],
+      [...historial, mensajeInterno(orgId, conversationId, instruccionVisto(anuncioVigente(conv).producto_anuncio))],
       conv,
       await reglaDePrecio(orgId, conv),
       { telefono: conv.cliente_phone, nombre: conv.cliente_nombre },
@@ -3291,15 +3291,38 @@ export async function enviarSeguimiento(
   return true;
 }
 
-/** Lo que se le pide al modelo para rescatar una conversación abandonada. */
-const INSTRUCCION_VISTO =
-  "[Nota interna del sistema, no la escribió el cliente y no debes mencionarla ni repetirla.] " +
-  "El cliente dejó de contestar y no ha vuelto. Escríbele UN solo mensaje corto para retomar la " +
-  "venta: recuérdale con naturalidad el artículo del que estaban hablando, dile que queda poco " +
-  "inventario de ese modelo y termina con una pregunta que lo acerque al cierre —la talla, la " +
-  "medida, el color o la dirección, lo que faltara—. Sin saludo largo, sin disculpas, sin repetir " +
-  "todo lo hablado, y nunca inventes precios, descuentos ni plazos. Trato formal y de empresa: de " +
-  "usted y sin apodos —nada de «maestro», «jefe», «amigo»—; por su nombre si lo dio, o sin nada.";
+/**
+ * Lo que se le pide al modelo para rescatar una conversación abandonada.
+ *
+ * La dueña (2026-09-17, captura): un cliente que preguntaba por unas
+ * «Chacabanas de manga corta, RD$1,200» recibió al día siguiente un
+ * recordatorio hablando de «la Chaqueta Kenneth Cole Original» —un artículo
+ * que nadie había mencionado en ese chat—. La táctica de decir que quedan
+ * pocas unidades SÍ vale (la dueña, 2026-09-17): lo que no vale es que el
+ * artículo cambie. Con el catálogo entero delante y la instrucción a secas de
+ * «el artículo del que estaban hablando», el modelo tenía de dónde sacar
+ * cualquier producto de la tienda, no solo el de esta conversación.
+ *
+ * Ahora, si se sabe qué anuncio trajo a este cliente, su nombre va INYECTADO
+ * en la instrucción —no a que el modelo lo adivine entre todo el catálogo—.
+ * Sin anuncio, se le prohíbe nombrar cualquier artículo que no sea el que ya
+ * se mencionó en el chat.
+ */
+export function instruccionVisto(producto: string | null): string {
+  const elArticulo = producto
+    ? `El artículo del que hablaban es «${producto}»: nómbralo con ese mismo nombre, y no con otro —ni el del catálogo, ni uno parecido—.`
+    : "Nombra el artículo con las mismas palabras con las que ya se mencionó en esta conversación: no nombres ningún otro artículo, así sea del catálogo o suene parecido.";
+
+  return (
+    "[Nota interna del sistema, no la escribió el cliente y no debes mencionarla ni repetirla.] " +
+    "El cliente dejó de contestar y no ha vuelto. Escríbele UN solo mensaje corto para retomar la venta: " +
+    `recuérdale con naturalidad el artículo del que estaban hablando y dile que quedan pocas unidades. ${elArticulo} ` +
+    "Termina con una pregunta que lo acerque al cierre —la talla, la medida, el color o la dirección, lo que " +
+    "faltara—. Sin saludo largo, sin disculpas, sin repetir todo lo hablado, y nunca inventes precios, " +
+    "descuentos ni plazos. Trato formal y de empresa: de usted y sin apodos —nada de «maestro», «jefe», " +
+    "«amigo»—; por su nombre si lo dio, o sin nada."
+  );
+}
 
 /** Un turno «del cliente» que en realidad es una instrucción para el modelo. */
 function mensajeInterno(orgId: number, conversationId: number, texto: string): Mensaje {
