@@ -24,7 +24,11 @@ export async function GET(req: NextRequest) {
   const rango = rangoDeLaCuenta(s.ctx.orgId, req.nextUrl.searchParams);
   const soloAnuncio = req.nextUrl.searchParams.get("solo") === "anuncio";
 
-  const { nombre, html } = informeDeCuenta(s.ctx.orgId, { rango, soloAnuncio });
+  const { nombre, html } = informeDeCuenta(s.ctx.orgId, {
+    rango,
+    soloAnuncio,
+    canalIds: s.ctx.canalesPermitidos,
+  });
 
   return new NextResponse(html, {
     headers: {

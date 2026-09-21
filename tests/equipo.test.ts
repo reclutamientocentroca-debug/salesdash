@@ -119,6 +119,37 @@ test("listarConversaciones con canalIds respeta el reparto por miembro", () => {
   assert.deepEqual(D.listarConversaciones(orgId, { canalIds: [] }), []);
 });
 
+test("listarAnomalias con restricción: la mayoría no tiene canal_id propio, sale de su conversación", () => {
+  const { orgId, canalA, canalB } = montar("equipo-anomalias");
+  const { conversacion: convA } = D.getOrCreateConversation(orgId, canalA, "18095550001", { cuando: D.ahora() });
+  const { conversacion: convB } = D.getOrCreateConversation(orgId, canalB, "18095550002", { cuando: D.ahora() });
+
+  // Como la crea de verdad `agent.ts`: con conversationId, SIN canalId propio.
+  D.crearAnomalia(orgId, { conversationId: convA.id, tipo: "pidio_humano", severidad: "alta", detalle: "de A" });
+  D.crearAnomalia(orgId, { conversationId: convB.id, tipo: "pidio_humano", severidad: "alta", detalle: "de B" });
+
+  const todas = D.listarAnomalias(orgId, true, null);
+  assert.equal(todas.length, 2, "sin restricción, las dos");
+
+  const soloA = D.listarAnomalias(orgId, true, [canalA]);
+  assert.equal(soloA.length, 1, "el JOIN con conversations resuelve el canal aunque canal_id venga vacío");
+  assert.equal(soloA[0]!.detalle, "de A");
+
+  assert.deepEqual(D.listarAnomalias(orgId, true, []), [], "una lista vacía de verdad es «ninguna»");
+});
+
+test("contarRevisiones con restricción cuenta solo lo de los canales asignados", () => {
+  const { orgId, canalA, canalB } = montar("equipo-revisiones");
+  const { conversacion: convA } = D.getOrCreateConversation(orgId, canalA, "18095550001", { cuando: D.ahora() });
+  const { conversacion: convB } = D.getOrCreateConversation(orgId, canalB, "18095550002", { cuando: D.ahora() });
+  D.marcarRevision(orgId, convA.id, "sin decidir A");
+  D.marcarRevision(orgId, convB.id, "sin decidir B");
+
+  assert.equal(D.contarRevisiones(orgId), 2);
+  assert.equal(D.contarRevisiones(orgId, [canalA]), 1);
+  assert.equal(D.contarRevisiones(orgId, []), 0);
+});
+
 test("puedeAtenderCanal: null es sin restricción, y una lista solo deja pasar lo que trae", () => {
   const sinRestriccion = { canalesPermitidos: null } as Contexto;
   assert.equal(puedeAtenderCanal(sinRestriccion, 999), true);

@@ -501,17 +501,25 @@ export function informeDeCanal(
  */
 export function informeDeCuenta(
   orgId: number,
-  opciones: { rango?: { desde: number; hasta: number }; ahora?: Date; soloAnuncio?: boolean } = {},
+  opciones: {
+    rango?: { desde: number; hasta: number };
+    ahora?: Date;
+    soloAnuncio?: boolean;
+    /** El reparto por miembro: es el dashboard en un archivo, y hereda su misma restricción. */
+    canalIds?: number[] | null;
+  } = {},
 ): { nombre: string; html: string } {
   const hoy = opciones.ahora ?? new Date();
   const rango = opciones.rango ?? TODO;
   const soloAnuncio = opciones.soloAnuncio === true;
+  const canalIds = opciones.canalIds ?? undefined;
 
   const org = obtenerOrg(orgId);
-  const m = calcularMetricas(orgId, { ...rango, soloAnuncio });
+  const m = calcularMetricas(orgId, { ...rango, soloAnuncio, canalIds });
 
   const conversaciones = listarConversaciones(orgId, {
     ...rango,
+    canalIds,
     limite: LIMITE_CONVERSACIONES,
   });
 

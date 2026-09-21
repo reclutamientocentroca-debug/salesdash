@@ -7,11 +7,15 @@ export const dynamic = "force-dynamic";
 
 export default async function PaginaRevision() {
   const ctx = await requerirSesion();
-  const nombres = new Map(listarCanales(ctx.orgId).map((c) => [c.id, c.nombre]));
+  const nombres = new Map(listarCanales(ctx.orgId, ctx.canalesPermitidos).map((c) => [c.id, c.nombre]));
 
   // Sin filtro de fechas: lo pendiente de revisar hay que resolverlo sea de
   // cuando sea, o se queda fuera del conteo para siempre.
-  const filas: FilaRevision[] = listarConversaciones(ctx.orgId, { estado: "revision", limite: 100 }).map((c) => {
+  const filas: FilaRevision[] = listarConversaciones(ctx.orgId, {
+    estado: "revision",
+    limite: 100,
+    canalIds: ctx.canalesPermitidos ?? undefined,
+  }).map((c) => {
     const ultimo = ultimosMensajes(ctx.orgId, c.id, 1)[0];
     return {
       id: c.id,

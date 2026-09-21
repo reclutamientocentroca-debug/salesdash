@@ -228,6 +228,35 @@ test("«todo» cuenta también la venta de anteayer, y un solo número cuenta so
   assert.equal(soloRD.facturado, 5 * 2500 + 0 + 2 * 3000 - 5000, "en pesos: 3 × 2500 + 2 × 3000");
 });
 
+/**
+ * EL REPARTO POR MIEMBRO (la dueña, 2026-09-21): «en el dashboard no debe de
+ * salir el de otra, solo lo que le asigne». `canalId` es el filtro manual de
+ * una pantalla —«mira solo este número»—; `canalIds` es el reparto del
+ * dueño, y a diferencia de aquel puede acotar a VARIOS números a la vez, que
+ * es justo lo que hace falta cuando a un miembro se le asignan dos o tres.
+ */
+test("canalIds del dashboard cuenta solo los números asignados a ese miembro", () => {
+  const huso = D.husoDeLaCuenta(orgId);
+  const base = { ...rangoAEpochs("todo", huso), huso };
+
+  // A un miembro se le asignaron RD y CR: Panamá no puede aparecer ni sumar.
+  const suyo = calcularMetricas(orgId, { ...base, canalIds: [rd, cr] });
+  assert.equal(suyo.por_canal.length, 2, "solo dos números en la tabla, no los tres");
+  assert.ok(!suyo.por_canal.some((c) => c.canal_id === pa), "Panamá no aparece");
+  assert.equal(suyo.cierres_ia + suyo.cierres_humano, 5 + 2, "las 5 de RD y las 2 de CR, nada de Panamá");
+  assert.equal(suyo.leads, 7, "los 10 de la cuenta, menos los 3 de Panamá");
+
+  // Sin ningún canal asignado (canalIds vacío de verdad), no cuenta nada: es
+  // el mismo «fallar cerrado» que ya usa `listarCanales` con una lista vacía.
+  const ninguno = calcularMetricas(orgId, { ...base, canalIds: [] });
+  assert.equal(ninguno.leads, 0);
+  assert.equal(ninguno.por_canal.length, 0);
+
+  // Y sin restricción (canalIds sin poner), la cuenta entera, como siempre.
+  const todo = calcularMetricas(orgId, base);
+  assert.equal(todo.por_canal.length, 3);
+});
+
 test("la lista de Ventas trae justo las que cuentan las tarjetas: las de ese día, automatizadas o asistidas", () => {
   const huso = D.husoDeLaCuenta(orgId);
   const hoy = { ...rangoAEpochs("hoy", huso), huso };

@@ -43,13 +43,18 @@ export default async function PaginaVentas({ searchParams }: Props) {
    * de un número abra esas tres ventas y no otras.
    */
   const cerro = cerroParam === "ia" || cerroParam === "humano" ? cerroParam : undefined;
-  const canales = listarCanales(ctx.orgId);
+  const canales = listarCanales(ctx.orgId, ctx.canalesPermitidos);
   const canal = canales.find((c) => c.id === Number(canalParam));
   const soloAnuncio = solo === "anuncio";
   if (canal) parametros.set("canal", String(canal.id));
   if (soloAnuncio) parametros.set("solo", "anuncio");
 
-  const rango = { ...rangoDeLaCuenta(ctx.orgId, parametros), canalId: canal?.id, soloAnuncio };
+  const rango = {
+    ...rangoDeLaCuenta(ctx.orgId, parametros),
+    canalId: canal?.id,
+    soloAnuncio,
+    canalIds: ctx.canalesPermitidos ?? undefined,
+  };
 
   const m = calcularMetricas(ctx.orgId, rango);
   const nombres = new Map(canales.map((c) => [c.id, c.nombre]));

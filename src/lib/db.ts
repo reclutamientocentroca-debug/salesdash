@@ -2326,10 +2326,15 @@ export function resolverRevision(orgId: number, id: number, quien: "ia" | "human
   ).run(quien, fecha ?? null, orgId, id);
 }
 
-export function contarRevisiones(orgId: number): number {
-  return (s(
-    `SELECT COUNT(*) AS n FROM conversations WHERE org_id = ? AND cerrado_por = 'revision'`,
-  ).get(orgId) as { n: number }).n;
+export function contarRevisiones(orgId: number, restringirA?: number[] | null): number {
+  if (restringirA !== undefined && restringirA !== null && restringirA.length === 0) return 0;
+  const cond = ["org_id = ?", "cerrado_por = 'revision'"];
+  const val: unknown[] = [orgId];
+  if (restringirA) {
+    cond.push(`canal_id IN (${restringirA.map(() => "?").join(",")})`);
+    val.push(...restringirA);
+  }
+  return (s(`SELECT COUNT(*) AS n FROM conversations WHERE ${cond.join(" AND ")}`).get(...val) as { n: number }).n;
 }
 
 /**
@@ -3231,11 +3236,29 @@ export function crearAnomalia(orgId: number, datos: {
   ).run(orgId, conversationId, canalId, datos.tipo, datos.severidad, datos.detalle);
 }
 
-export function listarAnomalias(orgId: number, soloAbiertas = true): Anomalia[] {
+/**
+ * `restringirA`: el reparto por miembro. La mayoría de las anomalías se crean
+ * con `conversation_id` y sin `canal_id` propio —ver `crearAnomalia`—, así
+ * que el canal de una anomalía sale de su conversación cuando ella misma no
+ * trae uno: sin este `LEFT JOIN`, filtrar por `canal_id` a secas dejaría a
+ * todo miembro restringido sin ver ni una sola anomalía de conversación.
+ */
+export function listarAnomalias(orgId: number, soloAbiertas = true, restringirA?: number[] | null): Anomalia[] {
+  const cond = ["a.org_id = ?"];
+  const val: unknown[] = [orgId];
+  if (soloAbiertas) cond.push("a.resuelta = 0");
+  if (restringirA !== undefined && restringirA !== null) {
+    if (restringirA.length === 0) cond.push("0");
+    else {
+      cond.push(`COALESCE(a.canal_id, c.canal_id) IN (${restringirA.map(() => "?").join(",")})`);
+      val.push(...restringirA);
+    }
+  }
   return s(
-    `SELECT * FROM anomalies WHERE org_id = ? ${soloAbiertas ? "AND resuelta = 0" : ""}
-      ORDER BY severidad ASC, created_at DESC LIMIT 200`,
-  ).all(orgId) as Anomalia[];
+    `SELECT a.* FROM anomalies a LEFT JOIN conversations c ON c.id = a.conversation_id
+      WHERE ${cond.join(" AND ")}
+      ORDER BY a.severidad ASC, a.created_at DESC LIMIT 200`,
+  ).all(...val) as Anomalia[];
 }
 
 /** ¿Hay una anomalía viva de este tipo en la conversación? */
@@ -3317,6 +3340,14 @@ export interface Rango {
   hasta: number;
   canalId?: number;
   /**
+   * EL REPARTO POR MIEMBRO: solo estos canales entran en la cuenta, o
+   * ninguna condición si no viene puesto —ver `canalesDeMiembro`, que es de
+   * donde sale esta lista—. Va aparte de `canalId`, que es el filtro manual
+   * de una pantalla —«mira solo este número»—: los dos pueden venir juntos.
+   * Con una lista vacía de verdad, no cuenta nada: fallar cerrado y no abierto.
+   */
+  canalIds?: number[];
+  /**
    * Deja fuera a quien escribió por su cuenta: el panel entero pasa a hablar
    * solo de la gente que trajo un anuncio.
    *
@@ -3345,6 +3376,10 @@ function filtroRango(orgId: number, r: Rango) {
   const cond = ["org_id = ?", "fecha_inicio >= ?", "fecha_inicio <= ?"];
   const val: unknown[] = [orgId, r.desde, r.hasta];
   if (r.canalId !== undefined) { cond.push("canal_id = ?"); val.push(r.canalId); }
+  if (r.canalIds !== undefined) {
+    if (r.canalIds.length === 0) cond.push("0");
+    else { cond.push(`canal_id IN (${r.canalIds.map(() => "?").join(",")})`); val.push(...r.canalIds); }
+  }
   if (r.soloAnuncio) cond.push(DE_ANUNCIO);
   return { where: cond.join(" AND "), val };
 }
@@ -3362,6 +3397,10 @@ function filtroCierres(orgId: number, r: Rango) {
   const cond = ["org_id = ?", "cerrado_por IN ('ia','humano')", "fecha_cierre >= ?", "fecha_cierre <= ?"];
   const val: unknown[] = [orgId, r.desde, r.hasta];
   if (r.canalId !== undefined) { cond.push("canal_id = ?"); val.push(r.canalId); }
+  if (r.canalIds !== undefined) {
+    if (r.canalIds.length === 0) cond.push("0");
+    else { cond.push(`canal_id IN (${r.canalIds.map(() => "?").join(",")})`); val.push(...r.canalIds); }
+  }
   if (r.soloAnuncio) cond.push(DE_ANUNCIO);
   return { where: cond.join(" AND "), val };
 }
@@ -3651,6 +3690,7 @@ export function metricasPorCanal(orgId: number, r: Rango) {
 
   const filas = canales
     .filter((ca) => r.canalId === undefined || ca.canal_id === r.canalId)
+    .filter((ca) => r.canalIds === undefined || r.canalIds.includes(ca.canal_id))
     .map((ca) => {
       const pais = ca.pais || paisDeTelefono(ca.phone)?.codigo || "";
       const { huso, periodo } = periodoDelCanal(ca, r);
@@ -3749,6 +3789,7 @@ export function listarVentas(
 
   const tramos = canales
     .filter((ca) => r.canalId === undefined || ca.canal_id === r.canalId)
+    .filter((ca) => r.canalIds === undefined || r.canalIds.includes(ca.canal_id))
     .map((ca) => ({ canal_id: ca.canal_id, ...periodoDelCanal(ca, r).periodo }));
   if (tramos.length === 0) return [];
 

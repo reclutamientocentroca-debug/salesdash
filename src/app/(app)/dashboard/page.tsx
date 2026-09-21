@@ -68,7 +68,13 @@ export default async function Dashboard({ searchParams }: Props) {
   if (soloAnuncio) parametros.set("solo", "anuncio");
 
   // En la hora de los países de la cuenta: «hoy» es hoy en Santo Domingo.
-  const rango = { ...rangoDeLaCuenta(ctx.orgId, parametros), soloAnuncio };
+  const rango = {
+    ...rangoDeLaCuenta(ctx.orgId, parametros),
+    soloAnuncio,
+    // El reparto por miembro: sin esto, el dashboard de un miembro restringido
+    // seguía sumando las conversaciones y las ventas de los números de otros.
+    canalIds: ctx.canalesPermitidos ?? undefined,
+  };
   const m = calcularMetricas(ctx.orgId, rango);
 
   /*
@@ -78,7 +84,10 @@ export default async function Dashboard({ searchParams }: Props) {
   const largo = rango.hasta - rango.desde + 1;
   const anterior =
     rango.desde > 0
-      ? calcularMetricas(ctx.orgId, { desde: rango.desde - largo, hasta: rango.desde - 1, huso: rango.huso, soloAnuncio })
+      ? calcularMetricas(ctx.orgId, {
+          desde: rango.desde - largo, hasta: rango.desde - 1, huso: rango.huso, soloAnuncio,
+          canalIds: ctx.canalesPermitidos ?? undefined,
+        })
       : null;
   const variacion = (ahora: number, antes: number | undefined): string | null => {
     if (antes === undefined || antes === 0) return null;
@@ -90,9 +99,12 @@ export default async function Dashboard({ searchParams }: Props) {
   const variacionLeads = variacion(m.leads, anterior?.leads);
   const variacionPedidos = cerradasAntes === undefined ? null : `${cerradas - cerradasAntes >= 0 ? "+" : ""}${cerradas - cerradasAntes}`;
 
-  const anomalias = listarAnomalias(ctx.orgId);
-  const enRevision = contarRevisiones(ctx.orgId);
-  const numeros = contarCanales(ctx.orgId);
+  const anomalias = listarAnomalias(ctx.orgId, true, ctx.canalesPermitidos);
+  const enRevision = contarRevisiones(ctx.orgId, ctx.canalesPermitidos);
+  // Sin restricción, el conteo real de la cuenta; restringido, lo suyo: los
+  // números que tiene asignados, para que «conecta tu primer número» no
+  // aparezca cuando la cuenta ya tiene otros que no son los de este miembro.
+  const numeros = ctx.canalesPermitidos ? ctx.canalesPermitidos.length : contarCanales(ctx.orgId);
   const sinConectar = numeros === 0;
   const altas = anomalias.filter((a) => a.severidad === "alta").length;
 
@@ -100,12 +112,26 @@ export default async function Dashboard({ searchParams }: Props) {
    * «Necesita tu atención»: lo que no puede esperar a mañana. Se arma con lo
    * que ya está en la base y cada fila trae su botón. Ver `filasDeAtencion`.
    */
-  const paginas = listarPaginasMeta(ctx.orgId);
+  const paginas = listarPaginasMeta(ctx.orgId, ctx.canalesPermitidos);
   const atencion = filasDeAtencion({
-    canales: listarCanales(ctx.orgId),
-    sinResponder: paginas.length > 0 ? bandejaMeta(ctx.orgId, { limite: 120 }).filter((f) => f.ultimo_emisor === "cliente").length : 0,
+    canales: listarCanales(ctx.orgId, ctx.canalesPermitidos),
+    sinResponder:
+      paginas.length > 0
+        ? bandejaMeta(ctx.orgId, { limite: 120, canalIds: ctx.canalesPermitidos ?? undefined }).filter(
+            (f) => f.ultimo_emisor === "cliente",
+          ).length
+        : 0,
     paginas: paginas.map((p) => p.nombre),
-    sinVincular: listarAnunciosMeta(ctx.orgId).filter((a) => a.producto_id === null).length,
+    /*
+     * Vincular un anuncio al catálogo es trabajo del dueño y de toda la
+     * cuenta —un `ad_id` no es de un solo canal en la base, así que no hay
+     * forma de acotar la lista a lo suyo—. Un miembro restringido no ve este
+     * aviso: mandarlo a la pantalla de Anuncios, que sigue sin repartirse,
+     * le enseñaría los anuncios de números que no son los suyos.
+     */
+    sinVincular: ctx.canalesPermitidos
+      ? 0
+      : listarAnunciosMeta(ctx.orgId).filter((a) => a.producto_id === null).length,
     enRevision,
     anomalias: anomalias.filter((a) => a.severidad === "alta"),
   });
