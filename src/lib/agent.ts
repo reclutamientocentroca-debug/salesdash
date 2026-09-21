@@ -1872,7 +1872,9 @@ export function porQueCalla(
   if (repetida && ultimas.length === SE_REPITE && ultimas.every((r) => r.trim() === repetida)) {
     return callado(
       "limite_por_hora",
-      "El agente mandó tres veces seguidas el mismo mensaje y se detuvo. Atiende este hilo a mano.",
+      "El agente mandó tres veces seguidas el mismo mensaje y se detuvo: pasó a un asesor para que " +
+        "la venta siga hasta cerrarla. Pulsa «Contesta la IA» cuando quieras que retome el agente.",
+      true,
     );
   }
 
@@ -1880,7 +1882,8 @@ export function porQueCalla(
     return callado(
       "limite_por_hora",
       `El agente ya mandó ${MAX_RESPUESTAS_HORA} mensajes en esta conversación en la última hora y se ` +
-        "frenó. Vuelve a contestar solo, en cuanto pase esa hora.",
+        "frenó: pasó a un asesor para no inundar al cliente. Pulsa «Contesta la IA» cuando quieras que retome el agente.",
+      true,
     );
   }
 
@@ -2205,24 +2208,39 @@ async function atenderTurno(
     ultimas.length === SE_REPITE &&
     ultimas.every((r) => r.trim() === repetida)
   ) {
+    /*
+     * NO SE APAGA SOLO: PASA A UNA PERSONA.
+     *
+     * Callarse a secas dejaba la venta abandonada hasta que alguien entrara al
+     * panel de anomalías por su cuenta a mirar por qué —y muchas veces nadie
+     * entraba a tiempo. La dueña: que la venta siga hasta cerrarse. Un agente
+     * que repite tres veces lo mismo no la va a destrabar solo, así que el hilo
+     * pasa a un humano DE INMEDIATO, con el mismo interruptor que usa
+     * `pidio_humano`: el panel lo muestra como «lo atiende una persona», no
+     * como un silencio sin explicación, y quien lo vea puede seguir la venta
+     * donde el agente se quedó atascado.
+     */
+    ponerAtiende(orgId, conversationId, "humano");
     crearAnomalia(orgId, {
       conversationId,
       tipo: "agente_en_bucle",
       severidad: "alta",
       detalle:
         `El agente mandó ${SE_REPITE} veces seguidas el mismo mensaje ("${repetida.slice(0, 80)}") ` +
-        "y se detuvo. Atiende esta conversación a mano.",
+        "y se detuvo. Pasa a un asesor para que siga la venta hasta cerrarla.",
     });
     return { atendida: false, motivo: "limite_por_hora" };
   }
 
   // Y el cortafuegos de siempre, ya con sitio para una venta entera.
   if (contarRespuestasIa(orgId, conversationId, t - 3600) >= MAX_RESPUESTAS_HORA) {
+    // Mismo criterio: si de verdad hizo falta frenar, que la retome una persona.
+    ponerAtiende(orgId, conversationId, "humano");
     crearAnomalia(orgId, {
       conversationId,
       tipo: "agente_en_bucle",
       severidad: "alta",
-      detalle: `El agente ya mandó ${MAX_RESPUESTAS_HORA} mensajes en una hora en esta conversación. Se detuvo para no inundar al cliente.`,
+      detalle: `El agente ya mandó ${MAX_RESPUESTAS_HORA} mensajes en una hora en esta conversación. Pasó a un asesor para no inundar al cliente y para que la venta siga.`,
     });
     return { atendida: false, motivo: "limite_por_hora" };
   }
