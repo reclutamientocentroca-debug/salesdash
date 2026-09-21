@@ -288,9 +288,6 @@ export function anuncioParaPrompt(c: ContextoAnuncio): string {
   }
 
   const p = c.producto!;
-  const partes = [`- ${p.nombre}`];
-  if (p.variantes) partes.push(`(${p.variantes})`);
-  partes.push(`— ${p.precio}`);
 
   /*
    * EL CATÁLOGO NO MANDA SOBRE EL ANUNCIO, NUNCA (la dueña, 2026-09-17).
@@ -306,6 +303,45 @@ export function anuncioParaPrompt(c: ContextoAnuncio): string {
    * igual con el cliente, las variantes, y el precio cuando el anuncio no
    * trae ninguno—.
    */
+  /*
+   * Y LO MISMO PARA EL NOMBRE, por la misma grieta (la dueña, 2026-09-21): un
+   * anuncio de chaqueta vinculado a «Chacabana» en el catálogo —sin que
+   * `elProductoNoEsDelAnuncio` lo viera, porque esa comprobación solo acusa
+   * cuando las DOS partes nombran una familia reconocible y no coinciden— y
+   * el agente le ofrecía al cliente la chacabana, con ese nombre, porque esta
+   * misma línea se lo mandaba: «ESE es el artículo... con ese mismo nombre»,
+   * usando el nombre del catálogo por encima de lo que el anuncio ya decía.
+   *
+   * Si el anuncio nombra algo reconocible por su cuenta, ESE nombre es el que
+   * manda —ya se le dio arriba, en `contexto`— y el catálogo baja a ser solo
+   * precio y variantes: ni siquiera se le enseña el nombre del catálogo, para
+   * no ponerle delante dos nombres del mismo artículo y que elija el que no
+   * es. Sin nombre propio en el anuncio no hay de dónde sacar uno mejor, y
+   * ahí sí vale el del catálogo, que es lo único que hay.
+   */
+  const anuncioNombraArticulo =
+    familiasNombradas([c.texto, c.descripcionImagen].filter(Boolean).join(" ")).length > 0;
+
+  if (anuncioNombraArticulo) {
+    const soloDatos = [`— ${p.precio}`];
+    if (p.variantes) soloDatos.push(`(${p.variantes})`);
+
+    return (
+      contexto +
+      [
+        `El artículo de este chat es el que ya dice el anuncio ARRIBA, con ese mismo nombre: NO lo cambies por «${p.nombre}», que es el nombre que tiene en el catálogo y puede estar vinculado a otra cosa.`,
+        `Del catálogo solo toma esto: ${soloDatos.join(" ")}`,
+        anuncioTraePrecio(c)
+          ? "PERO EL PRECIO LO MANDA EL ANUNCIO, no el catálogo: si arriba —en su texto, o en lo que se leyó de su imagen— hay un precio escrito, ESE es el que cotizas, tal cual está escrito, y no el del catálogo. El precio del catálogo de arriba solo vale si el anuncio no trae ningún precio escrito en ningún sitio."
+          : "Y como el anuncio no traía ningún precio escrito, ese precio del catálogo es el bueno.",
+      ].join("\n")
+    );
+  }
+
+  const partes = [`- ${p.nombre}`];
+  if (p.variantes) partes.push(`(${p.variantes})`);
+  partes.push(`— ${p.precio}`);
+
   return (
     contexto +
     [

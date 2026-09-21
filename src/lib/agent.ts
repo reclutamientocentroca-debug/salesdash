@@ -46,7 +46,7 @@ import { descifrar } from "./auth";
 import { leer as leerArchivo } from "./media";
 import { formatearImporte, monedaDelPais } from "./moneda";
 import { anuncioParaModelo, anuncioVigente, textoDelProducto, type DatosAnuncio, type ProductoAnunciado } from "./anuncio";
-import { aperturaSegura, clienteAplazaCompra, clientePideOtraFamilia, precioDeLaDescripcion, clienteRenunciaALaCompra, fraseDeTransferencia, laFotoAyudaAElegir, laFotoVaConEstaRespuesta, llevaColor, llevaTalla, nombraUnArticulo, respuestaMinima } from "./apertura";
+import { aperturaSegura, clienteAplazaCompra, clientePideOtraFamilia, familiasNombradas, precioDeLaDescripcion, clienteRenunciaALaCompra, fraseDeTransferencia, laFotoAyudaAElegir, laFotoVaConEstaRespuesta, llevaColor, llevaTalla, nombraUnArticulo, respuestaMinima } from "./apertura";
 import { esMensajeDeSistema } from "./sistema";
 import { contieneMarcador, MARCADOR_POR_DEFECTO, registrarCierre } from "./cierre";
 import { completar, ErrorIA, hoyISO } from "./ia";
@@ -132,7 +132,31 @@ export function loQueSeVendeAqui(
   // 3. Lo que la tienda anunció y el cliente nombra ahora.
   const loQueDijo = textosDelClienteEnSesion(historial).join(" · ");
   const anunciado = buscarProductoAnunciado(orgId, loQueDijo);
-  if (anunciado?.precio != null) {
+
+  /*
+   * NO ES LA MISMA FAMILIA: NO CUENTA, aunque comparta alguna palabra suelta.
+   *
+   * `buscarProductoAnunciado` compara palabra a palabra y no por artículo —es
+   * lo que le hace falta para casar «poloches» con «POLOS BRONX»— y por eso
+   * mismo puede casar «quiero una chaqueta talla M» con «Chacabana manga
+   * larga talla M»: comparten «talla», «manga» o el color, y ninguna de esas
+   * palabras habla del artículo. Es el mismo fallo real de la dueña
+   * (2026-09-17) —un polo vendido como chacabana— pero por esta puerta en vez
+   * de por el vínculo del anuncio en Meta, que ya lo comprueba (ver
+   * `elProductoNoEsDelAnuncio` en `meta/contexto-anuncio.ts`).
+   *
+   * Solo descarta cuando LAS DOS partes nombran un artículo reconocible y no
+   * coinciden en ninguno: un cliente que no nombra nada, o un producto sin
+   * palabra de artículo en su nombre, no se puede acusar de nada.
+   */
+  const familiaDelCliente = familiasNombradas(loQueDijo).map((f) => f.familia);
+  const familiaDelHallazgo = anunciado ? familiasNombradas(anunciado.nombre).map((f) => f.familia) : [];
+  const otroArticulo =
+    familiaDelCliente.length > 0 &&
+    familiaDelHallazgo.length > 0 &&
+    !familiaDelHallazgo.some((f) => familiaDelCliente.includes(f));
+
+  if (anunciado?.precio != null && !otroArticulo) {
     return {
       origen: delAnuncio.origen,
       producto_anuncio: delAnuncio.producto_anuncio ?? anunciado.nombre,

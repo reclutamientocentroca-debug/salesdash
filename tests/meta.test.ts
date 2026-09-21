@@ -681,6 +681,53 @@ test("un polo vinculado a una chacabana también avisa: son camisas, pero no la 
   assert.equal(bien.motivo, "vinculado");
 });
 
+/**
+ * EL VÍNCULO PUEDE ESTAR MAL SIN QUE `producto_ajeno` LO VEA, Y AUN ASÍ EL
+ * ANUNCIO MANDA EL NOMBRE (la dueña, 2026-09-21).
+ *
+ * El caso real: un anuncio de chaqueta —se ve claro en la plataforma— quedó
+ * vinculado en el catálogo a «Chacabana», y el agente seguía ofreciendo la
+ * chacabana. Cuando el producto del catálogo SÍ nombra una familia distinta
+ * —como en la prueba de arriba, «polo vs. chacabana»— `producto_ajeno` ya lo
+ * atrapa. Pero si el producto vinculado tiene un nombre sin palabra de
+ * artículo —un código, una referencia interna, «Roplis 3»— esa comprobación
+ * no tiene con qué acusarlo y lo deja pasar como «vinculado». Ahí es donde el
+ * nombre del catálogo terminaba mandando por encima de lo que el anuncio ya
+ * decía con todas sus letras.
+ */
+test("con un nombre de catálogo sin artículo reconocible, manda igual el nombre del anuncio", () => {
+  const { orgId } = cuentaConPagina("ChaquetaGenerico");
+  // Ningún «palabras» de FAMILIAS aparece en este nombre: no acusa a nadie.
+  const generico = D.crearProducto(orgId, { nombre: "Roplis 3", variantes: "M, L, XL", precio: 2200 });
+
+  D.registrarAnuncioVisto(orgId, "ad_chaqueta", "Chaqueta impermeable para caballero", {
+    texto: "Chaqueta impermeable para caballero, RD$1,900 c/u.",
+  });
+  D.vincularAnuncioAProducto(orgId, "ad_chaqueta", generico);
+
+  const c = resolverAnuncio(orgId, "ad_chaqueta", "Chaqueta impermeable para caballero");
+  // No lo atrapa `producto_ajeno` —el nombre del catálogo no acusa a nadie—,
+  // así que sigue siendo «vinculado»: es justo el hueco que había que tapar.
+  assert.equal(c.motivo, "vinculado");
+  assert.equal(c.puedeCotizar, true);
+
+  const prompt = anuncioParaPrompt(c);
+  assert.ok(prompt.includes("Chaqueta impermeable"), "lo que el cliente vio sigue delante");
+  assert.match(prompt, /NO lo cambies por «Roplis 3»/);
+  assert.equal(prompt.includes("- Roplis 3"), false, "el nombre del catálogo no se ofrece como artículo");
+  // El catálogo sigue sirviendo para lo que el anuncio no dice: las variantes.
+  assert.ok(prompt.includes("M, L, XL"), "las variantes del catálogo sí se aprovechan");
+  // Y el precio, como siempre: manda el del anuncio porque el anuncio trae uno.
+  assert.match(prompt, /EL PRECIO LO MANDA EL ANUNCIO/);
+  assert.ok(prompt.includes("RD$1,900"));
+
+  // Con «chumpa» —como se le dice en otras plazas— pasa exactamente igual.
+  D.registrarAnuncioVisto(orgId, "ad_chumpa", "Chumpa de cuero", { texto: "Chumpa de cuero, RD$2,500." });
+  D.vincularAnuncioAProducto(orgId, "ad_chumpa", generico);
+  const chumpa = anuncioParaPrompt(resolverAnuncio(orgId, "ad_chumpa", "Chumpa de cuero"));
+  assert.match(chumpa, /NO lo cambies por «Roplis 3»/);
+});
+
 test("un producto sin precio tampoco deja cotizar", () => {
   // El caso traicionero: el producto está bien vinculado y el agente creería
   // que puede hablar de dinero. No hay dinero que decir.

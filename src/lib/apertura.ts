@@ -76,7 +76,16 @@ const FAMILIAS: { familia: string; palabras: string }[] = [
   { familia: "polos", palabras: "polos?|poloch(?:es?|er(?:es)?)" },
   { familia: "chacabanas", palabras: "chacabanas?" },
   { familia: "pantalones", palabras: "pantal[oó]n|pantalones|jeans?|shorts?|bermudas?" },
-  { familia: "ropa de vestir", palabras: "vestidos?|faldas?|conjuntos?|chaquetas?|abrigos?|su[eé]teres?|sudaderas?" },
+  /*
+   * LA CHAQUETA TIENE OTROS NOMBRES, según el país y quién escriba: «chumpa»
+   * en buena parte de Centroamérica, «casaca» y «cazadora» en otras plazas. El
+   * caso real (la dueña, 2026-09-21): un anuncio de chaqueta vinculado por
+   * error a una chacabana del catálogo, y como el anuncio nombraba el
+   * artículo con una de estas palabras, la comprobación de más abajo
+   * (`elProductoNoEsDelAnuncio`, en `meta/contexto-anuncio.ts`) necesita
+   * reconocerlas para poder decir que una chaqueta no es una chacabana.
+   */
+  { familia: "ropa de vestir", palabras: "vestidos?|faldas?|conjuntos?|chaquetas?|chumpas?|casacas?|camperas?|cazadoras?|gaban(es)?|gab[aá]n|abrigos?|su[eé]teres?|sudaderas?" },
   { familia: "ropa interior", palabras: "b[oó]xers?|underwear" },
   { familia: "correas y fajas", palabras: "correas?|cintur[oó]n|cinturones|fajas?" },
   { familia: "bolsos y carteras", palabras: "carteras?|bolsos?|mochilas?|morrales?|bultos?|billeteras?|maletas?|loncheras?" },
