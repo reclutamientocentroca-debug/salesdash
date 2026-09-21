@@ -21,7 +21,7 @@ export default async function PaginaNumeros() {
    * pedirle al teléfono, ni sesión que reconectar. Se conecta y se enciende en
    * Messenger, que es donde vive.
    */
-  const canales = listarCanales(ctx.orgId)
+  const canales = listarCanales(ctx.orgId, ctx.canalesPermitidos)
     .filter((c) => c.tipo !== "meta")
     .map((c) => ({
     id: c.id,
@@ -44,7 +44,7 @@ export default async function PaginaNumeros() {
    */
   const facebook = {
     disponible: (process.env.META_APP_ID ?? "").trim() !== "",
-    paginas: listarPaginasMeta(ctx.orgId).length,
+    paginas: listarPaginasMeta(ctx.orgId, ctx.canalesPermitidos).length,
   };
 
   return <ListaNumeros canales={canales} facebook={facebook} />;

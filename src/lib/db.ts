@@ -167,6 +167,26 @@ CREATE TABLE IF NOT EXISTS canales (
 );
 CREATE INDEX IF NOT EXISTS idx_canales_org ON canales(org_id);
 
+/*
+ * QUÉ NÚMERO O PÁGINA PUEDE ATENDER CADA MIEMBRO DEL EQUIPO.
+ *
+ * Sin ninguna fila para un usuario, ese usuario ve TODO —es lo que ya pasaba
+ * antes de que existiera esta tabla, y sigue pasando por defecto—: la dueña
+ * pidió repartir números por persona, no obligar a repartirlos. Solo cuando
+ * el dueño le marca uno o más canales a un miembro, ese miembro queda
+ * limitado a esos y deja de ver —y de poder tocar— las conversaciones de los
+ * demás. El dueño nunca se restringe a sí mismo por esta tabla.
+ */
+CREATE TABLE IF NOT EXISTS equipo_canales (
+  org_id INTEGER NOT NULL REFERENCES orgs(id),
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  canal_id INTEGER NOT NULL REFERENCES canales(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  PRIMARY KEY (user_id, canal_id)
+);
+CREATE INDEX IF NOT EXISTS idx_equipo_canales_org ON equipo_canales(org_id);
+CREATE INDEX IF NOT EXISTS idx_equipo_canales_user ON equipo_canales(user_id);
+
 CREATE TABLE IF NOT EXISTS conversations (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   org_id INTEGER NOT NULL REFERENCES orgs(id),
@@ -1539,6 +1559,40 @@ export function obtenerUsuario(userId: number): Usuario | undefined {
 }
 
 /**
+ * DA DE ALTA A UN COMPAÑERO EN LA MISMA CUENTA, sin correo de por medio.
+ *
+ * `crearOrgConDueno` es para quien no tenía nada: abre organización propia.
+ * Esto es para quien YA tiene una y quiere meter a alguien de su equipo
+ * DENTRO de ella —mismos números, mismo catálogo, mismas ventas—, con el rol
+ * `miembro` desde el primer segundo. El dueño escribe la contraseña él mismo
+ * y se la pasa por fuera del panel: es el mismo espíritu de «sin código y sin
+ * correo» que ya tiene el registro, y no depende de que el envío de correos
+ * esté funcionando.
+ *
+ * El correo es único EN TODA LA PLATAFORMA, no solo en esta cuenta —la tabla
+ * lo exige con `UNIQUE`—, así que quien llama comprueba antes con
+ * `buscarUsuarioPorEmail` y decide qué decir si ya existe.
+ */
+export function crearMiembro(orgId: number, datos: {
+  nombre: string; email: string; passwordHash: string;
+}): number {
+  const r = s(
+    `INSERT INTO users (org_id, email, nombre, password_hash, rol, verificado)
+     VALUES (?, ?, ?, ?, 'miembro', 1)`,
+  ).run(orgId, datos.email.toLowerCase(), datos.nombre, datos.passwordHash);
+  return Number(r.lastInsertRowid);
+}
+
+/**
+ * Saca a alguien del equipo. Nunca al dueño —lo comprueba quien llama, la
+ * ruta de la API—, y solo de SU cuenta: el `WHERE` con `org_id` es lo que
+ * impide borrar al miembro de otra organización sabiendo su id.
+ */
+export function eliminarMiembro(orgId: number, userId: number): boolean {
+  return s(`DELETE FROM users WHERE org_id = ? AND id = ? AND rol = 'miembro'`).run(orgId, userId).changes > 0;
+}
+
+/**
  * Superadmin de la plataforma. No hay forma de concederlo desde la interfaz, y
  * es deliberado: el panel /admin ve todas las organizaciones, así que el
  * primer superadmin tiene que marcarse desde la consola con
@@ -1571,14 +1625,64 @@ export function listarMiembros(orgId: number): Usuario[] {
   ).all(orgId) as Usuario[];
 }
 
+/**
+ * LOS CANALES QUE UN MIEMBRO PUEDE ATENDER.
+ *
+ * Vacío quiere decir «todos»: ver la nota de `equipo_canales` en el esquema.
+ * Quien llame a esto y reciba `[]` no lo puede tratar como «ninguno» —eso
+ * dejaría al miembro sin ver nada el día que se le da de alta y nadie le ha
+ * asignado un número todavía—; lo trata como «sin restricción», que es la
+ * regla en toda la plataforma.
+ */
+export function canalesDeMiembro(orgId: number, userId: number): number[] {
+  return (
+    s(`SELECT canal_id FROM equipo_canales WHERE org_id = ? AND user_id = ?`).all(
+      orgId,
+      userId,
+    ) as { canal_id: number }[]
+  ).map((r) => r.canal_id);
+}
+
+/**
+ * REEMPLAZA de una vez los canales de un miembro. Solo lo llama el dueño —la
+ * ruta que lo expone lo comprueba— y con la lista entera, no uno a uno: es
+ * exactamente lo que pinta un formulario de casillas marcadas.
+ */
+export function asignarCanalesAMiembro(orgId: number, userId: number, canalIds: number[]): void {
+  const unicos = [...new Set(canalIds)];
+  const reemplazar = db.transaction((ids: number[]) => {
+    s(`DELETE FROM equipo_canales WHERE org_id = ? AND user_id = ?`).run(orgId, userId);
+    const insertar = s(
+      `INSERT INTO equipo_canales (org_id, user_id, canal_id) VALUES (?, ?, ?)`,
+    );
+    for (const id of ids) insertar.run(orgId, userId, id);
+  });
+  reemplazar(unicos);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Canales
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function listarCanales(orgId: number): Canal[] {
+/**
+ * `restringirA`: `null` o sin poner es «todos»; con una lista, filtra a solo
+ * esos —AUNQUE VENGA VACÍA—. Que venga vacía y aun así traiga todos sería el
+ * fallo que hay que evitar: `ctx.canalesPermitidos` nunca llega aquí como `[]`
+ * —`getSession` ya lo convierte en `null`, ver `tenant.ts`—, así que un `[]`
+ * de verdad solo puede venir de quien llama pidiendo «nada», y tratarlo como
+ * «todos» sería abrir de más justo donde se pidió cerrar.
+ */
+export function listarCanales(orgId: number, restringirA?: number[] | null): Canal[] {
+  if (restringirA === undefined || restringirA === null) {
+    return s(
+      `SELECT * FROM canales WHERE org_id = ? ORDER BY created_at ASC`,
+    ).all(orgId) as Canal[];
+  }
+  if (restringirA.length === 0) return [];
+  const marcas = restringirA.map(() => "?").join(",");
   return s(
-    `SELECT * FROM canales WHERE org_id = ? ORDER BY created_at ASC`,
-  ).all(orgId) as Canal[];
+    `SELECT * FROM canales WHERE org_id = ? AND id IN (${marcas}) ORDER BY created_at ASC`,
+  ).all(orgId, ...restringirA) as Canal[];
 }
 
 export function obtenerCanal(orgId: number, id: number): Canal | undefined {
@@ -2055,6 +2159,14 @@ export function unificarConversacion(
 
 export function listarConversaciones(orgId: number, filtros: {
   desde?: number; hasta?: number; canalId?: number;
+  /**
+   * El reparto por miembro: solo estos canales, o ninguna condición si viene
+   * vacío o sin poner —«sin restricción» es el mismo significado en toda la
+   * plataforma, ver `canalesDeMiembro`—. Va aparte de `canalId`, que es el
+   * filtro manual de la pantalla: los dos pueden venir juntos, y entonces
+   * mandan los dos a la vez.
+   */
+  canalIds?: number[];
   estado?: EstadoCierre; limite?: number; offset?: number;
 } = {}): Conversacion[] {
   const cond: string[] = ["org_id = ?"];
@@ -2063,6 +2175,11 @@ export function listarConversaciones(orgId: number, filtros: {
   if (filtros.desde !== undefined) { cond.push("fecha_inicio >= ?"); val.push(filtros.desde); }
   if (filtros.hasta !== undefined) { cond.push("fecha_inicio <= ?"); val.push(filtros.hasta); }
   if (filtros.canalId !== undefined) { cond.push("canal_id = ?"); val.push(filtros.canalId); }
+  if (filtros.canalIds !== undefined) {
+    if (filtros.canalIds.length === 0) return [];
+    cond.push(`canal_id IN (${filtros.canalIds.map(() => "?").join(",")})`);
+    val.push(...filtros.canalIds);
+  }
   if (filtros.estado !== undefined) { cond.push("cerrado_por = ?"); val.push(filtros.estado); }
 
   return s(
@@ -3657,10 +3774,18 @@ export function listarVentas(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Las páginas conectadas de una cuenta. Un canal de Meta ES una página. */
-export function listarPaginasMeta(orgId: number): Canal[] {
+/** `restringirA`: el mismo significado que en `listarCanales`. */
+export function listarPaginasMeta(orgId: number, restringirA?: number[] | null): Canal[] {
+  if (restringirA === undefined || restringirA === null) {
+    return s(
+      `SELECT * FROM canales WHERE org_id = ? AND tipo = 'meta' ORDER BY created_at ASC`,
+    ).all(orgId) as Canal[];
+  }
+  if (restringirA.length === 0) return [];
+  const marcas = restringirA.map(() => "?").join(",");
   return s(
-    `SELECT * FROM canales WHERE org_id = ? AND tipo = 'meta' ORDER BY created_at ASC`,
-  ).all(orgId) as Canal[];
+    `SELECT * FROM canales WHERE org_id = ? AND tipo = 'meta' AND id IN (${marcas}) ORDER BY created_at ASC`,
+  ).all(orgId, ...restringirA) as Canal[];
 }
 
 export function contarPaginasMeta(orgId: number): number {
@@ -4192,7 +4317,8 @@ export interface FilaBandejaMeta extends FilaBandeja {
  */
 export function bandejaMeta(
   orgId: number,
-  filtros: { canalId?: number; limite?: number; red?: "facebook" | "instagram" } = {},
+  /** `canalIds`: el reparto por miembro. Ver la nota gemela en `listarConversaciones`. */
+  filtros: { canalId?: number; canalIds?: number[]; limite?: number; red?: "facebook" | "instagram" } = {},
 ): FilaBandejaMeta[] {
   const cond = ["c.org_id = ?", "ca.tipo = 'meta'"];
   const val: unknown[] = [orgId];
@@ -4200,6 +4326,11 @@ export function bandejaMeta(
   if (filtros.canalId !== undefined) {
     cond.push("c.canal_id = ?");
     val.push(filtros.canalId);
+  }
+  if (filtros.canalIds !== undefined) {
+    if (filtros.canalIds.length === 0) return [];
+    cond.push(`c.canal_id IN (${filtros.canalIds.map(() => "?").join(",")})`);
+    val.push(...filtros.canalIds);
   }
 
   /*

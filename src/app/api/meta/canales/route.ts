@@ -15,9 +15,9 @@
  */
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { eliminarCanal, listarPaginasMeta, obtenerCanal, vincularAnuncioAProducto } from "@/lib/db";
+import { asignarCanalesAMiembro, eliminarCanal, listarPaginasMeta, obtenerCanal, vincularAnuncioAProducto } from "@/lib/db";
 import { conectarPagina } from "@/lib/meta/conectar";
-import { sesionApi } from "@/lib/tenant";
+import { puedeAtenderCanal, sesionApi } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -38,7 +38,7 @@ export async function GET() {
 
   // El token cifrado NO sale de aquí. La pantalla solo necesita saber que hay
   // una página conectada, no con qué credencial.
-  const paginas = listarPaginasMeta(s.ctx.orgId).map((c) => ({
+  const paginas = listarPaginasMeta(s.ctx.orgId, s.ctx.canalesPermitidos).map((c) => ({
     id: c.id,
     nombre: c.nombre,
     pageId: c.phone,
@@ -65,6 +65,11 @@ export async function POST(req: Request) {
 
   const r = await conectarPagina(s.ctx.orgId, cuerpo.data.pageId, cuerpo.data.token);
   if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.estado });
+
+  // Quien la conecta se queda con ella. Ver la misma nota en /api/canales.
+  if (s.ctx.canalesPermitidos !== null) {
+    asignarCanalesAMiembro(s.ctx.orgId, s.ctx.userId, [...s.ctx.canalesPermitidos, r.id]);
+  }
 
   return NextResponse.json(r);
 }
@@ -94,7 +99,7 @@ export async function DELETE(req: Request) {
   // `obtenerCanal` ya filtra por orgId: una cuenta no puede borrar la página de
   // otra ni sabiendo su identificador.
   const canal = obtenerCanal(s.ctx.orgId, id);
-  if (!canal || canal.tipo !== "meta") {
+  if (!canal || canal.tipo !== "meta" || !puedeAtenderCanal(s.ctx, canal.id)) {
     return NextResponse.json({ error: "No encontrada" }, { status: 404 });
   }
 

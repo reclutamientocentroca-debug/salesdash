@@ -19,7 +19,7 @@ import {
   verificarSesion,
   type Sesion,
 } from "./auth";
-import { husoDeLaCuenta, obtenerOrg, obtenerUsuario, type Org, type Usuario } from "./db";
+import { canalesDeMiembro, husoDeLaCuenta, obtenerOrg, obtenerUsuario, type Org, type Usuario } from "./db";
 import { rangoAEpochs as rangoEnHuso, type Periodo } from "./rango";
 
 export interface Contexto {
@@ -28,6 +28,31 @@ export interface Contexto {
   superadmin: boolean;
   usuario: Usuario;
   org: Org;
+  /**
+   * EL REPARTO DE NÚMEROS Y PÁGINAS POR MIEMBRO.
+   *
+   * `null` es «sin restricción»: ve y atiende todos los canales de la cuenta,
+   * que es lo que vale siempre para el dueño y para un miembro al que nadie le
+   * asignó nada todavía —el reparto es algo que el dueño ENCIENDE marcando
+   * canales, no un candado que aparece solo—. Con algo dentro, es la lista
+   * exacta de `canal_id` que ese miembro puede ver y tocar: en cualquier
+   * pantalla o ruta que enseñe conversaciones o canales, hay que pasar esto
+   * como filtro, y en cualquier acción sobre UNA conversación o UN canal hay
+   * que comprobar que su `canal_id` está aquí dentro. Ver `puedeAtenderCanal`.
+   */
+  canalesPermitidos: number[] | null;
+}
+
+/**
+ * ¿PUEDE ESTE USUARIO TOCAR ESTE CANAL?
+ *
+ * La misma pregunta se repite en cada ruta que actúa sobre una conversación o
+ * un canal concretos —no solo en las que listan—, así que vive en un solo
+ * sitio: escribirla dos veces es la forma en que una de las dos copias se
+ * queda desactualizada el día que cambia la regla.
+ */
+export function puedeAtenderCanal(ctx: Contexto, canalId: number): boolean {
+  return ctx.canalesPermitidos === null || ctx.canalesPermitidos.includes(canalId);
 }
 
 /**
@@ -54,12 +79,27 @@ export async function getSession(): Promise<Contexto | null> {
   const org = obtenerOrg(usuario.org_id);
   if (!org || org.suspendida) return null;
 
+  /*
+   * El dueño nunca se restringe a sí mismo: el reparto es una correa que él le
+   * pone al equipo, no una jaula en la que también entra. Y para un miembro,
+   * sin ninguna fila en `equipo_canales` esto sale `[]`, que `canalesDeMiembro`
+   * ya documenta como «todos» — por eso se guarda como `null` y no como el
+   * array vacío, para que un `if (ctx.canalesPermitidos)` no se confunda con
+   * «tiene cero canales».
+   */
+  const canalesPermitidos =
+    usuario.rol === "dueno" ? null : (() => {
+      const asignados = canalesDeMiembro(usuario.org_id, usuario.id);
+      return asignados.length > 0 ? asignados : null;
+    })();
+
   return {
     userId: usuario.id,
     orgId: usuario.org_id,
     superadmin: usuario.superadmin === 1,
     usuario,
     org,
+    canalesPermitidos,
   };
 }
 

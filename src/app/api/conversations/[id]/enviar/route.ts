@@ -10,7 +10,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { getConversation } from "@/lib/db";
-import { sesionApi } from "@/lib/tenant";
+import { puedeAtenderCanal, sesionApi } from "@/lib/tenant";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,7 +35,9 @@ export async function POST(req: NextRequest, { params }: Ctx) {
 
   const { id } = await params;
   const conv = getConversation(orgId, Number(id));
-  if (!conv) return NextResponse.json({ error: "No encontrada" }, { status: 404 });
+  if (!conv || !puedeAtenderCanal(s.ctx, conv.canal_id)) {
+    return NextResponse.json({ error: "No encontrada" }, { status: 404 });
+  }
 
   const cuerpo = Mensaje.safeParse(await req.json().catch(() => null));
   if (!cuerpo.success) {

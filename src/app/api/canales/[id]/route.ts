@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { actualizarCanal, eliminarCanal, obtenerCanal, reatribuirCanalAIa } from "@/lib/db";
-import { sesionApi } from "@/lib/tenant";
+import { puedeAtenderCanal, sesionApi } from "@/lib/tenant";
 import { conectar, desconectar, instantanea, pedirHistorial } from "@/lib/wa";
 
 export const runtime = "nodejs";
@@ -17,7 +17,9 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
 
   const { id } = await params;
   const canal = obtenerCanal(s.ctx.orgId, Number(id));
-  if (!canal) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
+  if (!canal || !puedeAtenderCanal(s.ctx, canal.id)) {
+    return NextResponse.json({ error: "No encontrado" }, { status: 404 });
+  }
 
   const vista = instantanea(canal.id);
 
@@ -55,7 +57,9 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
 
   const { id } = await params;
   const canal = obtenerCanal(s.ctx.orgId, Number(id));
-  if (!canal) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
+  if (!canal || !puedeAtenderCanal(s.ctx, canal.id)) {
+    return NextResponse.json({ error: "No encontrado" }, { status: 404 });
+  }
 
   const datos = Cambio.safeParse(await req.json().catch(() => null));
   if (!datos.success) return NextResponse.json({ error: "Revisa los datos" }, { status: 400 });
@@ -159,7 +163,9 @@ export async function POST(req: NextRequest, { params }: Ctx) {
 
   const { id } = await params;
   const canal = obtenerCanal(s.ctx.orgId, Number(id));
-  if (!canal) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
+  if (!canal || !puedeAtenderCanal(s.ctx, canal.id)) {
+    return NextResponse.json({ error: "No encontrado" }, { status: 404 });
+  }
 
   const datos = Accion.safeParse(await req.json().catch(() => null));
   if (!datos.success) return NextResponse.json({ error: "Acción desconocida" }, { status: 400 });
@@ -191,7 +197,9 @@ export async function DELETE(_req: NextRequest, { params }: Ctx) {
 
   const { id } = await params;
   const canal = obtenerCanal(s.ctx.orgId, Number(id));
-  if (!canal) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
+  if (!canal || !puedeAtenderCanal(s.ctx, canal.id)) {
+    return NextResponse.json({ error: "No encontrado" }, { status: 404 });
+  }
 
   /*
    * Primero se cierra la sesión con `logout`, que desvincula el dispositivo en

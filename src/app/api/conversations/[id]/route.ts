@@ -16,7 +16,7 @@ import { fichaDeLaFoto } from "@/lib/meta/contexto-anuncio";
 import { anomaliaDeCorreccion } from "@/lib/analyzer";
 import { fechaDelCierre, MARCADOR_POR_DEFECTO } from "@/lib/cierre";
 import { descripcionUtil } from "@/lib/anuncio";
-import { sesionApi } from "@/lib/tenant";
+import { puedeAtenderCanal, sesionApi, type Contexto } from "@/lib/tenant";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,13 +25,25 @@ interface Ctx {
   params: Promise<{ id: string }>;
 }
 
+/**
+ * La misma conversación de siempre, y NO ENCONTRADA cuando el canal es de
+ * otro miembro. Es a propósito el mismo 404 que ya usa `getConversation` para
+ * una conversación de otra cuenta: quien no puede verla no tiene por qué
+ * saber que existe.
+ */
+function conversacionPermitida(ctx: Contexto, id: number) {
+  const conv = getConversation(ctx.orgId, id);
+  if (!conv || !puedeAtenderCanal(ctx, conv.canal_id)) return null;
+  return conv;
+}
+
 export async function GET(_req: NextRequest, { params }: Ctx) {
   const s = await sesionApi();
   if (!s.ok) return s.respuesta;
   const { orgId } = s.ctx;
 
   const { id } = await params;
-  const conv = getConversation(orgId, Number(id));
+  const conv = conversacionPermitida(s.ctx, Number(id));
   if (!conv) return NextResponse.json({ error: "No encontrada" }, { status: 404 });
 
   const canal = listarCanales(orgId).find((c) => c.id === conv.canal_id);
@@ -93,7 +105,7 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
   const { orgId } = s.ctx;
 
   const { id } = await params;
-  const conv = getConversation(orgId, Number(id));
+  const conv = conversacionPermitida(s.ctx, Number(id));
   if (!conv) return NextResponse.json({ error: "No encontrada" }, { status: 404 });
 
   const datos = ProductoDeLaFoto.safeParse(await req.json().catch(() => null));
@@ -152,7 +164,9 @@ export async function DELETE(_req: NextRequest, { params }: Ctx) {
 
   const { id } = await params;
   const numero = Number(id);
-  if (!Number.isInteger(numero)) return NextResponse.json({ error: "No encontrada" }, { status: 404 });
+  if (!Number.isInteger(numero) || !conversacionPermitida(s.ctx, numero)) {
+    return NextResponse.json({ error: "No encontrada" }, { status: 404 });
+  }
 
   if (!eliminarConversacion(orgId, numero)) {
     return NextResponse.json({ error: "No encontrada" }, { status: 404 });
@@ -173,7 +187,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
   const { orgId } = s.ctx;
 
   const { id } = await params;
-  const conv = getConversation(orgId, Number(id));
+  const conv = conversacionPermitida(s.ctx, Number(id));
   if (!conv) return NextResponse.json({ error: "No encontrada" }, { status: 404 });
 
   const datos = Correccion.safeParse(await req.json().catch(() => null));
@@ -205,7 +219,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   const { orgId } = s.ctx;
 
   const { id } = await params;
-  const conv = getConversation(orgId, Number(id));
+  const conv = conversacionPermitida(s.ctx, Number(id));
   if (!conv) return NextResponse.json({ error: "No encontrada" }, { status: 404 });
 
   const datos = Accion.safeParse(await req.json().catch(() => null));

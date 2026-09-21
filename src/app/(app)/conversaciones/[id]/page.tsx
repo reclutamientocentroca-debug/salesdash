@@ -11,7 +11,7 @@ import { llegoPorAnuncio } from "@/lib/anuncio";
 import { fichaDeLaFoto } from "@/lib/meta/contexto-anuncio";
 import { getConversation, husosDeLosCanales, listarCanales, listarMensajes } from "@/lib/db";
 import { porQueCalla } from "@/lib/agent";
-import { requerirSesion } from "@/lib/tenant";
+import { puedeAtenderCanal, requerirSesion } from "@/lib/tenant";
 
 export const metadata = { title: "Conversación · SalesDash" };
 export const dynamic = "force-dynamic";
@@ -37,10 +37,12 @@ export default async function PaginaConversacion({ params, searchParams }: Props
   const { rango = "7d" } = await searchParams;
 
   const conv = getConversation(ctx.orgId, Number(id));
-  if (!conv) notFound();
+  // El mismo «no existe» de siempre cuando el canal es de otro miembro: quien
+  // no puede verla no tiene por qué saber que está ahí. Ver `puedeAtenderCanal`.
+  if (!conv || !puedeAtenderCanal(ctx, conv.canal_id)) notFound();
 
   const mensajes = listarMensajes(ctx.orgId, conv.id);
-  const canal = listarCanales(ctx.orgId).find((c) => c.id === conv.canal_id);
+  const canal = listarCanales(ctx.orgId, ctx.canalesPermitidos).find((c) => c.id === conv.canal_id);
   const huso = husosDeLosCanales(ctx.orgId).get(conv.canal_id);
   /* Por qué el agente contesta —o no— en este hilo. Ver `porQueCalla`: son
      lecturas de la base, ni una llamada a ningún modelo. */

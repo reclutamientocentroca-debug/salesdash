@@ -15,6 +15,16 @@ import {
 } from "@/lib/db";
 import { requerirSesion } from "@/lib/tenant";
 
+/*
+ * Nota de alcance: `paginas`/`canalesRed` ya salen filtradas por el reparto
+ * del miembro (`listarPaginasMeta` con `ctx.canalesPermitidos`), así que la
+ * bandeja (`bandejaMeta`) hereda la restricción sin repetirla —solo pasa
+ * `canalIds` cuando de verdad hace falta, para no cambiarle la consulta a
+ * quien ve todas—. Los anuncios (`listarAnunciosMeta`) siguen siendo de toda
+ * la cuenta: vincularlos al catálogo es trabajo del dueño, no de quien
+ * atiende un número, y un `ad_id` no pertenece a un solo canal en la base.
+ */
+
 /** Solo si está definida y no vacía. Aquí no se lee NUNCA el valor. */
 function estaPuesta(clave: string): boolean {
   return (process.env[clave] ?? "").trim() !== "";
@@ -48,7 +58,7 @@ export default async function PaginaCanalMeta({ red }: { red: "facebook" | "inst
   const ctx = await requerirSesion();
   const orgId = ctx.orgId;
 
-  const canales = listarPaginasMeta(orgId);
+  const canales = listarPaginasMeta(orgId, ctx.canalesPermitidos);
   // Instagram no se conecta suelto: solo entran las páginas que lo tienen enlazado.
   const canalesRed = red === "instagram" ? canales.filter((c) => c.meta_ig_id) : canales;
 
@@ -60,7 +70,15 @@ export default async function PaginaCanalMeta({ red }: { red: "facebook" | "inst
     ultimoEventoAt: c.ultimo_evento_at,
   }));
 
-  const filas = (canalesRed.length > 0 ? bandejaMeta(orgId, { limite: 120, red }) : []).map((f) => ({
+  const filas = (
+    canalesRed.length > 0
+      ? bandejaMeta(orgId, {
+          limite: 120,
+          red,
+          canalIds: ctx.canalesPermitidos ?? undefined,
+        })
+      : []
+  ).map((f) => ({
     id: f.id,
     canalId: f.canal_id,
     canal: f.canal,

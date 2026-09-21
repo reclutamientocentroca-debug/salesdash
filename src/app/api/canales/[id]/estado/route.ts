@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { obtenerCanal } from "@/lib/db";
-import { sesionApi } from "@/lib/tenant";
+import { puedeAtenderCanal, sesionApi } from "@/lib/tenant";
 import { conectar, instantanea } from "@/lib/wa";
 
 export const runtime = "nodejs";
@@ -29,7 +29,9 @@ export async function GET(_req: Request, { params }: Ctx) {
   const { id } = await params;
   const canalId = Number(id);
   const canal = obtenerCanal(s.ctx.orgId, canalId);
-  if (!canal) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
+  if (!canal || !puedeAtenderCanal(s.ctx, canal.id)) {
+    return NextResponse.json({ error: "No encontrado" }, { status: 404 });
+  }
 
   // Si el proceso se reinició, la sesión no existe en memoria aunque el canal
   // siga conectado en disco: abrirla aquí la recupera sin pedir QR.

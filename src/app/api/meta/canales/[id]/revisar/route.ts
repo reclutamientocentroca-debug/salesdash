@@ -18,7 +18,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { obtenerCanal } from "@/lib/db";
 import { revisarPagina } from "@/lib/meta/paginas";
-import { sesionApi } from "@/lib/tenant";
+import { puedeAtenderCanal, sesionApi } from "@/lib/tenant";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -45,7 +45,7 @@ export async function POST(_req: NextRequest, { params }: Ctx) {
   // `obtenerCanal` ya filtra por orgId: una cuenta no puede revisar —ni
   // reparar— la página de otra ni sabiendo su identificador.
   const canal = obtenerCanal(orgId, Number(id));
-  if (!canal || canal.tipo !== "meta") {
+  if (!canal || canal.tipo !== "meta" || !puedeAtenderCanal(s.ctx, canal.id)) {
     return NextResponse.json({ error: "Esa página no está conectada aquí." }, { status: 404 });
   }
 

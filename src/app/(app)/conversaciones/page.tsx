@@ -68,7 +68,7 @@ export default async function PaginaConversaciones({ searchParams }: Props) {
    * cada reconexión, y una bandeja no puede aparecer y desaparecer porque el
    * socket se haya caído medio minuto.
    */
-  const canales = listarCanales(ctx.orgId).filter(
+  const canales = listarCanales(ctx.orgId, ctx.canalesPermitidos).filter(
     (c) => c.activo === 1 && !c.phone.startsWith("pendiente:"),
   );
 
@@ -76,7 +76,7 @@ export default async function PaginaConversaciones({ searchParams }: Props) {
     // Hay números creados pero ninguno escaneado: es un caso distinto de no
     // tener ninguno, y merece un texto distinto o el usuario se queda mirando
     // una pantalla vacía sin saber que le falta un paso.
-    const sinEscanear = listarCanales(ctx.orgId).filter((c) => c.activo === 1).length;
+    const sinEscanear = listarCanales(ctx.orgId, ctx.canalesPermitidos).filter((c) => c.activo === 1).length;
 
     return (
       <>

@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { contarCanales, crearCanal, listarCanales } from "@/lib/db";
+import { asignarCanalesAMiembro, contarCanales, crearCanal, listarCanales } from "@/lib/db";
 import { secretoAleatorio } from "@/lib/auth";
 import { sesionApi } from "@/lib/tenant";
 import { conectar } from "@/lib/wa";
@@ -28,7 +28,9 @@ export async function GET() {
   const s = await sesionApi();
   if (!s.ok) return s.respuesta;
 
-  return NextResponse.json({ canales: listarCanales(s.ctx.orgId).map(aVista) });
+  return NextResponse.json({
+    canales: listarCanales(s.ctx.orgId, s.ctx.canalesPermitidos).map(aVista),
+  });
 }
 
 /**
@@ -94,6 +96,18 @@ export async function POST(req: NextRequest) {
       { error: "No pudimos preparar el número. Intenta de nuevo." },
       { status: 500 },
     );
+  }
+
+  /*
+   * QUIEN LO CREA SE QUEDA CON ÉL. Un miembro restringido a ciertos números
+   * todavía no tiene fila en `equipo_canales` para este —nadie se la puso
+   * porque acaba de nacer—, y sin esto `puedeAtenderCanal` le negaría el
+   * paso al QR de un número que él mismo acaba de conectar. El dueño puede
+   * reasignarlo después desde Equipo; esto solo evita quedarse fuera de lo
+   * propio en el momento de crearlo.
+   */
+  if (s.ctx.canalesPermitidos !== null) {
+    asignarCanalesAMiembro(orgId, s.ctx.userId, [...s.ctx.canalesPermitidos, id]);
   }
 
   // Abrir el socket puede tardar un segundo largo; el QR se recoge sondeando,

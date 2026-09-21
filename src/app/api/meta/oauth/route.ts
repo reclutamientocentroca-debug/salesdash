@@ -15,7 +15,7 @@
  */
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { listarPaginasMeta } from "@/lib/db";
+import { asignarCanalesAMiembro, listarPaginasMeta } from "@/lib/db";
 import { conectarPagina } from "@/lib/meta/conectar";
 import { olvidarPaginas, paginaRecordada, paginasRecordadas } from "@/lib/meta/login";
 import { sesionApi } from "@/lib/tenant";
@@ -82,6 +82,11 @@ export async function PUT(req: Request) {
 
   // El token ya está guardado y cifrado en su canal: en memoria no pinta nada.
   olvidarPaginas(orgId);
+
+  // Quien la conecta se queda con ella. Ver la misma nota en /api/canales.
+  if (s.ctx.canalesPermitidos !== null) {
+    asignarCanalesAMiembro(orgId, s.ctx.userId, [...s.ctx.canalesPermitidos, r.id]);
+  }
 
   return NextResponse.json(r);
 }
