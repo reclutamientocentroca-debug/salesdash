@@ -19,6 +19,7 @@ import {
   anuncioParaPrompt,
   explicarMotivo,
   fichaDeLaFoto,
+  precioDelCatalogoQueNoAplica,
   productoDeLaFotoParaPrompt,
   resolverAnuncio,
 } from "../src/lib/meta/contexto-anuncio";
@@ -594,12 +595,19 @@ test("con el anuncio vinculado, si trae su propio precio, ese manda sobre el del
   assert.match(prompt, /EL PRECIO LO MANDA EL ANUNCIO/);
   assert.ok(prompt.includes("RD$1,400"), "el precio del anuncio está delante");
 
-  // Sin precio propio en el anuncio, el del catálogo sigue llenando el hueco.
+  // Y ese 1850 del catálogo es justo el que el revisor tiene que parar si el
+  // modelo no hizo caso a la instrucción de arriba. Ver revisor.test.ts.
+  assert.equal(precioDelCatalogoQueNoAplica(c), 1850);
+
+  // Sin precio propio en el anuncio, el del catálogo sigue llenando el hueco,
+  // y ya no hay nada que el revisor tenga que parar.
   D.registrarAnuncioVisto(orgId, "ad_sin_precio_propio", "Polos Bronx", { texto: "Los de siempre, calidad Bronx." });
   D.vincularAnuncioAProducto(orgId, "ad_sin_precio_propio", productoId);
-  const sinPrecioPropio = anuncioParaPrompt(resolverAnuncio(orgId, "ad_sin_precio_propio", "Polos Bronx"));
+  const sinPrecio = resolverAnuncio(orgId, "ad_sin_precio_propio", "Polos Bronx");
+  const sinPrecioPropio = anuncioParaPrompt(sinPrecio);
   assert.match(sinPrecioPropio, /el anuncio no traía ningún precio escrito/);
   assert.ok(sinPrecioPropio.includes("1850"));
+  assert.equal(precioDelCatalogoQueNoAplica(sinPrecio), null);
 });
 
 /**

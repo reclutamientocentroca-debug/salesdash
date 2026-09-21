@@ -79,6 +79,19 @@ export interface ContextoRevision {
    * creatividad del propio anuncio. Ver `fotoDeProductoDelClienteEnSesion`.
    */
   fotoDelCliente?: string | null;
+  /**
+   * EL PRECIO DEL CATÁLOGO QUE NO VALE EN ESTE CHAT (la dueña, 2026-09-21).
+   *
+   * Cuando el anuncio vinculado trae su propio precio, ese manda —ver
+   * `contexto-anuncio.ts`—, pero decírselo al modelo en prosa no basta: un
+   * anuncio de $990 vinculado a «Cepillo 5 en 1» del catálogo a RD$21,150
+   * salió cotizando los RD$21,150, porque ese número SÍ estaba escrito
+   * delante —en la línea del catálogo, para que el modelo supiera el nombre
+   * y las variantes— y el revisor, que solo mira que el importe esté escrito
+   * en algún sitio, lo dejó pasar. Con este número aparte, la regla 6 lo para
+   * aunque esté «escrito», por estar escrito en el sitio que no vale.
+   */
+  precioDelCatalogoQueNoAplica?: number | null;
   /** El bloque del país tal cual lo leyó el agente, para que el revisor use el mismo. */
   bloqueDelPais: string;
   /** Lo que el cliente ya dijo del pedido. Ver `memoria.ts`. */
@@ -314,6 +327,26 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
           : `cotiza ${d.moneda.simbolo}${n} y no hay ningún precio escrito en la descripción del anuncio ni en el catálogo: no se inventa; se le dice al cliente que un representante le pasa el precio y se escribe "[HANDOFF]"`,
       );
       break;
+    }
+  }
+
+  /*
+   * 6c. EL PRECIO DEL CATÁLOGO, CUANDO EL ANUNCIO TRAE EL SUYO PROPIO.
+   *
+   * La regla 6 de arriba solo mira si el importe está escrito EN ALGÚN
+   * SITIO, y el precio del catálogo SÍ lo está —va pegado al nombre del
+   * producto para que el modelo sepa las variantes—, así que esa regla no
+   * paraba nada. La captura de la dueña (2026-09-21): un anuncio con su
+   * propio precio de $990, vinculado en el catálogo a «Cepillo 5 en 1
+   * Multifuncional» a RD$21,150, y el agente cotizó los RD$21,150 —el
+   * número del catálogo, no el del anuncio que vio el cliente—.
+   */
+  if (ctx.precioDelCatalogoQueNoAplica != null) {
+    const dice = importes(texto, d.moneda.simbolo).some((n) => igual(n, ctx.precioDelCatalogoQueNoAplica!));
+    if (dice) {
+      fallas.push(
+        `cotiza ${d.moneda.simbolo}${ctx.precioDelCatalogoQueNoAplica}, el precio del producto del catálogo, pero este anuncio trae su propio precio escrito: el que vale en este chat es el del anuncio, no el del catálogo`,
+      );
     }
   }
 

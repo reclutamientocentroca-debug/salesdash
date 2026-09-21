@@ -1689,22 +1689,31 @@ export function leerEtiquetaDeAsesor(texto: string): { texto: string; pideAsesor
 /**
  * QUÉ PUEDE COTIZAR EL AGENTE EN ESTE HILO.
  *
- * El precio sale del catálogo, NUNCA del modelo. Cuando el cliente llegó por un
- * anuncio de Meta, ese anuncio tiene que estar vinculado a un producto: de ahí
- * sale el precio bueno. Si no lo está, el agente no cotiza — dice que le
- * atiende alguien del equipo y se calla.
+ * El precio lo manda el anuncio, no el catálogo (la dueña, 2026-09-17): el
+ * catálogo llena lo que el anuncio no diga —el nombre, las variantes, y el
+ * precio cuando el anuncio de verdad no trae ninguno—. Cuando el cliente
+ * llegó por un anuncio de Meta y ese anuncio no está vinculado a ningún
+ * producto, tampoco se suelta el lead: se vende con lo que dice el propio
+ * anuncio.
  *
  * El `meta_ad_id` se guardó en el PRIMER mensaje del hilo, que es el único que
  * lo trae. Leerlo aquí en cada respuesta es la «reinyección»: el anuncio sigue
  * pesando en la conversación número veinte igual que en la primera.
  *
- * Devuelve null cuando no hay nada que añadir —WhatsApp, o Meta sin anuncio—.
- * Ahí manda el prompt de siempre, que ya prohíbe inventar precios.
+ * `texto` es null cuando no hay nada que añadir —WhatsApp, o Meta sin
+ * anuncio—; ahí manda el prompt de siempre, que ya prohíbe inventar precios.
+ *
+ * `precioDelCatalogoQueNoAplica` es el número que el revisor tiene que parar
+ * si el modelo no siguió la instrucción de arriba: ver
+ * `precioDelCatalogoQueNoAplica` en `contexto-anuncio.ts`.
  *
  * La anomalía se crea una sola vez por hilo: sin la guarda, cada mensaje del
  * cliente generaría otra y la bandeja de revisión quedaría inservible.
  */
-async function reglaDePrecio(orgId: number, conv: Conversacion): Promise<string | null> {
+async function reglaDePrecio(
+  orgId: number,
+  conv: Conversacion,
+): Promise<{ texto: string | null; precioDelCatalogoQueNoAplica: number | null }> {
   /*
    * Y LO QUE EL CLIENTE ENSEÑÓ EN SU FOTO, si una persona ya le puso nombre y
    * precio desde el hilo. Va aunque el hilo no venga de Meta —una foto por
@@ -1712,12 +1721,17 @@ async function reglaDePrecio(orgId: number, conv: Conversacion): Promise<string 
    * cliente llegó por camisas y a mitad de la conversación preguntó por unas
    * botas. Ver `fijarProductoDeLaFoto`.
    */
-  const { resolverAnuncio, anuncioParaPrompt, explicarMotivo, productoDeLaFotoParaPrompt } =
-    await import("@/lib/meta/contexto-anuncio");
+  const {
+    resolverAnuncio,
+    anuncioParaPrompt,
+    explicarMotivo,
+    productoDeLaFotoParaPrompt,
+    precioDelCatalogoQueNoAplica,
+  } = await import("@/lib/meta/contexto-anuncio");
 
   const deSuFoto = productoDeLaFotoParaPrompt(orgId, conv);
 
-  if (!conv.meta_ad_id) return deSuFoto;
+  if (!conv.meta_ad_id) return { texto: deSuFoto, precioDelCatalogoQueNoAplica: null };
 
   const contexto = resolverAnuncio(orgId, conv.meta_ad_id, conv.producto_anuncio);
 
@@ -1730,8 +1744,11 @@ async function reglaDePrecio(orgId: number, conv: Conversacion): Promise<string 
     });
   }
 
-  // El de su foto va DESPUÉS del anuncio: es lo más reciente y lo que manda.
-  return [anuncioParaPrompt(contexto), deSuFoto].filter(Boolean).join("\n\n");
+  return {
+    // El de su foto va DESPUÉS del anuncio: es lo más reciente y lo que manda.
+    texto: [anuncioParaPrompt(contexto), deSuFoto].filter(Boolean).join("\n\n"),
+    precioDelCatalogoQueNoAplica: precioDelCatalogoQueNoAplica(contexto),
+  };
 }
 
 /**
@@ -2346,7 +2363,7 @@ async function atenderTurno(
    * el agente otra vez si tiene que reescribir. Si el revisor no lo viera,
    * pararía como inventado el precio que el propio anuncio escribió.
    */
-  const reglaPrecio = await reglaDePrecio(orgId, conv);
+  const { texto: reglaPrecio, precioDelCatalogoQueNoAplica } = await reglaDePrecio(orgId, conv);
 
   /*
    * LA FOTO DEL ANUNCIO, si se guardó cuando entró el lead.
@@ -2516,6 +2533,7 @@ async function atenderTurno(
       nombresDeLaCasa: [agente.nombre, agente.negocio, datosPais.nombreAgente ?? "", datosPais.tienda].filter(Boolean),
       catalogo: textoDeLoQueVende(agente, listarCatalogo(orgId, true, canalId)),
       anuncio: [anuncioParaModelo(seVende, datosPais.moneda.simbolo), reglaPrecio].filter(Boolean).join("\n\n") || null,
+      precioDelCatalogoQueNoAplica,
       fotoDelCliente: fotoDeProductoDelClienteEnSesion(historial),
       ficha: fichaDelHilo(memoriaMensajes, agente.pais),
       clienteCompartioUbicacion: clienteCompartioUbicacion(historial),
@@ -3251,6 +3269,8 @@ export async function enviarSeguimiento(
    */
   if (clienteAplazaCompra(ultimoDelCliente) || clienteRenunciaALaCompra(ultimoDelCliente)) return false;
 
+  const reglaPrecio = await reglaDePrecio(orgId, conv);
+
   let generada: RespuestaGenerada;
   try {
     generada = await generarRespuesta(
@@ -3258,7 +3278,7 @@ export async function enviarSeguimiento(
       canal.id,
       [...historial, mensajeInterno(orgId, conversationId, instruccionVisto(anuncioVigente(conv).producto_anuncio))],
       conv,
-      await reglaDePrecio(orgId, conv),
+      reglaPrecio.texto,
       { telefono: conv.cliente_phone, nombre: conv.cliente_nombre },
     );
   } catch {
@@ -3286,6 +3306,7 @@ export async function enviarSeguimiento(
       nombresDeLaCasa: [agente.nombre, negocio, datosPais.nombreAgente ?? "", datosPais.tienda].filter(Boolean),
       catalogo: textoDeLoQueVende(agente, listarCatalogo(orgId, true, canal.id)),
       anuncio: anuncioParaModelo(anuncioVigente(conv)) || null,
+      precioDelCatalogoQueNoAplica: reglaPrecio.precioDelCatalogoQueNoAplica,
       fotoDelCliente: fotoDeProductoDelClienteEnSesion(historial),
       ficha: fichaDelHilo(historial, agente.pais),
       textosDelCliente: textosDelClienteEnSesion(historial),

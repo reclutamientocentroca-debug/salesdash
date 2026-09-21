@@ -181,6 +181,27 @@ function anuncioTraePrecio(c: { texto: string | null; descripcionImagen: string 
 }
 
 /**
+ * EL PRECIO DEL CATÁLOGO QUE NO VALE EN ESTE CHAT, para el revisor.
+ *
+ * La instrucción de arriba ya le dice al modelo que el precio del anuncio
+ * manda sobre el del catálogo, pero es una instrucción en prosa, y el modelo
+ * puede no seguirla —lo mismo que ya se cuidó con «no inventes un precio»
+ * en cada otro sitio de este código—. La captura de la dueña (2026-09-21):
+ * un anuncio con su propio precio de $990 vinculado a «Cepillo 5 en 1
+ * Multifuncional» del catálogo, a RD$21,150, y el agente cotizó los
+ * RD$21,150. Ese número SÍ estaba delante —en la línea del catálogo, para
+ * que el modelo supiera el nombre exacto y las variantes— y por eso el
+ * revisor, que solo comprueba que el importe esté escrito en algún sitio, no
+ * lo paraba: estaba escrito, solo que en el sitio equivocado.
+ *
+ * Con esto, `revisor.ts` puede parar ESE número en concreto cuando el
+ * anuncio trae uno propio, en vez de fiarse de que el modelo elija bien.
+ */
+export function precioDelCatalogoQueNoAplica(c: ContextoAnuncio): number | null {
+  return c.motivo === "vinculado" && c.producto && anuncioTraePrecio(c) ? c.producto.precio : null;
+}
+
+/**
  * El bloque que se le añade al prompt.
  *
  * NO sustituye a `anuncioParaModelo`: aquel cuenta qué se le prometió al

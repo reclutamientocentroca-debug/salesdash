@@ -464,6 +464,56 @@ test("el precio que trae la foto del cliente no se para como inventado", () => {
 });
 
 /**
+ * EL PRECIO DEL CATÁLOGO SE PARA CUANDO EL ANUNCIO TRAE EL SUYO PROPIO
+ * (la dueña, 2026-09-21).
+ *
+ * La captura de la dueña: un anuncio con su propio precio, $990, vinculado
+ * en el catálogo a «Cepillo 5 en 1 Multifuncional» a RD$21,150, y el agente
+ * abrió cotizando los RD$21,150 —el número del catálogo, no el que vio el
+ * cliente en el anuncio—. La regla 6 (arriba) no lo paraba porque ese número
+ * SÍ estaba escrito delante, en la línea del catálogo; hace falta decirle al
+ * revisor, aparte, que ESE número en concreto no vale en este chat.
+ */
+test("el precio del catálogo se para cuando el anuncio vinculado trae el suyo propio", () => {
+  const conAnuncioYCatalogo = {
+    ...rd,
+    anuncio:
+      "Este cliente llegó por un anuncio:\n- Producto anunciado: Cepillo 5 en 1 Multifuncional\n" +
+      "El precio es \"RD$990\".\n" +
+      "El anuncio que trajo a este cliente corresponde a este producto del catálogo:\n" +
+      "- Cepillo 5 en 1 Multifuncional — 21150",
+    precioDelCatalogoQueNoAplica: 21150,
+  };
+
+  const fallas = revisarConReglas(
+    "Cepillo 5 en 1 Multifuncional, en RD$21,150. Indíquenos a qué dirección y provincia le enviamos.",
+    conAnuncioYCatalogo,
+  );
+  assert.ok(
+    fallas.some((f) => f.includes("RD$21150") && f.includes("el del anuncio, no el del catálogo")),
+    fallas.join(" | "),
+  );
+
+  // Con el precio del anuncio, el mismo artículo sí sale.
+  assert.deepEqual(
+    revisarConReglas(
+      "Cepillo 5 en 1 Multifuncional, en RD$990. Indíquenos a qué dirección y provincia le enviamos.",
+      conAnuncioYCatalogo,
+    ),
+    [],
+  );
+
+  // Sin anuncio con precio propio, el precio del catálogo es el bueno de siempre.
+  assert.deepEqual(
+    revisarConReglas(
+      "Cepillo 5 en 1 Multifuncional, en RD$21,150. Indíquenos a qué dirección y provincia le enviamos.",
+      { ...conAnuncioYCatalogo, precioDelCatalogoQueNoAplica: null },
+    ),
+    [],
+  );
+});
+
+/**
  * EL COSTO DEL ENVÍO NO ES EL PRECIO DEL ARTÍCULO (la dueña, 2026-09-08).
  *
  * Un anuncio de polos que era solo una foto, sin precio en ninguna parte, y la
