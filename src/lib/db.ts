@@ -60,7 +60,7 @@ import { desfaseMs, husoDelServidor, periodoEnHuso } from "./rango";
  * El respaldo es la red: si el principal falla o topa su límite, `ia.ts` lo
  * intenta una vez con este antes de rendirse.
  */
-export const MODELO_AGENTE = "openai/gpt-4o";
+export const MODELO_AGENTE = "openai/gpt-luna-latest";
 export const MODELO_ANALISIS = "openai/gpt-4o-mini";
 /** Para leer imágenes: facturas, comprobantes y la creatividad del anuncio. */
 export const MODELO_VISION = "openai/gpt-4o-mini";
@@ -1317,6 +1317,24 @@ function migrar(conexion: DB): void {
                OR anuncio_actual_descripcion IS NOT descripcion_anuncio)`,
     ).run();
     conexion.exec(`PRAGMA user_version = 9`);
+  }
+
+  /*
+   * EL VENDEDOR PASA A GPT LUNA LATEST (la dueña, 2026-09-22).
+   *
+   * «Latest» es un alias que OpenRouter mantiene apuntando siempre al último
+   * modelo de la familia GPT Luna: no hay que volver a moverlo a mano cada
+   * vez que salga una versión nueva.
+   *
+   * Solo a quien tenía el valor por defecto de antes (gpt-4o), igual que en
+   * las migraciones 6 y 7: al que entró en Agente y puso el suyo no se le
+   * toca, esto corre en cada arranque y pisarle su elección sería quitarle
+   * el ajuste cada vez que se reinicia el servidor.
+   */
+  if (version < 10) {
+    conexion.prepare(`UPDATE agentes SET modelo = ? WHERE modelo = ?`)
+      .run(MODELO_AGENTE, "openai/gpt-4o");
+    conexion.exec(`PRAGMA user_version = 10`);
   }
 
   // anomalies: las anomalías de canal no tienen conversación.
