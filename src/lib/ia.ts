@@ -11,22 +11,7 @@
 import OpenAI from "openai";
 import { registrarUso } from "./db";
 
-const OPENROUTER_URL = "https://openrouter.ai/api/v1";
-
-/**
- * Pasarela de modelos. Por defecto OpenRouter; con IA_BASE_URL se usa otra
- * compatible con OpenAI (p. ej. FreeLLMAPI, que rota sola entre proveedores).
- */
-const BASE_URL = (process.env.IA_BASE_URL?.trim() || OPENROUTER_URL).replace(/\/+$/, "");
-const ES_PASARELA_PROPIA = BASE_URL !== OPENROUTER_URL;
-
-/**
- * Si está puesta, TODAS las llamadas usan este modelo (p. ej. "auto") y se
- * ignora el elegido en el panel: la pasarela decide y cambia de IA sola.
- */
-function modeloForzado(): string | null {
-  return process.env.IA_MODELO?.trim() || null;
-}
+const BASE_URL = "https://openrouter.ai/api/v1";
 
 export class ErrorIA extends Error {
   constructor(
@@ -183,9 +168,6 @@ async function unaLlamada(p: PeticionIA, modelo: string): Promise<string> {
  */
 export async function completar(p: PeticionIA): Promise<RespuestaIA> {
   const dia = hoyISO();
-  const forzado = modeloForzado();
-  // Con modelo forzado, la pasarela ya hace el respaldo entre proveedores.
-  if (forzado) p = { ...p, modelo: forzado, respaldo: null };
 
   try {
     const texto = await unaLlamada(p, p.modelo);
@@ -301,12 +283,7 @@ export async function listarModelos(): Promise<ModeloDisponible[]> {
   if (cacheModelos && Date.now() - cacheModelos.cuando < CACHE_MS) return cacheModelos.lista;
 
   const r = await fetch(`${BASE_URL}/models`, {
-    headers: {
-      accept: "application/json",
-      ...(ES_PASARELA_PROPIA && process.env.OPENROUTER_API_KEY
-        ? { authorization: `Bearer ${process.env.OPENROUTER_API_KEY}` }
-        : {}),
-    },
+    headers: { accept: "application/json" },
     signal: AbortSignal.timeout(20_000),
     cache: "no-store",
   });
