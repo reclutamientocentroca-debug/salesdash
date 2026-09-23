@@ -424,7 +424,11 @@ CREATE TABLE IF NOT EXISTS catalogo (
   nombre TEXT NOT NULL,
   variantes TEXT,
   precio REAL,
-  activo INTEGER NOT NULL DEFAULT 1
+  activo INTEGER NOT NULL DEFAULT 1,
+  /* La foto de referencia, si el producto se importo de un link. Ver
+     importar-producto.ts. Es solo para que el panel la ensene: el agente
+     vendedor sigue hablando por texto, con lo que hay en variantes. */
+  foto_url TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_catalogo_org ON catalogo(org_id);
 
@@ -663,6 +667,9 @@ function migrar(conexion: DB): void {
    * y en una de varios la dueña reparte los productos desde Productos.
    */
   agregarColumna("catalogo", "canal_id", "INTEGER NOT NULL DEFAULT 0");
+
+  /* La foto de referencia del producto, cuando se importó de un link. */
+  agregarColumna("catalogo", "foto_url");
 
   /*
    * La imagen del anuncio, en grande. El referral solo trae la MINIATURA que
@@ -1509,6 +1516,8 @@ export interface Producto {
   canal_id: number;
   nombre: string;
   variantes: string | null; precio: number | null; activo: number;
+  /** La foto de referencia, si se importó de un link. Ver `importar-producto.ts`. */
+  foto_url: string | null;
 }
 
 export interface Anomalia {
@@ -3204,15 +3213,16 @@ export function crearProducto(orgId: number, datos: {
   nombre: string; variantes: string | null; precio: number | null;
   /** De qué número es. Sin decir nada, de toda la cuenta. */
   canalId?: number;
+  fotoUrl?: string | null;
 }): number {
   const r = s(
-    `INSERT INTO catalogo (org_id, canal_id, nombre, variantes, precio) VALUES (?, ?, ?, ?, ?)`,
-  ).run(orgId, datos.canalId ?? 0, datos.nombre, datos.variantes, datos.precio);
+    `INSERT INTO catalogo (org_id, canal_id, nombre, variantes, precio, foto_url) VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(orgId, datos.canalId ?? 0, datos.nombre, datos.variantes, datos.precio, datos.fotoUrl ?? null);
   return Number(r.lastInsertRowid);
 }
 
 export function actualizarProducto(orgId: number, id: number, campos: Partial<Producto>): void {
-  const { sql, valores } = armarSet(campos, ["nombre", "variantes", "precio", "activo", "canal_id"]);
+  const { sql, valores } = armarSet(campos, ["nombre", "variantes", "precio", "activo", "canal_id", "foto_url"]);
   if (!sql) return;
   s(`UPDATE catalogo SET ${sql} WHERE org_id = ? AND id = ?`).run(...valores, orgId, id);
 }

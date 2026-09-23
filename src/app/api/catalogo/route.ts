@@ -18,6 +18,8 @@ const Nuevo = z.object({
   precio: z.number().nonnegative().nullable().optional(),
   /** De qué número es. 0 —o nada— es de toda la cuenta. Ver `listarCatalogo`. */
   canalId: z.number().int().nonnegative().optional(),
+  /** La foto de referencia, cuando el producto se importó de un link. */
+  fotoUrl: z.string().trim().url().max(2000).nullable().optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -34,6 +36,7 @@ export async function POST(req: NextRequest) {
     variantes: datos.data.variantes ?? null,
     precio: datos.data.precio ?? null,
     canalId: deLaCuenta(s.ctx.orgId, datos.data.canalId),
+    fotoUrl: datos.data.fotoUrl ?? null,
   });
 
   return NextResponse.json({ id });
@@ -46,6 +49,7 @@ const Cambio = z.object({
   precio: z.number().nonnegative().nullable().optional(),
   activo: z.boolean().optional(),
   canalId: z.number().int().nonnegative().optional(),
+  fotoUrl: z.string().trim().url().max(2000).nullable().optional(),
 });
 
 /**
@@ -67,11 +71,12 @@ export async function PATCH(req: NextRequest) {
   const datos = Cambio.safeParse(await req.json().catch(() => null));
   if (!datos.success) return NextResponse.json({ error: "Revisa los datos" }, { status: 400 });
 
-  const { id, activo, canalId, ...resto } = datos.data;
+  const { id, activo, canalId, fotoUrl, ...resto } = datos.data;
   actualizarProducto(s.ctx.orgId, id, {
     ...resto,
     activo: activo === undefined ? undefined : activo ? 1 : 0,
     canal_id: canalId === undefined ? undefined : deLaCuenta(s.ctx.orgId, canalId),
+    foto_url: fotoUrl,
   });
 
   return NextResponse.json({ ok: true });
