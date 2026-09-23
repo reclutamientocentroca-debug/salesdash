@@ -20,6 +20,8 @@ const Nuevo = z.object({
   canalId: z.number().int().nonnegative().optional(),
   /** La foto de referencia, cuando el producto se importó de un link. */
   fotoUrl: z.string().trim().url().max(2000).nullable().optional(),
+  /** La descripción de la página del link, para enseñarla junto a la foto en el catálogo. */
+  descripcion: z.string().trim().max(600).nullable().optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -37,6 +39,7 @@ export async function POST(req: NextRequest) {
     precio: datos.data.precio ?? null,
     canalId: deLaCuenta(s.ctx.orgId, datos.data.canalId),
     fotoUrl: datos.data.fotoUrl ?? null,
+    descripcion: datos.data.descripcion ?? null,
   });
 
   return NextResponse.json({ id });
@@ -50,6 +53,7 @@ const Cambio = z.object({
   activo: z.boolean().optional(),
   canalId: z.number().int().nonnegative().optional(),
   fotoUrl: z.string().trim().url().max(2000).nullable().optional(),
+  descripcion: z.string().trim().max(600).nullable().optional(),
 });
 
 /**

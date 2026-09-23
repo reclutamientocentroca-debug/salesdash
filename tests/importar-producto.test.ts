@@ -134,6 +134,7 @@ test("un producto solo tiene links pendientes cuando de verdad hay uno sin impor
   D.marcarLinkImportado(orgId, linkId, {
     datos: JSON.stringify({ tallas: [], colores: [] }),
     fotoUrl: null,
+    descripcion: null,
     error: null,
   });
   assert.equal(D.productoConLinksPendientes(orgId, productoId), false, "ya importado, deja de estar pendiente");

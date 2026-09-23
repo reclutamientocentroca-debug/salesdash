@@ -49,7 +49,7 @@ import {
   type TipoMensaje,
 } from "@/lib/db";
 import { registrarCierre } from "@/lib/cierre";
-import { descargarImagen, guardar as guardarArchivo } from "@/lib/media";
+import { descargarImagen, descargarMedia, esDescargable, guardar as guardarArchivo } from "@/lib/media";
 import { esChatDePersona, esGrupo, normalizarTelefono } from "@/lib/telefono";
 
 /**
@@ -380,6 +380,29 @@ export async function ingerir(
           // El anuncio es contexto, no la conversación: que falle no puede
           // impedir que el mensaje del cliente entre.
           console.error(`Entrada: no se pudo guardar el anuncio ${m.metaAdId}`, e);
+        }
+      }
+
+      /*
+       * LA FOTO O LA NOTA DE VOZ DEL CLIENTE, CUANDO EL CANAL LAS ENTREGA POR
+       * ENLACE Y NO POR BYTES.
+       *
+       * WhatsApp (Baileys) ya baja el archivo ANTES de llegar aquí —ver
+       * `wa.ts`—, así que `m.mediaUrl` ya es una clave local y esto no hace
+       * nada con esos. Pero en Meta (Messenger e Instagram) el mensaje del
+       * CLIENTE trae una URL del CDN de Facebook —igual que la creatividad del
+       * anuncio, que si se baja unas líneas más abajo—, y sin bajarla AQUÍ
+       * `comoDataUrl` nunca la encuentra: para todo el que escriba por esos dos
+       * canales con una foto o un audio, el agente no la veía ni la oía, sin
+       * que saltara ningún error —simplemente no había archivo que leer—.
+       */
+      if (m.mediaUrl && esDescargable(m.tipo) && /^https?:\/\//i.test(m.mediaUrl)) {
+        try {
+          const bajado = await descargarMedia(m.mediaUrl, m.tipo, 6_000);
+          m.mediaUrl = bajado ? guardarArchivo(orgId, m.id, m.tipo, bajado.datos, bajado.ext) : null;
+        } catch (e) {
+          console.error(`[ingesta] no se pudo bajar el ${m.tipo} de ${m.id}`, e);
+          m.mediaUrl = null;
         }
       }
 

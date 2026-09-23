@@ -11,6 +11,7 @@ import {
   listarAnunciosMeta,
   listarCatalogo,
   listarPaginasMeta,
+  sugerirProductoDelCatalogo,
   ultimosEventosMeta,
 } from "@/lib/db";
 import { requerirSesion } from "@/lib/tenant";
@@ -98,6 +99,16 @@ export default async function PaginaCanalMeta({ red }: { red: "facebook" | "inst
     productoId: a.producto_id,
     productoNombre: a.producto_nombre,
     enlace: a.enlace && a.enlace.startsWith("http") ? a.enlace : null,
+    /*
+     * SOLO UNA PROPUESTA, para el anuncio que todavía no tiene producto: ver
+     * `sugerirProductoDelCatalogo`. La dueña la confirma con un clic en el
+     * panel —nunca se vincula sola—, porque un vínculo automático mal hecho
+     * es el mismo error que ya le costó caro (ver `contexto-anuncio.ts`).
+     */
+    sugerido:
+      a.producto_id === null
+        ? sugerirProductoDelCatalogo(orgId, [a.titulo, a.texto, a.descripcion_imagen].filter(Boolean).join(" "))
+        : null,
   }));
 
   // Aquí la dueña vincula anuncios a mano y ve todo lo suyo: el reparto por

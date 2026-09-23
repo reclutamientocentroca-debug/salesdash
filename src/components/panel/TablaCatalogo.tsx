@@ -21,6 +21,8 @@ export interface ProductoVista {
   activo: number;
   /** La foto de referencia, si el producto se importó de un link. */
   foto_url: string | null;
+  /** La descripción de la página del link, tal como la escribió la tienda. */
+  descripcion: string | null;
 }
 
 /** Los números conectados, para poder decir de cuál es cada producto. */
@@ -43,7 +45,7 @@ export default function TablaCatalogo({
   canales?: CanalVista[];
 }) {
   const router = useRouter();
-  const [nuevo, setNuevo] = useState({ nombre: "", variantes: "", precio: "", canalId: 0, fotoUrl: "" });
+  const [nuevo, setNuevo] = useState({ nombre: "", variantes: "", precio: "", canalId: 0, fotoUrl: "", descripcion: "" });
   const [ocupado, setOcupado] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -51,8 +53,11 @@ export default function TablaCatalogo({
   const [buscando, setBuscando] = useState(false);
   const [errorLink, setErrorLink] = useState<string | null>(null);
 
+  /** El producto cuya ficha (foto + descripción tal como está en la tienda) está abierta. */
+  const [verProducto, setVerProducto] = useState<number | null>(null);
+
   /** El producto cuyos links de tienda están abiertos, o null si ninguno. */
-  const [abierto, setAbierto] = useState<number | null>(null);
+  const [verLinks, setVerLinks] = useState<number | null>(null);
 
   /*
    * EL REPARTO SOLO SE ENSEÑA CUANDO HACE FALTA.
@@ -97,6 +102,7 @@ export default function TablaCatalogo({
         precio: nuevo.precio.trim() ? Number(nuevo.precio) : null,
         canalId: nuevo.canalId,
         fotoUrl: nuevo.fotoUrl.trim() || null,
+        descripcion: nuevo.descripcion.trim() || null,
       }),
     });
     const datos = await r.json();
@@ -106,7 +112,7 @@ export default function TablaCatalogo({
       setError(datos.error ?? "No se pudo guardar el producto.");
       return;
     }
-    setNuevo({ nombre: "", variantes: "", precio: "", canalId: nuevo.canalId, fotoUrl: "" });
+    setNuevo({ nombre: "", variantes: "", precio: "", canalId: nuevo.canalId, fotoUrl: "", descripcion: "" });
     setLink("");
     router.refresh();
   }
@@ -147,6 +153,7 @@ export default function TablaCatalogo({
       precio: n.precio.trim() ? n.precio : datos.precio != null ? String(datos.precio) : n.precio,
       variantes: datos.variantes ?? n.variantes,
       fotoUrl: datos.fotoUrl ?? n.fotoUrl,
+      descripcion: datos.descripcion ?? n.descripcion,
     }));
   }
 
@@ -315,13 +322,23 @@ export default function TablaCatalogo({
                     )}
                     <td style={{ textAlign: "right" }}>{dinero(p.precio)}</td>
                     <td style={{ textAlign: "right", paddingRight: 17 }}>
+                      {(p.foto_url || p.descripcion) && (
+                        <button
+                          type="button"
+                          className="btn btn-tenue"
+                          style={{ padding: "4px 10px", fontSize: 12 }}
+                          onClick={() => setVerProducto(verProducto === p.id ? null : p.id)}
+                        >
+                          {verProducto === p.id ? "Ocultar producto" : "Ver producto"}
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="btn btn-tenue"
                         style={{ padding: "4px 10px", fontSize: 12 }}
-                        onClick={() => setAbierto(abierto === p.id ? null : p.id)}
+                        onClick={() => setVerLinks(verLinks === p.id ? null : p.id)}
                       >
-                        {abierto === p.id ? "Ocultar links" : "Links"}
+                        {verLinks === p.id ? "Ocultar links" : "Links"}
                       </button>
                       <button
                         type="button"
@@ -341,7 +358,14 @@ export default function TablaCatalogo({
                       </button>
                     </td>
                   </tr>
-                  {abierto === p.id && (
+                  {verProducto === p.id && (
+                    <tr>
+                      <td colSpan={reparte ? 5 : 4} style={{ padding: 0 }}>
+                        <FichaProducto producto={p} />
+                      </td>
+                    </tr>
+                  )}
+                  {verLinks === p.id && (
                     <tr>
                       <td colSpan={reparte ? 5 : 4} style={{ padding: 0 }}>
                         <FilaLinks productoId={p.id} onCambio={() => router.refresh()} />
@@ -356,6 +380,49 @@ export default function TablaCatalogo({
         )}
       </section>
     </>
+  );
+}
+
+/**
+ * LA FICHA DEL PRODUCTO, TAL COMO SE VE EN EL LINK: la foto grande, la
+ * descripción de la página y sus colores con las tallas disponibles de cada
+ * uno —lo mismo que trajo `importarProductoDeLink`, ver `importar-producto.ts`—,
+ * en vez de tener que abrir el link de la tienda para volver a verlo.
+ */
+function FichaProducto({ producto }: { producto: ProductoVista }) {
+  const variantes = (producto.variantes ?? "").split(" · ").map((v) => v.trim()).filter(Boolean);
+
+  return (
+    <div
+      style={{
+        padding: "14px 17px", background: "var(--bg-2, #f7f7f8)", borderTop: "1px solid var(--linea)",
+        display: "flex", gap: 16, flexWrap: "wrap",
+      }}
+    >
+      {producto.foto_url && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={producto.foto_url} alt={producto.nombre}
+          style={{ width: 140, height: 140, objectFit: "cover", borderRadius: 8, flexShrink: 0 }}
+        />
+      )}
+      <div style={{ flex: 1, minWidth: 220, display: "grid", gap: 8, alignContent: "start" }}>
+        <div style={{ fontWeight: 600 }}>{producto.nombre}</div>
+        {producto.descripcion && (
+          <p style={{ fontSize: 13, lineHeight: 1.5, color: "var(--ink-2)", margin: 0 }}>{producto.descripcion}</p>
+        )}
+        {variantes.length > 0 && (
+          <div>
+            <div className="tenue" style={{ fontSize: 11.5, marginBottom: 4 }}>Colores y tallas disponibles</div>
+            <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+              {variantes.map((v) => (
+                <li key={v} style={{ fontSize: 13 }}>{v}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 

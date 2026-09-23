@@ -131,8 +131,13 @@ const MAX_TEXTO = 6000;
 export interface PaginaLeida {
   titulo: string | null;
   imagenUrl: string | null;
+  /** La descripción de la página (su `og:description`), para enseñarla en el panel. */
+  descripcion: string | null;
   texto: string;
 }
+
+/** Cuánto de la descripción se guarda para el panel. De sobra para un párrafo de producto. */
+const MAX_DESCRIPCION = 600;
 
 /** Lo que se puede sacar de un HTML ya renderizado, sin volver a tocar el navegador. */
 export function extraerDeHtml(html: string): PaginaLeida {
@@ -150,8 +155,9 @@ export function extraerDeHtml(html: string): PaginaLeida {
   const soloTexto = decodificarEntidades(sinRuido.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
 
   const texto = [descripcionMeta, soloTexto].filter(Boolean).join("\n").slice(0, MAX_TEXTO);
+  const descripcion = descripcionMeta ? descripcionMeta.slice(0, MAX_DESCRIPCION) : null;
 
-  return { titulo, imagenUrl, texto };
+  return { titulo, imagenUrl, descripcion, texto };
 }
 
 function urlAbsoluta(src: string | null, base: string): string | null {
@@ -303,6 +309,8 @@ export interface PaginaRenderizada {
   tallas: string[];
   imagenUrl: string | null;
   precio: number | null;
+  /** La descripción de la página, para enseñarla en el panel junto a la foto. */
+  descripcion: string | null;
   /** El texto visible, para el respaldo por IA cuando no hay botones que leer. */
   texto: string;
 }
@@ -375,7 +383,7 @@ async function leerConNavegador(page: Page, url: string): Promise<PaginaRenderiz
   const imagenUrl =
     colores[0]?.imagenUrl ?? urlAbsoluta(pagina.imagenUrl, url) ?? urlAbsoluta(await imagenPrincipal(page), url);
 
-  return { nombre, colores, tallas: tallasSueltas, imagenUrl, precio, texto: pagina.texto };
+  return { nombre, colores, tallas: tallasSueltas, imagenUrl, precio, descripcion: pagina.descripcion, texto: pagina.texto };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -432,6 +440,8 @@ export interface ImportadoDeLink {
   /** Formateado, listo para el campo Variantes. */
   variantes: string | null;
   fotoUrl: string | null;
+  /** La descripción de la página, para enseñarla en el panel junto a la foto. */
+  descripcion: string | null;
   /** Crudo, para poder combinarlo con lo leído de otros links del mismo producto. Ver `combinarVariantes`. */
   datos: DatosVariantes;
 }
@@ -476,6 +486,7 @@ export async function importarProductoDeLink(
         precio: leido.precio,
         variantes: formatearVariantes(datos),
         fotoUrl: leido.imagenUrl,
+        descripcion: leido.descripcion,
         datos,
       };
     }
@@ -492,6 +503,7 @@ export async function importarProductoDeLink(
       precio: leido.precio ?? (typeof salida.precio === "number" && Number.isFinite(salida.precio) ? salida.precio : null),
       variantes: formatearVariantes(datos),
       fotoUrl: leido.imagenUrl,
+      descripcion: leido.descripcion,
       datos,
     };
   } finally {
@@ -540,6 +552,7 @@ export interface ResultadoImportacionProducto {
   fallidos: { url: string; error: string }[];
   variantes: string | null;
   fotoUrl: string | null;
+  descripcion: string | null;
 }
 
 /**
@@ -569,6 +582,7 @@ export async function importarLinksDeProducto(
       marcarLinkImportado(orgId, link.id, {
         datos: resultado ? JSON.stringify(resultado.datos) : null,
         fotoUrl: resultado?.fotoUrl ?? null,
+        descripcion: resultado?.descripcion ?? null,
         error,
       });
       if (error) fallidos.push({ url: link.url, error });
@@ -581,18 +595,21 @@ export async function importarLinksDeProducto(
   const combinado = combinarVariantes(todos.map(datosDeLink).filter((d): d is DatosVariantes => d !== null));
   const variantes = formatearVariantes(combinado);
   const fotoUrl = todos.find((l) => l.foto_url)?.foto_url ?? null;
+  const descripcion = todos.find((l) => l.descripcion)?.descripcion ?? null;
 
   /*
    * Sin nada nuevo que decir, no se pisa lo que ya hubiera. Un lote donde
-   * TODOS los links fallan no debe borrar unas variantes o una foto que la
-   * dueña ya tenía escritas a mano o de una importación anterior.
+   * TODOS los links fallan no debe borrar unas variantes, una foto o una
+   * descripción que la dueña ya tenía escritas a mano o de una importación
+   * anterior.
    */
   actualizarProducto(orgId, productoId, {
     ...(variantes !== null ? { variantes } : {}),
     ...(fotoUrl !== null ? { foto_url: fotoUrl } : {}),
+    ...(descripcion !== null ? { descripcion } : {}),
   });
 
-  return { intentados: porImportar.length, fallidos, variantes, fotoUrl };
+  return { intentados: porImportar.length, fallidos, variantes, fotoUrl, descripcion };
 }
 
 function datosDeLink(link: ProductoLink): DatosVariantes | null {

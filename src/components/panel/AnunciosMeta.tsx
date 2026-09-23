@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { Vacio } from "@/components/panel/Piezas";
 
 export interface AnuncioPorVincular {
@@ -10,6 +11,13 @@ export interface AnuncioPorVincular {
   productoNombre: string | null;
   /** El permalink de la publicación, para poder abrir el anuncio y verlo. */
   enlace: string | null;
+  /**
+   * EL PRODUCTO QUE MÁS SE PARECE, cuando este anuncio todavía no tiene uno.
+   * Es solo una propuesta —ver `sugerirProductoDelCatalogo`—: no cotiza nada
+   * hasta que la dueña la confirma con el botón. Null si no hay ninguno
+   * parecido o si el anuncio ya está vinculado.
+   */
+  sugerido: { id: number; nombre: string } | null;
 }
 
 /**
@@ -27,6 +35,10 @@ export default function AnunciosMeta({
   productos: { id: number; nombre: string }[];
 }) {
   const router = useRouter();
+
+  // Sugerencias que la dueña ya descartó en esta pantalla, para no
+  // insistirle con la misma después de decir que no.
+  const [descartadas, setDescartadas] = useState<Set<string>>(new Set());
 
   async function vincular(adId: string, productoId: number | null) {
     await fetch("/api/meta/canales", {
@@ -100,6 +112,29 @@ export default function AnunciosMeta({
                         </option>
                       ))}
                     </select>
+
+                    {/* SOLO UNA PROPUESTA: no cotiza nada hasta que se confirma con el botón. */}
+                    {a.sugerido && !descartadas.has(a.adId) && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, fontSize: 12 }}>
+                        <span className="tenue">¿Es «{a.sugerido.nombre}»?</span>
+                        <button
+                          type="button"
+                          className="btn btn-tenue"
+                          style={{ padding: "2px 8px", fontSize: 12 }}
+                          onClick={() => vincular(a.adId, a.sugerido!.id)}
+                        >
+                          Sí, vincular
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-tenue"
+                          style={{ padding: "2px 8px", fontSize: 12 }}
+                          onClick={() => setDescartadas((d) => new Set(d).add(a.adId))}
+                        >
+                          No
+                        </button>
+                      </div>
+                    )}
                   </td>
                   <td style={{ textAlign: "right" }}>
                     <span

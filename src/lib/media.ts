@@ -35,6 +35,31 @@ const TIPOS: Record<string, { ext: string; mime: string }> = {
   audio: { ext: "ogg", mime: "audio/ogg" },
 };
 
+/**
+ * Extensión ↔ mime para lo que puede llegar de fuera. WhatsApp (Baileys) SIEMPRE
+ * entrega la nota de voz en ogg/opus y la foto en jpeg, así que `guardar()` no
+ * necesitaba saber de más formatos. Pero Messenger e Instagram no entregan
+ * bytes: mandan una URL, y el content-type de esa URL no es siempre el mismo
+ * —una nota de voz puede llegar como audio/mpeg, audio/mp4 o hasta video/mp4
+ * con solo pista de audio—. Sin esta tabla, `descargarMedia` no sabría con qué
+ * extensión guardar lo que bajó, y `transcribirAudio` —que saca el formato de
+ * la extensión del archivo— le mandaría al modelo un formato que no es el real.
+ */
+const EXT_POR_MIME: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/gif": "gif",
+  "audio/ogg": "ogg",
+  "audio/mpeg": "mp3",
+  "audio/mp4": "m4a",
+  "audio/aac": "aac",
+  "audio/amr": "amr",
+  "audio/x-m4a": "m4a",
+  // Notas de voz de Messenger, servidas como vídeo sin imagen.
+  "video/mp4": "mp4",
+};
+
 export function esDescargable(tipo: string): tipo is "imagen" | "audio" {
   return tipo === "imagen" || tipo === "audio";
 }
@@ -50,12 +75,16 @@ function carpeta(orgId: number): string {
  * identificador: los de WhatsApp traen caracteres que no son válidos en un
  * nombre de archivo, y un identificador dentro de una ruta es una invitación a
  * que alguien pruebe a poner `../` en él.
+ *
+ * `ext`, si se da, manda sobre la extensión por defecto del tipo: es lo que
+ * usa `descargarMedia` para guardar el formato REAL de lo que bajó de
+ * Messenger/Instagram, en vez de forzarlo siempre a jpg u ogg.
  */
-export function guardar(orgId: number, idMensaje: string, tipo: "imagen" | "audio", datos: Buffer): string | null {
+export function guardar(orgId: number, idMensaje: string, tipo: "imagen" | "audio", datos: Buffer, ext?: string): string | null {
   if (datos.length === 0 || datos.length > MAX_BYTES) return null;
 
-  const { ext } = TIPOS[tipo]!;
-  const nombre = `${createHash("sha256").update(idMensaje).digest("hex").slice(0, 32)}.${ext}`;
+  const extension = ext || TIPOS[tipo]!.ext;
+  const nombre = `${createHash("sha256").update(idMensaje).digest("hex").slice(0, 32)}.${extension}`;
 
   const dir = carpeta(orgId);
   mkdirSync(dir, { recursive: true });
@@ -87,7 +116,10 @@ export function leer(orgId: number, clave: string): { datos: Buffer; mime: strin
   if (!existsSync(ruta)) return null;
 
   const ext = nombre.split(".").pop() ?? "";
-  const mime = Object.values(TIPOS).find((t) => t.ext === ext)?.mime ?? "application/octet-stream";
+  const mime =
+    Object.values(TIPOS).find((t) => t.ext === ext)?.mime ??
+    Object.entries(EXT_POR_MIME).find(([, e]) => e === ext)?.[0] ??
+    "application/octet-stream";
 
   return { datos: readFileSync(ruta), mime };
 }
@@ -156,6 +188,58 @@ export async function descargarImagen(url: string, timeoutMs = 4000): Promise<Bu
 
     const datos = Buffer.from(await r.arrayBuffer());
     return datos.length > 0 && datos.length <= MAX_BYTES ? datos : null;
+  } catch {
+    return null;
+  }
+}
+
+export interface MediaDescargada {
+  datos: Buffer;
+  /** La extensión real, según el content-type que devolvió el servidor. Ver `guardar`. */
+  ext: string;
+}
+
+/**
+ * LO MISMO QUE `descargarImagen`, PERO PARA CUALQUIER ARCHIVO DEL CLIENTE —foto
+ * o nota de voz—, no solo la creatividad del anuncio.
+ *
+ * El agujero que tapa: en Meta (Messenger/Instagram) el mensaje del CLIENTE
+ * también llega como una URL del CDN de Facebook, igual que la del anuncio,
+ * pero nadie la bajaba —`descargarImagen` es solo para la imagen del anuncio—.
+ * `mediaUrl` se guardaba tal cual, la URL remota, y `comoDataUrl` solo sabe
+ * leer un archivo LOCAL: para todo mensaje de un cliente por Messenger o
+ * Instagram con foto o audio, la IA nunca llegaba a verlo ni a oírlo, sin que
+ * saltara ningún error —`comoDataUrl` simplemente no encontraba el archivo—.
+ *
+ * Messenger no siempre manda el mismo content-type para una nota de voz —a
+ * veces `audio/mpeg`, a veces `video/mp4` con solo pista de audio—, así que
+ * se acepta esa variante cuando se pide audio, y se devuelve la extensión real
+ * para que `guardar` no la fuerce siempre a `.ogg`.
+ */
+export async function descargarMedia(
+  url: string,
+  familia: "imagen" | "audio",
+  timeoutMs = 6000,
+): Promise<MediaDescargada | null> {
+  if (!/^https:\/\//i.test(url)) return null;
+
+  try {
+    const r = await fetch(url, { signal: AbortSignal.timeout(timeoutMs), redirect: "follow" });
+    if (!r.ok) return null;
+
+    const mime = (r.headers.get("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
+    const prefijo = familia === "imagen" ? "image/" : "audio/";
+    const esDeLaFamilia = mime.startsWith(prefijo) || (familia === "audio" && mime === "video/mp4");
+    if (!esDeLaFamilia) return null;
+
+    const declarado = Number(r.headers.get("content-length"));
+    if (Number.isFinite(declarado) && declarado > MAX_BYTES) return null;
+
+    const datos = Buffer.from(await r.arrayBuffer());
+    if (datos.length === 0 || datos.length > MAX_BYTES) return null;
+
+    const ext = EXT_POR_MIME[mime] ?? TIPOS[familia]!.ext;
+    return { datos, ext };
   } catch {
     return null;
   }

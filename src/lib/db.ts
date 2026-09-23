@@ -428,7 +428,11 @@ CREATE TABLE IF NOT EXISTS catalogo (
   /* La foto de referencia, si el producto se importo de un link. Ver
      importar-producto.ts. Es solo para que el panel la ensene: el agente
      vendedor sigue hablando por texto, con lo que hay en variantes. */
-  foto_url TEXT
+  foto_url TEXT,
+  /* La descripcion de la pagina del link (su og:description), para que el
+     panel la ensene junto a la foto tal como se ve en la tienda. Solo para
+     el panel: el agente sigue hablando con lo que hay en variantes. */
+  descripcion TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_catalogo_org ON catalogo(org_id);
 
@@ -450,6 +454,8 @@ CREATE TABLE IF NOT EXISTS producto_links (
   /* Lo leido de ESTE link en concreto, en JSON: {"colores":[{"color","tallas"}],"tallas":[]}. */
   datos TEXT,
   foto_url TEXT,
+  /* La descripcion de ESTE link (su og:description), para el panel. */
+  descripcion TEXT,
   importado_at INTEGER,
   error TEXT,
   creado_at INTEGER NOT NULL DEFAULT (unixepoch())
@@ -694,6 +700,10 @@ function migrar(conexion: DB): void {
 
   /* La foto de referencia del producto, cuando se importó de un link. */
   agregarColumna("catalogo", "foto_url");
+
+  /* La descripción de la página del link, para enseñarla junto a la foto. */
+  agregarColumna("catalogo", "descripcion");
+  agregarColumna("producto_links", "descripcion");
 
   /*
    * La imagen del anuncio, en grande. El referral solo trae la MINIATURA que
@@ -1542,6 +1552,8 @@ export interface Producto {
   variantes: string | null; precio: number | null; activo: number;
   /** La foto de referencia, si se importó de un link. Ver `importar-producto.ts`. */
   foto_url: string | null;
+  /** La descripción de la página del link, para el panel. Ver `importar-producto.ts`. */
+  descripcion: string | null;
 }
 
 export interface Anomalia {
@@ -3225,6 +3237,42 @@ export function buscarProductoAnunciado(orgId: number, texto: string | null | un
   return mejor?.fila ?? null;
 }
 
+/**
+ * SOLO UNA SUGERENCIA: el producto del catálogo cuyo nombre comparte más
+ * palabras con lo que dice o enseña un anuncio (su texto, o lo que se leyó de
+ * su imagen).
+ *
+ * NO vincula nada por su cuenta —eso lo sigue haciendo la dueña a mano en
+ * «Anuncios»—: el panel la enseña como propuesta, con el nombre encima, para
+ * que confirme con un clic o la descarte. Mismo criterio de palabra a palabra
+ * que `buscarProductoAnunciado`, para no decidir por parecido difuso: un
+ * vínculo automático mal hecho es justo el error que ya le costó caro a la
+ * dueña (ver `elProductoNoEsDelAnuncio` en `contexto-anuncio.ts`).
+ */
+export function sugerirProductoDelCatalogo(
+  orgId: number,
+  texto: string | null | undefined,
+): { id: number; nombre: string } | null {
+  const t = llanoDeProducto(texto ?? "");
+  if (!t) return null;
+
+  const palabras = (x: string) =>
+    x.split(/[^\p{L}\p{N}]+/u).filter((p) => p.length >= 4).map(raizDeArticulo);
+
+  const palabrasDelAnuncio = new Set(palabras(t));
+  if (!palabrasDelAnuncio.size) return null;
+
+  let mejor: { producto: Producto; aciertos: number } | null = null;
+
+  for (const producto of listarCatalogo(orgId, true)) {
+    const suyas = palabras(llanoDeProducto(producto.nombre));
+    const aciertos = suyas.filter((p) => palabrasDelAnuncio.has(p)).length;
+    if (aciertos > 0 && (!mejor || aciertos > mejor.aciertos)) mejor = { producto, aciertos };
+  }
+
+  return mejor ? { id: mejor.producto.id, nombre: mejor.producto.nombre } : null;
+}
+
 export function listarCatalogo(orgId: number, soloActivos = false, canalId?: number): Producto[] {
   const suyos = canalId === undefined ? "" : "AND (canal_id = 0 OR canal_id = ?)";
   return s(
@@ -3238,15 +3286,19 @@ export function crearProducto(orgId: number, datos: {
   /** De qué número es. Sin decir nada, de toda la cuenta. */
   canalId?: number;
   fotoUrl?: string | null;
+  descripcion?: string | null;
 }): number {
   const r = s(
-    `INSERT INTO catalogo (org_id, canal_id, nombre, variantes, precio, foto_url) VALUES (?, ?, ?, ?, ?, ?)`,
-  ).run(orgId, datos.canalId ?? 0, datos.nombre, datos.variantes, datos.precio, datos.fotoUrl ?? null);
+    `INSERT INTO catalogo (org_id, canal_id, nombre, variantes, precio, foto_url, descripcion) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    orgId, datos.canalId ?? 0, datos.nombre, datos.variantes, datos.precio,
+    datos.fotoUrl ?? null, datos.descripcion ?? null,
+  );
   return Number(r.lastInsertRowid);
 }
 
 export function actualizarProducto(orgId: number, id: number, campos: Partial<Producto>): void {
-  const { sql, valores } = armarSet(campos, ["nombre", "variantes", "precio", "activo", "canal_id", "foto_url"]);
+  const { sql, valores } = armarSet(campos, ["nombre", "variantes", "precio", "activo", "canal_id", "foto_url", "descripcion"]);
   if (!sql) return;
   s(`UPDATE catalogo SET ${sql} WHERE org_id = ? AND id = ?`).run(...valores, orgId, id);
 }
@@ -3270,6 +3322,7 @@ export interface ProductoLink {
   /** JSON de `DatosVariantes` (ver importar-producto.ts), o null si aún no se importó. */
   datos: string | null;
   foto_url: string | null;
+  descripcion: string | null;
   /** null = pendiente de importar. */
   importado_at: number | null;
   error: string | null;
@@ -3297,11 +3350,11 @@ export function eliminarLinkProducto(orgId: number, id: number): void {
 export function marcarLinkImportado(
   orgId: number,
   id: number,
-  resultado: { datos: string | null; fotoUrl: string | null; error: string | null },
+  resultado: { datos: string | null; fotoUrl: string | null; descripcion: string | null; error: string | null },
 ): void {
   s(
-    `UPDATE producto_links SET datos = ?, foto_url = ?, error = ?, importado_at = unixepoch() WHERE org_id = ? AND id = ?`,
-  ).run(resultado.datos, resultado.fotoUrl, resultado.error, orgId, id);
+    `UPDATE producto_links SET datos = ?, foto_url = ?, descripcion = ?, error = ?, importado_at = unixepoch() WHERE org_id = ? AND id = ?`,
+  ).run(resultado.datos, resultado.fotoUrl, resultado.descripcion, resultado.error, orgId, id);
 }
 
 /**
