@@ -286,8 +286,15 @@ export function laFotoAyudaAElegir(descripcion: string | null | undefined): bool
   return ROPA.test(t) || CALZADO.test(t);
 }
 
-/** Cualquier forma de preguntar el color. La leen el revisor y el agente. */
-export const PREGUNTA_COLOR = /[¿?][^?¿]*\bcolor(es)?\b[^?¿]*\?/i;
+/*
+ * CUALQUIER FORMA DE PEDIR EL COLOR: con «?» —«¿en qué color?»— y también sin
+ * él —«le necesito el color», «indíqueme el color»—. Mismo hueco que
+ * `PREGUNTA_TALLA` en revisor.ts: la captura de la dueña (Costa Rica,
+ * Telleria, 2026-09-23) fue con la talla, pero la pregunta del color se
+ * pedía con el mismo «?» obligatorio.
+ */
+export const PREGUNTA_COLOR =
+  /[¿?][^?¿]*\bcolor(es)?\b[^?¿]*\?|\b(necesit[oa]|requier[oe]|precis[oa])\b[^.?!\n]{0,25}\bel color\b|\bind[ií]que(?:me|nos)?\b[^.?!\n]{0,20}\bel color\b|\bfacil[ií]te(?:me)?\b[^.?!\n]{0,20}\b(el |su )?color\b/i;
 
 /**
  * ¿ESTA RESPUESTA LLEVA LA FOTO DEL ANUNCIO, aunque el modelo no la pidiera?

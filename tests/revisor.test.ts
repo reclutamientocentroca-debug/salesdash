@@ -1434,6 +1434,11 @@ test("a un cepillo, un blower o una plancha no se les pregunta talla ni color, s
     "¿En qué talla lo quiere?",
     "¿De qué color lo prefiere?",
     "¿Qué color le gustaría?",
+    // Sin «?» también pide: la captura de la dueña (Costa Rica, Telleria,
+    // 2026-09-23) fue justo así, y por no llevar signo de interrogación la
+    // mitad de la regla no se evaluaba.
+    "Le necesito la talla del cepillo secador y plancha que desea (los anuncios mencionan S, M, L o XL).",
+    "Indíqueme el color que prefiere.",
   ]) {
     const fallas = revisarConReglas(`Claro que sí. ${pregunta}`, combo);
     assert.ok(fallas.some((f) => f.includes("talla") || f.includes("color")), `«${pregunta}» a un combo de cepillo y plancha no sale`);

@@ -1311,8 +1311,18 @@ const NUMEROS_DE_TALLA = /\b(3[4-9]|4[0-6])\b(?!\s*(?:l\b|lt|litros?|cm|mm|kg|g\
 /** Lo que en un anuncio o catálogo dice que hay colores. */
 const HAY_COLORES = new RegExp(`\\bcolor(es)?\\b|${reColores().source}`, "i");
 
-// Cualquier forma de preguntar la talla: «¿qué talla?», «¿me indica su talla?», «¿qué número calza?».
-const PREGUNTA_TALLA = /[¿?][^?¿]*\b(talla|tallas|numeracion|size)\b[^?¿]*\?|[¿?][^?¿]*\b(que|cual|de que)\b[^?¿]*\b(numero|medida)\b[^?¿]*\?/i;
+/*
+ * CUALQUIER FORMA DE PEDIR LA TALLA: «¿qué talla?», «¿me indica su talla?»,
+ * «¿qué número calza?» —y también sin signo de interrogación—: «le necesito
+ * la talla», «indíqueme la talla», «facilíteme su talla». La captura de la
+ * dueña (Costa Rica, Telleria, 2026-09-23): un COMBO de cepillo secador y
+ * plancha —de los que nunca llevan talla— salió con «le necesito la talla
+ * del cepillo secador y plancha que desea (los anuncios mencionan S, M, L o
+ * XL)», y como esa frase no lleva «?», la mitad de esta regla —la que solo
+ * miraba preguntas— nunca llegó a evaluarse.
+ */
+const PREGUNTA_TALLA =
+  /[¿?][^?¿]*\b(talla|tallas|numeracion|size)\b[^?¿]*\?|[¿?][^?¿]*\b(que|cual|de que)\b[^?¿]*\b(numero|medida)\b[^?¿]*\?|\b(necesit[oa]|requier[oe]|precis[oa])\b[^.?!\n]{0,25}\bla talla\b|\bind[ií]que(?:me|nos)?\b[^.?!\n]{0,20}\bla talla\b|\bfacil[ií]te(?:me)?\b[^.?!\n]{0,20}\b(la |su )?talla\b/i;
 
 /**
  * CÓMO SUENA PEDIR UNA CONFIRMACIÓN DEL PEDIDO ENTERO: «¿se lo despacho hoy
