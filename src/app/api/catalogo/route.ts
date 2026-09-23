@@ -12,14 +12,24 @@ export async function GET() {
   return NextResponse.json({ productos: listarCatalogo(s.ctx.orgId) });
 }
 
+/**
+ * La URL del link de la tienda (ver `importar-producto.ts`), o la ruta local
+ * detrás de `/api/media/` que devuelve `POST /api/catalogo/foto` cuando la
+ * dueña arrastra la imagen a mano en vez de traerla de un link.
+ */
+const Foto = z.string().trim().max(2000).nullable().optional().refine(
+  (v) => !v || v.startsWith("/api/media/") || z.string().url().safeParse(v).success,
+  "Foto inválida",
+);
+
 const Nuevo = z.object({
   nombre: z.string().trim().min(1, "Ponle nombre al producto").max(120),
   variantes: z.string().trim().max(300).nullable().optional(),
   precio: z.number().nonnegative().nullable().optional(),
   /** De qué número es. 0 —o nada— es de toda la cuenta. Ver `listarCatalogo`. */
   canalId: z.number().int().nonnegative().optional(),
-  /** La foto de referencia, cuando el producto se importó de un link. */
-  fotoUrl: z.string().trim().url().max(2000).nullable().optional(),
+  /** La foto de referencia, del link o arrastrada a mano. */
+  fotoUrl: Foto,
   /** La descripción de la página del link, para enseñarla junto a la foto en el catálogo. */
   descripcion: z.string().trim().max(600).nullable().optional(),
 });
@@ -52,7 +62,7 @@ const Cambio = z.object({
   precio: z.number().nonnegative().nullable().optional(),
   activo: z.boolean().optional(),
   canalId: z.number().int().nonnegative().optional(),
-  fotoUrl: z.string().trim().url().max(2000).nullable().optional(),
+  fotoUrl: Foto,
   descripcion: z.string().trim().max(600).nullable().optional(),
 });
 
