@@ -53,11 +53,6 @@ export default function TablaCatalogo({
   const [buscando, setBuscando] = useState(false);
   const [errorLink, setErrorLink] = useState<string | null>(null);
 
-  // La foto, cuando se arrastra o se elige a mano en vez de traerla del link.
-  const [subiendoFoto, setSubiendoFoto] = useState(false);
-  const [errorFoto, setErrorFoto] = useState<string | null>(null);
-  const [arrastrando, setArrastrando] = useState(false);
-
   /** El producto cuya ficha (foto + descripción tal como está en la tienda) está abierta. */
   const [verProducto, setVerProducto] = useState<number | null>(null);
 
@@ -162,33 +157,6 @@ export default function TablaCatalogo({
     }));
   }
 
-  /**
-   * SUBE LA FOTO QUE LA DUEÑA ARRASTRA O ELIGE A MANO.
-   *
-   * Alternativa a la del link: no todos los productos tienen tienda en línea,
-   * y a veces la foto que trae el link no es la que quiere enseñar. Se guarda
-   * en el servidor (ver `/api/catalogo/foto` y `media.ts`) y queda en el mismo
-   * campo `fotoUrl` que usa la del link, así que el resto del formulario no
-   * necesita saber de cuál de las dos se trata.
-   */
-  async function subirFoto(archivo: File | undefined | null) {
-    if (!archivo) return;
-    setSubiendoFoto(true);
-    setErrorFoto(null);
-
-    const cuerpo = new FormData();
-    cuerpo.append("archivo", archivo);
-    const r = await fetch("/api/catalogo/foto", { method: "POST", body: cuerpo });
-    const datos = await r.json();
-
-    setSubiendoFoto(false);
-    if (!r.ok) {
-      setErrorFoto(datos.error ?? "No se pudo subir la imagen.");
-      return;
-    }
-    setNuevo((n) => ({ ...n, fotoUrl: datos.fotoUrl }));
-  }
-
   async function alternar(id: number, activo: boolean) {
     await fetch("/api/catalogo", {
       method: "PATCH",
@@ -228,55 +196,19 @@ export default function TablaCatalogo({
           </div>
         )}
 
-        <label
-          htmlFor="p-foto-input"
-          onDragOver={(e) => { e.preventDefault(); setArrastrando(true); }}
-          onDragLeave={() => setArrastrando(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setArrastrando(false);
-            void subirFoto(e.dataTransfer.files[0]);
-          }}
-          style={{
-            display: "flex", alignItems: "center", gap: 10, marginBottom: 12, padding: "8px 10px",
-            border: `1px dashed ${arrastrando ? "var(--acc)" : "var(--line)"}`,
-            borderRadius: 8, cursor: "pointer",
-            background: arrastrando ? "var(--soft)" : "transparent",
-          }}
-        >
-          <input
-            id="p-foto-input" type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden
-            onChange={(e) => { void subirFoto(e.target.files?.[0]); e.target.value = ""; }}
-          />
-          {nuevo.fotoUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
+        {nuevo.fotoUrl && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={nuevo.fotoUrl} alt="Foto del producto"
-              style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 6, flexShrink: 0 }}
+              src={nuevo.fotoUrl} alt="Foto del producto encontrada en el link"
+              style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 6 }}
             />
-          ) : (
-            <span className="tenue" style={{ fontSize: 20 }} aria-hidden="true">📷</span>
-          )}
-          <span className="tenue" style={{ fontSize: 12.5 }}>
-            {subiendoFoto
-              ? "Subiendo…"
-              : nuevo.fotoUrl
-                ? "Arrastra otra imagen para cambiarla, o haz clic"
-                : "Arrastra la foto del producto aquí, o haz clic para elegirla"}
-          </span>
-          {nuevo.fotoUrl && (
             <button
-              type="button" className="btn btn-tenue" style={{ padding: "4px 10px", fontSize: 12, marginLeft: "auto" }}
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setNuevo({ ...nuevo, fotoUrl: "" }); }}
+              type="button" className="btn btn-tenue" style={{ padding: "4px 10px", fontSize: 12 }}
+              onClick={() => setNuevo({ ...nuevo, fotoUrl: "" })}
             >
               Quitar foto
             </button>
-          )}
-        </label>
-
-        {errorFoto && (
-          <div className="aviso aviso-error" role="alert" style={{ marginBottom: 12 }}>
-            {errorFoto}
           </div>
         )}
 

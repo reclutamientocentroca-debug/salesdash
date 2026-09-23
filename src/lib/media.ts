@@ -45,7 +45,7 @@ const TIPOS: Record<string, { ext: string; mime: string }> = {
  * extensión guardar lo que bajó, y `transcribirAudio` —que saca el formato de
  * la extensión del archivo— le mandaría al modelo un formato que no es el real.
  */
-export const EXT_POR_MIME: Record<string, string> = {
+const EXT_POR_MIME: Record<string, string> = {
   "image/jpeg": "jpg",
   "image/png": "png",
   "image/webp": "webp",
