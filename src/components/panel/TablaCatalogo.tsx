@@ -11,6 +11,35 @@ interface LinkProducto {
   error: string | null;
 }
 
+/** Un producto encontrado en el listado de una categoría. Ver `/api/catalogo/categoria`. */
+interface ProductoDeCategoria {
+  nombre: string | null;
+  precio: number | null;
+  fotoUrl: string | null;
+  url: string;
+  /** Ya se mandó al catálogo desde esta pantalla. */
+  agregado: boolean;
+}
+
+/** Una columna: lo que trajo UN link de categoría. */
+interface ColumnaCategoria {
+  id: string;
+  url: string;
+  estado: "cargando" | "listo" | "error";
+  error?: string;
+  productos: ProductoDeCategoria[];
+}
+
+/** El dominio y la ruta del link, para el encabezado de su columna. Sin protocolo ni query. */
+function dominioDeLink(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.hostname}${u.pathname}`.replace(/\/$/, "");
+  } catch {
+    return url;
+  }
+}
+
 export interface ProductoVista {
   id: number;
   /** De qué número es. 0 = de toda la cuenta. Ver `listarCatalogo`. */
@@ -45,13 +74,10 @@ export default function TablaCatalogo({
   canales?: CanalVista[];
 }) {
   const router = useRouter();
-  const [nuevo, setNuevo] = useState({ nombre: "", variantes: "", precio: "", canalId: 0, fotoUrl: "", descripcion: "" });
-  const [ocupado, setOcupado] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  const [link, setLink] = useState("");
-  const [buscando, setBuscando] = useState(false);
-  const [errorLink, setErrorLink] = useState<string | null>(null);
+  const [nuevoLink, setNuevoLink] = useState("");
+  const [columnas, setColumnas] = useState<ColumnaCategoria[]>([]);
+  const [enviando, setEnviando] = useState<string | null>(null);
 
   /** El producto cuya ficha (foto + descripción tal como está en la tienda) está abierta. */
   const [verProducto, setVerProducto] = useState<number | null>(null);
@@ -88,73 +114,81 @@ export default function TablaCatalogo({
     router.refresh();
   }
 
-  async function agregar() {
-    if (nuevo.nombre.trim().length < 1) return;
-    setOcupado(true);
-    setError(null);
+  /**
+   * TRAE TODOS LOS PRODUCTOS DE UN LINK DE CATEGORÍA (o del catálogo entero
+   * de la tienda). Cada uno llega con nombre, precio y foto —lo que ya se ve
+   * en el listado—, sin abrir su propia página: eso es un paso aparte, para
+   * después, con «Links» en la fila del producto una vez que esté en el
+   * catálogo. Ver `/api/catalogo/categoria`.
+   */
+  async function cargarLink() {
+    const url = nuevoLink.trim();
+    if (!url) return;
+    setNuevoLink("");
 
-    const r = await fetch("/api/catalogo", {
+    const id = `${Date.now()}-${Math.random()}`;
+    setColumnas((cs) => [...cs, { id, url, estado: "cargando", productos: [] }]);
+
+    const r = await fetch("/api/catalogo/categoria", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ url }),
+    });
+    const datos = await r.json();
+
+    setColumnas((cs) =>
+      cs.map((c) =>
+        c.id !== id
+          ? c
+          : r.ok
+            ? {
+                ...c,
+                estado: "listo",
+                productos: (datos.productos as Omit<ProductoDeCategoria, "agregado">[]).map((p) => ({
+                  ...p,
+                  agregado: false,
+                })),
+              }
+            : { ...c, estado: "error", error: datos.error ?? "No se pudo leer ese link." },
+      ),
+    );
+  }
+
+  function quitarColumna(id: string) {
+    setColumnas((cs) => cs.filter((c) => c.id !== id));
+  }
+
+  /** Manda UN producto del listado al catálogo, con su link ya guardado para buscarle talla después. */
+  async function enviarAlCatalogo(columnaId: string, producto: ProductoDeCategoria) {
+    const clave = `${columnaId}:${producto.url}`;
+    setEnviando(clave);
+
+    await fetch("/api/catalogo", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        nombre: nuevo.nombre.trim(),
-        variantes: nuevo.variantes.trim() || null,
-        precio: nuevo.precio.trim() ? Number(nuevo.precio) : null,
-        canalId: nuevo.canalId,
-        fotoUrl: nuevo.fotoUrl.trim() || null,
-        descripcion: nuevo.descripcion.trim() || null,
+        nombre: producto.nombre?.trim() || "Producto sin nombre",
+        precio: producto.precio,
+        fotoUrl: producto.fotoUrl,
+        linkUrl: producto.url,
       }),
     });
-    const datos = await r.json();
 
-    setOcupado(false);
-    if (!r.ok) {
-      setError(datos.error ?? "No se pudo guardar el producto.");
-      return;
-    }
-    setNuevo({ nombre: "", variantes: "", precio: "", canalId: nuevo.canalId, fotoUrl: "", descripcion: "" });
-    setLink("");
+    setEnviando(null);
+    setColumnas((cs) =>
+      cs.map((c) =>
+        c.id !== columnaId
+          ? c
+          : { ...c, productos: c.productos.map((p) => (p.url === producto.url ? { ...p, agregado: true } : p)) },
+      ),
+    );
     router.refresh();
   }
 
-  /**
-   * TRAE COLORES Y TALLAS DEL LINK DEL PRODUCTO.
-   *
-   * Solo llena lo que en el formulario esté vacío —nombre y precio— y
-   * reemplaza Variantes con lo que diga esa página: es lo que se le pidió al
-   * traerlo. Sigue habiendo que darle a «Agregar», así que hay ocasión de
-   * revisarlo o corregirlo antes de que quede en el catálogo.
-   */
-  async function buscarDeLink() {
-    if (!link.trim()) return;
-    setBuscando(true);
-    setErrorLink(null);
-
-    const r = await fetch("/api/catalogo/importar", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ url: link.trim() }),
-    });
-    const datos = await r.json();
-
-    setBuscando(false);
-    if (!r.ok) {
-      setErrorLink(datos.error ?? "No se pudo leer ese link.");
-      return;
+  async function enviarTodo(columna: ColumnaCategoria) {
+    for (const p of columna.productos) {
+      if (!p.agregado) await enviarAlCatalogo(columna.id, p);
     }
-
-    if (!datos.variantes) {
-      setErrorLink("Se abrió el link, pero no se encontraron colores ni tallas en su descripción.");
-    }
-
-    setNuevo((n) => ({
-      ...n,
-      nombre: n.nombre.trim() || datos.nombre || n.nombre,
-      precio: n.precio.trim() ? n.precio : datos.precio != null ? String(datos.precio) : n.precio,
-      variantes: datos.variantes ?? n.variantes,
-      fotoUrl: datos.fotoUrl ?? n.fotoUrl,
-      descripcion: datos.descripcion ?? n.descripcion,
-    }));
   }
 
   async function alternar(id: number, activo: boolean) {
@@ -175,88 +209,39 @@ export default function TablaCatalogo({
   return (
     <>
       <section className="tarjeta" style={{ marginBottom: 14 }}>
-        <h2 className="titulo-tarjeta" style={{ marginBottom: 12 }}>Agregar producto</h2>
+        <h2 className="titulo-tarjeta" style={{ marginBottom: 4 }}>Importar de la tienda</h2>
+        <p className="tenue" style={{ fontSize: 13, marginBottom: 12 }}>
+          Pega el link de una categoría de tu tienda (o del catálogo completo) y trae todos sus
+          productos, con foto y precio, para elegir cuáles mandar al catálogo.
+        </p>
 
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 12 }}>
-          <div style={{ flex: 3, minWidth: 220 }}>
-            <label className="etiqueta-campo" htmlFor="p-link">Link del producto (tu tienda)</label>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 14 }}>
+          <div style={{ flex: 1, minWidth: 260 }}>
+            <label className="etiqueta-campo" htmlFor="p-link-categoria">Link de la categoría (tu tienda)</label>
             <input
-              id="p-link" className="campo" placeholder="https://tu-tienda.com/producto/..."
-              value={link} onChange={(e) => setLink(e.target.value)}
+              id="p-link-categoria" className="campo" placeholder="https://tu-tienda.com/categoria/..."
+              value={nuevoLink}
+              onChange={(e) => setNuevoLink(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") cargarLink(); }}
             />
           </div>
-          <button type="button" className="btn btn-tenue" onClick={buscarDeLink} disabled={buscando || !link.trim()}>
-            {buscando ? "Buscando…" : "Buscar colores y tallas"}
+          <button type="button" className="btn btn-primario" onClick={cargarLink} disabled={!nuevoLink.trim()}>
+            + Agregar link
           </button>
         </div>
 
-        {errorLink && (
-          <div className="aviso aviso-error" role="alert" style={{ marginBottom: 12 }}>
-            {errorLink}
-          </div>
-        )}
-
-        {nuevo.fotoUrl && (
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={nuevo.fotoUrl} alt="Foto del producto encontrada en el link"
-              style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 6 }}
-            />
-            <button
-              type="button" className="btn btn-tenue" style={{ padding: "4px 10px", fontSize: 12 }}
-              onClick={() => setNuevo({ ...nuevo, fotoUrl: "" })}
-            >
-              Quitar foto
-            </button>
-          </div>
-        )}
-
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
-          <div style={{ flex: 2, minWidth: 180 }}>
-            <label className="etiqueta-campo" htmlFor="p-nombre">Nombre</label>
-            <input
-              id="p-nombre" className="campo" placeholder="Camisa manga larga"
-              value={nuevo.nombre} onChange={(e) => setNuevo({ ...nuevo, nombre: e.target.value })}
-            />
-          </div>
-          <div style={{ flex: 2, minWidth: 180 }}>
-            <label className="etiqueta-campo" htmlFor="p-variantes">Variantes</label>
-            <input
-              id="p-variantes" className="campo" placeholder="S, M, L · azul, negro"
-              value={nuevo.variantes} onChange={(e) => setNuevo({ ...nuevo, variantes: e.target.value })}
-            />
-          </div>
-          <div style={{ flex: 1, minWidth: 110 }}>
-            <label className="etiqueta-campo" htmlFor="p-precio">Precio</label>
-            <input
-              id="p-precio" className="campo num" inputMode="decimal" placeholder="1850"
-              value={nuevo.precio} onChange={(e) => setNuevo({ ...nuevo, precio: e.target.value })}
-            />
-          </div>
-          {reparte && (
-            <div style={{ flex: 1, minWidth: 170 }}>
-              <label className="etiqueta-campo" htmlFor="p-canal">¿De qué número es?</label>
-              <select
-                id="p-canal" className="campo"
-                value={nuevo.canalId}
-                onChange={(e) => setNuevo({ ...nuevo, canalId: Number(e.target.value) })}
-              >
-                <option value={0}>Toda la cuenta</option>
-                {canales.map((c) => (
-                  <option key={c.id} value={c.id}>{comoSeLlama(c.id)}</option>
-                ))}
-              </select>
-            </div>
-          )}
-          <button type="button" className="btn btn-primario" onClick={agregar} disabled={ocupado}>
-            Agregar
-          </button>
-        </div>
-
-        {error && (
-          <div className="aviso aviso-error" role="alert" style={{ marginTop: 12 }}>
-            {error}
+        {columnas.length > 0 && (
+          <div style={{ display: "flex", gap: 14, overflowX: "auto", paddingBottom: 4 }}>
+            {columnas.map((c) => (
+              <ColumnaProductos
+                key={c.id}
+                columna={c}
+                enviando={enviando}
+                onQuitar={() => quitarColumna(c.id)}
+                onEnviar={(p) => enviarAlCatalogo(c.id, p)}
+                onEnviarTodo={() => enviarTodo(c)}
+              />
+            ))}
           </div>
         )}
       </section>
@@ -385,6 +370,105 @@ export default function TablaCatalogo({
         )}
       </section>
     </>
+  );
+}
+
+/**
+ * LO QUE TRAJO UN LINK DE CATEGORÍA: una columna con cada producto que
+ * enseña, listo para revisar y mandar al catálogo. Colores y tallas no
+ * salen aquí a propósito —eso es un paso aparte, después, producto por
+ * producto con «Links» en su fila (ver `cargarLink` en el componente padre)—.
+ */
+function ColumnaProductos({
+  columna,
+  enviando,
+  onQuitar,
+  onEnviar,
+  onEnviarTodo,
+}: {
+  columna: ColumnaCategoria;
+  enviando: string | null;
+  onQuitar: () => void;
+  onEnviar: (p: ProductoDeCategoria) => void;
+  onEnviarTodo: () => void;
+}) {
+  const pendientes = columna.productos.filter((p) => !p.agregado).length;
+
+  return (
+    <div
+      style={{
+        flex: "0 0 280px", background: "var(--card)", border: "1px solid var(--line)", borderRadius: 14,
+        overflow: "hidden", display: "flex", flexDirection: "column",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderBottom: "1px solid var(--line)" }}>
+        <span
+          style={{ fontWeight: 600, fontSize: 13, flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+          title={columna.url}
+        >
+          {dominioDeLink(columna.url)}
+        </span>
+        {columna.estado === "listo" && (
+          <span className="tenue" style={{ fontSize: 11, whiteSpace: "nowrap" }}>
+            {columna.productos.length === 1 ? "1 producto" : `${columna.productos.length} productos`}
+          </span>
+        )}
+        <button type="button" onClick={onQuitar} title="Quitar" style={{ border: 0, background: "none", color: "var(--ink-3)", cursor: "pointer", fontSize: 16, lineHeight: 1 }}>
+          ×
+        </button>
+      </div>
+
+      {columna.estado === "cargando" && (
+        <p className="tenue" style={{ padding: 14, fontSize: 13 }}>Buscando productos…</p>
+      )}
+
+      {columna.estado === "error" && (
+        <p style={{ padding: 14, fontSize: 13, color: "var(--red)" }}>{columna.error}</p>
+      )}
+
+      {columna.estado === "listo" && (
+        <>
+          <div style={{ maxHeight: 480, overflowY: "auto", padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+            {columna.productos.map((p) => (
+              <div key={p.url} style={{ display: "flex", gap: 8, border: "1px solid var(--line)", borderRadius: 8, padding: 8 }}>
+                {p.fotoUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={p.fotoUrl} alt="" aria-hidden="true" style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 6, flexShrink: 0 }} />
+                ) : (
+                  <div className="tenue" style={{ width: 44, height: 44, borderRadius: 6, background: "var(--soft)", flexShrink: 0, display: "grid", placeItems: "center", fontSize: 10 }}>
+                    Sin foto
+                  </div>
+                )}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {p.nombre ?? "Producto sin nombre"}
+                  </div>
+                  <div className="tenue" style={{ fontSize: 12, marginBottom: 6 }}>{dinero(p.precio)}</div>
+                  <button
+                    type="button"
+                    className="btn btn-tenue"
+                    style={{ padding: "3px 8px", fontSize: 11.5 }}
+                    disabled={p.agregado || enviando === `${columna.id}:${p.url}`}
+                    onClick={() => onEnviar(p)}
+                  >
+                    {p.agregado ? "✓ Agregado" : enviando === `${columna.id}:${p.url}` ? "Agregando…" : "Agregar al catálogo"}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{ padding: 10, borderTop: "1px solid var(--line)" }}>
+            <button
+              type="button" className="btn btn-primario" style={{ width: "100%" }}
+              disabled={pendientes === 0 || enviando !== null}
+              onClick={onEnviarTodo}
+            >
+              {pendientes === 0 ? "Todo agregado" : `Enviar todo al catálogo (${pendientes})`}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 

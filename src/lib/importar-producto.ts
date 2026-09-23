@@ -431,6 +431,88 @@ async function extraerConIA(orgId: number, titulo: string | null, texto: string)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// El LISTADO de una categoría (o el catálogo entero): varios productos de un
+// solo link, sin entrar a la página de cada uno.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ProductoDeCategoria {
+  nombre: string | null;
+  precio: number | null;
+  fotoUrl: string | null;
+  /** El link a la página de ESE producto, para poder pedirle luego sus colores y tallas. */
+  url: string;
+}
+
+/**
+ * Lee una página de LISTADO —una categoría, o el catálogo completo de la
+ * tienda— y saca cada producto que enseña: su nombre, precio, foto y el link
+ * a su propia página.
+ *
+ * A propósito NO abre cada producto —eso es lo que hace `importarProductoDeLink`,
+ * y pedírselo a un listado de veinte productos tardaría minutos—. Es solo lo
+ * que ya se ve en la cuadrícula, tal como lo vería un cliente entrando a esa
+ * categoría. Buscarle colores y tallas a cada uno queda para después, un
+ * producto a la vez, con el link que aquí se guarda.
+ *
+ * Es el patrón exacto de tarjeta que usa Roplis (comprobado a mano,
+ * 2026-09-24): cada producto es un `<article>` dentro de `#products`, con su
+ * nombre en un `<h3>`, el precio escrito como texto y un `<a href>` a su
+ * propia página.
+ */
+export async function listarProductosDeCategoria(url: string): Promise<ProductoDeCategoria[]> {
+  if (!(await urlSegura(url))) {
+    throw new ErrorImportacion("Ese link no se puede abrir. Revisa que sea una dirección http o https pública.");
+  }
+
+  const browser = await abrirNavegador();
+  try {
+    const page = await browser.newPage({ userAgent: "Mozilla/5.0 (compatible; SalesDashBot/1.0; +panel de productos)" });
+    try {
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: TIEMPO_NAVEGACION_MS });
+    } catch (e) {
+      throw new ErrorImportacion(`No se pudo abrir esa página: ${(e as Error).message.slice(0, 200)}`);
+    }
+    await page.waitForSelector("#products article", { timeout: 8_000 }).catch(() => {});
+    await page.waitForTimeout(800);
+
+    const crudos = await page.evaluate(() => {
+      const arts = [...document.querySelectorAll("#products article")];
+      return arts.map((art) => {
+        const h3 = art.querySelector("h3");
+        const nombre = h3?.textContent?.trim() || null;
+        const href =
+          [...art.querySelectorAll("a[href]")]
+            .map((a) => a.getAttribute("href"))
+            .find((h): h is string => !!h && h.startsWith("/") && !h.startsWith("/store")) ?? null;
+        const imagenUrl = art.querySelector("img")?.getAttribute("src") ?? null;
+        const hoja = [...art.querySelectorAll("*")].find(
+          (e) => e.children.length === 0 && /(RD\$|US\$|B\/\.|₡|\$|USD)/.test(e.textContent ?? ""),
+        );
+        return { nombre, href, imagenUrl, precioTexto: hoja?.textContent?.trim() ?? null };
+      });
+    });
+    await page.close().catch(() => {});
+
+    const vistos = new Set<string>();
+    const productos: ProductoDeCategoria[] = [];
+    for (const c of crudos) {
+      const href = urlAbsoluta(c.href, url);
+      if (!href || vistos.has(href)) continue;
+      vistos.add(href);
+      productos.push({
+        nombre: c.nombre,
+        precio: c.precioTexto ? precioDeTexto(c.precioTexto) : null,
+        fotoUrl: urlAbsoluta(c.imagenUrl, url),
+        url: href,
+      });
+    }
+    return productos;
+  } finally {
+    await browser.close().catch(() => {});
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Todo junto: del link al formulario (o al link guardado de un producto).
 // ─────────────────────────────────────────────────────────────────────────────
 

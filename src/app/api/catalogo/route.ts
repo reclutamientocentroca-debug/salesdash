@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { actualizarProducto, crearProducto, eliminarProducto, listarCatalogo, obtenerCanal } from "@/lib/db";
+import { actualizarProducto, agregarLinkProducto, crearProducto, eliminarProducto, listarCatalogo, obtenerCanal } from "@/lib/db";
 import { sesionApi } from "@/lib/tenant";
 
 export const runtime = "nodejs";
@@ -22,6 +22,14 @@ const Nuevo = z.object({
   fotoUrl: z.string().trim().url().max(2000).nullable().optional(),
   /** La descripción de la página del link, para enseñarla junto a la foto en el catálogo. */
   descripcion: z.string().trim().max(600).nullable().optional(),
+  /**
+   * El link a la página de este producto, cuando viene del listado de una
+   * categoría (ver `/api/catalogo/categoria`). Se guarda de una vez como link
+   * del producto —igual que si se hubiera puesto a mano en «Links»— para que
+   * después baste un clic en «Buscar pendientes» para traerle sus colores y
+   * tallas, sin tener que volver a pegar la URL.
+   */
+  linkUrl: z.string().trim().url().max(2000).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -41,6 +49,8 @@ export async function POST(req: NextRequest) {
     fotoUrl: datos.data.fotoUrl ?? null,
     descripcion: datos.data.descripcion ?? null,
   });
+
+  if (datos.data.linkUrl) agregarLinkProducto(s.ctx.orgId, id, datos.data.linkUrl);
 
   return NextResponse.json({ id });
 }
