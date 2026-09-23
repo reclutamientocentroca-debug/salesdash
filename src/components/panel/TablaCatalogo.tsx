@@ -78,6 +78,7 @@ export default function TablaCatalogo({
   const [nuevoLink, setNuevoLink] = useState("");
   const [columnas, setColumnas] = useState<ColumnaCategoria[]>([]);
   const [enviando, setEnviando] = useState<string | null>(null);
+  const [errorFila, setErrorFila] = useState<string | null>(null);
 
   /** El producto cuya ficha (foto + descripción tal como está en la tienda) está abierta. */
   const [verProducto, setVerProducto] = useState<number | null>(null);
@@ -202,7 +203,13 @@ export default function TablaCatalogo({
 
   async function borrar(id: number, nombre: string) {
     if (!confirm(`¿Quitar «${nombre}» del catálogo?`)) return;
-    await fetch(`/api/catalogo?id=${id}`, { method: "DELETE" });
+    setErrorFila(null);
+    const r = await fetch(`/api/catalogo?id=${id}`, { method: "DELETE" });
+    if (!r.ok) {
+      const datos = await r.json().catch(() => null);
+      setErrorFila(datos?.error ?? "No se pudo quitar el producto.");
+      return;
+    }
     router.refresh();
   }
 
@@ -245,6 +252,12 @@ export default function TablaCatalogo({
           </div>
         )}
       </section>
+
+      {errorFila && (
+        <div className="aviso aviso-error" role="alert" style={{ marginBottom: 14 }}>
+          {errorFila}
+        </div>
+      )}
 
       {variosPaises && sueltos > 0 && (
         <div className="aviso" role="status" style={{ marginBottom: 14 }}>

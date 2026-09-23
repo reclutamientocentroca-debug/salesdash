@@ -3281,6 +3281,33 @@ export function listarCatalogo(orgId: number, soloActivos = false, canalId?: num
   ).all(...(canalId === undefined ? [orgId] : [orgId, canalId])) as Producto[];
 }
 
+/**
+ * ¿DE QUÉ NÚMERO ES un producto importado de un link, por el país que ya
+ * tiene cada número?
+ *
+ * Roplis separa sus tiendas por país en el subdominio —`do.roplis.com`,
+ * `cr.roplis.com`, `pa.roplis.com`—, el mismo código de dos letras que
+ * `agentes.pais` ya usa para decidir el guion y la moneda de cada número
+ * (ver `agents/paises`). Es un dato que YA ESTABA, no una adivinanza.
+ *
+ * Solo contesta cuando hay UN único número de ese país: con ninguno —o con
+ * más de uno, cuenta con dos números en el mismo país—, no hay nada que
+ * repartir sin arriesgarse a equivocar, y el producto se queda en «toda la
+ * cuenta», como siempre.
+ */
+export function canalPorPaisDeLink(orgId: number, url: string): number | null {
+  let codigo: string;
+  try {
+    codigo = new URL(url).hostname.split(".")[0]?.toLowerCase() ?? "";
+  } catch {
+    return null;
+  }
+  if (!codigo) return null;
+
+  const candidatos = listarCanales(orgId).filter((c) => obtenerAgente(orgId, c.id).pais === codigo);
+  return candidatos.length === 1 ? candidatos[0]!.id : null;
+}
+
 export function crearProducto(orgId: number, datos: {
   nombre: string; variantes: string | null; precio: number | null;
   /** De qué número es. Sin decir nada, de toda la cuenta. */
@@ -3308,8 +3335,25 @@ export function productoPorId(orgId: number, id: number): Producto | undefined {
   return s(`SELECT * FROM catalogo WHERE org_id = ? AND id = ?`).get(orgId, id) as Producto | undefined;
 }
 
+/**
+ * Quitar un producto NO puede dejarlo a medias por una restricción de la
+ * base de datos.
+ *
+ * `producto_links.producto_id` y `anuncios_meta.producto_id` apuntan a
+ * `catalogo(id)`: con las claves foráneas activas (`PRAGMA foreign_keys`,
+ * arriba del todo), borrar un producto que todavía tuviera un link —o un
+ * anuncio vinculado— fallaba con «FOREIGN KEY constraint failed» y el botón
+ * «Quitar» del panel se quedaba sin efecto, sin decir por qué. Sus links se
+ * van con él; sus anuncios se quedan, solo se desvinculan —son el historial
+ * de esa publicidad, no algo del producto—.
+ */
 export function eliminarProducto(orgId: number, id: number): void {
-  s(`DELETE FROM catalogo WHERE org_id = ? AND id = ?`).run(orgId, id);
+  const tx = db.transaction(() => {
+    s(`DELETE FROM producto_links WHERE org_id = ? AND producto_id = ?`).run(orgId, id);
+    s(`UPDATE anuncios_meta SET producto_id = NULL WHERE org_id = ? AND producto_id = ?`).run(orgId, id);
+    s(`DELETE FROM catalogo WHERE org_id = ? AND id = ?`).run(orgId, id);
+  });
+  tx();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

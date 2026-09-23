@@ -149,3 +149,65 @@ test("el mismo color repetido en dos links junta sus tallas sin duplicar", () =>
   assert.equal(combinado.colores.length, 1);
   assert.deepEqual(combinado.colores[0]!.tallas.sort(), ["L", "M", "S"]);
 });
+
+/**
+ * BORRAR UN PRODUCTO NO PUEDE QUEDARSE A MEDIAS por una clave foránea.
+ *
+ * La dueña (2026-09-24): «quiero quitar algunas y no me deja». Un producto
+ * con un link guardado —o con un anuncio de Meta vinculado— chocaba con
+ * `FOREIGN KEY constraint failed` al borrarlo, y el botón «Quitar» del panel
+ * se quedaba sin efecto, sin decir por qué.
+ */
+test("un producto con link y con anuncio vinculado se puede quitar sin romper nada", () => {
+  const { orgId } = D.crearOrgConDueno({
+    negocio: "PruebaBorrado", color: "#123456", nombre: "Dueña",
+    email: `borrado-${Date.now()}@prueba.local`, passwordHash: "x",
+  });
+  const productoId = D.crearProducto(orgId, { nombre: "Chacabana", variantes: null, precio: 1790 });
+  D.agregarLinkProducto(orgId, productoId, "https://do.roplis.com/1577/chacabana-manga-larga-do");
+
+  D.registrarAnuncioVisto(orgId, "ad-1", "Chacabana en oferta");
+  D.vincularAnuncioAProducto(orgId, "ad-1", productoId);
+
+  assert.doesNotThrow(() => D.eliminarProducto(orgId, productoId));
+  assert.equal(D.productoPorId(orgId, productoId), undefined, "el producto ya no está");
+
+  const anuncio = D.anuncioMetaPorAdId(orgId, "ad-1");
+  assert.equal(anuncio?.producto_id ?? null, null, "el anuncio se desvincula, no se borra");
+});
+
+/**
+ * DE QUÉ NÚMERO ES, sin preguntar, cuando se puede saber solo.
+ *
+ * Roplis separa sus tiendas por país en el subdominio del link —el mismo
+ * código de dos letras que ya usa `agentes.pais`—. La dueña (2026-09-24):
+ * «quiero que la selección de número sea por IA a qué pertenezca».
+ */
+test("el producto se asigna al número del país del link, cuando hay un único número de ese país", () => {
+  const { orgId } = D.crearOrgConDueno({
+    negocio: "PruebaPaises", color: "#123456", nombre: "Dueña",
+    email: `paises-${Date.now()}@prueba.local`, passwordHash: "x",
+  });
+  const canalDo = D.crearCanal(orgId, {
+    nombre: "RD", phone: "18095550001", tokenCifrado: "x", webhookSecret: "x", whapiChannelId: null,
+  });
+  D.actualizarAgente(orgId, { pais: "do" }, canalDo);
+  const canalCr = D.crearCanal(orgId, {
+    nombre: "CR", phone: "50685550002", tokenCifrado: "x", webhookSecret: "x", whapiChannelId: null,
+  });
+  D.actualizarAgente(orgId, { pais: "cr" }, canalCr);
+
+  assert.equal(D.canalPorPaisDeLink(orgId, "https://do.roplis.com/1577/chacabana"), canalDo);
+  assert.equal(D.canalPorPaisDeLink(orgId, "https://cr.roplis.com/algo"), canalCr);
+  assert.equal(D.canalPorPaisDeLink(orgId, "https://pa.roplis.com/algo"), null, "ningún número de Panamá");
+  assert.equal(D.canalPorPaisDeLink(orgId, "https://otra-tienda.com/algo"), null, "sin país en el link");
+
+  const otroCanalDo = D.crearCanal(orgId, {
+    nombre: "RD 2", phone: "18095550003", tokenCifrado: "x", webhookSecret: "x", whapiChannelId: null,
+  });
+  D.actualizarAgente(orgId, { pais: "do" }, otroCanalDo);
+  assert.equal(
+    D.canalPorPaisDeLink(orgId, "https://do.roplis.com/1577/chacabana"), null,
+    "con dos números del mismo país no hay uno solo que adivinar",
+  );
+});

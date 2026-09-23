@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { actualizarProducto, agregarLinkProducto, crearProducto, eliminarProducto, listarCatalogo, obtenerCanal } from "@/lib/db";
+import {
+  actualizarProducto, agregarLinkProducto, canalPorPaisDeLink, crearProducto, eliminarProducto, listarCatalogo, obtenerCanal,
+} from "@/lib/db";
 import { sesionApi } from "@/lib/tenant";
 
 export const runtime = "nodejs";
@@ -41,11 +43,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: datos.error.issues[0]?.message ?? "Revisa los datos" }, { status: 400 });
   }
 
+  /*
+   * DE QUÉ NÚMERO ES, sin preguntar, cuando se puede saber solo: si no se
+   * eligió uno a mano y el producto trae el link de una tienda por país
+   * (do./cr./pa.roplis.com), y hay UN único número de ese país, es ese. Ver
+   * `canalPorPaisDeLink`. Sin eso —o con más de un número por país—, se
+   * queda en «toda la cuenta», como siempre.
+   */
+  const canalId =
+    datos.data.canalId || (datos.data.linkUrl ? canalPorPaisDeLink(s.ctx.orgId, datos.data.linkUrl) ?? 0 : 0);
+
   const id = crearProducto(s.ctx.orgId, {
     nombre: datos.data.nombre,
     variantes: datos.data.variantes ?? null,
     precio: datos.data.precio ?? null,
-    canalId: deLaCuenta(s.ctx.orgId, datos.data.canalId),
+    canalId: deLaCuenta(s.ctx.orgId, canalId),
     fotoUrl: datos.data.fotoUrl ?? null,
     descripcion: datos.data.descripcion ?? null,
   });
@@ -103,6 +115,12 @@ export async function DELETE(req: NextRequest) {
   const id = Number(req.nextUrl.searchParams.get("id"));
   if (!Number.isInteger(id)) return NextResponse.json({ error: "Producto inválido" }, { status: 400 });
 
-  eliminarProducto(s.ctx.orgId, id);
+  try {
+    eliminarProducto(s.ctx.orgId, id);
+  } catch (e) {
+    console.error("eliminarProducto:", e);
+    return NextResponse.json({ error: "No se pudo quitar el producto. Vuelve a intentarlo." }, { status: 500 });
+  }
+
   return NextResponse.json({ ok: true });
 }
