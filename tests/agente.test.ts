@@ -1553,6 +1553,45 @@ test("el anuncio del lead se lee una vez y el agente vende con ese precio, sin t
 });
 
 /**
+ * EL ANUNCIO DE META TAMBIÉN CUENTA, NO SOLO EL DE WHATSAPP.
+ *
+ * La captura de la dueña (RD, RINCON DCM, 2026-09-23, Messenger): un anuncio
+ * de POLOS BRONX, el cliente abrió con una nota de voz, y la apertura
+ * mecánica —el respaldo que sale cuando el revisor para dos veces lo que
+ * escribe el modelo— contestó «CR7 UNDERWEAR – BOXER PREMIUM… RD$1,990»: el
+ * paso 3 (catálogo, por lo que dijo el cliente) encontró ESE producto porque
+ * el paso 1 nunca miraba `descripcion_anuncio`, y ese campo solo se rellena
+ * en WhatsApp —en Meta el cuerpo del anuncio vive aparte, en `anuncios_meta`—.
+ * El anuncio real estaba delante todo el tiempo.
+ */
+test("en Meta, sin descripcion_anuncio en la conversación, el texto real de anuncios_meta manda igual", () => {
+  const rd = agenteDePais("do")!;
+  D.actualizarAgente(orgId, { pais: "do" }, canalId);
+
+  D.registrarAnuncioVisto(orgId, "ad-polos-meta", "Rincondcm", {
+    texto: "🔥POLOS BRONX ORIGINALES🔥 Moderno, Fresco y duradero RD$1,400 C/U RD$1,190 al por mayor",
+  });
+
+  const otro = D.getOrCreateConversation(orgId, canalId, "18095559999").conversacion;
+  const convDeMeta = {
+    ...D.getConversation(orgId, otro.id)!,
+    meta_ad_id: "ad-polos-meta",
+    descripcion_anuncio: null,
+    anuncio_actual_descripcion: null,
+  };
+
+  // El cliente solo mandó una nota de voz: no hay nada suyo con lo que
+  // encontrar un producto distinto en el catálogo.
+  const seVende = loQueSeVendeAqui(orgId, convDeMeta, [], rd.moneda.simbolo);
+  assert.match(seVende.descripcion_anuncio!, /POLOS BRONX/i);
+  assert.match(seVende.descripcion_anuncio!, /RD\$1,400/);
+
+  const apertura = aperturaSegura(rd, seVende, "Hola! Bienvenido(a) a RINCON DCM. Gracias por escribirnos.")!;
+  assert.match(apertura, /POLOS BRONX/i);
+  assert.equal(/BOXER|CR7/i.test(apertura), false, "no se cuela un producto que nadie pidió");
+});
+
+/**
  * POLO Y POLOCHE SON LO MISMO, TAMBIÉN AL BUSCAR LO ANUNCIADO.
  *
  * La dueña (2026-09-11): «recuerda que los polos y los poloches». El catálogo

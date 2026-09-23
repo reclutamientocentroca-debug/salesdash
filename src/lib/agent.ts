@@ -17,6 +17,7 @@
  */
 import {
   ahora,
+  anuncioMetaPorAdId,
   buscarProductoAnunciado,
   contarRespuestasIa,
   crearAnomalia,
@@ -45,7 +46,7 @@ import {
 import { descifrar } from "./auth";
 import { leer as leerArchivo } from "./media";
 import { formatearImporte, monedaDelPais } from "./moneda";
-import { anuncioParaModelo, anuncioVigente, textoDelProducto, type DatosAnuncio, type ProductoAnunciado } from "./anuncio";
+import { anuncioParaModelo, anuncioVigente, descripcionUtil, textoDelProducto, type DatosAnuncio, type ProductoAnunciado } from "./anuncio";
 import { aperturaSegura, clienteAplazaCompra, clientePideOtraFamilia, familiasNombradas, precioDeLaDescripcion, clienteRenunciaALaCompra, fraseDeTransferencia, laFotoAyudaAElegir, laFotoVaConEstaRespuesta, llevaColor, llevaTalla, nombraUnArticulo, respuestaMinima } from "./apertura";
 import { esMensajeDeSistema } from "./sistema";
 import { contieneMarcador, MARCADOR_POR_DEFECTO, registrarCierre } from "./cierre";
@@ -118,6 +119,33 @@ export function loQueSeVendeAqui(
     !!precioDeLaDescripcion(d.descripcion_anuncio ?? "", simbolo);
 
   if (conPrecio(delAnuncio)) return delAnuncio;
+
+  /*
+   * 1b. EL TEXTO REAL DEL ANUNCIO DE META, cuando la conversación se quedó
+   * sin `descripcion_anuncio`. WhatsApp manda el cuerpo del anuncio en el
+   * propio mensaje; Meta no —se pide aparte a la Graph API y vive en
+   * `anuncios_meta`, por `ad_id`—, así que en Messenger e Instagram el paso 1
+   * de arriba SIEMPRE llegaba vacío y esta función pasaba de largo a
+   * catálogo, como si no hubiera anuncio.
+   *
+   * El caso de la dueña (RD, RINCON DCM, 2026-09-23): un anuncio de POLOS
+   * BRONX, y la apertura mecánica —el respaldo que sale cuando el revisor
+   * para dos veces lo que escribe el modelo— saliendo con «CR7 UNDERWEAR –
+   * BOXER PREMIUM… RD$1,990», que el paso 3 encontró en el catálogo a partir
+   * de lo poco que se pudo leer del primer mensaje del cliente —una nota de
+   * voz—. El anuncio real estaba delante todo el tiempo, en `anuncios_meta`.
+   */
+  if (conv.meta_ad_id) {
+    const fila = anuncioMetaPorAdId(orgId, conv.meta_ad_id);
+    const texto = fila?.texto?.trim() || descripcionUtil(fila?.descripcion_imagen ?? null);
+    if (texto && precioDeLaDescripcion(texto, simbolo)) {
+      return {
+        origen: delAnuncio.origen ?? "anuncio",
+        producto_anuncio: delAnuncio.producto_anuncio,
+        descripcion_anuncio: texto,
+      };
+    }
+  }
 
   // 2. Lo que se leyó de su anuncio cuando entró el lead.
   const suyo = leerProductoLead(conv.producto_lead);
