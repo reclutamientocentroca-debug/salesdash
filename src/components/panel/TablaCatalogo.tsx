@@ -1,8 +1,15 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Vacio, dinero } from "./Piezas";
+
+interface LinkProducto {
+  id: number;
+  url: string;
+  importado_at: number | null;
+  error: string | null;
+}
 
 export interface ProductoVista {
   id: number;
@@ -43,6 +50,9 @@ export default function TablaCatalogo({
   const [link, setLink] = useState("");
   const [buscando, setBuscando] = useState(false);
   const [errorLink, setErrorLink] = useState<string | null>(null);
+
+  /** El producto cuyos links de tienda están abiertos, o null si ninguno. */
+  const [abierto, setAbierto] = useState<number | null>(null);
 
   /*
    * EL REPARTO SOLO SE ENSEÑA CUANDO HACE FALTA.
@@ -272,7 +282,8 @@ export default function TablaCatalogo({
               </thead>
               <tbody>
                 {productos.map((p) => (
-                  <tr key={p.id} style={{ opacity: p.activo ? 1 : 0.5 }}>
+                  <Fragment key={p.id}>
+                  <tr style={{ opacity: p.activo ? 1 : 0.5 }}>
                     <td style={{ paddingLeft: 17, fontWeight: 600 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         {p.foto_url && (
@@ -308,6 +319,14 @@ export default function TablaCatalogo({
                         type="button"
                         className="btn btn-tenue"
                         style={{ padding: "4px 10px", fontSize: 12 }}
+                        onClick={() => setAbierto(abierto === p.id ? null : p.id)}
+                      >
+                        {abierto === p.id ? "Ocultar links" : "Links"}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-tenue"
+                        style={{ padding: "4px 10px", fontSize: 12 }}
                         onClick={() => alternar(p.id, p.activo !== 1)}
                       >
                         {p.activo ? "Activo" : "Oculto"}
@@ -322,6 +341,14 @@ export default function TablaCatalogo({
                       </button>
                     </td>
                   </tr>
+                  {abierto === p.id && (
+                    <tr>
+                      <td colSpan={reparte ? 5 : 4} style={{ padding: 0 }}>
+                        <FilaLinks productoId={p.id} onCambio={() => router.refresh()} />
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
@@ -329,5 +356,149 @@ export default function TablaCatalogo({
         )}
       </section>
     </>
+  );
+}
+
+/**
+ * LOS LINKS DE LA TIENDA DE UN PRODUCTO.
+ *
+ * Puede haber más de uno a propósito: en Roplis, a veces cada color de un
+ * mismo artículo es una ficha separada, no botones dentro de una sola página,
+ * así que hace falta un link por color para juntarlos todos en Variantes.
+ *
+ * Un link ya importado no se vuelve a tocar solo (esa es la memoria que pidió
+ * la dueña: al llegar un cliente por un anuncio de este producto, el sistema
+ * mira esto mismo antes de salir a Roplis otra vez). «Actualizar todo» es la
+ * salida manual para cuando cambia el stock.
+ */
+function FilaLinks({ productoId, onCambio }: { productoId: number; onCambio: () => void }) {
+  const [links, setLinks] = useState<LinkProducto[] | null>(null);
+  const [nuevoLink, setNuevoLink] = useState("");
+  const [ocupado, setOcupado] = useState<"agregar" | "importar" | "actualizar" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function cargar() {
+    const r = await fetch(`/api/catalogo/${productoId}/links`);
+    const datos = await r.json();
+    if (r.ok) setLinks(datos.links);
+  }
+
+  useEffect(() => {
+    cargar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productoId]);
+
+  async function agregarLink() {
+    if (!nuevoLink.trim()) return;
+    setOcupado("agregar");
+    setError(null);
+    const r = await fetch(`/api/catalogo/${productoId}/links`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ url: nuevoLink.trim() }),
+    });
+    const datos = await r.json();
+    setOcupado(null);
+    if (!r.ok) {
+      setError(datos.error ?? "No se pudo agregar ese link.");
+      return;
+    }
+    setNuevoLink("");
+    await cargar();
+  }
+
+  async function quitarLink(id: number) {
+    await fetch(`/api/catalogo/${productoId}/links?id=${id}`, { method: "DELETE" });
+    await cargar();
+  }
+
+  async function importar(forzar: boolean) {
+    setOcupado(forzar ? "actualizar" : "importar");
+    setError(null);
+    const r = await fetch(`/api/catalogo/${productoId}/links/importar`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ forzar }),
+    });
+    const datos = await r.json();
+    setOcupado(null);
+    if (!r.ok) {
+      setError(datos.error ?? "No se pudo importar.");
+      return;
+    }
+    if (datos.fallidos?.length) {
+      setError(`${datos.fallidos.length} link(s) no se pudieron leer: ${datos.fallidos[0].error}`);
+    }
+    await cargar();
+    onCambio();
+  }
+
+  const hayPendientes = links?.some((l) => l.importado_at === null) ?? false;
+
+  return (
+    <div style={{ padding: "14px 17px", background: "var(--bg-2, #f7f7f8)", borderTop: "1px solid var(--linea)" }}>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 10 }}>
+        <div style={{ flex: 1, minWidth: 220 }}>
+          <label className="etiqueta-campo" htmlFor={`nuevo-link-${productoId}`}>Agregar link de este producto</label>
+          <input
+            id={`nuevo-link-${productoId}`} className="campo" placeholder="https://tu-tienda.com/producto/..."
+            value={nuevoLink} onChange={(e) => setNuevoLink(e.target.value)}
+          />
+        </div>
+        <button type="button" className="btn btn-tenue" onClick={agregarLink} disabled={ocupado === "agregar" || !nuevoLink.trim()}>
+          {ocupado === "agregar" ? "Agregando…" : "Agregar link"}
+        </button>
+        <button
+          type="button" className="btn btn-tenue" onClick={() => importar(false)}
+          disabled={ocupado !== null || !hayPendientes}
+        >
+          {ocupado === "importar" ? "Buscando…" : "Buscar pendientes"}
+        </button>
+        <button
+          type="button" className="btn btn-tenue" onClick={() => importar(true)}
+          disabled={ocupado !== null || !links?.length}
+        >
+          {ocupado === "actualizar" ? "Actualizando…" : "Actualizar todo"}
+        </button>
+      </div>
+
+      {error && (
+        <div className="aviso aviso-error" role="alert" style={{ marginBottom: 10 }}>
+          {error}
+        </div>
+      )}
+
+      {links === null ? (
+        <p className="tenue">Cargando…</p>
+      ) : links.length === 0 ? (
+        <p className="tenue">Este producto todavía no tiene ningún link de la tienda.</p>
+      ) : (
+        <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 6 }}>
+          {links.map((l) => (
+            <li key={l.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+              <span
+                title={l.error ?? undefined}
+                style={{
+                  display: "inline-block", width: 8, height: 8, borderRadius: 999, flexShrink: 0,
+                  background: l.error ? "var(--red)" : l.importado_at ? "var(--green, #2e7d32)" : "var(--ink-3, #999)",
+                }}
+              />
+              <a href={l.url} target="_blank" rel="noreferrer" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+                {l.url}
+              </a>
+              <span className="tenue" style={{ flexShrink: 0 }}>
+                {l.error ? "Error" : l.importado_at ? "Importado" : "Pendiente"}
+              </span>
+              <button
+                type="button" className="btn btn-tenue" style={{ padding: "2px 8px", fontSize: 12 }}
+                onClick={() => quitarLink(l.id)}
+              >
+                Quitar
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

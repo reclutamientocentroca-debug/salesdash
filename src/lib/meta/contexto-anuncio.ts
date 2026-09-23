@@ -19,7 +19,15 @@
  * ningún sitio —ni el anuncio, ni el catálogo— no se cotiza: se pasa el
  * hilo a una persona.
  */
-import { anuncioMetaPorAdId, fotoDelAnuncio, productoPorId, registrarAnuncioVisto, type Conversacion, type Mensaje } from "@/lib/db";
+import {
+  anuncioMetaPorAdId,
+  fotoDelAnuncio,
+  productoConLinksPendientes,
+  productoPorId,
+  registrarAnuncioVisto,
+  type Conversacion,
+  type Mensaje,
+} from "@/lib/db";
 import { descripcionUtil, llegoPorAnuncio } from "@/lib/anuncio";
 import { familiasNombradas } from "@/lib/apertura";
 
@@ -78,6 +86,8 @@ export function resolverAnuncio(
     return { adId, puedeCotizar: false, producto: null, motivo: "sin_vincular", ...dicho };
   }
 
+  if (fila.producto_nombre !== null) dispararImportacionSiHaceFalta(orgId, fila.producto_id);
+
   // El producto se borró del catálogo pero el anuncio sigue apuntándolo.
   if (fila.producto_nombre === null) {
     return { adId, puedeCotizar: false, producto: null, motivo: "producto_borrado", ...dicho };
@@ -111,6 +121,29 @@ export function resolverAnuncio(
   }
 
   return { adId, puedeCotizar: true, producto, motivo: "vinculado", ...dicho };
+}
+
+/**
+ * LA MEMORIA QUE PIDIÓ LA DUEÑA: si a este producto le falta importar algún
+ * link de su tienda, se busca ahora, EN SEGUNDO PLANO —sin awaitear, y por
+ * eso `resolverAnuncio` sigue siendo síncrona—, para no atrasar ni un segundo
+ * la respuesta al cliente que está esperando. Si ya se importó, la consulta
+ * de `productoConLinksPendientes` no encuentra nada y no se abre ningún
+ * navegador: por eso es seguro llamarla en cada mensaje del hilo.
+ *
+ * Importar aquí y no en la ingesta es a propósito: `resolverAnuncio` es el
+ * único sitio por el que pasan los DOS canales (el clic dentro de WhatsApp y
+ * el clic de Meta que llega por Messenger/Instagram), así que un solo lugar
+ * cubre a los dos sin duplicar el aviso.
+ */
+function dispararImportacionSiHaceFalta(orgId: number, productoId: number): void {
+  if (!productoConLinksPendientes(orgId, productoId)) return;
+
+  void import("@/lib/importar-producto")
+    .then(({ importarLinksDeProducto }) => importarLinksDeProducto(orgId, productoId))
+    .catch((e) => {
+      console.error(`No se pudieron importar los links del producto ${productoId}:`, e);
+    });
 }
 
 /**

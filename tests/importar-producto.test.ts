@@ -1,7 +1,8 @@
 import "./entorno";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { extraerDeHtml, formatearVariantes, urlSegura } from "../src/lib/importar-producto";
+import * as D from "../src/lib/db";
+import { combinarVariantes, extraerDeHtml, formatearVariantes, urlSegura } from "../src/lib/importar-producto";
 
 /**
  * DE LA PÁGINA DEL PRODUCTO A «VARIANTES».
@@ -88,4 +89,62 @@ test("localhost y las IPs privadas no se abren", async () => {
 
 test("un link con credenciales metidas en la URL se rechaza", async () => {
   assert.equal(await urlSegura("http://usuario:clave@tienda.com/producto"), false);
+});
+
+/**
+ * VARIOS LINKS, UN SOLO PRODUCTO.
+ *
+ * En Roplis, a veces cada color de un mismo artículo es una ficha separada
+ * (un link distinto), no botones dentro de una sola página. El catálogo
+ * necesita verlos como un único producto con todos sus colores.
+ */
+test("combina los colores de varios links sin repetirlos", () => {
+  const combinado = combinarVariantes([
+    { tallas: [], colores: [{ color: "Azul", tallas: ["S", "M"] }] },
+    { tallas: [], colores: [{ color: "Negro", tallas: ["M", "L"] }] },
+  ]);
+
+  assert.deepEqual(
+    combinado.colores.sort((a, b) => a.color.localeCompare(b.color)),
+    [
+      { color: "Azul", tallas: ["S", "M"] },
+      { color: "Negro", tallas: ["M", "L"] },
+    ],
+  );
+});
+
+/**
+ * LA MEMORIA: un link ya importado no se vuelve a tocar.
+ *
+ * Es lo que mira `resolverAnuncio` (contexto-anuncio.ts) antes de salir a
+ * Roplis cuando llega un lead por un anuncio, para no repetir el proceso.
+ */
+test("un producto solo tiene links pendientes cuando de verdad hay uno sin importar", () => {
+  const { orgId } = D.crearOrgConDueno({
+    negocio: "PruebaLinks", color: "#123456", nombre: "Dueña",
+    email: `links-${Date.now()}@prueba.local`, passwordHash: "x",
+  });
+  const productoId = D.crearProducto(orgId, { nombre: "Poloshirt", variantes: null, precio: 2490 });
+
+  assert.equal(D.productoConLinksPendientes(orgId, productoId), false, "sin ningún link, no hay nada pendiente");
+
+  const linkId = D.agregarLinkProducto(orgId, productoId, "https://do.roplis.com/producto-de-prueba");
+  assert.equal(D.productoConLinksPendientes(orgId, productoId), true, "recién agregado, está pendiente");
+
+  D.marcarLinkImportado(orgId, linkId, {
+    datos: JSON.stringify({ tallas: [], colores: [] }),
+    fotoUrl: null,
+    error: null,
+  });
+  assert.equal(D.productoConLinksPendientes(orgId, productoId), false, "ya importado, deja de estar pendiente");
+});
+
+test("el mismo color repetido en dos links junta sus tallas sin duplicar", () => {
+  const combinado = combinarVariantes([
+    { tallas: [], colores: [{ color: "Azul", tallas: ["S", "M"] }] },
+    { tallas: [], colores: [{ color: "Azul", tallas: ["M", "L"] }] },
+  ]);
+
+  assert.equal(combinado.colores.length, 1);
+  assert.deepEqual(combinado.colores[0]!.tallas.sort(), ["L", "M", "S"]);
 });

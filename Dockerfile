@@ -56,6 +56,18 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 
 COPY --from=build /app/node_modules ./node_modules
+
+# Un Chromium de verdad para `importar-producto.ts`: la dueña pega el link de
+# un producto de su tienda (Roplis y parecidos) y esto necesita ABRIRLO como
+# un navegador, no solo pedir el HTML —esas tiendas arman el nombre, el
+# precio y los botones de color/talla con JavaScript después de cargar, y sin
+# navegador solo se lee una plantilla vacía—. Aumenta la imagen unos 300 MB y
+# el contenedor necesita algo más de memoria mientras alguien use «Links» en
+# Productos; el resto del tiempo no cuesta nada porque el navegador se abre y
+# se cierra por cada importación, no se queda corriendo.
+ENV PLAYWRIGHT_BROWSERS_PATH=/app/.playwright
+RUN npx playwright install --with-deps chromium
+
 COPY --from=build /app/.next        ./.next
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/tsconfig.json ./tsconfig.json

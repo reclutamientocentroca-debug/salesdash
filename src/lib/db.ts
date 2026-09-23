@@ -433,6 +433,30 @@ CREATE TABLE IF NOT EXISTS catalogo (
 CREATE INDEX IF NOT EXISTS idx_catalogo_org ON catalogo(org_id);
 
 /*
+ * LOS LINKS DE LA TIENDA DE UN PRODUCTO DEL CATALOGO.
+ *
+ * Un producto puede tener MAS DE UN link: en Roplis, a veces cada color de un
+ * mismo articulo es una ficha separada (un link distinto), no botones dentro
+ * de una sola pagina. importado_at en null es "pendiente" -- es lo que mira
+ * el ingreso de un lead por anuncio para decidir si hace falta ir a buscarlo,
+ * y lo que evita repetir el proceso si ya se hizo. Ver importar-producto.ts
+ * y importarLinksDeProducto.
+ */
+CREATE TABLE IF NOT EXISTS producto_links (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id INTEGER NOT NULL REFERENCES orgs(id),
+  producto_id INTEGER NOT NULL REFERENCES catalogo(id),
+  url TEXT NOT NULL,
+  /* Lo leido de ESTE link en concreto, en JSON: {"colores":[{"color","tallas"}],"tallas":[]}. */
+  datos TEXT,
+  foto_url TEXT,
+  importado_at INTEGER,
+  error TEXT,
+  creado_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+CREATE INDEX IF NOT EXISTS idx_producto_links_producto ON producto_links(producto_id);
+
+/*
  * conversation_id es NULL en las anomalías de canal (webhook caído, canal por
  * debajo de su promedio), que no pertenecen a ninguna conversación. Dos de las
  * seis reglas obligatorias son de ese tipo.
@@ -3234,6 +3258,62 @@ export function productoPorId(orgId: number, id: number): Producto | undefined {
 
 export function eliminarProducto(orgId: number, id: number): void {
   s(`DELETE FROM catalogo WHERE org_id = ? AND id = ?`).run(orgId, id);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Los links de la tienda de un producto. Ver `importar-producto.ts`.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ProductoLink {
+  id: number; org_id: number; producto_id: number;
+  url: string;
+  /** JSON de `DatosVariantes` (ver importar-producto.ts), o null si aún no se importó. */
+  datos: string | null;
+  foto_url: string | null;
+  /** null = pendiente de importar. */
+  importado_at: number | null;
+  error: string | null;
+  creado_at: number;
+}
+
+export function listarLinksProducto(orgId: number, productoId: number): ProductoLink[] {
+  return s(
+    `SELECT * FROM producto_links WHERE org_id = ? AND producto_id = ? ORDER BY creado_at ASC`,
+  ).all(orgId, productoId) as ProductoLink[];
+}
+
+export function agregarLinkProducto(orgId: number, productoId: number, url: string): number {
+  const r = s(
+    `INSERT INTO producto_links (org_id, producto_id, url) VALUES (?, ?, ?)`,
+  ).run(orgId, productoId, url);
+  return Number(r.lastInsertRowid);
+}
+
+export function eliminarLinkProducto(orgId: number, id: number): void {
+  s(`DELETE FROM producto_links WHERE org_id = ? AND id = ?`).run(orgId, id);
+}
+
+/** Lo que dejó la última pasada por ese link: sus datos, su foto, o su error. */
+export function marcarLinkImportado(
+  orgId: number,
+  id: number,
+  resultado: { datos: string | null; fotoUrl: string | null; error: string | null },
+): void {
+  s(
+    `UPDATE producto_links SET datos = ?, foto_url = ?, error = ?, importado_at = unixepoch() WHERE org_id = ? AND id = ?`,
+  ).run(resultado.datos, resultado.fotoUrl, resultado.error, orgId, id);
+}
+
+/**
+ * Productos con AL MENOS un link pendiente de importar (nunca se importó).
+ * Es lo que mira el ingreso de un lead por anuncio para decidir si hace falta
+ * ir a Roplis ahora mismo, en segundo plano, sin retrasar la respuesta.
+ */
+export function productoConLinksPendientes(orgId: number, productoId: number): boolean {
+  const fila = s(
+    `SELECT 1 FROM producto_links WHERE org_id = ? AND producto_id = ? AND importado_at IS NULL LIMIT 1`,
+  ).get(orgId, productoId);
+  return !!fila;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
