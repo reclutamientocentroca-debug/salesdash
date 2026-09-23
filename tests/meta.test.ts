@@ -892,6 +892,60 @@ test("un anuncio ya intentado sale de la cola, aunque no se pudiera describir", 
   assert.equal(prompt.includes("sin describir"), false);
 });
 
+/**
+ * UN TÍTULO QUE NO NOMBRA NINGÚN PRODUCTO NO SE LE IMPONE A LA VISIÓN
+ * (la dueña, Costa Rica, 2026-09-23).
+ *
+ * Un anuncio titulado «Anuncio en estados» —así organizó ella la campaña en
+ * Meta, no es el nombre de un producto— hacía que la visión, obligada a
+ * repetir ese título, contestara «Anuncio en estados. Solo se ve en
+ * negro...» en vez de describir lo que de verdad se ve en la foto.
+ */
+test("un título que no nombra un artículo no se le impone a la visión del anuncio", async () => {
+  const { promptAnuncio } = await import("../src/lib/analyzer");
+
+  const sinProducto = promptAnuncio({ titulo: "Anuncio en estados", texto: null });
+  assert.equal(sinProducto.includes("EL ANUNCIO ES DE ESTE ARTÍCULO"), false, "no fuerza un nombre que no es un producto");
+  assert.equal(sinProducto.includes("Anuncio en estados"), false, "ni lo repite en ningún otro sitio del prompt");
+
+  // Con un título que sí nombra un artículo, el comportamiento de siempre sigue igual.
+  const conProducto = promptAnuncio({ titulo: "Bolso de cuero negro", texto: null });
+  assert.match(conProducto, /EL ANUNCIO ES DE ESTE ARTÍCULO.*Bolso de cuero negro/s);
+});
+
+/**
+ * LOS ANUNCIOS YA DESCRITOS CON EL TÍTULO DE LA CAMPAÑA VUELVEN A LA COLA.
+ *
+ * El arreglo de arriba es para lo nuevo; esto es para lo que ya quedó mal
+ * guardado antes del arreglo. Ver `anunciosConDescripcionSospechosa`.
+ */
+test("un anuncio ya descrito con un título que no es un producto se reencola solo", async () => {
+  const { orgId } = cuentaConPagina("Reencolado");
+
+  D.registrarAnuncioVisto(orgId, "ad_mal_descrito", "Anuncio en estados", { imagen: "local:999/no-existe.jpg" });
+  D.guardarDescripcionAnuncio(orgId, "ad_mal_descrito", "Anuncio en estados. Solo se ve en negro. No se ve ninguna talla. SOLO $26,000.");
+
+  // Un título que SÍ nombra un producto, con una descripción que también
+  // empieza igual que él: la heurística del SQL, sola, no distingue los dos.
+  D.registrarAnuncioVisto(orgId, "ad_bien_descrito", "Camisa de lino", { imagen: "local:999/no-existe.jpg" });
+  D.guardarDescripcionAnuncio(orgId, "ad_bien_descrito", "Camisa de lino. Se ve en blanco y azul. Tallas S a XL. RD$1,400.");
+
+  assert.equal(D.anunciosPorDescribir(orgId).length, 0, "los dos ya tienen descripción, ninguno está pendiente");
+  assert.deepEqual(
+    D.anunciosConDescripcionSospechosa(orgId).map((a) => a.ad_id).sort(),
+    ["ad_bien_descrito", "ad_mal_descrito"],
+    "por la forma, el SQL marca los dos: falta el filtro de si el título de verdad nombra un producto",
+  );
+
+  const { describirAnunciosPendientes } = await import("../src/lib/analyzer");
+  // El archivo no existe: no toca la red, y el intento marca el reencolado
+  // como «sin describir» de verdad —es la prueba de que sí se reencoló—.
+  await describirAnunciosPendientes(orgId, 5);
+
+  const restante = D.anunciosConDescripcionSospechosa(orgId);
+  assert.deepEqual(restante.map((a) => a.ad_id), ["ad_bien_descrito"], "solo el que no nombraba un producto se reencoló");
+});
+
 // ── Entrar con Facebook ─────────────────────────────────────────────────────
 
 /**

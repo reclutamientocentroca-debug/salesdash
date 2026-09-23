@@ -4068,6 +4068,35 @@ export function anunciosPorDescribir(orgId: number, limite = 5) {
 }
 
 /**
+ * ANUNCIOS DESCRITOS CON LA ETIQUETA DE LA CAMPAÑA EN VEZ DE CON LO QUE SE VE.
+ *
+ * La captura de la dueña (Costa Rica, 2026-09-23): un anuncio titulado
+ * «Anuncio en estados» —así organizó ella la campaña en Meta, no es un
+ * nombre de producto— quedó descrito «Anuncio en estados. Solo se ve en
+ * negro...»: antes de este arreglo, la visión repetía obligatoriamente el
+ * título de la tienda, y esa vez el título no nombraba ningún producto.
+ * `promptAnuncio` (analyzer.ts) ya no fuerza esa repetición, pero los
+ * anuncios que ya se describieron así se quedan con la descripción vieja
+ * para siempre: `anunciosPorDescribir` solo mira los que están en NULL. Esto
+ * los encuentra por la forma —la descripción empieza igual que su propio
+ * título— para que `analyzer.ts` decida, con `nombraUnArticulo`, si de
+ * verdad hace falta reencolarlos.
+ */
+export function anunciosConDescripcionSospechosa(orgId: number, limite = 20) {
+  return s(
+    `SELECT ad_id, titulo, descripcion_imagen FROM anuncios_meta
+      WHERE org_id = ? AND titulo IS NOT NULL AND descripcion_imagen IS NOT NULL
+        AND descripcion_imagen LIKE (titulo || '.%')
+      LIMIT ?`,
+  ).all(orgId, limite) as { ad_id: string; titulo: string; descripcion_imagen: string }[];
+}
+
+/** Vuelve a poner un anuncio en la cola: `describirAnunciosPendientes` lo recoge en la próxima vuelta. */
+export function reencolarDescripcionAnuncio(orgId: number, adId: string): void {
+  s(`UPDATE anuncios_meta SET descripcion_imagen = NULL WHERE org_id = ? AND ad_id = ?`).run(orgId, adId);
+}
+
+/**
  * LA FOTO DEL ANUNCIO POR EL QUE ESCRIBIÓ ESTE CLIENTE.
  *
  * Es la que se le manda cuando pide «una foto», y tiene que ser ESA y no otra:

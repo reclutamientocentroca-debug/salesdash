@@ -18,6 +18,7 @@
 import {
   ahora,
   actualizarConversacion,
+  anunciosConDescripcionSospechosa,
   anunciosPorDescribir,
   conteoMotivosPerdida,
   conteoPorEstado,
@@ -32,6 +33,7 @@ import {
   MODELO_ANALISIS,
   MODELO_VISION,
   obtenerOrg,
+  reencolarDescripcionAnuncio,
   sellarCierre,
   totalLeads,
   abiertasSinMotivo,
@@ -47,6 +49,7 @@ import { confirmarVentaConFactura, esResumenDePedido } from "./cierre";
 import { completar, completarJson, ErrorIA, type Mensaje as MensajeIA } from "./ia";
 import { comoDataUrl } from "./media";
 import { describirImagen, transcribirAudio } from "./percepcion";
+import { nombraUnArticulo } from "./apertura";
 import { revisarConversacion } from "./anomalies";
 
 /** Tope de mensajes que se le pasan al modelo, para no dispararse en tokens. */
@@ -198,7 +201,7 @@ export async function buscarPrimeraSenal(
  * prompt del agente, y una estructura no aportaría nada que el modelo no lea
  * igual de bien en una frase.
  */
-function promptAnuncio(a: { titulo: string | null; texto: string | null }): string {
+export function promptAnuncio(a: { titulo: string | null; texto: string | null }): string {
   /*
    * EL ARTÍCULO SE LE DICE, NO SE LE PREGUNTA. Sin esto, la visión miraba una
    * prenda extendida sobre una cama y escribía que el anuncio era de ropa de
@@ -208,14 +211,27 @@ function promptAnuncio(a: { titulo: string | null; texto: string | null }): stri
    * va escrito encima.
    */
   const dicho = [a.texto?.trim(), a.titulo?.trim()].filter(Boolean);
-  const articulo = dicho.length
+  /*
+   * SOLO SE ANCLA A UN NOMBRE QUE DE VERDAD NOMBRE UN ARTÍCULO.
+   *
+   * La captura de la dueña (Costa Rica, 2026-09-23): un anuncio sin post
+   * detrás traía como título «Anuncio en estados» —así organizó el negocio
+   * la campaña en Meta, no el nombre del producto— y la visión, obligada a
+   * repetirlo, contestó «Anuncio en estados. Solo se ve en negro...» en vez
+   * de mirar la foto. Un texto que no nombra ropa, calzado ni nada
+   * reconocible no es el nombre de un producto: ahí es mejor dejar que la
+   * visión mire la imagen y diga lo que ve, que forzarla a repetir una
+   * etiqueta interna de la campaña. Ver `nombraUnArticulo`.
+   */
+  const nombraArticulo = dicho.length > 0 && nombraUnArticulo(dicho[0]!);
+  const articulo = nombraArticulo
     ? `EL ANUNCIO ES DE ESTE ARTÍCULO, según lo escribió la tienda: «${dicho[0]}». Ese es el producto y así se llama: NO lo cambies por otro por lo que creas ver. El fondo, el mueble o la tela sobre la que está puesto no son el producto.\n\n`
     : "";
 
   return `Esta es la imagen de un anuncio de una tienda. Descríbela para un vendedor que va a atender al cliente que la pinchó.
 
 ${articulo}En dos o tres frases, y solo con lo que SE VE:
-- Qué producto es${dicho.length ? ", repitiendo el nombre que la tienda le dio arriba" : ""}.
+- Qué producto es${nombraArticulo ? ", repitiendo el nombre que la tienda le dio arriba" : " — mirando la imagen: lo que la tienda escribió ahí no nombra ningún producto, así que no lo repitas ni lo menciones"}.
 - Qué colores aparecen. Si solo hay uno, dilo: "solo se ve en negro". Si no hay colores a elegir, dilo también.
 - Qué TALLAS o medidas se leen, copiadas tal cual: "S, M, L, XL", "de la 36 a la 42". Si no se lee ninguna, dilo: "no se ve ninguna talla".
 - CUALQUIER precio, cifra u oferta escrita en la imagen, copiada tal cual.
@@ -234,6 +250,16 @@ export async function describirAnunciosPendientes(
    */
   timeoutMs?: number,
 ): Promise<number> {
+  /*
+   * REENCOLA LOS QUE SE DESCRIBIERON MAL, ANTES DE MIRAR LOS PENDIENTES.
+   * Ver `anunciosConDescripcionSospechosa`: solo los que de verdad tienen un
+   * título sin nombre de producto vuelven a la cola. Barato —un SELECT
+   * acotado— y corre en el mismo sitio que ya se llama por cada lead nuevo.
+   */
+  for (const a of anunciosConDescripcionSospechosa(orgId, limite)) {
+    if (!nombraUnArticulo(a.titulo)) reencolarDescripcionAnuncio(orgId, a.ad_id);
+  }
+
   const pendientes = anunciosPorDescribir(orgId, limite);
   if (pendientes.length === 0) return 0;
 
