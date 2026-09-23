@@ -1001,6 +1001,38 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
     if (z === null) return null;
     return z === "resto" ? d.envio.restoDelPais.costo : z.costo;
   };
+
+  /*
+   * 11a. Y SIN ENUMERAR TODAS LAS TARIFAS, aparte de lo de abajo.
+   *
+   * La regla de abajo mira frase por frase, y una frase que compara dos
+   * tarifas de un tirón —«El envío es RD$250 en el Gran Santo Domingo y
+   * RD$290 al resto del país»— nombra una zona dentro de sí misma, así que
+   * `zonaDe(frase)` la toma como «esta frase ya es la respuesta de esa zona»
+   * y se salta sin mirar más. Esta mira el TEXTO ENTERO: si aparecen dos o
+   * más tarifas conocidas hablando de envío y todavía no se sabe a qué zona
+   * va el pedido, es la misma respuesta larga que preguntar en una línea
+   * evita —la dueña, 2026-09-23: «no quiero que las IA envíen mucho texto,
+   * que sea preciso y claro»—.
+   */
+  if (
+    costos.size >= 2 &&
+    /env[ií]o/i.test(texto) &&
+    !contieneMarcador(texto, ctx.marcador ?? MARCADOR_POR_DEFECTO) &&
+    !ctx.lugarDelCliente?.trim() &&
+    !ctx.ficha?.direccion?.trim() &&
+    !ctx.clienteCompartioUbicacion
+  ) {
+    const mencionadas = [...new Set(importes(texto, d.moneda.simbolo).filter((n) => costos.has(n)))];
+    if (mencionadas.length >= 2) {
+      const todas = [...costos].map((c) => `${d.moneda.simbolo}${c}`).join(" y ");
+      fallas.push(
+        `enumera las ${mencionadas.length} tarifas de envío (${todas}) sin saber a qué zona va el pedido: eso es el texto largo que no se quiere mandar. ` +
+          "Dile en una línea que el envío depende de la zona y pregúntale la provincia o el sector, sin listar ninguna tarifa",
+      );
+    }
+  }
+
   {
     const tarifaSuya = zonaDe(ctx.lugarDelCliente);
     for (const frase of texto.split(/(?<=[.!?\n])\s+/)) {
@@ -1023,13 +1055,14 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
        *
        * Donde la tarifa es una sola para todos —Costa Rica, Panamá— decir «a
        * todo el país» es lo correcto, y por eso esto solo mira los países con
-       * más de una. Y decirle las DOS, con su zona al lado, tampoco es
-       * generalizar: eso es contarle las tarifas, y pasa.
+       * más de una. Enumerar varias tarifas de un tirón ya lo para la regla
+       * 11a, de arriba, sobre el texto entero: aquí solo queda el caso de
+       * UNA sola cifra dada por buena sin saber a dónde va.
        */
       if (tarifa === null) {
         if (costos.size < 2 || contieneMarcador(texto, ctx.marcador ?? MARCADOR_POR_DEFECTO)) continue;
         const dichas = [...new Set(importes(frase, d.moneda.simbolo).filter((n) => costos.has(n)))];
-        if (!dichas.length || [...costos].every((c) => dichas.some((n) => igual(n, c)))) continue;
+        if (!dichas.length) continue;
 
         const todas = [...costos].map((c) => `${d.moneda.simbolo}${c}`).join(" y ");
 
@@ -1056,7 +1089,6 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
         );
         break;
       }
-      // Una frase que lista las dos tarifas informa, no cotiza mal: solo se para la que da UNA y no es la de esa zona.
       const enLaFrase = [...new Set(importes(frase, d.moneda.simbolo).filter((n) => costos.has(n)))];
       const otra = enLaFrase.length === 1 && enLaFrase[0] !== tarifa ? enLaFrase[0] : undefined;
       if (otra !== undefined) {

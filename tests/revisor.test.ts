@@ -776,10 +776,15 @@ test("con dos tarifas, el envío no se cotiza sin saber a dónde va", () => {
     revisarConReglas("El envío depende de la zona. ¿A qué provincia o sector se lo enviamos?", preguntaElEnvio),
     [],
   );
-  // Contarle las DOS con su zona al lado no es generalizar: informa.
-  assert.deepEqual(
-    revisarConReglas("El envío es RD$250 en el Gran Santo Domingo y RD$290 al resto del país. ¿A qué provincia se lo enviamos?", preguntaElEnvio),
-    [],
+  /*
+   * Contarle las DOS con su zona al lado pasaba antes —«informa, no cotiza
+   * mal»—. La dueña (2026-09-23): «no quiero que las IA envíen mucho texto,
+   * que sea preciso y claro». Ahora enumerar las tarifas es el mismo texto
+   * largo que preguntar la zona en una línea evita: tampoco pasa.
+   */
+  assert.ok(
+    revisarConReglas("El envío es RD$250 en el Gran Santo Domingo y RD$290 al resto del país. ¿A qué provincia se lo enviamos?", preguntaElEnvio)
+      .some((f) => f.includes("enumera las 2 tarifas")),
   );
   // Con la zona ya sabida, su tarifa sale como siempre.
   assert.deepEqual(
@@ -801,6 +806,34 @@ test("con dos tarifas, el envío no se cotiza sin saber a dónde va", () => {
    */
   assert.deepEqual(revisarConReglas("El envío son ₡3.500 a todo el país.", { ...cr, ultimoDelCliente: "¿cuánto es el envío?" }), []);
   assert.deepEqual(revisarConReglas("El envío es US$5.00 a todo el país.", { ...pa, ultimoDelCliente: "¿cuánto es el envío?" }), []);
+});
+
+/**
+ * EL CASO REAL (RD, RINCON DCM, 2026-09-23): a «precio por favor» le llegó
+ * un mensaje entero listando el Gran Santo Domingo, Independencia y el
+ * resto del país, cada una con su tarifa y su forma de pago, y todavía sin
+ * saber dónde estaba el cliente. La dueña: «no quiero que las IA envíen
+ * mucho texto, que sea preciso y claro».
+ */
+test("el caso real: listar las zonas de envío completas en vez de preguntar, no pasa", () => {
+  const texto =
+    "El precio del artículo es RD$1,400.\n\n" +
+    "Para el envío, dependiendo de la zona, tenemos las siguientes tarifas:\n" +
+    "- Gran Santo Domingo (Distrito Nacional, Santo Domingo, Sto Dgo, etc.): RD$250 con mensajero a domicilio.\n" +
+    "- Provincia de Independencia (Jimaní, Duvergé, La Descubierta, etc.): RD$290 por guagua y se paga por transferencia antes de enviarlo.\n" +
+    "- Resto del país: RD$290 a domicilio.\n\n" +
+    "¿En qué provincia o sector se encuentra usted para calcular el costo del envío?";
+
+  const polos = { ...rd, anuncio: "🔥 POLOS BRONX ORIGINALES 🔥 Moderno, Fresco y duradero RD$1,400", ultimoDelCliente: "precio por favor" };
+
+  const fallas = revisarConReglas(texto, polos);
+  assert.ok(fallas.some((f) => f.includes("enumera las") && f.includes("tarifas de envío")), fallas.join(" | "));
+
+  // Lo corto: precio, y el envío en una línea preguntando la zona.
+  assert.deepEqual(
+    revisarConReglas("El precio del artículo es RD$1,400. El envío depende de la zona, ¿en qué provincia o sector está?", polos),
+    [],
+  );
 });
 
 /**
@@ -1305,7 +1338,13 @@ test("el mismo mensaje dos veces seguidas no sale, y una pregunta del cliente se
 
   const envio = { ...rd, ultimoDelCliente: "¿Cuánto es el envío?", ultimoDelAgente: "¿Qué número calza?" };
   assert.ok(revisarConReglas("¿A nombre de quién sale el pedido?", envio).some((f) => f.includes("envío")));
-  assert.deepEqual(revisarConReglas("El envío es RD$250 en el Gran Santo Domingo y RD$290 al interior. ¿Qué número calza?", envio), []);
+  // Enumerar las dos tarifas ya no pasa (la dueña, 2026-09-23): es el mismo
+  // texto largo que decir «depende de la zona» y preguntarla evita.
+  assert.ok(
+    revisarConReglas("El envío es RD$250 en el Gran Santo Domingo y RD$290 al interior. ¿Qué número calza?", envio)
+      .some((f) => f.includes("enumera las 2 tarifas")),
+  );
+  assert.deepEqual(revisarConReglas("El envío depende de la zona. ¿Qué número calza?", envio), []);
 });
 
 /**

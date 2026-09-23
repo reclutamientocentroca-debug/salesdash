@@ -199,13 +199,22 @@ function bloqueDeEnvio(d: DatosPais, donde: string | null): string {
    */
   const tarifas = new Set([resto.costo, ...d.envio.zonas.map((z) => z.costo)]);
   if (tarifas.size > 1 && !zona) {
+    /*
+     * Y SIN LISTARLAS TODAS (la dueña, 2026-09-23): «no quiero que las IA
+     * envíen mucho texto, que sea preciso y claro». Esta línea invitaba a
+     * hacer justo lo contrario —«si prefieres, puedes decirle las N
+     * tarifas»— y eso fue lo que pasó: a un «precio por favor» le llegó un
+     * mensaje entero con cada zona, su cobertura y su forma de pago, en vez
+     * de una pregunta corta. Ahora solo queda la vía corta.
+     */
     lineas.push(
       "AQUÍ NO HAY UNA TARIFA PARA TODO EL PAÍS, HAY " + tarifas.size + ", y todavía no sabes a dónde va " +
         "este pedido: si te pregunta cuánto es el envío, NO le des una sola cifra ni digas «el envío a " +
         "todo el país es " + importe(d, resto.costo) + "» —a la mitad de los clientes le estarías " +
-        "cobrando de más o de menos—. Dile que depende de la zona, pregúntale la provincia o el sector " +
-        "en esa misma línea, y en cuanto te conteste le dices la suya. Si prefieres, puedes decirle las " +
-        `${tarifas.size} tarifas con su zona al lado; lo que no vale es una sola para todos.`,
+        "cobrando de más o de menos—, y TAMPOCO le listes las tarifas de todas las zonas: eso es " +
+        "exactamente el texto largo que no quieres mandar. Dile en una línea que depende de la zona y " +
+        "pregúntale la provincia o el sector en esa misma línea; en cuanto te conteste, le dices la " +
+        "suya y nada más.",
     );
   }
 

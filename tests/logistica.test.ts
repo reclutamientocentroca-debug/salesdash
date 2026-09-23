@@ -498,8 +498,10 @@ test("con dos tarifas, el prompt prohíbe dar una sola cifra sin saber la zona",
 
   const sinZona = bloqueDelPais(rd, null, "RINCON DCM");
   assert.ok(sinZona.includes("AQUÍ NO HAY UNA TARIFA PARA TODO EL PAÍS"));
-  assert.ok(sinZona.includes("Dile que depende de la zona"));
+  assert.ok(sinZona.includes("Dile en una línea que depende de la zona"));
   assert.ok(sinZona.includes("pregúntale la provincia o el sector"));
+  // La dueña (2026-09-23): ya no se le ofrece la salida larga de listar todas las tarifas.
+  assert.equal(sinZona.includes("si prefieres"), false);
 
   // Con la zona ya sabida no hace falta el aviso: se le dice la suya y ya.
   const conZona = bloqueDelPais(rd, "Santiago", "RINCON DCM");
