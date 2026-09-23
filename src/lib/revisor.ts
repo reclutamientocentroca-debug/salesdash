@@ -1353,9 +1353,9 @@ function preguntaPorElConjunto(texto: string): boolean {
  * PEDIR LA DIRECCIÓN SIN SIGNOS DE INTERROGACIÓN.
  *
  * Los dos guiones de la dueña la piden mandando: «Indique su dirección exacta
- * de entrega.» en Costa Rica y «Indíquenos a qué dirección y provincia le
- * enviamos.» en República Dominicana. Ninguna lleva «?», así que las reglas
- * que buscan preguntas no las ven y hay que reconocerlas aparte.
+ * de entrega.» en Costa Rica y «Indíquenos su dirección.» en República
+ * Dominicana. Ninguna lleva «?», así que las reglas que buscan preguntas no
+ * las ven y hay que reconocerlas aparte.
  */
 const PIDE_LA_DIRECCION_SIN_PREGUNTAR = /\bind[ií]que(?:nos|me)?\b[^.?!\n]{0,20}\bdirecci[oó]n\b/i;
 
@@ -1555,16 +1555,26 @@ const PIDE_UBICACION =
 
 /**
  * CÓMO SUENA DAR UN DATO POR RECIBIDO: «ya tenemos su talla», «su dirección
- * queda anotada», «anotado su nombre». Solo se mira en las AFIRMACIONES —ver
- * `afirmacionesDe`—, porque «¿Ya tiene decidida su talla?» la pregunta, no la
- * da por dada, y «Perfecto, ¿en qué color le interesa?» no afirma nada.
+ * queda anotada», «anotado su nombre», o afirmarlo directo, «la dirección
+ * completa es…». Solo se mira en las AFIRMACIONES —ver `afirmacionesDe`—,
+ * porque «¿Ya tiene decidida su talla?» la pregunta, no la da por dada, y
+ * «Perfecto, ¿en qué color le interesa?» no afirma nada.
+ *
+ * La última rama —«su/la/el X es…»— es la que faltaba (la dueña, Telleria y
+ * RINCON DCM, 2026-09-23): con un cliente preguntando dónde está la tienda,
+ * el agente afirmó «La dirección completa es: Calle Duarte #45, Los Prados,
+ * Santo Domingo, Distrito Nacional» —una dirección que el cliente nunca
+ * escribió— y siguió preguntando la forma de pago, como si el pedido ya
+ * tuviera todos los datos. Las otras ramas solo pillaban frases de
+ * CONFIRMACIÓN de un dato ya dado; esta pilla la AFIRMACIÓN de uno nuevo.
  */
 const daPorRecibido = (dato: string) =>
   new RegExp(
     `\\bya\\b.{0,25}\\b(?:su|la|el) ${dato}\\b` +
       `|\\b(?:tengo|tenemos|anote|anoto|anotamos|registre|registro|registramos|guarde|tome)\\b.{0,20}\\b(?:su|la|el) ${dato}\\b` +
       `|\\b(?:su|la|el) ${dato}\\b.{0,25}\\b(?:anotad|registrad|guardad|confirmad|recibid)` +
-      `|\\b(?:anotad|registrad|guardad|recibid)[ao]s?\\b.{0,10}\\b(?:su|la|el) ${dato}\\b`,
+      `|\\b(?:anotad|registrad|guardad|recibid)[ao]s?\\b.{0,10}\\b(?:su|la|el) ${dato}\\b` +
+      `|\\b(?:su|la|el) ${dato}\\b.{0,20}\\bes\\b`,
     "i",
   );
 

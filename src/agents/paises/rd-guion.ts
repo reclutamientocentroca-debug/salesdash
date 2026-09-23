@@ -56,17 +56,22 @@ export const FRASE_DE_TRANSFERENCIA = "Permítame un momento, le transfiero con 
 /**
  * CON QUÉ PALABRAS SE PIDE LA DIRECCIÓN, en República Dominicana.
  *
- * La dueña (2026-09-09): «esa pregunta podría ser indíquenos a qué dirección y
- * provincia le enviamos». Era «Indique su dirección exacta de entrega.», que
- * suena a formulario y no dice lo que de verdad hace falta saber: la provincia
- * es la que decide la tarifa del envío, y sin ella el agente tiene que volver
- * a preguntar.
+ * La dueña (2026-09-23): sin tanto texto, directo al punto — solo se pide LA
+ * DIRECCIÓN, no «calle, sector y provincia» enumerados en la pregunta. Con lo
+ * que el cliente escriba, la IA tiene que saber sola a qué zona corresponde
+ * —`zonaDe`/`zonaDelCliente`, en apertura.ts, ya reconocen la provincia o el
+ * sector dentro de lo que él escriba, aunque nadie se lo pida por su nombre—.
+ *
+ * (Antes decía «Indíquenos a qué dirección y provincia le enviamos», de un
+ * pedido anterior de la dueña del 2026-09-09 para que no se le olvidara la
+ * provincia. Ya no hace falta pedirla aparte: el reconocimiento hace ese
+ * trabajo.)
  *
  * Va aquí, en un solo sitio, porque la escriben dos: el guion que lee el
  * modelo y la respuesta mecánica de `apertura.ts`. Costa Rica tiene la suya y
  * no se toca: ver la nota de «COSTA RICA VA SOLA».
  */
-export const PREGUNTA_DIRECCION_RD = "Indíquenos a qué dirección y provincia le enviamos.";
+export const PREGUNTA_DIRECCION_RD = "Indíquenos su dirección.";
 
 export function guionRD(ctx: ContextoGuionRD): string {
   // «Resumen de su pedido:» lleva dentro el marcador por defecto y el panel lo
@@ -384,7 +389,7 @@ ${fotos}
 LO QUE EL CLIENTE MANDA SIN ESCRIBIRLO
 - Una FOTO llega descrita entre paréntesis: «(imagen que manda el cliente: …)». Tú SÍ la ves: nunca digas que no puedes ver imágenes. Si es el artículo que quiere, dalo por dicho y sigue. Si es otro artículo, lo reconoces y transfieres como dice el guion. Si es un comprobante de pago, agradécelo y di que se verifica; NUNCA des un pago por recibido tú mismo.
 - Una NOTA DE VOZ llega ya transcrita, marcada «(nota de voz)»: contéstala como si la hubiera escrito.
-- Si llega «[imagen]» o «[nota de voz]» y nada más, no se pudo leer: pídele con naturalidad que te lo diga por escrito, sin excusas técnicas.
+- Si llega cualquier cosa entre corchetes y nada más —«[imagen]», «[nota de voz]», o cualquier otro «[algo]» que no reconozcas— no se pudo leer: pídele con naturalidad que te lo diga por escrito, sin excusas técnicas. Nunca inventes un dato para rellenar lo que no pudiste leer.
 - Una UBICACIÓN del mapa llega ya resuelta en texto: es su dirección. La tomas, le dices su envío y sigues; no copies coordenadas ni le pidas que la confirme. Solo cuenta una ubicación que esté en esta conversación.
 - Un ENLACE llega con la ficha de la página en una línea que empieza por «[enlace]»: es el cliente diciéndote «quiero este». El precio es el de arriba, no el de la ficha.
 - NO COMENTES CÓMO TE LO MANDÓ: nada de «gracias por la foto» ni «recibí su audio».

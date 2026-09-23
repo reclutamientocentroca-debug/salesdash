@@ -810,7 +810,7 @@ test("la primera respuesta de un combo usa la apertura configurada y no la IA li
   assert.match(respuesta.texto, /Hola! Bienvenido\(a\) a RINCON DCM/);
   assert.match(respuesta.texto, /Combo 2 En 1/);
   assert.match(respuesta.texto, /RD\$1,690/);
-  assert.match(respuesta.texto, /Indíquenos a qué dirección y provincia le enviamos\./);
+  assert.match(respuesta.texto, /Indíquenos su dirección\./);
   assert.doesNotMatch(respuesta.texto, /talla|color|¿le interesa\?/i);
 });
 
@@ -925,7 +925,7 @@ test("en RD la primera respuesta no lleva foto; en Costa Rica sí, y un combo no
     { origen: "anuncio", producto_anuncio: "Combo 2 en 1", descripcion_anuncio: "COMBO 2 EN 1 — SOLO RD$1,690 ✨ Cepillo secador + plancha alisadora." },
     null, null, null, hola, null, conFoto,
   );
-  assert.match(combo.texto, /Indíquenos a qué dirección y provincia le enviamos\./);
+  assert.match(combo.texto, /Indíquenos su dirección\./);
   assert.equal(combo.pideFoto, false, "un combo no se elige por la foto");
 
   // Y sin foto guardada no se promete ninguna, se venda lo que se venda.
@@ -3048,7 +3048,7 @@ test("al devolver el hilo, si la respuesta sale igual que la de antes, contesta 
       emisor, tipo: "texto", content, createdAt: D.ahora() - hace,
     });
   escribir("cliente", "¡Hola! Me gustaría conseguir más información sobre esto.", 900, 1);
-  escribir("ia", "Indíquenos a qué dirección y provincia le enviamos.", 880, 2);
+  escribir("ia", "Indíquenos su dirección.", 880, 2);
   escribir("cliente", "Los alcarrizo", 600, 3);
   // Lo que la IA ya le contestó —la dirección pedida de la otra forma—, y lo
   // que le vuelve a salir, idéntico, al devolverle el hilo.

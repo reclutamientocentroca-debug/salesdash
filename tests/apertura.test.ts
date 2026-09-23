@@ -52,7 +52,7 @@ test("la primera pregunta es la del orden de venta según el artículo", () => {
   assert.equal(primeraPregunta("camisas de lino para caballeros a RD$1,500", rd), "¿Qué talla le interesa?");
   assert.equal(primeraPregunta("ZAPATOS DCM ESTILO RD$1,990", rd), "¿Qué talla le interesa?", "en RD la talla se pide como talla, también en calzado");
   assert.equal(primeraPregunta("ZAPATOS DE CUERO ₡25.000", cr), "¿Qué número calza?");
-  assert.equal(primeraPregunta("COMBO 2 EN 1 cepillo secador + plancha RD$1,690", rd), "Indíquenos a qué dirección y provincia le enviamos.", "sin talla, la cantidad no se pregunta: a dónde se lo enviamos");
+  assert.equal(primeraPregunta("COMBO 2 EN 1 cepillo secador + plancha RD$1,690", rd), "Indíquenos su dirección.", "sin talla, la cantidad no se pregunta: a dónde se lo enviamos");
   assert.equal(primeraPregunta("Plancha alisadora ₡18.000", cr), "Indique su dirección exacta de entrega.");
   assert.equal(primeraPregunta("Cepillo secador US$35", pa), "¿A qué corregimiento se lo enviamos?");
   assert.equal(primeraPregunta("Camisa de lino ₡25.000", cr), "¿Qué talla le interesa?");
@@ -86,7 +86,7 @@ test("pedir otro artículo no es preguntar el precio de este: pasa a un represen
   // precio por cantidad, y se le contesta con el tramo que le toca.
   assert.equal(preguntaDelCliente("¿me sale más barato si llevo 3?"), "precio_cantidad");
   assert.equal(preguntaDelCliente("cuanto cuesta?"), "precio");
-  assert.equal(respuestaMinima(rd, vacia, combo, { ultimoDelCliente: "¿Tienen otro color?" }), "Indíquenos a qué dirección y provincia le enviamos.");
+  assert.equal(respuestaMinima(rd, vacia, combo, { ultimoDelCliente: "¿Tienen otro color?" }), "Indíquenos su dirección.");
 });
 
 test("«para cuando» es una pregunta del cliente, no el color de su pedido", () => {
@@ -107,11 +107,11 @@ test("clasifica talla y color solo en las familias permitidas", () => {
   assert.equal(tallasDisponibles(polos, rd), "de la S a la XXL");
   assert.equal(primeraPregunta("Bóxers Bronx RD$900", rd), "¿Qué talla le interesa?");
 
-  assert.equal(primeraPregunta("Faja reversible RD$1,500", rd), "Indíquenos a qué dirección y provincia le enviamos.");
+  assert.equal(primeraPregunta("Faja reversible RD$1,500", rd), "Indíquenos su dirección.");
   assert.equal(primeraPregunta("Correa de cuero RD$1,500", rd), "¿Qué talla le interesa?");
   assert.equal(primeraPregunta("Cinturón reversible ₡9.000", cr), "¿Qué talla le interesa?");
-  assert.equal(primeraPregunta("Vestido de dama RD$1,500", rd), "Indíquenos a qué dirección y provincia le enviamos.");
-  assert.equal(primeraPregunta("Combo cepillo secador y plancha RD$1,690", rd), "Indíquenos a qué dirección y provincia le enviamos.");
+  assert.equal(primeraPregunta("Vestido de dama RD$1,500", rd), "Indíquenos su dirección.");
+  assert.equal(primeraPregunta("Combo cepillo secador y plancha RD$1,690", rd), "Indíquenos su dirección.");
   assert.equal(llevaColor("Camisa de lino RD$1,500 en blanco, azul y negro"), true);
   assert.equal(llevaColor("Combo cepillo secador y plancha RD$1,690 en negro y rosa"), false);
   const camisa = { descripcion_anuncio: "Camisa de lino RD$1,500 en blanco, azul y negro" };
@@ -128,7 +128,7 @@ test("clasifica talla y color solo en las familias permitidas", () => {
  * para cobrar el envío: la provincia. Costa Rica se queda con la suya.
  */
 test("cada país pide la dirección con sus palabras", () => {
-  assert.equal(preguntaDeDireccion(rd), "Indíquenos a qué dirección y provincia le enviamos.");
+  assert.equal(preguntaDeDireccion(rd), "Indíquenos su dirección.");
   assert.equal(preguntaDeDireccion(cr), "Indique su dirección exacta de entrega.");
   assert.equal(preguntaDeDireccion(pa), "¿A qué corregimiento se lo enviamos?");
 
@@ -230,7 +230,7 @@ test("a «de qué son» se le contesta con el material y el «original» del anu
  * LE ENSEÑA EL ESCALÓN DE ARRIBA.
  *
  * La captura de la dueña (Messenger, 2026-09-10): «¿Cuál es el precio de una
- * docena?» → «Indíquenos a qué dirección y provincia le enviamos.». Y su regla,
+ * docena?» → «Indíquenos su dirección.». Y su regla,
  * en dos frases: «debe responder lo que el cliente pregunta o dice» y «debe
  * vender como profesional de ventas al por mayor».
  */
@@ -361,7 +361,7 @@ test("en Costa Rica una faja es la correa: se vende con su talla", () => {
   assert.ok(texto.endsWith("¿Qué talla le interesa?"));
 
   // Y en República Dominicana una faja sigue siendo una faja: se vende fija.
-  assert.equal(primeraPregunta("Faja reversible RD$1,500", rd), "Indíquenos a qué dirección y provincia le enviamos.");
+  assert.equal(primeraPregunta("Faja reversible RD$1,500", rd), "Indíquenos su dirección.");
   assert.equal(llevaTalla("Faja reversible RD$1,500", rd), false);
   assert.equal(llevaTalla("FAJA REVERSIBLE PARA HOMBRE ₡9.000", cr), true);
   assert.equal(llevaTalla("FAJA REVERSIBLE PARA HOMBRE ₡9.000"), false, "sin país, la clasificación de siempre");
@@ -458,7 +458,7 @@ test("el cliente que dice cuándo vuelve se despide, no se le sigue pidiendo el 
   assert.equal(
     respuestaMinima(rd, ficha, combo, {
       ultimoDelCliente: "El lunes le llamo",
-      ultimoDelAgente: "Gracias. Indíquenos a qué dirección y provincia le enviamos.",
+      ultimoDelAgente: "Gracias. Indíquenos su dirección.",
     }),
     "Entiendo, no hay problema. Cuando esté listo para ordenar, escríbanos y con gusto le atendemos.",
   );
@@ -488,7 +488,7 @@ test("con la ubicación ya mandada, la respuesta mínima no vuelve a pedir la di
   );
 
   // Sin pin, el paso de la dirección es el de siempre.
-  assert.equal(respuestaMinima(rd, vacia, combo), "Indíquenos a qué dirección y provincia le enviamos.");
+  assert.equal(respuestaMinima(rd, vacia, combo), "Indíquenos su dirección.");
 
   // Y con la dirección ya en la ficha no se pregunta nada de esto: sigue el pedido.
   const conDireccion = { ...vacia, direccion: "Avenida Rómulo Betancourt, Distrito Nacional" };
@@ -507,7 +507,7 @@ test("la apertura segura lleva saludo, artículo, precio y pregunta, y nada inve
   // La dueña (2026-09-07): sin corazones. Saludo, artículo, precio y pregunta.
   assert.ok(texto.startsWith(`${saludo}\nCombo 2 En 1\nRD$1,690\n`), "el formato del documento: saludo, producto, precio y pregunta");
   assert.equal(texto.includes("🖤"), false, "los corazones ya no van en el mensaje");
-  assert.ok(texto.endsWith("Indíquenos a qué dirección y provincia le enviamos."), "la cantidad no se pregunta nunca");
+  assert.ok(texto.endsWith("Indíquenos su dirección."), "la cantidad no se pregunta nunca");
   assert.equal(/cu[aá]nt/i.test(texto), false);
   assert.equal(texto.includes("talla"), false, "un combo no lleva talla");
   assert.equal(texto.includes("Un momento"), false);
@@ -545,10 +545,10 @@ test("la respuesta mínima es la siguiente pregunta del pedido, nunca una transf
   assert.equal(respuestaMinima(rd, { ...vacia, talla: "la M" }, camisa), "¿Qué color le interesa?");
   assert.equal(
     respuestaMinima(rd, { ...vacia, talla: "la M", color: "negro" }, camisa),
-    "Indíquenos a qué dirección y provincia le enviamos.",
+    "Indíquenos su dirección.",
     "y con la talla y el color dados, a dónde se lo enviamos",
   );
-  assert.equal(respuestaMinima(rd, vacia, combo), "Indíquenos a qué dirección y provincia le enviamos.", "un combo no lleva talla: a dónde se lo enviamos, sin preguntar cuántos");
+  assert.equal(respuestaMinima(rd, vacia, combo), "Indíquenos su dirección.", "un combo no lleva talla: a dónde se lo enviamos, sin preguntar cuántos");
   assert.equal(
     respuestaMinima(rd, { ...vacia, cantidad: "1", direccion: "Los Alcarrizos, calle 3" }, combo),
     "Perfecto, hasta Gran Santo Domingo el envío le sale en RD$250.\n¿Me facilita su número de teléfono para el pedido?",
@@ -596,7 +596,7 @@ test("la respuesta mínima contesta la pregunta del cliente y no se repite", () 
   assert.equal(respuestaMinima(rd, { ...vacia, talla: "39" }, zapatos, { ultimoDelAgente: "¿Qué número calza?" }), "¿Qué color le interesa?");
   assert.equal(
     respuestaMinima(rd, { ...vacia, talla: "39", color: "negro" }, zapatos, { ultimoDelAgente: "¿Qué color le interesa?" }),
-    "Indíquenos a qué dirección y provincia le enviamos.",
+    "Indíquenos su dirección.",
   );
 
   // El envío se contesta con la tarifa del cliente si se sabe dónde está, y con las dos si no.
@@ -630,9 +630,9 @@ test("con todos los datos sale directamente el resumen del pedido", () => {
   const ficha = { talla: null, color: null, direccion: "Calle 3 #12, Los Mina, Santo Domingo Este", nombre: "Ana Pérez", celular: "8095551234", cantidad: "1" };
 
   // En cuanto da la dirección: «Perfecto, hasta <zona>…», con su envío y el teléfono en el mismo mensaje.
-  const perfecto = respuestaMinima(rd, { ...ficha, nombre: null, celular: null }, combo, { ultimoDelCliente: "Calle 3 #12, Los Mina, Santo Domingo Este", ultimoDelAgente: "Indíquenos a qué dirección y provincia le enviamos." });
+  const perfecto = respuestaMinima(rd, { ...ficha, nombre: null, celular: null }, combo, { ultimoDelCliente: "Calle 3 #12, Los Mina, Santo Domingo Este", ultimoDelAgente: "Indíquenos su dirección." });
   assert.equal(perfecto, "Perfecto, hasta Gran Santo Domingo el envío le sale en RD$250.\n¿Me facilita su número de teléfono para el pedido?");
-  const interior = respuestaMinima(rd, { ...ficha, direccion: "Estoy en Santiago", nombre: null, celular: null }, combo, { ultimoDelCliente: "Estoy en Santiago", ultimoDelAgente: "Indíquenos a qué dirección y provincia le enviamos." });
+  const interior = respuestaMinima(rd, { ...ficha, direccion: "Estoy en Santiago", nombre: null, celular: null }, combo, { ultimoDelCliente: "Estoy en Santiago", ultimoDelAgente: "Indíquenos su dirección." });
   assert.ok(interior.startsWith("Perfecto, hasta Santiago el envío le sale en RD$290."), interior);
 
   const resumen = respuestaMinima(rd, ficha, combo, { ultimoDelCliente: "Ana Pérez", ultimoDelAgente: "¿A nombre de quién sale el pedido?", telefonoDelChat: "18095550000" });

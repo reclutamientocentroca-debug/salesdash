@@ -56,8 +56,8 @@ export const PA: DatosPais = {
       pago: "paga como prefiera: transferencia, Yappy, efectivo al recibir o link de pago",
     },
     direccion:
-      "Se da por corregimiento, barriada y casa o edificio: «Villa Lucre, calle 3, casa 12» o " +
-      "«PH Torres del Mar, apto 14-B, Costa del Este». El CORREGIMIENTO es el dato que sitúa " +
+      "Se da por corregimiento, barriada y casa o edificio: «<barriada>, <calle>, <casa o edificio>, " +
+      "<corregimiento>». El CORREGIMIENTO es el dato que sitúa " +
       "todo lo demás. En los edificios hay que pedir el número de apartamento, o el pedido llega " +
       "al lobby y ahí se queda. Se pide UNA VEZ Y ENTERA, y cuando la dé se da por buena.",
     datosParaCerrar: [

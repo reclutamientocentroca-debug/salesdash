@@ -130,7 +130,7 @@ export const CR: DatosPais = {
     },
     direccion:
       "EN COSTA RICA NO HAY CALLE Y NÚMERO. Las direcciones se dan por referencias y distancias " +
-      "desde un punto conocido: «200 metros norte y 50 este de la iglesia, casa color verde». " +
+      "desde un punto conocido: «<distancia y dirección> de <punto conocido>, <seña de la casa>». " +
       "Cien metros es una cuadra. Pedir «la calle y el número» delata al instante que quien " +
       "escribe no es de aquí: se pide la PROVINCIA, el CANTÓN y el DISTRITO, y después las " +
       "señas. Con la dirección no seas exigente: con el cantón, el distrito y unas señas ya se " +

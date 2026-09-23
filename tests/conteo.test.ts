@@ -1133,7 +1133,10 @@ test("el agente de Costa Rica cobra por SINPE, pide señas y no pide talla a una
   const cr = promptDe("cr");
 
   assert.ok(cr.includes("EN COSTA RICA NO HAY CALLE Y NÚMERO"));
-  assert.ok(cr.includes("200 metros norte"), "con un ejemplo de señas de verdad");
+  // El ejemplo va con huecos (2026-09-23): un modelo no distingue «esto
+  // ilustra» de «esto es el dato», y un ejemplo con una dirección real se
+  // podía colar como si el cliente la hubiera dado. Ver rd.ts/pa.ts/cr.ts.
+  assert.ok(cr.includes("<punto conocido>"), "con el formato de las señas, sin una dirección real de ejemplo");
   assert.ok(cr.includes("SINPE Móvil"), "y el pago por SINPE");
   assert.ok(cr.includes("NO SE LOS INVENTES"), "un número de SINPE inventado es dinero yéndose a otra cuenta");
   assert.ok(cr.includes("se cobra ANTES de enviar"), "fuera de la zona de domicilio, por delante");

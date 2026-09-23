@@ -305,8 +305,8 @@ export const RD: DatosPais = {
       ],
     },
     direccion:
-      "Se da por calle y número, con EL SECTOR detrás y LA PROVINCIA al final: «calle Duarte #45, " +
-      "Los Prados, Santo Domingo, Distrito Nacional». Los dos datos que sitúan un pedido son la " +
+      "Se da por calle y número, con EL SECTOR detrás y LA PROVINCIA al final: «<calle y número>, " +
+      "<sector>, <provincia>». Los dos datos que sitúan un pedido son la " +
       "PROVINCIA —de ella depende el costo del envío— y el SECTOR, porque sin él dos calles con el " +
       "mismo nombre están a media hora una de otra. Si el cliente nombra su edificio y su " +
       "apartamento, se anotan; no se le exigen. Con lo que él escriba ya se despacha, y LO QUE " +

@@ -239,7 +239,7 @@ test("la contestación tardía a la pregunta pendiente sigue la venta, no la emp
   // Y el que vuelve de verdad —escribe otra cosa, no una contestación— sí abre otra compra.
   const vuelve = [
     ...hilo,
-    { emisor: "ia", content: "Indíquenos a qué dirección y provincia le enviamos.", created_at: t0 + 60 + 14 * 3600 + 60 },
+    { emisor: "ia", content: "Indíquenos su dirección.", created_at: t0 + 60 + 14 * 3600 + 60 },
     { emisor: "cliente", content: "Hola, quiero información de otro artículo", created_at: t0 + 4 * 24 * 3600 },
   ];
   assert.equal(esClienteQueVuelve(vuelve), true);
@@ -330,14 +330,14 @@ test("una frase suelta no es una dirección, ni un color, ni una talla", () => {
       rd,
     );
 
-  assert.equal(contesta("Indíquenos a qué dirección y provincia le enviamos.", "Si yo.le escomprado").direccion, null);
+  assert.equal(contesta("Indíquenos su dirección.", "Si yo.le escomprado").direccion, null);
   assert.equal(contesta("¿Qué color le interesa?", "Para cuando").color, null);
   assert.equal(contesta("¿Qué talla le interesa?", "Para cuando").talla, null);
   assert.equal(contesta("¿A nombre de quién sale el pedido?", "Si yo.le escomprado").nombre, null);
 
   // Y lo que sí es el dato, sigue entrando.
-  assert.equal(contesta("Indíquenos a qué dirección y provincia le enviamos.", "Calle Duarte #70, Brisas del Este").direccion, "Calle Duarte #70, Brisas del Este");
-  assert.equal(contesta("Indíquenos a qué dirección y provincia le enviamos.", "Los Alcarrizos").direccion, "Los Alcarrizos", "un sector del país es una dirección");
+  assert.equal(contesta("Indíquenos su dirección.", "Calle Duarte #70, Brisas del Este").direccion, "Calle Duarte #70, Brisas del Este");
+  assert.equal(contesta("Indíquenos su dirección.", "Los Alcarrizos").direccion, "Los Alcarrizos", "un sector del país es una dirección");
   assert.equal(contesta("¿Qué color le interesa?", "negro").color, "negro");
   assert.equal(contesta("¿Qué color le interesa?", "el chocolate").color, "el chocolate");
   assert.equal(contesta("¿Qué talla le interesa?", "la 42").talla, "la 42");
@@ -465,7 +465,7 @@ test("el revisor para la respuesta que vuelve a preguntar lo que ya está en la 
  *
  * El caso real (RD): «¿Cuál sería su dirección exacta de entrega?» → el cliente
  * mandó su ubicación —Avenida Rómulo Betancourt, Renacimiento, Santo Domingo—
- * y el agente le contestó «Indíquenos a qué dirección y provincia le enviamos.». Dos
+ * y el agente le contestó «Indíquenos su dirección.». Dos
  * agujeros a la vez: la ficha solo se quedaba con el pin cuando su texto
  * nombraba una zona del catálogo de envíos, y el freno de las preguntas
  * repetidas buscaba signos de interrogación —esa frase no lleva ninguno—.
@@ -486,7 +486,7 @@ test("la ubicación que manda el cliente es su dirección, y no se le vuelve a p
 
   // La frase del guion no lleva signos de interrogación, y es la que salió.
   for (const repite of [
-    "Indíquenos a qué dirección y provincia le enviamos.",
+    "Indíquenos su dirección.",
     "Indique su dirección exacta de entrega.",
     "Indíqueme su dirección exacta de entrega.",
     "Por favor indique la dirección exacta de entrega",
