@@ -349,7 +349,6 @@ export default function TablaCatalogo({
               <thead>
                 <tr>
                   <th style={{ paddingLeft: 17 }}>Producto</th>
-                  <th>Variantes</th>
                   {reparte && <th>Número</th>}
                   <th style={{ textAlign: "right" }}>Precio</th>
                   <th style={{ textAlign: "right", paddingRight: 17 }}>Estado</th>
@@ -364,14 +363,18 @@ export default function TablaCatalogo({
                         {p.foto_url && (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
-                            src={p.foto_url} alt="" aria-hidden="true"
-                            style={{ width: 28, height: 28, objectFit: "cover", borderRadius: 4, flexShrink: 0 }}
+                            src={p.foto_url} alt={`Ver colores y tallas de ${p.nombre}`}
+                            title="Ver colores y tallas"
+                            onClick={() => setVerProducto(verProducto === p.id ? null : p.id)}
+                            style={{
+                              width: 28, height: 28, objectFit: "cover", borderRadius: 4, flexShrink: 0,
+                              cursor: "pointer",
+                            }}
                           />
                         )}
                         {p.nombre}
                       </div>
                     </td>
-                    <td style={{ color: "var(--ink-2)" }}>{p.variantes ?? "—"}</td>
                     {reparte && (
                       <td>
                         <select
@@ -390,7 +393,9 @@ export default function TablaCatalogo({
                     )}
                     <td style={{ textAlign: "right" }}>{dinero(p.precio)}</td>
                     <td style={{ textAlign: "right", paddingRight: 17 }}>
-                      {(p.foto_url || p.descripcion) && (
+                      {/* Con foto, se abre haciendo clic en ella (ver la miniatura arriba). Este botón es
+                          solo el respaldo para cuando no hay foto pero sí quedó una descripción del link. */}
+                      {!p.foto_url && p.descripcion && (
                         <button
                           type="button"
                           className="btn btn-tenue"
@@ -428,14 +433,14 @@ export default function TablaCatalogo({
                   </tr>
                   {verProducto === p.id && (
                     <tr>
-                      <td colSpan={reparte ? 5 : 4} style={{ padding: 0 }}>
+                      <td colSpan={reparte ? 4 : 3} style={{ padding: 0 }}>
                         <FichaProducto producto={p} />
                       </td>
                     </tr>
                   )}
                   {verLinks === p.id && (
                     <tr>
-                      <td colSpan={reparte ? 5 : 4} style={{ padding: 0 }}>
+                      <td colSpan={reparte ? 4 : 3} style={{ padding: 0 }}>
                         <FilaLinks productoId={p.id} onCambio={() => router.refresh()} />
                       </td>
                     </tr>
