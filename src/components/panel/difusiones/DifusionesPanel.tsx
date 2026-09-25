@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Excluidos, { type ExcluidoVista } from "./Excluidos";
 import ListasDeClientes, { type ListaVista } from "./ListasDeClientes";
 import NuevaCampana, { type ProductoVista } from "./NuevaCampana";
 import SeguimientoCampana, { type CampanaVista } from "./SeguimientoCampana";
@@ -15,14 +16,16 @@ export default function DifusionesPanel({
   listasIniciales,
   campanasIniciales,
   catalogo,
+  excluidosIniciales,
 }: {
   soyDueno: boolean;
   canales: CanalVista[];
   listasIniciales: ListaVista[];
   campanasIniciales: CampanaVista[];
   catalogo: ProductoVista[];
+  excluidosIniciales: ExcluidoVista[];
 }) {
-  const [cual, setCual] = useState<"listas" | "nueva" | "seguimiento">(
+  const [cual, setCual] = useState<"listas" | "nueva" | "seguimiento" | "excluidos">(
     campanasIniciales.length === 0 ? "listas" : "seguimiento",
   );
   const [listas, setListas] = useState(listasIniciales);
@@ -57,6 +60,9 @@ export default function DifusionesPanel({
             </span>
           )}
         </button>
+        <button type="button" role="tab" className="sd-pestana" aria-selected={cual === "excluidos"} onClick={() => setCual("excluidos")}>
+          Excluidos
+        </button>
       </div>
 
       <div role="tabpanel" hidden={cual !== "listas"}>
@@ -76,6 +82,9 @@ export default function DifusionesPanel({
       </div>
       <div role="tabpanel" hidden={cual !== "seguimiento"}>
         <SeguimientoCampana soyDueno={soyDueno} campanas={campanas} canales={canales} onCambio={recargarCampanas} />
+      </div>
+      <div role="tabpanel" hidden={cual !== "excluidos"}>
+        <Excluidos iniciales={excluidosIniciales} />
       </div>
     </>
   );

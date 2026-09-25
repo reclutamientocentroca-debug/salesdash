@@ -1,5 +1,5 @@
 import DifusionesPanel from "@/components/panel/difusiones/DifusionesPanel";
-import { listarCampanas, listarCanales, listarCatalogo, listarListasDifusion, obtenerAgente } from "@/lib/db";
+import { listarCampanas, listarCanales, listarCatalogo, listarExcluidos, listarListasDifusion, obtenerAgente } from "@/lib/db";
 import { agenteDePais } from "@/agents";
 import { requerirSesion } from "@/lib/tenant";
 
@@ -25,6 +25,7 @@ export default async function PaginaDifusiones() {
     (c) => ctx.canalesPermitidos === null || ctx.canalesPermitidos.includes(c.canal_id),
   );
   const catalogo = listarCatalogo(ctx.orgId, true);
+  const excluidos = listarExcluidos(ctx.orgId);
 
   return (
     <>
@@ -43,6 +44,7 @@ export default async function PaginaDifusiones() {
         listasIniciales={listas.map((l) => ({ id: l.id, nombre: l.nombre, tipo: l.tipo, created_at: l.created_at, contactos: null }))}
         campanasIniciales={campanas}
         catalogo={catalogo.map((p) => ({ id: p.id, nombre: p.nombre, precio: p.precio, canal_id: p.canal_id }))}
+        excluidosIniciales={excluidos}
       />
     </>
   );
