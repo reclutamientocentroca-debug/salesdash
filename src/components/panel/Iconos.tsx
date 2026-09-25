@@ -108,6 +108,13 @@ export const IconoRevision = (p: Props) => (
   </Svg>
 );
 
+export const IconoDifusiones = (p: Props) => (
+  <Svg {...p}>
+    <path d="M3.5 10.5v3a1.5 1.5 0 0 0 1.5 1.5h1.6l4.9 4V6.5l-4.9 4H5a1.5 1.5 0 0 0-1.5 1.5Z" />
+    <path d="M16 9.2a4 4 0 0 1 0 5.6M19 6.5a8 8 0 0 1 0 11" />
+  </Svg>
+);
+
 export const IconoSalir = (p: Props) => (
   <Svg {...p}>
     <path d="M15 4.5h3.5a1.5 1.5 0 0 1 1.5 1.5v12a1.5 1.5 0 0 1-1.5 1.5H15" />

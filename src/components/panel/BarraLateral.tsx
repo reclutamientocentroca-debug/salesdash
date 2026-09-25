@@ -11,6 +11,7 @@ import {
   IconoConfiguracion,
   IconoConversaciones,
   IconoDashboard,
+  IconoDifusiones,
   IconoEquipo,
   IconoInstagram,
   IconoLuna,
@@ -44,6 +45,7 @@ const SECCIONES = [
     items: [
       { href: "/ventas", texto: "Ventas", Icono: IconoVentas },
       { href: "/productos", texto: "Productos", Icono: IconoProductos },
+      { href: "/difusiones", texto: "Difusiones", Icono: IconoDifusiones },
     ],
   },
   {
