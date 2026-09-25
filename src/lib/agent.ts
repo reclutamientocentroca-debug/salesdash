@@ -45,7 +45,7 @@ import {
 } from "./db";
 import { descifrar } from "./auth";
 import { leer as leerArchivo } from "./media";
-import { formatearImporte, monedaDelPais } from "./moneda";
+import { formatearImporte, leerImporte, monedaDelPais } from "./moneda";
 import { anuncioParaModelo, anuncioVigente, descripcionUtil, textoDelProducto, type DatosAnuncio, type ProductoAnunciado } from "./anuncio";
 import { aperturaSegura, clienteAplazaCompra, clientePideOtraFamilia, familiasNombradas, precioDeLaDescripcion, clienteRenunciaALaCompra, fraseDeTransferencia, laFotoAyudaAElegir, laFotoVaConEstaRespuesta, llevaColor, llevaTalla, nombraUnArticulo, respuestaMinima } from "./apertura";
 import { esMensajeDeSistema } from "./sistema";
@@ -203,6 +203,49 @@ export function loQueSeVendeAqui(
   }
 
   return delAnuncio;
+}
+
+/**
+ * EL PRECIO DEL CATÁLOGO QUE NO VALE EN ESTE HILO, para el revisor.
+ *
+ * `precioDelCatalogoQueNoAplica` (en `meta/contexto-anuncio.ts`) hace esta
+ * misma comprobación pero solo cuando el hilo trae `meta_ad_id` —Messenger o
+ * Instagram con el anuncio vinculado en el panel—. Por WhatsApp no hay ese
+ * vínculo: el cuerpo del anuncio llega inline y `loQueSeVendeAqui` ya elige
+ * bien el precio, pero el catálogo COMPLETO del país sigue delante del
+ * modelo, con el mismo artículo a otro precio, y el revisor general solo
+ * comprueba que la cifra esté escrita EN ALGÚN SITIO —el del catálogo
+ * también lo está—, así que no lo paraba.
+ *
+ * El caso de la dueña (RD, 2026-09-25): un artículo con su propio precio en
+ * el anuncio y el agente cotizando otro precio, el del catálogo.
+ *
+ * Sin vínculo explícito, se empareja por FAMILIA —«camisas», «botas»— contra
+ * el nombre de cada producto del catálogo: solo cuando las dos partes nombran
+ * la MISMA familia reconocible, para no parar el precio de un segundo
+ * artículo del que el cliente de verdad preguntó.
+ */
+export function precioDelCatalogoQueNoAplicaEnHilo(
+  seVende: DatosAnuncio,
+  simbolo: string,
+  catalogo: Producto[],
+): number | null {
+  const delAnuncio = leerImporte(precioDeLaDescripcion(seVende.descripcion_anuncio ?? "", simbolo) ?? "");
+  if (delAnuncio == null) return null;
+
+  const familiaDelAnuncio = familiasNombradas(
+    [seVende.producto_anuncio, seVende.descripcion_anuncio].filter(Boolean).join(" "),
+  ).map((f) => f.familia);
+  if (!familiaDelAnuncio.length) return null;
+
+  const delCatalogo = catalogo.find(
+    (p) =>
+      p.precio != null &&
+      p.precio !== delAnuncio &&
+      familiasNombradas(p.nombre).some((f) => familiaDelAnuncio.includes(f.familia)),
+  );
+
+  return delCatalogo?.precio ?? null;
 }
 
 /** El producto del lead, tal como se guardó. Null si no hay o no se puede leer. */
@@ -2554,14 +2597,17 @@ async function atenderTurno(
     const org = obtenerOrg(orgId);
     const negocio = nombreDelNegocio(agente, canal, org ?? null);
     const cliente = { telefono: conv.cliente_phone, nombre: conv.cliente_nombre };
+    const catalogoProductos = listarCatalogo(orgId, true, canalId);
     const contexto = {
       esApertura,
       datos: datosPais,
       marcador: org?.marcador_cierre ?? MARCADOR_POR_DEFECTO,
       nombresDeLaCasa: [agente.nombre, agente.negocio, datosPais.nombreAgente ?? "", datosPais.tienda].filter(Boolean),
-      catalogo: textoDeLoQueVende(agente, listarCatalogo(orgId, true, canalId)),
+      catalogo: textoDeLoQueVende(agente, catalogoProductos),
       anuncio: [anuncioParaModelo(seVende, datosPais.moneda.simbolo), reglaPrecio].filter(Boolean).join("\n\n") || null,
-      precioDelCatalogoQueNoAplica,
+      precioDelCatalogoQueNoAplica:
+        precioDelCatalogoQueNoAplica ??
+        precioDelCatalogoQueNoAplicaEnHilo(seVende, datosPais.moneda.simbolo, catalogoProductos),
       fotoDelCliente: fotoDeProductoDelClienteEnSesion(historial),
       ficha: fichaDelHilo(memoriaMensajes, agente.pais),
       clienteCompartioUbicacion: clienteCompartioUbicacion(historial),
@@ -3327,14 +3373,17 @@ export async function enviarSeguimiento(
     const { revisarConReglas } = await import("./revisor");
     const org = obtenerOrg(orgId);
     const negocio = nombreDelNegocio(agente, canal, org ?? null);
+    const catalogoProductos = listarCatalogo(orgId, true, canal.id);
     const fallas = revisarConReglas(texto, {
       esApertura: false,
       datos: datosPais,
       marcador: org?.marcador_cierre ?? MARCADOR_POR_DEFECTO,
       nombresDeLaCasa: [agente.nombre, negocio, datosPais.nombreAgente ?? "", datosPais.tienda].filter(Boolean),
-      catalogo: textoDeLoQueVende(agente, listarCatalogo(orgId, true, canal.id)),
+      catalogo: textoDeLoQueVende(agente, catalogoProductos),
       anuncio: anuncioParaModelo(anuncioVigente(conv)) || null,
-      precioDelCatalogoQueNoAplica: reglaPrecio.precioDelCatalogoQueNoAplica,
+      precioDelCatalogoQueNoAplica:
+        reglaPrecio.precioDelCatalogoQueNoAplica ??
+        precioDelCatalogoQueNoAplicaEnHilo(anuncioVigente(conv), datosPais.moneda.simbolo, catalogoProductos),
       fotoDelCliente: fotoDeProductoDelClienteEnSesion(historial),
       ficha: fichaDelHilo(historial, agente.pais),
       textosDelCliente: textosDelClienteEnSesion(historial),

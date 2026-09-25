@@ -19,6 +19,7 @@ import {
   loQueSeVendeAqui,
   porQueCalla,
   porQueNoContesto,
+  precioDelCatalogoQueNoAplicaEnHilo,
   revisarAgente,
 } from "../src/lib/agent";
 import { contieneMarcador, duenoDelCierre, registrarCierre } from "../src/lib/cierre";
@@ -1550,6 +1551,46 @@ test("el anuncio del lead se lee una vez y el agente vende con ese precio, sin t
     true,
     "sin precio en ninguna parte, sí",
   );
+});
+
+/**
+ * EL CATÁLOGO NO MANDA SOBRE EL PRECIO DEL ANUNCIO DE WHATSAPP TAMPOCO.
+ *
+ * `precioDelCatalogoQueNoAplica` (en `meta/contexto-anuncio.ts`) ya protege
+ * esto por Meta, pero solo cuando el hilo trae `meta_ad_id` con un anuncio
+ * vinculado en el panel. Por WhatsApp no hay ese vínculo: el caso de la dueña
+ * (RD, 2026-09-25) fue un anuncio con su propio precio y el agente cotizando
+ * el precio de otro artículo del catálogo.
+ */
+test("el precio del catálogo no manda sobre el del anuncio de WhatsApp", () => {
+  const rd = agenteDePais("do")!;
+  const seVende = {
+    origen: "anuncio" as const,
+    producto_anuncio: "Poloches Bronx",
+    descripcion_anuncio: "POLOCHES BRONX ORIGINALES RD$1,400 C/U",
+  };
+
+  // Otra familia en el catálogo, a cualquier precio, no se toca.
+  const otraFamilia: D.Producto[] = [
+    { id: 1, org_id: orgId, canal_id: 0, nombre: "Bota MR", variantes: null, precio: 23000, activo: 1, foto_url: null, descripcion: null },
+  ];
+  assert.equal(precioDelCatalogoQueNoAplicaEnHilo(seVende, rd.moneda.simbolo, otraFamilia), null);
+
+  // La MISMA familia a otro precio en el catálogo es justo lo que el revisor
+  // tiene que parar si el modelo no le hizo caso al precio del anuncio.
+  const mismaFamiliaOtroPrecio: D.Producto[] = [
+    { id: 2, org_id: orgId, canal_id: 0, nombre: "Polo Bronx clásico", variantes: null, precio: 1990, activo: 1, foto_url: null, descripcion: null },
+  ];
+  assert.equal(
+    precioDelCatalogoQueNoAplicaEnHilo(seVende, rd.moneda.simbolo, mismaFamiliaOtroPrecio),
+    1990,
+  );
+
+  // Y si el catálogo trae el mismo precio que el anuncio, no hay nada que parar.
+  const mismoPrecio: D.Producto[] = [
+    { id: 3, org_id: orgId, canal_id: 0, nombre: "Polo Bronx clásico", variantes: null, precio: 1400, activo: 1, foto_url: null, descripcion: null },
+  ];
+  assert.equal(precioDelCatalogoQueNoAplicaEnHilo(seVende, rd.moneda.simbolo, mismoPrecio), null);
 });
 
 /**
