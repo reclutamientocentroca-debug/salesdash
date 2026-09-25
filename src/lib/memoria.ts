@@ -121,7 +121,17 @@ function ultimaPregunta(contenido: string): string | null {
 function campoPendiente(previo: MensajeDeMemoria | undefined): CampoDelPedido | null {
   if (!previo || previo.emisor !== "ia") return null;
   const pregunta = ultimaPregunta(previo.content);
-  return pregunta ? campoDeLaPregunta(pregunta) : null;
+  if (!pregunta) return null;
+  /*
+   * EL DATO SE NOMBRA ANTES DE LA PREGUNTA, Y AQUÍ TAMBIÉN CUENTA. El caso
+   * real (RD): «Para enviárselo necesito su talla. ¿Cuál le interesa?» — la
+   * pregunta que se aísla es solo «¿Cuál le interesa?», que sola no nombra
+   * ningún dato, y el «XXL» que contestó el cliente se perdía: no se
+   * guardaba en la ficha y se le volvía a preguntar la talla dos turnos
+   * después, ya con el pedido de una docena delante. Si la pregunta aislada
+   * no dice de qué dato se trata, se mira el mensaje entero.
+   */
+  return campoDeLaPregunta(pregunta) ?? campoDeLaPregunta(previo.content);
 }
 
 /**
@@ -526,7 +536,9 @@ function fichaDe(sesion: MensajeDeMemoria[], datos: DatosPais | null): FichaDelP
     const respuesta = contesto.content.trim();
 
     // Si el agente hizo varias preguntas, la contestación es de la última.
-    const campo = campoDeLaPregunta(pregunta);
+    // Y si esa pregunta sola no nombra el dato —«Necesito su talla. ¿Cuál le
+    // interesa?»—, se mira el mensaje entero. Ver `campoPendiente`.
+    const campo = campoDeLaPregunta(pregunta) ?? campoDeLaPregunta(m.content);
     if (!campo || !contestaDeVerdad(campo, respuesta, datos)) continue;
 
     if (campo === "celular") {

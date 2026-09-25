@@ -72,6 +72,29 @@ test("un «39» después de «¿qué número calza?» es el número que calza, y
   assert.deepEqual(preguntasRepetidas("¿En qué provincia se encuentra?", f), []);
 });
 
+/**
+ * EL DATO SE NOMBRA ANTES DE LA PREGUNTA, Y AQUÍ TAMBIÉN CUENTA.
+ *
+ * El caso real (RD): «Para enviárselo necesito su talla. ¿Cuál le interesa?»
+ * — el cliente contestó «XXL», y dos turnos después, ya pidiendo una docena,
+ * el agente le volvió a preguntar la talla. La pregunta que se aísla es solo
+ * «¿Cuál le interesa?», que sola no nombra ningún dato: la palabra «talla»
+ * está en la frase de ANTES, y se perdía.
+ */
+test("«Necesito su talla. ¿Cuál le interesa?» también guarda la talla, aunque la pregunta sola no la nombre", () => {
+  const f = fichaDelPedido(
+    [
+      { emisor: "ia", content: "Para enviárselo necesito su talla. ¿Cuál le interesa?" },
+      { emisor: "cliente", content: "XXL" },
+      { emisor: "cliente", content: "Te voy a comprar 1 docena para probar y luego voy a comprar más y pantalones" },
+    ],
+    rd,
+  );
+  assert.equal(f.talla, "XXL");
+  assert.equal(f.cantidad, "12");
+  assert.ok(preguntasRepetidas("¿Qué talla le interesa?", f).some((x) => x.includes("talla")));
+});
+
 test("la ficha se arma sola con lo que el cliente contestó", () => {
   const f = fichaDelPedido(hilo, rd);
   assert.equal(f.talla, "la 42");
