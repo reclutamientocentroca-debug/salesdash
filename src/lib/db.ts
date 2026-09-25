@@ -3304,7 +3304,24 @@ export function canalPorPaisDeLink(orgId: number, url: string): number | null {
   }
   if (!codigo) return null;
 
-  const candidatos = listarCanales(orgId).filter((c) => obtenerAgente(orgId, c.id).pais === codigo);
+  /*
+   * SOLO LECTURA. `obtenerAgente` crea la fila del agente si no existe —bien
+   * para cuando de verdad hace falta el agente completo, mal aquí: esto es un
+   * simple «¿este canal es de este país?» que se ejecuta en cada canal de la
+   * cuenta. Con `obtenerAgente` de por medio, un canal recién conectado y
+   * todavía sin abrir en «Configurar agente» nacía con su fila y su país
+   * adivinado por el prefijo del teléfono —efecto secundario de una búsqueda
+   * que a él ni le tocaba—, por el solo hecho de que alguien importó un
+   * producto por link en OTRO canal de la misma cuenta.
+   */
+  const paisDelCanal = (canalId: number): string | null => {
+    const fila = s(`SELECT pais FROM agentes WHERE org_id = ? AND canal_id = ?`).get(orgId, canalId) as
+      | { pais: string }
+      | undefined;
+    return fila?.pais || null;
+  };
+
+  const candidatos = listarCanales(orgId).filter((c) => paisDelCanal(c.id) === codigo);
   return candidatos.length === 1 ? candidatos[0]!.id : null;
 }
 

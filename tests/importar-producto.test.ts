@@ -211,3 +211,34 @@ test("el producto se asigna al número del país del link, cuando hay un único 
     "con dos números del mismo país no hay uno solo que adivinar",
   );
 });
+
+/**
+ * EL LOOKUP NO CREA AGENTES DE PASO.
+ *
+ * `canalPorPaisDeLink` mira el país de cada canal con `obtenerAgente`, y esa
+ * función, si el canal no tiene fila de agente todavía, la crea sola —copia
+ * la plantilla y adivina el país por el prefijo del teléfono—. Un canal recién
+ * conectado que nadie ha abierto en «Configurar agente» no debería nacer con
+ * su país adivinado solo porque, en OTRO canal de la misma cuenta, alguien
+ * importó un producto por link.
+ */
+test("canalPorPaisDeLink no crea el agente de un canal que todavía no tiene uno", () => {
+  const { orgId } = D.crearOrgConDueno({
+    negocio: "PruebaSinCrear", color: "#123456", nombre: "Dueña",
+    email: `sin-crear-${Date.now()}@prueba.local`, passwordHash: "x",
+  });
+  const canalCr = D.crearCanal(orgId, {
+    nombre: "CR", phone: "50685550002", tokenCifrado: "x", webhookSecret: "x", whapiChannelId: null,
+  });
+  D.actualizarAgente(orgId, { pais: "cr" }, canalCr);
+
+  // Recién conectado, sin abrir «Configurar agente»: no tiene fila en `agentes`.
+  const canalNuevo = D.crearCanal(orgId, {
+    nombre: "RD nuevo", phone: "18095550099", tokenCifrado: "x", webhookSecret: "x", whapiChannelId: null,
+  });
+
+  D.canalPorPaisDeLink(orgId, "https://do.roplis.com/1577/chacabana");
+
+  const yaTieneFila = D.listarAgentes(orgId).some((a) => a.canal_id === canalNuevo);
+  assert.equal(yaTieneFila, false, "el lookup no debe crear la fila del agente de un canal sin configurar");
+});
