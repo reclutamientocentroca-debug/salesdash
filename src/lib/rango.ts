@@ -148,3 +148,19 @@ export function periodoEnHuso(p: Periodo, huso: string, ahora: number = Date.now
   if (!p.clave) return p;
   return rangoAEpochs(p.clave, huso, ahora);
 }
+
+const DIA_ISO: Record<string, number> = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };
+
+/**
+ * QUÉ DÍA DE LA SEMANA ES ALLÁ, en ISO (1 = lunes … 7 = domingo).
+ *
+ * Lo usa el motor de difusiones (`src/lib/difusion.ts`) para saber si hoy
+ * cae dentro de los días que eligió la dueña («lunes a viernes») EN LA HORA
+ * DEL DESTINATARIO: a las 11 de la noche del domingo en Santo Domingo, en UTC
+ * ya puede ser lunes, y contar el día por el reloj del servidor mandaría un
+ * mensaje de domingo un lunes que allá todavía no empezó.
+ */
+export function diaDeLaSemanaEn(huso: string, ms: number = Date.now()): number {
+  const nombre = new Intl.DateTimeFormat("en-US", { timeZone: huso, weekday: "short" }).format(new Date(ms));
+  return DIA_ISO[nombre] ?? 1;
+}

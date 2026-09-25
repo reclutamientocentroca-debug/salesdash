@@ -20,7 +20,8 @@ import type { Database as DB, Statement } from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { obtenerPais, paisDeTelefono } from "./paises";
-import { desfaseMs, husoDelServidor, periodoEnHuso } from "./rango";
+import { desfaseMs, husoDelServidor, periodoEnHuso, rangoAEpochs } from "./rango";
+import { esGrupo, jidDeTelefono, normalizarTelefono } from "./telefono";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Modelos por defecto
@@ -586,6 +587,124 @@ CREATE TABLE IF NOT EXISTS recalculos (
   informe TEXT NOT NULL,
   PRIMARY KEY (org_id, clave)
 );
+
+/*
+ * DIFUSIONES — envío masivo de WhatsApp por campaña, controlado.
+ *
+ * Vive aparte de \`seguimientos\` (que es solo un log de dedupe de
+ * recordatorios «en visto», sin programación ni pausa) porque una campaña
+ * necesita programación por día, pausa/reanudación y un tope diario que
+ * sobrevivan a un redespliegue — todo en SQLite, sin cola externa. Ver
+ * \`src/lib/difusion.ts\`.
+ */
+CREATE TABLE IF NOT EXISTS difusion_listas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id INTEGER NOT NULL REFERENCES orgs(id),
+  nombre TEXT NOT NULL,
+  tipo TEXT CHECK(tipo IN ('automatica','csv')) NOT NULL,
+  /* Los filtros de una lista automática (país, canal, fechas, producto), en JSON. Vacío en una lista csv. */
+  filtros TEXT,
+  creado_por INTEGER REFERENCES users(id),
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  actualizado_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+CREATE INDEX IF NOT EXISTS idx_difusion_listas_org ON difusion_listas(org_id);
+
+-- Los contactos de una lista SUBIDA por CSV. Una lista automática no guarda
+-- filas aquí: se resuelve en el momento contra conversations/canales.
+CREATE TABLE IF NOT EXISTS difusion_lista_clientes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id INTEGER NOT NULL REFERENCES orgs(id),
+  lista_id INTEGER NOT NULL REFERENCES difusion_listas(id) ON DELETE CASCADE,
+  telefono TEXT NOT NULL,
+  nombre TEXT,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+CREATE INDEX IF NOT EXISTS idx_difusion_lista_clientes_lista ON difusion_lista_clientes(lista_id);
+
+/*
+ * QUIEN DIJO «SALIR» NO VUELVE A RECIBIR NADA. Global por cuenta, no por
+ * campaña ni por canal. Se consulta al congelar los destinatarios de una
+ * campaña nueva Y otra vez justo antes de cada envío —defensa en
+ * profundidad, por si el cliente pidió salir DESPUÉS de que la campaña ya lo
+ * tenía en cola—.
+ */
+CREATE TABLE IF NOT EXISTS difusion_exclusiones (
+  org_id INTEGER NOT NULL REFERENCES orgs(id),
+  telefono TEXT NOT NULL,
+  motivo TEXT,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  PRIMARY KEY (org_id, telefono)
+);
+
+CREATE TABLE IF NOT EXISTS difusion_campanas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id INTEGER NOT NULL REFERENCES orgs(id),
+  canal_id INTEGER NOT NULL REFERENCES canales(id),
+  lista_id INTEGER NOT NULL REFERENCES difusion_listas(id),
+  nombre TEXT NOT NULL,
+  modo TEXT CHECK(modo IN ('qr','oficial')) NOT NULL DEFAULT 'qr',
+  mensaje_base TEXT NOT NULL,
+  -- Las variaciones que la dueña aprobó, en JSON (string[]). Cada
+  -- destinatario recibe una, repartidas en orden round-robin.
+  variaciones TEXT,
+  -- La clave del archivo de imagen (ver media.ts), no la ruta ni los bytes.
+  imagen_clave TEXT,
+  producto_catalogo_id INTEGER REFERENCES catalogo(id),
+  producto_nombre TEXT,
+  producto_precio REAL,
+  mensajes_por_dia INTEGER NOT NULL,
+  -- «1,2,3,4,5» = lunes a viernes (ISO: 1=lunes .. 7=domingo).
+  dias_semana TEXT NOT NULL,
+  hora_desde TEXT NOT NULL,
+  hora_hasta TEXT NOT NULL,
+  pausa_min_seg INTEGER NOT NULL DEFAULT 20,
+  pausa_max_seg INTEGER NOT NULL DEFAULT 90,
+  estado TEXT CHECK(estado IN ('borrador','activa','pausada','auto_pausada','terminada','cancelada')) NOT NULL DEFAULT 'borrador',
+  motivo_auto_pausa TEXT,
+  costo_estimado_por_mensaje REAL NOT NULL DEFAULT 0.06,
+  costo_moneda TEXT NOT NULL DEFAULT 'USD',
+  creado_por INTEGER REFERENCES users(id),
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  iniciada_at INTEGER,
+  terminada_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_difusion_campanas_org ON difusion_campanas(org_id);
+CREATE INDEX IF NOT EXISTS idx_difusion_campanas_estado ON difusion_campanas(estado, canal_id);
+
+/*
+ * UN DESTINATARIO, UNA CAMPAÑA, UNA SOLA VEZ. El UNIQUE de abajo es lo que de
+ * verdad impide el doble envío al pausar y reanudar una campaña — no la
+ * memoria del proceso, que se pierde en cada redespliegue.
+ */
+CREATE TABLE IF NOT EXISTS difusion_destinatarios (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  campana_id INTEGER NOT NULL REFERENCES difusion_campanas(id) ON DELETE CASCADE,
+  org_id INTEGER NOT NULL REFERENCES orgs(id),
+  canal_id INTEGER NOT NULL REFERENCES canales(id),
+  telefono TEXT NOT NULL,
+  jid TEXT,
+  nombre TEXT,
+  -- El país (do/cr/pa…) para saber en qué huso horario cae este destinatario.
+  -- Nulo = se usa el país del canal.
+  pais TEXT,
+  estado TEXT CHECK(estado IN ('pendiente','en_progreso','enviado','fallo','excluido')) NOT NULL DEFAULT 'pendiente',
+  variacion_usada INTEGER,
+  -- EL TEXTO EXACTO que se le mandó, ya con {nombre}/{producto} resueltos.
+  -- Sin esto no hay forma de reconstruir qué leyó este cliente en particular
+  -- ni de sembrar su primer mensaje cuando responde y nace la conversación.
+  mensaje_enviado TEXT,
+  whapi_message_id TEXT,
+  intento_at INTEGER,
+  enviado_at INTEGER,
+  entregado_at INTEGER,
+  error TEXT,
+  -- El orden de envío dentro de la campaña, ya barajado al congelar la lista.
+  orden INTEGER NOT NULL,
+  UNIQUE(campana_id, telefono)
+);
+CREATE INDEX IF NOT EXISTS idx_difusion_destinatarios_cola ON difusion_destinatarios(campana_id, estado, orden);
+CREATE INDEX IF NOT EXISTS idx_difusion_destinatarios_msg ON difusion_destinatarios(whapi_message_id);
 `;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -888,6 +1007,20 @@ function migrar(conexion: DB): void {
    * pueden ser de ventas cerradas días atrás. Ver `marcarFacturada`.
    */
   agregarColumna("conversations", "facturada_at", "INTEGER");
+
+  /*
+   * conversations: DE QUÉ CAMPAÑA DE DIFUSIÓN VINO ESTE CLIENTE.
+   *
+   * Gemelas de meta_ad_id/producto_anuncio/descripcion_anuncio, pero para una
+   * campaña de difusión en vez de un anuncio de Meta: solo se escriben en el
+   * INSERT inicial de la conversación (ver ingesta.ts, campanaDeUltimoEnvio),
+   * nunca se pisan después. Deliberadamente separadas de las columnas de
+   * anuncio: mezclarlas ahí falsearía «leads por publicidad pagada» con leads
+   * que vinieron de un mensaje nuestro por WhatsApp, no de Meta Ads.
+   */
+  agregarColumna("conversations", "campana_id", "INTEGER");
+  agregarColumna("conversations", "producto_difusion", "TEXT");
+  agregarColumna("conversations", "precio_difusion", "REAL");
 
   /*
    * agentes: los dos seguimientos.
@@ -1503,6 +1636,12 @@ export interface Conversacion {
    * precio por mayor, tallas y colores. Ver `leerProductoDelAnuncio`.
    */
   producto_lead: string | null;
+  /**
+   * DE QUÉ CAMPAÑA DE DIFUSIÓN VINO ESTE CLIENTE, si vino de una. Gemelas de
+   * `producto_anuncio`/`descripcion_anuncio`, pero para difusión — nunca las
+   * dos a la vez en la práctica. Ver `campanaDeUltimoEnvio` en ingesta.ts.
+   */
+  campana_id: number | null; producto_difusion: string | null; precio_difusion: number | null;
 }
 
 export interface Mensaje {
@@ -1915,6 +2054,15 @@ export function getOrCreateConversation(
     superficie?: string | null; metaAdId?: string | null; red?: string | null;
     /** La dirección exacta a la que se le contesta. Ver `cliente_jid`. */
     jid?: string | null;
+    /**
+     * DE QUÉ CAMPAÑA DE DIFUSIÓN VINO ESTE CLIENTE, si vino de una. A
+     * diferencia del anuncio, esto SOLO se escribe al crear la conversación
+     * (más abajo): si el hilo ya existía, este cliente escribió por su
+     * cuenta o por otro motivo antes de que existiera esta campaña, y
+     * adjudicárselo retroactivamente sería inventar de dónde vino. Ver
+     * `campanaDeUltimoEnvio` en ingesta.ts.
+     */
+    campanaId?: number | null; productoDifusion?: string | null; precioDifusion?: number | null;
   } = {},
 ): { conversacion: Conversacion; nueva: boolean } {
   const existente = s(
@@ -1987,13 +2135,15 @@ export function getOrCreateConversation(
   const r = s(
     `INSERT INTO conversations
        (org_id, canal_id, cliente_phone, cliente_jid, cliente_nombre, origen, producto_anuncio, descripcion_anuncio,
-        anuncio_actual_producto, anuncio_actual_descripcion, superficie, meta_ad_id, red, fecha_inicio, last_message_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        anuncio_actual_producto, anuncio_actual_descripcion, superficie, meta_ad_id, red, fecha_inicio, last_message_at,
+        campana_id, producto_difusion, precio_difusion)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     orgId, canalId, clientePhone, datos.jid ?? null, datos.nombre ?? null,
     datos.origen ?? null, datos.productoAnuncio ?? null, datos.descripcionAnuncio ?? null,
     datos.productoAnuncio ?? null, datos.descripcionAnuncio ?? null,
     datos.superficie ?? null, datos.metaAdId ?? null, datos.red ?? null, cuando, cuando,
+    datos.campanaId ?? null, datos.productoDifusion ?? null, datos.precioDifusion ?? null,
   );
 
   return {
@@ -3820,11 +3970,30 @@ export function productosDeAnuncio(
   ).all(...val) as { producto: string | null; descripcion: string | null; leads: number; cerrados: number }[];
 }
 
+/**
+ * Gemela de `deAnuncio()`, para las campañas de difusión. Deliberadamente
+ * separada: mezclar un lead de difusión (un mensaje nuestro por WhatsApp) con
+ * los de `deAnuncio` (publicidad pagada de Meta) falsearía cuánto rinde cada
+ * uno. Ver la nota de diseño en `src/lib/difusion.ts`.
+ */
+export const deDifusion = (p = "") =>
+  `(COALESCE(${p}origen, '') = 'difusion' OR ${p}campana_id IS NOT NULL)`;
+
+const DE_DIFUSION = deDifusion();
+
 export function leadsPorSuCuenta(orgId: number, r: Rango): number {
   const { where, val } = filtroRango(orgId, r);
   return (s(
     `SELECT COUNT(*) AS n FROM conversations
-      WHERE ${where} AND NOT ${DE_ANUNCIO}`,
+      WHERE ${where} AND NOT ${DE_ANUNCIO} AND NOT ${DE_DIFUSION}`,
+  ).get(...val) as { n: number }).n;
+}
+
+export function leadsPorDifusion(orgId: number, r: Rango): number {
+  const { where, val } = filtroRango(orgId, r);
+  return (s(
+    `SELECT COUNT(*) AS n FROM conversations
+      WHERE ${where} AND ${DE_DIFUSION}`,
   ).get(...val) as { n: number }).n;
 }
 
@@ -4868,4 +5037,408 @@ export function asentadasSinAnalizar(
       ORDER BY last_message_at ASC
       LIMIT ?`,
   ).all(orgId, desde, hasta, limite) as Conversacion[];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Difusiones — envío masivo de WhatsApp por campaña. Ver `src/lib/difusion.ts`
+// para el motor que programa y manda; aquí solo el acceso a datos.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ListaDifusion {
+  id: number; org_id: number; nombre: string; tipo: "automatica" | "csv";
+  filtros: string | null; creado_por: number | null;
+  created_at: number; actualizado_at: number;
+}
+
+export function crearListaDifusion(orgId: number, datos: {
+  nombre: string; tipo: "automatica" | "csv";
+  filtros?: Record<string, unknown> | null; creadoPor?: number | null;
+}): number {
+  const r = s(
+    `INSERT INTO difusion_listas (org_id, nombre, tipo, filtros, creado_por) VALUES (?, ?, ?, ?, ?)`,
+  ).run(
+    orgId, datos.nombre, datos.tipo,
+    datos.filtros ? JSON.stringify(datos.filtros) : null, datos.creadoPor ?? null,
+  );
+  return Number(r.lastInsertRowid);
+}
+
+export function listarListasDifusion(orgId: number): ListaDifusion[] {
+  return s(`SELECT * FROM difusion_listas WHERE org_id = ? ORDER BY created_at DESC`)
+    .all(orgId) as ListaDifusion[];
+}
+
+export function obtenerListaDifusion(orgId: number, id: number): ListaDifusion | undefined {
+  return s(`SELECT * FROM difusion_listas WHERE org_id = ? AND id = ?`)
+    .get(orgId, id) as ListaDifusion | undefined;
+}
+
+/** Los clientes de una lista CSV, ya subidos. Para una automática, ver `resolverListaAutomatica`. */
+export function clientesDeListaCsv(
+  orgId: number, listaId: number,
+): { telefono: string; nombre: string | null }[] {
+  return s(`SELECT telefono, nombre FROM difusion_lista_clientes WHERE org_id = ? AND lista_id = ?`)
+    .all(orgId, listaId) as { telefono: string; nombre: string | null }[];
+}
+
+/** Sustituye enteros los clientes de una lista CSV: una subida nueva reemplaza a la anterior. */
+export function guardarClientesCsv(
+  orgId: number, listaId: number, filas: { telefono: string; nombre: string | null }[],
+): number {
+  const tx = db.transaction(() => {
+    s(`DELETE FROM difusion_lista_clientes WHERE org_id = ? AND lista_id = ?`).run(orgId, listaId);
+    const insertar = s(
+      `INSERT INTO difusion_lista_clientes (org_id, lista_id, telefono, nombre) VALUES (?, ?, ?, ?)`,
+    );
+    for (const f of filas) insertar.run(orgId, listaId, f.telefono, f.nombre ?? null);
+    s(`UPDATE difusion_listas SET actualizado_at = unixepoch() WHERE org_id = ? AND id = ?`)
+      .run(orgId, listaId);
+    return filas.length;
+  });
+  return tx();
+}
+
+export interface FiltrosListaAutomatica {
+  /** El canal decide el país y la moneda: filtrar por canal ES filtrar por país/tienda. */
+  canalId?: number | null;
+  desde?: number | null; hasta?: number | null; // fecha_cierre, epoch
+  producto?: string | null; // contra producto_vendido, con LIKE
+  soloConCompra?: boolean;
+}
+
+/**
+ * EL NOMBRE «REAL» DE UNA LÍNEA DE RESUMEN: «Nombre: Juan Pérez» → «Juan
+ * Pérez». Es lo único, en toda esta tabla, que el CLIENTE escribió con su
+ * boca —el resumen lo arma el guion con lo que él dio en el paso del
+ * nombre—. `cliente_nombre` NO sirve para esto: es el nombre del PERFIL de
+ * WhatsApp, y la dueña pidió explícitamente no usarlo para saludar en una
+ * difusión.
+ */
+function nombreRealDelResumen(resumen: string | null): string | null {
+  if (!resumen) return null;
+  const m = resumen.match(/^\s*Nombre:\s*(.+?)\s*$/im);
+  const nombre = m?.[1]?.trim();
+  return nombre && nombre.length > 1 ? nombre : null;
+}
+
+/**
+ * Resuelve una lista automática CONTRA `conversations`, en el momento: no
+ * guarda filas propias, siempre lee lo último que hay. Un cliente con más de
+ * un hilo en el canal cuenta una sola vez, con el resumen más reciente.
+ */
+export function resolverListaAutomatica(
+  orgId: number, filtros: FiltrosListaAutomatica,
+): { telefono: string; nombre: string | null; canal_id: number }[] {
+  const cond: string[] = ["org_id = ?"];
+  const val: unknown[] = [orgId];
+  if (filtros.canalId) { cond.push("canal_id = ?"); val.push(filtros.canalId); }
+  if (filtros.soloConCompra) cond.push("fecha_cierre IS NOT NULL");
+  if (filtros.desde) { cond.push("fecha_cierre >= ?"); val.push(filtros.desde); }
+  if (filtros.hasta) { cond.push("fecha_cierre <= ?"); val.push(filtros.hasta); }
+  if (filtros.producto) { cond.push("producto_vendido LIKE ?"); val.push(`%${filtros.producto}%`); }
+  const filas = s(
+    `SELECT cliente_phone AS telefono, canal_id, MAX(resumen_pedido) AS resumen_pedido
+       FROM conversations
+      WHERE ${cond.join(" AND ")}
+      GROUP BY cliente_phone, canal_id`,
+  ).all(...val) as { telefono: string; canal_id: number; resumen_pedido: string | null }[];
+  return filas.map((f) => ({
+    telefono: f.telefono, canal_id: f.canal_id, nombre: nombreRealDelResumen(f.resumen_pedido),
+  }));
+}
+
+/**
+ * QUIEN DIJO «SALIR» NO VUELVE A RECIBIR NADA. Global por cuenta: se llama
+ * desde `ingesta.ts` para TODO mensaje entrante, tenga o no conversación
+ * abierta, y desde `congelarDestinatarios`/el motor como defensa en
+ * profundidad.
+ */
+export function registrarExclusion(orgId: number, telefono: string, motivo: string): void {
+  s(
+    `INSERT INTO difusion_exclusiones (org_id, telefono, motivo) VALUES (?, ?, ?)
+       ON CONFLICT(org_id, telefono) DO NOTHING`,
+  ).run(orgId, telefono, motivo);
+}
+
+export function estaExcluido(orgId: number, telefono: string): boolean {
+  return !!s(`SELECT 1 AS x FROM difusion_exclusiones WHERE org_id = ? AND telefono = ?`)
+    .get(orgId, telefono);
+}
+
+export function listarExcluidos(
+  orgId: number,
+): { telefono: string; motivo: string | null; created_at: number }[] {
+  return s(`SELECT telefono, motivo, created_at FROM difusion_exclusiones WHERE org_id = ? ORDER BY created_at DESC`)
+    .all(orgId) as { telefono: string; motivo: string | null; created_at: number }[];
+}
+
+export type EstadoCampana = "borrador" | "activa" | "pausada" | "auto_pausada" | "terminada" | "cancelada";
+
+export interface CampanaDifusion {
+  id: number; org_id: number; canal_id: number; lista_id: number; nombre: string;
+  modo: "qr" | "oficial"; mensaje_base: string; variaciones: string | null; imagen_clave: string | null;
+  producto_catalogo_id: number | null; producto_nombre: string | null; producto_precio: number | null;
+  mensajes_por_dia: number; dias_semana: string; hora_desde: string; hora_hasta: string;
+  pausa_min_seg: number; pausa_max_seg: number;
+  estado: EstadoCampana; motivo_auto_pausa: string | null;
+  costo_estimado_por_mensaje: number; costo_moneda: string;
+  creado_por: number | null; created_at: number; iniciada_at: number | null; terminada_at: number | null;
+}
+
+export function crearCampanaDifusion(orgId: number, datos: {
+  canalId: number; listaId: number; nombre: string; modo: "qr" | "oficial"; mensajeBase: string;
+  variaciones?: string[] | null; imagenClave?: string | null;
+  productoCatalogoId?: number | null; productoNombre?: string | null; productoPrecio?: number | null;
+  mensajesPorDia: number; diasSemana: number[]; horaDesde: string; horaHasta: string;
+  pausaMinSeg?: number; pausaMaxSeg?: number;
+  costoEstimadoPorMensaje?: number; costoMoneda?: string; creadoPor?: number | null;
+}): number {
+  const r = s(
+    `INSERT INTO difusion_campanas
+       (org_id, canal_id, lista_id, nombre, modo, mensaje_base, variaciones, imagen_clave,
+        producto_catalogo_id, producto_nombre, producto_precio, mensajes_por_dia, dias_semana,
+        hora_desde, hora_hasta, pausa_min_seg, pausa_max_seg, costo_estimado_por_mensaje, costo_moneda, creado_por)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    orgId, datos.canalId, datos.listaId, datos.nombre, datos.modo, datos.mensajeBase,
+    datos.variaciones ? JSON.stringify(datos.variaciones) : null, datos.imagenClave ?? null,
+    datos.productoCatalogoId ?? null, datos.productoNombre ?? null, datos.productoPrecio ?? null,
+    datos.mensajesPorDia, datos.diasSemana.join(","), datos.horaDesde, datos.horaHasta,
+    datos.pausaMinSeg ?? 20, datos.pausaMaxSeg ?? 90,
+    datos.costoEstimadoPorMensaje ?? 0.06, datos.costoMoneda ?? "USD", datos.creadoPor ?? null,
+  );
+  return Number(r.lastInsertRowid);
+}
+
+export function obtenerCampana(orgId: number, id: number): CampanaDifusion | undefined {
+  return s(`SELECT * FROM difusion_campanas WHERE org_id = ? AND id = ?`)
+    .get(orgId, id) as CampanaDifusion | undefined;
+}
+
+export function listarCampanas(orgId: number): CampanaDifusion[] {
+  return s(`SELECT * FROM difusion_campanas WHERE org_id = ? ORDER BY created_at DESC`)
+    .all(orgId) as CampanaDifusion[];
+}
+
+export function actualizarEstadoCampana(
+  orgId: number, id: number, estado: EstadoCampana, motivoAutoPausa: string | null = null,
+): void {
+  s(
+    `UPDATE difusion_campanas
+        SET estado = ?, motivo_auto_pausa = ?,
+            iniciada_at = CASE WHEN ? = 'activa' THEN COALESCE(iniciada_at, unixepoch()) ELSE iniciada_at END,
+            terminada_at = CASE WHEN ? IN ('terminada','cancelada') THEN unixepoch() ELSE terminada_at END
+      WHERE org_id = ? AND id = ?`,
+  ).run(estado, motivoAutoPausa, estado, estado, orgId, id);
+}
+
+export function cambiarMensajesPorDia(orgId: number, id: number, n: number): void {
+  s(`UPDATE difusion_campanas SET mensajes_por_dia = ? WHERE org_id = ? AND id = ?`).run(n, orgId, id);
+}
+
+/**
+ * CONGELA LOS DESTINATARIOS de una campaña: descarta grupos y excluidos,
+ * baraja el orden y guarda uno por teléfono. `UNIQUE(campana_id, telefono)`
+ * es la garantía dura contra el doble envío —no la memoria del proceso—, así
+ * que llamar esto dos veces para la misma campaña no duplica nada.
+ */
+export function congelarDestinatarios(
+  orgId: number, campanaId: number, canalId: number,
+  clientes: { telefono: string; nombre: string | null }[],
+): number {
+  const tx = db.transaction(() => {
+    const insertar = s(
+      `INSERT OR IGNORE INTO difusion_destinatarios
+         (campana_id, org_id, canal_id, telefono, jid, nombre, pais, orden)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    // Barajado para que el orden de envío no delate de dónde salió la lista.
+    const barajados = [...clientes].sort(() => Math.random() - 0.5);
+    let n = 0;
+    barajados.forEach((c, i) => {
+      const telefono = normalizarTelefono(c.telefono);
+      if (telefono.length < 8 || esGrupo(c.telefono)) return;
+      if (estaExcluido(orgId, telefono)) return;
+      const pais = paisDeTelefono(telefono)?.codigo ?? null;
+      const r = insertar.run(
+        campanaId, orgId, canalId, telefono, jidDeTelefono(telefono), c.nombre ?? null, pais, i,
+      );
+      if (r.changes > 0) n++;
+    });
+    return n;
+  });
+  return tx();
+}
+
+export interface DestinatarioDifusion {
+  id: number; campana_id: number; org_id: number; canal_id: number; telefono: string; jid: string | null;
+  nombre: string | null; pais: string | null;
+  estado: "pendiente" | "en_progreso" | "enviado" | "fallo" | "excluido";
+  variacion_usada: number | null; mensaje_enviado: string | null; whapi_message_id: string | null;
+  intento_at: number | null; enviado_at: number | null; entregado_at: number | null;
+  error: string | null; orden: number;
+}
+
+/** Los candidatos a enviar, en orden — el motor decide en JS si HOY y AHORA les toca, según su país. */
+export function pendientesDeCampana(orgId: number, campanaId: number, limite: number): DestinatarioDifusion[] {
+  return s(
+    `SELECT * FROM difusion_destinatarios
+      WHERE org_id = ? AND campana_id = ? AND estado = 'pendiente' ORDER BY orden ASC LIMIT ?`,
+  ).all(orgId, campanaId, limite) as DestinatarioDifusion[];
+}
+
+export function marcarDestinatarioEnProgreso(orgId: number, id: number): void {
+  s(`UPDATE difusion_destinatarios SET estado = 'en_progreso', intento_at = unixepoch() WHERE org_id = ? AND id = ?`)
+    .run(orgId, id);
+}
+
+/**
+ * Defensa en profundidad: el cliente pidió «SALIR» DESPUÉS de que la campaña
+ * ya lo tenía en cola. No se manda, y se deja marcado para no volver a
+ * comprobarlo en cada vuelta del reloj.
+ */
+export function marcarDestinatarioExcluido(orgId: number, id: number): void {
+  s(`UPDATE difusion_destinatarios SET estado = 'excluido' WHERE org_id = ? AND id = ?`).run(orgId, id);
+}
+
+export function marcarEnvio(
+  orgId: number,
+  id: number,
+  resultado:
+    | { ok: true; whapiMessageId: string; variacionUsada: number | null; mensajeEnviado: string }
+    | { ok: false; error: string },
+): void {
+  if (resultado.ok) {
+    s(
+      `UPDATE difusion_destinatarios
+          SET estado = 'enviado', whapi_message_id = ?, variacion_usada = ?, mensaje_enviado = ?,
+              enviado_at = unixepoch(), error = NULL
+        WHERE org_id = ? AND id = ?`,
+    ).run(resultado.whapiMessageId, resultado.variacionUsada, resultado.mensajeEnviado, orgId, id);
+  } else {
+    s(`UPDATE difusion_destinatarios SET estado = 'fallo', error = ? WHERE org_id = ? AND id = ?`)
+      .run(resultado.error, orgId, id);
+  }
+}
+
+/** El ACK de entrega de Baileys, para poder contar «entregados» en modo QR. */
+export function marcarEntregado(orgId: number, whapiMessageId: string): void {
+  s(
+    `UPDATE difusion_destinatarios SET entregado_at = unixepoch()
+      WHERE org_id = ? AND whapi_message_id = ? AND entregado_at IS NULL`,
+  ).run(orgId, whapiMessageId);
+}
+
+/** Cuántos van enviados HOY por este canal — de todas sus campañas, que el tope es del número. */
+export function enviosHoyDelCanal(orgId: number, canalId: number, huso: string): number {
+  const { desde, hasta } = rangoAEpochs("hoy", huso);
+  return (s(
+    `SELECT COUNT(*) AS n FROM difusion_destinatarios
+      WHERE org_id = ? AND canal_id = ? AND estado = 'enviado' AND enviado_at BETWEEN ? AND ?`,
+  ).get(orgId, canalId, desde, hasta) as { n: number }).n;
+}
+
+/** Los últimos N intentos resueltos (enviado o fallo) de una campaña, para la auto-pausa por fallos. */
+export function ultimosIntentos(orgId: number, campanaId: number, n: number): { estado: string }[] {
+  return s(
+    `SELECT estado FROM difusion_destinatarios
+      WHERE org_id = ? AND campana_id = ? AND estado IN ('enviado','fallo')
+      ORDER BY intento_at DESC LIMIT ?`,
+  ).all(orgId, campanaId, n) as { estado: string }[];
+}
+
+export function quedanPendientes(orgId: number, campanaId: number): boolean {
+  return !!s(
+    `SELECT 1 AS x FROM difusion_destinatarios WHERE org_id = ? AND campana_id = ? AND estado = 'pendiente' LIMIT 1`,
+  ).get(orgId, campanaId);
+}
+
+export function resumenDestinatarios(orgId: number, campanaId: number): {
+  pendientes: number; en_progreso: number; enviados: number; entregados: number; fallos: number; excluidos: number;
+} {
+  const fila = s(
+    `SELECT
+        SUM(CASE WHEN estado='pendiente' THEN 1 ELSE 0 END) AS pendientes,
+        SUM(CASE WHEN estado='en_progreso' THEN 1 ELSE 0 END) AS en_progreso,
+        SUM(CASE WHEN estado='enviado' THEN 1 ELSE 0 END) AS enviados,
+        SUM(CASE WHEN entregado_at IS NOT NULL THEN 1 ELSE 0 END) AS entregados,
+        SUM(CASE WHEN estado='fallo' THEN 1 ELSE 0 END) AS fallos,
+        SUM(CASE WHEN estado='excluido' THEN 1 ELSE 0 END) AS excluidos
+     FROM difusion_destinatarios WHERE org_id = ? AND campana_id = ?`,
+  ).get(orgId, campanaId) as Record<string, number | null>;
+  return {
+    pendientes: fila.pendientes ?? 0, en_progreso: fila.en_progreso ?? 0, enviados: fila.enviados ?? 0,
+    entregados: fila.entregados ?? 0, fallos: fila.fallos ?? 0, excluidos: fila.excluidos ?? 0,
+  };
+}
+
+/**
+ * ¿ESTE TELÉFONO TIENE UN ENVÍO DE DIFUSIÓN RECIENTE EN ESTE CANAL, SIN
+ * CONVERSACIÓN TODAVÍA? El enganche que hace que, cuando el cliente responde
+ * por primera vez, `getOrCreateConversation` sepa de qué campaña vino. Ver
+ * `ingesta.ts`. Solo mira destinatarios YA `enviado` — uno `pendiente` no se
+ * ha mandado de verdad.
+ */
+export function campanaDeUltimoEnvio(
+  orgId: number, canalId: number, telefono: string,
+): {
+  campana_id: number; producto_nombre: string | null; producto_precio: number | null;
+  whapi_message_id: string | null; mensaje_enviado: string | null; enviado_at: number | null;
+} | null {
+  const fila = s(
+    `SELECT d.campana_id AS campana_id, c.producto_nombre AS producto_nombre, c.producto_precio AS producto_precio,
+            d.whapi_message_id AS whapi_message_id, d.mensaje_enviado AS mensaje_enviado, d.enviado_at AS enviado_at
+       FROM difusion_destinatarios d
+       JOIN difusion_campanas c ON c.id = d.campana_id
+      WHERE d.org_id = ? AND d.canal_id = ? AND d.telefono = ? AND d.estado = 'enviado'
+      ORDER BY d.enviado_at DESC LIMIT 1`,
+  ).get(orgId, canalId, telefono) as
+    | {
+        campana_id: number; producto_nombre: string | null; producto_precio: number | null;
+        whapi_message_id: string | null; mensaje_enviado: string | null; enviado_at: number | null;
+      }
+    | undefined;
+  return fila ?? null;
+}
+
+/**
+ * Los resultados de una campaña, para el panel de seguimiento: enviados,
+ * entregados, quién respondió, quién pidió salir y las ventas que cerró —
+ * mismo criterio de `cerrado_por` que `resumenDeAnuncio`.
+ */
+export function resumenDeCampana(orgId: number, campanaId: number): {
+  enviados: number; entregados: number; respondieron: number; pidieron_salir: number;
+  ventas_ia: number; ventas_humano: number; monto_total: number;
+} {
+  const dest = resumenDestinatarios(orgId, campanaId);
+  const respondieron = (s(`SELECT COUNT(*) AS n FROM conversations WHERE org_id = ? AND campana_id = ?`)
+    .get(orgId, campanaId) as { n: number }).n;
+  const ventas = s(
+    `SELECT SUM(CASE WHEN cerrado_por = 'ia' THEN 1 ELSE 0 END) AS ia,
+            SUM(CASE WHEN cerrado_por = 'humano' THEN 1 ELSE 0 END) AS humano,
+            SUM(CASE WHEN cerrado_por IN ('ia','humano') THEN COALESCE(total,0) ELSE 0 END) AS monto
+       FROM conversations WHERE org_id = ? AND campana_id = ?`,
+  ).get(orgId, campanaId) as { ia: number | null; humano: number | null; monto: number | null };
+  const pidieronSalir = (s(
+    `SELECT COUNT(*) AS n FROM difusion_exclusiones e
+       JOIN difusion_destinatarios d ON d.org_id = e.org_id AND d.telefono = e.telefono
+      WHERE e.org_id = ? AND d.campana_id = ? AND e.created_at >= COALESCE(d.enviado_at, 0)`,
+  ).get(orgId, campanaId) as { n: number }).n;
+  return {
+    enviados: dest.enviados, entregados: dest.entregados, respondieron,
+    pidieron_salir: pidieronSalir, ventas_ia: ventas.ia ?? 0, ventas_humano: ventas.humano ?? 0,
+    monto_total: ventas.monto ?? 0,
+  };
+}
+
+/**
+ * Las campañas `activa`, para el reloj del motor (`src/lib/difusion.ts`).
+ * Misma clase que `orgsConAgente`/`orgsConCanales`: corre en un `setInterval`,
+ * sin sesión de la que deducir una cuenta, así que no puede recibir `orgId`.
+ * Solo devuelve identificadores — todo lo demás se relee con las funciones
+ * normales, que sí llevan `orgId`.
+ */
+export function campanasActivasParaElReloj(): { org_id: number; id: number }[] {
+  return s(`SELECT org_id, id FROM difusion_campanas WHERE estado = 'activa' ORDER BY id ASC`)
+    .all() as { org_id: number; id: number }[];
 }

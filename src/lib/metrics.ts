@@ -9,6 +9,7 @@ import {
   conteoConIntervencionHumana,
   conteoPorEstado,
   resumenDeAnuncio,
+  leadsPorDifusion,
   leadsPorSuCuenta,
   productosDeAnuncio,
   metricasPorCanal,
@@ -146,6 +147,8 @@ export interface Metricas {
   tiempo_promedio_humano: number | null;
 
   escribieron_por_su_cuenta: number;
+  /** Cuántos leads del periodo vinieron de una campaña de difusión. Ver `deDifusion()` en db.ts. */
+  escribieron_por_difusion: number;
 
   cobertura_ia: { valor: number; meta: number; estado: Semaforo };
   efectividad_humana: { valor: number; meta: number; estado: Semaforo };
@@ -358,6 +361,7 @@ export function calcularMetricas(orgId: number, rango: Rango): Metricas {
     tiempo_promedio_humano: tiempos.humano === null ? null : Math.round(tiempos.humano),
 
     escribieron_por_su_cuenta: leadsPorSuCuenta(orgId, rango),
+    escribieron_por_difusion: leadsPorDifusion(orgId, rango),
 
     cobertura_ia: {
       valor: cobertura,

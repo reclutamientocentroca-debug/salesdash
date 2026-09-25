@@ -39,17 +39,20 @@ import {
   insertMessage,
   marcarActividadCanal,
   anuncioMetaPorAdId,
+  campanaDeUltimoEnvio,
   guardarImagenGrandeAnuncio,
   guardarProductoAnunciado,
   guardarProductoLead,
   obtenerAgente,
   registrarAnuncioVisto,
+  registrarExclusion,
   type Canal,
   type Emisor,
   type TipoMensaje,
 } from "@/lib/db";
 import { registrarCierre } from "@/lib/cierre";
 import { descargarImagen, descargarMedia, esDescargable, guardar as guardarArchivo } from "@/lib/media";
+import { detectarOptOut } from "@/lib/opt-out";
 import { esChatDePersona, esGrupo, normalizarTelefono } from "@/lib/telefono";
 
 /**
@@ -219,6 +222,16 @@ export async function ingerir(
     if (!telefono) continue;
 
     /*
+     * «SALIR» DE UNA DIFUSIÓN. Se mira para TODO entrante, tenga o no
+     * conversación abierta: así excluye a este teléfono de TODAS las
+     * campañas futuras de la cuenta, aunque nunca haya tenido un hilo. Ver
+     * `opt-out.ts` y `registrarExclusion`.
+     */
+    if (!m.deMi && detectarOptOut(m.content)) {
+      registrarExclusion(orgId, telefono, "salir");
+    }
+
+    /*
      * Invariante 2 — de quién es este mensaje.
      *
      * Entrante: del cliente. Saliente con su id registrado: nuestro, de la IA.
@@ -245,7 +258,18 @@ export async function ingerir(
         continue;
       }
 
-      const { conversacion } = getOrCreateConversation(orgId, canal.id, telefono, {
+      /*
+       * DE QUÉ CAMPAÑA DE DIFUSIÓN VINO, si es la primera vez que este
+       * cliente escribe en este canal. Solo se mira para una conversación
+       * NUEVA: si ya existía, escribió antes de que esta campaña existiera y
+       * adjudicársela sería inventar de dónde vino. Ver `campanaDeUltimoEnvio`.
+       */
+      const deDifusion =
+        !m.deMi && !existeConversacion(orgId, canal.id, telefono)
+          ? campanaDeUltimoEnvio(orgId, canal.id, telefono)
+          : null;
+
+      const { conversacion, nueva } = getOrCreateConversation(orgId, canal.id, telefono, {
         /*
          * La dirección tal cual llegó, para poder contestarle.
          *
@@ -257,13 +281,36 @@ export async function ingerir(
         // El nombre solo viene en los entrantes; en los salientes es el nuestro.
         nombre: m.deMi ? null : m.nombre,
         cuando: m.cuando,
-        origen: m.deAnuncio ? "anuncio" : null,
+        origen: m.deAnuncio ? "anuncio" : deDifusion ? "difusion" : null,
         superficie: m.superficie ?? null,
         red: m.red ?? null,
         metaAdId: m.metaAdId ?? null,
         productoAnuncio: m.productoAnuncio,
         descripcionAnuncio: m.descripcionAnuncio,
+        campanaId: deDifusion?.campana_id ?? null,
+        productoDifusion: deDifusion?.producto_nombre ?? null,
+        precioDifusion: deDifusion?.producto_precio ?? null,
       });
+
+      /*
+       * EL MENSAJE DE LA DIFUSIÓN, SEMBRADO RETROACTIVO. Cuando se mandó no
+       * había conversación todavía —«un saliente a un desconocido no abre
+       * hilo»—, así que no quedó en `messages`. Ahora que el cliente contestó
+       * y el hilo nace de verdad, se inserta con el MISMO whapi_message_id:
+       * si WhatsApp lo reenvía algún día por el socket, `insertMessage` es
+       * idempotente y no lo duplica. Sin esto, el equipo vería el hilo
+       * empezar con la respuesta del cliente y sin nada de lo que se le mandó.
+       */
+      if (nueva && deDifusion?.whapi_message_id && deDifusion.mensaje_enviado) {
+        insertMessage(orgId, {
+          conversationId: conversacion.id,
+          whapiMessageId: deDifusion.whapi_message_id,
+          emisor: "ia",
+          tipo: "texto",
+          content: deDifusion.mensaje_enviado,
+          createdAt: deDifusion.enviado_at ?? conversacion.fecha_inicio,
+        });
+      }
 
       /*
        * El lead empieza cuando escribió el cliente. Ver `adelantarInicio`: al

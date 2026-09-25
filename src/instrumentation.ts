@@ -128,6 +128,30 @@ export async function register(): Promise<void> {
   supervisor.unref?.();
   setTimeout(pasada, 20_000).unref?.();
 
+  /*
+   * El reloj de difusiones. Ver `src/lib/difusion.ts`.
+   *
+   * Cada 90 segundos: cada vuelta manda como mucho un par de mensajes por
+   * campaña activa. Es ese ritmo corto y frecuente —no un `setTimeout` largo
+   * por mensaje— lo que da el espaciado entre envíos sin depender de nada que
+   * se pierda si el proceso se reinicia a medio camino: todo el estado de
+   * quién falta vive en la base, y el reloj solo retoma donde iba.
+   */
+  const relojDifusiones = setInterval(
+    () => {
+      void (async () => {
+        try {
+          const { tickDifusiones } = await import("@/lib/difusion");
+          await tickDifusiones();
+        } catch (e) {
+          console.error("[arranque] falló el reloj de difusiones", e);
+        }
+      })();
+    },
+    90 * 1000,
+  );
+  relojDifusiones.unref?.();
+
   try {
     const { rehidratar } = await import("@/lib/wa");
     await rehidratar();

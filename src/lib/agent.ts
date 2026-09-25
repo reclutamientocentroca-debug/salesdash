@@ -47,6 +47,7 @@ import { descifrar } from "./auth";
 import { leer as leerArchivo } from "./media";
 import { formatearImporte, leerImporte, monedaDelPais } from "./moneda";
 import { anuncioParaModelo, anuncioVigente, descripcionUtil, textoDelProducto, type DatosAnuncio, type ProductoAnunciado } from "./anuncio";
+import { difusionParaModelo, type DatosDifusion } from "./difusion-contexto";
 import { aperturaSegura, clienteAplazaCompra, clientePideOtraFamilia, familiasNombradas, precioDeLaDescripcion, clienteRenunciaALaCompra, fraseDeTransferencia, laFotoAyudaAElegir, laFotoVaConEstaRespuesta, llevaColor, llevaTalla, nombraUnArticulo, respuestaMinima } from "./apertura";
 import { esMensajeDeSistema } from "./sistema";
 import { contieneMarcador, MARCADOR_POR_DEFECTO, registrarCierre } from "./cierre";
@@ -608,6 +609,13 @@ function husoDelAgente(agente: { pais: string | null }): string | null {
   return obtenerPais(agente.pais)?.husoHorario ?? null;
 }
 
+/** El contexto de difusión de un hilo, en la forma que pide `generarRespuesta`. */
+function difusionDelHilo(conv: Conversacion): DatosDifusion {
+  return {
+    campana_id: conv.campana_id, producto_difusion: conv.producto_difusion, precio_difusion: conv.precio_difusion,
+  };
+}
+
 /**
  * "20:00"–"02:00" también es un horario válido: cruza la medianoche.
  *
@@ -1074,6 +1082,11 @@ export function armarSistema(
    * `lugarEscritoPorElCliente`. Manda el pin del mapa si lo hay: es más exacto.
    */
   lugarEscrito: string | null = null,
+  /**
+   * DE QUÉ CAMPAÑA DE DIFUSIÓN VINO ESTE CLIENTE, si vino de una. Gemela de
+   * `anuncio`, deliberadamente separada: ver `difusion-contexto.ts`.
+   */
+  difusion: DatosDifusion | null = null,
 ): string {
   // Qué puede vender: ver `textoDeLoQueVende`, que también lee el revisor.
   const queVende = textoDeLoQueVende(agente, catalogo);
@@ -1089,6 +1102,7 @@ export function armarSistema(
    * y eso lo dicen las reglas de la base.
    */
   const deAnuncio = anuncio ? anuncioParaModelo(anuncio, agenteDePais(agente.pais)?.moneda.simbolo ?? null) : null;
+  const deDifusion = difusion ? difusionParaModelo(difusion, agenteDePais(agente.pais)?.moneda.simbolo ?? null) : null;
 
   /*
    * ¿ESTE ARTÍCULO LLEVA TALLA Y COLOR? Se decide aquí, una vez, con lo que
@@ -1103,7 +1117,7 @@ export function armarSistema(
   const descripcionDelAnuncio = anuncio?.descripcion_anuncio?.trim() ?? "";
   const textoDelArticulo = nombraUnArticulo(descripcionDelAnuncio)
     ? descripcionDelAnuncio
-    : anuncio?.producto_anuncio?.trim() ?? "";
+    : anuncio?.producto_anuncio?.trim() || difusion?.producto_difusion?.trim() || "";
   const articuloConocido = nombraUnArticulo(textoDelArticulo);
   const paisDelArticulo = agenteDePais(agente.pais);
   const conTalla = articuloConocido ? llevaTalla(textoDelArticulo, paisDelArticulo) : null;
@@ -1176,6 +1190,7 @@ export function armarSistema(
       bloqueHumano(pais),
       queVende,
       deAnuncio ?? "",
+      deDifusion ?? "",
       notas,
       // En RD el teléfono no se pregunta: el guion de la dueña usa el del chat.
       // La dueña (2026-09-04): en RD el teléfono también se pide, después del nombre.
@@ -1189,7 +1204,7 @@ export function armarSistema(
         ? guionRD({
             saludo: saludoDe(datos, agente.nombre, negocio),
             marcador,
-            conAnuncio: deAnuncio !== null,
+            conAnuncio: deAnuncio !== null || deDifusion !== null,
             conFoto,
             lineasResumen: lineasDelResumen(datos),
             pieDelResumen: datos.pieDelResumen,
@@ -1202,7 +1217,7 @@ export function armarSistema(
             saludo: saludoDe(datos, agente.nombre, negocio),
             nombreAgente: datos.nombreAgente ?? agente.nombre,
             marcador,
-            conAnuncio: deAnuncio !== null,
+            conAnuncio: deAnuncio !== null || deDifusion !== null,
             conFoto,
             datosParaCerrar: datos.envio.datosParaCerrar,
           })
@@ -1210,7 +1225,7 @@ export function armarSistema(
             saludo: saludoDe(datos, agente.nombre, negocio),
             marcador,
             trato: datos.trato,
-            conAnuncio: deAnuncio !== null,
+            conAnuncio: deAnuncio !== null || deDifusion !== null,
             conFoto,
             lineasResumen: lineasDelResumen(datos),
             pieDelResumen: datos.pieDelResumen,
@@ -1252,13 +1267,14 @@ export function armarSistema(
     envio,
     queVende,
     deAnuncio ?? "",
+    deDifusion ?? "",
     notas,
     bloqueCliente(cliente),
     baseComportamiento({
       saludo: saludoDelPais(pais, agente.nombre, negocio),
       marcador,
       trato: "usted",
-      conAnuncio: deAnuncio !== null,
+      conAnuncio: deAnuncio !== null || deDifusion !== null,
       conFoto,
       lineasResumen: null,
       pieDelResumen: [],
@@ -1497,6 +1513,11 @@ export async function generarRespuesta(
    * que la persona acaba de deshacer.
    */
   retomado: boolean = false,
+  /**
+   * De qué campaña de difusión vino este hilo, si vino de una. El chat de
+   * prueba no tiene. Ver `difusion-contexto.ts`.
+   */
+  difusion: DatosDifusion | null = null,
 ): Promise<RespuestaGenerada> {
   const org = obtenerOrg(orgId);
   const agente = obtenerAgente(orgId, canalId);
@@ -1674,6 +1695,7 @@ export async function generarRespuesta(
             conFoto,
             // La zona que el cliente escribió EN ESTA SESIÓN, para decirle SU tarifa.
             lugarResuelto ?? lugarEscritoPorElCliente(agenteDePais(agente.pais), mensajesDeLaSesion(mensajes)),
+            difusion,
           ) + (reglaPrecio ? `\n\n${reglaPrecio}` : "") + memoria + ficha +
           (retomado ? avisoDeHiloRetomado(loQueElEquipoDijoDespues(memoriaMensajes, ultimo)) : ""),
       },
@@ -2491,6 +2513,7 @@ async function atenderTurno(
       lugarResuelto,
       !!foto && !fotoYaEnviada,
       retomado,
+      difusionDelHilo(conv),
     );
   } catch (e) {
     /*
@@ -2657,6 +2680,7 @@ async function atenderTurno(
           lugarResuelto,
           !!foto && !fotoYaEnviada,
           retomado,
+          difusionDelHilo(conv),
         );
         if (segunda.texto) {
           candidata = segunda.texto;
@@ -3633,4 +3657,45 @@ export async function enviarAMano(
   registrarCierre(orgId, conversationId, { emisor: "humano", content: limpio, cuando: ahora() });
 
   return { ok: true, messageId };
+}
+
+/**
+ * EL ÚNICO PUNTO DE ENVÍO DE UNA DIFUSIÓN. Lo llama el motor de
+ * `src/lib/difusion.ts`, que decide A QUIÉN y CUÁNDO; esta función solo sabe
+ * MANDAR, con la misma garantía que `enviarAMano`: vive aquí porque hay una
+ * prueba que barre `src/` y falla si otro archivo importa el transporte de
+ * `wa.ts` directamente (ver el comentario de `enviarTexto`/`enviarImagenWa`
+ * arriba). No se amplía esa prueba para difusiones: se reusa esta puerta.
+ *
+ * A diferencia de `enviarAMano`, NO hay conversación todavía —«un saliente a
+ * un desconocido no abre hilo», la invariante de `ingesta.ts`— así que aquí
+ * NO se llama a `insertMessage` ni a `registrarCierre`: el envío se registra
+ * solo en `difusion_destinatarios` (lo hace quien llama). Solo modo QR/Baileys:
+ * el modo oficial (Cloud API de Meta) todavía no envía nada, ver `difusion.ts`.
+ */
+export async function enviarMensajeDeDifusion(
+  orgId: number,
+  canalId: number,
+  destino: string,
+  texto: string,
+  imagen?: { datos: Buffer; pie?: string } | null,
+): Promise<{ ok: true; messageId: string } | { ok: false; error: string }> {
+  const limpio = texto.trim();
+  if (!limpio) return { ok: false, error: "No hay nada que enviar." };
+
+  const canal = obtenerCanal(orgId, canalId);
+  if (!canal) return { ok: false, error: "El canal ya no está." };
+  if (canal.tipo !== "whatsapp") {
+    return { ok: false, error: "Esta difusión solo se envía por WhatsApp (modo QR)." };
+  }
+
+  try {
+    const messageId = imagen
+      ? await enviarImagenWa(canalId, destino, imagen.datos)
+      : await enviarTexto(canalId, destino, limpio);
+    registrarAiSent(orgId, messageId);
+    return { ok: true, messageId };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "No se pudo enviar el mensaje." };
+  }
 }

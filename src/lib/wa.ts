@@ -36,7 +36,7 @@ import { Boom } from "@hapi/boom";
 import { toDataURL } from "qrcode";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { actualizarCanal, ahora, anclasDeHistorial, canalesParaReconectar, obtenerCanalSinOrg, ponerPaisPorTelefono, rutaDatos, unificarConversacion, type Canal, type TipoMensaje } from "@/lib/db";
+import { actualizarCanal, ahora, anclasDeHistorial, canalesParaReconectar, marcarEntregado, obtenerCanalSinOrg, ponerPaisPorTelefono, rutaDatos, unificarConversacion, type Canal, type TipoMensaje } from "@/lib/db";
 import { ingerir, type MensajeEntrante } from "@/lib/ingesta";
 import { esDescargable, guardar } from "@/lib/media";
 import { esAnuncioDeMeta } from "./anuncio";
@@ -678,6 +678,29 @@ async function abrir(canalId: number): Promise<void> {
         console.error("[wa] fallo al ingerir un lote de mensajes", e);
       }
     })();
+  });
+
+  /*
+   * EL ACK DE ENTREGA, PARA LAS DIFUSIONES. Es lo único que permite contar
+   * «entregados» en modo QR: sin esto solo se sabe que salió, no que llegó.
+   * `status >= 3` es DELIVERY_ACK o más (leído incluido) en Baileys. No toca
+   * nada de la venta normal: `marcarEntregado` solo encuentra fila cuando el
+   * id es el de un envío de difusión, y no hace nada en cualquier otro caso.
+   */
+  sock.ev.on("messages.update", (actualizaciones) => {
+    const actual = obtenerCanalSinOrg(canalId);
+    if (!actual) return;
+
+    for (const u of actualizaciones) {
+      const id = u.key?.id;
+      const status = u.update?.status as number | undefined;
+      if (!id || status === undefined || status < 3) continue;
+      try {
+        marcarEntregado(actual.org_id, id);
+      } catch (e) {
+        console.error(`[wa] no se pudo marcar la entrega de ${id}`, e);
+      }
+    }
   });
 }
 
