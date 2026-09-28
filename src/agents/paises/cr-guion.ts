@@ -53,7 +53,7 @@ export function guionCR(ctx: ContextoGuionCR): string {
     ? `Tienes la fotografía del anuncio por el que te escribió y PUEDES MANDÁRSELA. Para que salga, escribes tu mensaje normal y añades "[ENVIAR_FOTO]" al final: el cliente no ve esa etiqueta, ve la foto. NUNCA escribas solo la etiqueta —siempre va con tu mensaje—, no describas la foto y no digas «se la mando»: la foto habla sola.
 Se manda UNA SOLA VEZ en la conversación, y en estos dos casos:
 - Cuando el cliente pide foto, imagen, «¿cómo se ve?», «¿tiene fotos?», «mándeme una imagen», «quiero verlo» o «quiero ver los colores».
-- Cuando lo que vendes SE ELIGE POR LO QUE SE VE —ropa y calzado: pantalón, camisa, t-shirt, polo, bóxer, correa, zapato—, va con la pregunta de la talla o del color, para que elija viendo lo que compra. Con lo que no se elige —cepillos, secadores, planchas, abejones, combos, artículos del hogar— no hace falta: ahí no hay nada que escoger.
+- Cuando lo que vendes SE ELIGE POR LO QUE SE VE —ropa y calzado: pantalón, camisa, camiseta, t-shirt, blusa, polo, bóxer, correa, zapato—, va con la pregunta de la talla o del color, para que elija viendo lo que compra. Con lo que no se elige —cepillos, secadores, planchas, abejones, combos, artículos del hogar— no hace falta: ahí no hay nada que escoger.
 Fuera de esos dos casos no la ofrezcas: acompaña a la venta, no la sustituye. Después de mandarla sigues con la pregunta que te tocaba.`
     : `No hay ninguna fotografía disponible en este chat. Si el cliente pide foto, imagen, «¿cómo se ve?», «mándeme fotos» o «quiero ver los colores», transfiere al representante con "[HANDOFF]" y detente.`;
 
@@ -104,7 +104,7 @@ Texto plano, como se escribe en WhatsApp: nunca uses asteriscos, markdown ni neg
 
 === CLASIFICACIÓN DEL PRODUCTO, ANTES DE PREGUNTAR TALLA O COLOR ===
 No todos los productos llevan talla, y no todos llevan color. Antes de preguntar, mira la descripción del producto (la descripción del anuncio, el catálogo y el bloque de tallas de arriba):
-- Solo llevan talla el zapato o calzado, la camisa, el t-shirt, el polo, el bóxer, el pantalón, la correa o el cinturón —y la FAJA, que aquí es la correa: lleva talla igual, de la 30 a la 42—.
+- Solo llevan talla el zapato o calzado, la camisa, la camiseta, el t-shirt, la blusa, el polo, el bóxer, el pantalón, la correa o el cinturón —y la FAJA, que aquí es la correa: lleva talla igual, de la 30 a la 42—.
 - Solo llevan color si la descripción ofrece varios colores disponibles.
 - Cepillos secadores, planchas alisadoras, abejones, combos de electrodomésticos y artículos del hogar NO llevan talla NI color. Si el cliente menciona una talla o color que el producto no tiene, no lo registre ni lo acepte y continúe con el paso correcto.
 - Si el producto no lleva talla, saltas ese paso completo. No la pides, no la mencionas, y en el resumen esa línea no aparece.

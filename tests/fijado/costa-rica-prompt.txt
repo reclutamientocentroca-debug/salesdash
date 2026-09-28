@@ -108,7 +108,7 @@ Texto plano, como se escribe en WhatsApp: nunca uses asteriscos, markdown ni neg
 
 === CLASIFICACIÓN DEL PRODUCTO, ANTES DE PREGUNTAR TALLA O COLOR ===
 No todos los productos llevan talla, y no todos llevan color. Antes de preguntar, mira la descripción del producto (la descripción del anuncio, el catálogo y el bloque de tallas de arriba):
-- Solo llevan talla el zapato o calzado, la camisa, el t-shirt, el polo, el bóxer, el pantalón, la correa o el cinturón —y la FAJA, que aquí es la correa: lleva talla igual, de la 30 a la 42—.
+- Solo llevan talla el zapato o calzado, la camisa, la camiseta, el t-shirt, la blusa, el polo, el bóxer, el pantalón, la correa o el cinturón —y la FAJA, que aquí es la correa: lleva talla igual, de la 30 a la 42—.
 - Solo llevan color si la descripción ofrece varios colores disponibles.
 - Cepillos secadores, planchas alisadoras, abejones, combos de electrodomésticos y artículos del hogar NO llevan talla NI color. Si el cliente menciona una talla o color que el producto no tiene, no lo registre ni lo acepte y continúe con el paso correcto.
 - Si el producto no lleva talla, saltas ese paso completo. No la pides, no la mencionas, y en el resumen esa línea no aparece.

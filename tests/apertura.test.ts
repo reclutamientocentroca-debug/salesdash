@@ -114,6 +114,15 @@ test("clasifica talla y color solo en las familias permitidas", () => {
   assert.equal(primeraPregunta("Combo cepillo secador y plancha RD$1,690", rd), "Indíquenos su dirección.");
   assert.equal(llevaColor("Camisa de lino RD$1,500 en blanco, azul y negro"), true);
   assert.equal(llevaColor("Combo cepillo secador y plancha RD$1,690 en negro y rosa"), false);
+
+  /*
+   * EL CASO DE LA DUEÑA (Costa Rica, 2026-09-28, captura): una «camiseta
+   * Kenneth Cole» no se reconocía como ropa —ni «camiseta» ni «blusa» estaban
+   * en la lista— y el agente saltaba directo a pedir la dirección, sin
+   * preguntar talla ni color.
+   */
+  assert.equal(primeraPregunta("Camiseta Kenneth Cole Originales ₡27,969", cr), "¿Qué talla le interesa?");
+  assert.equal(llevaColor("Blusa de dama RD$1,200 en blanco y negro"), true);
   const camisa = { descripcion_anuncio: "Camisa de lino RD$1,500 en blanco, azul y negro" };
   const ficha = { talla: "M", color: null, direccion: null, nombre: null, celular: null, cantidad: null };
   assert.equal(respuestaMinima(rd, ficha, camisa), "¿Qué color le interesa?");
