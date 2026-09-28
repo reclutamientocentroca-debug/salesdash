@@ -280,8 +280,18 @@ function renderizarMensaje(campana: CampanaDifusion, destinatario: DestinatarioD
   return { texto, variacionUsada: campana.variaciones ? idx : null };
 }
 
-/** ¿Le toca AHORA, en su propia hora? */
-function leTocaAhora(campana: CampanaDifusion, destinatario: DestinatarioDifusion, husoDelCanal: string): boolean {
+/**
+ * ¿Le toca AHORA, en su propia hora?
+ *
+ * LA CAMPAÑA QUE SOLO MANDABA POR LA MAÑANA. `ahoraMin` juntaba la hora y el
+ * minuto como texto —"14" + "05" = 1405— en vez de contar minutos desde la
+ * medianoche —14×60+5 = 845—. `desde`/`hasta` sí eran minutos de verdad, así
+ * que a partir de la una de la tarde 1405 ya no cabía en un rango como
+ * 540-1260 (09:00-21:00) por mucho que las 2:30pm estuvieran clarísimamente
+ * dentro: la campaña se quedaba pasando de largo a todo el mundo el resto del
+ * día, con la campaña «activa» y sin ningún error que lo avisara.
+ */
+export function leTocaAhora(campana: CampanaDifusion, destinatario: DestinatarioDifusion, husoDelCanal: string): boolean {
   const huso = husoValido(destinatario.pais ? obtenerPais(destinatario.pais)?.husoHorario : null)
     ? obtenerPais(destinatario.pais!)!.husoHorario
     : husoDelCanal;
@@ -291,13 +301,11 @@ function leTocaAhora(campana: CampanaDifusion, destinatario: DestinatarioDifusio
 
   const [dh = 0, dm = 0] = campana.hora_desde.split(":").map(Number);
   const [hh = 23, hm = 59] = campana.hora_hasta.split(":").map(Number);
-  const ahoraMin = Number(
-    new Intl.DateTimeFormat("en-US", { timeZone: huso, hourCycle: "h23", hour: "2-digit", minute: "2-digit" })
-      .formatToParts(new Date())
-      .filter((p) => p.type === "hour" || p.type === "minute")
-      .map((p) => p.value)
-      .join(""),
-  );
+  const partes = new Intl.DateTimeFormat("en-US", { timeZone: huso, hourCycle: "h23", hour: "2-digit", minute: "2-digit" })
+    .formatToParts(new Date());
+  const hora = Number(partes.find((p) => p.type === "hour")?.value ?? "0");
+  const minuto = Number(partes.find((p) => p.type === "minute")?.value ?? "0");
+  const ahoraMin = hora * 60 + minuto;
   const desde = dh * 60 + dm;
   const hasta = hh * 60 + hm;
   return desde <= hasta ? ahoraMin >= desde && ahoraMin <= hasta : ahoraMin >= desde || ahoraMin <= hasta;

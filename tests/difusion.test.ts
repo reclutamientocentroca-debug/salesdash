@@ -5,6 +5,7 @@ import * as D from "../src/lib/db";
 import { ingerir, type MensajeEntrante } from "../src/lib/ingesta";
 import { detectarOptOut } from "../src/lib/opt-out";
 import { calcularReparto } from "../src/lib/difusion-calculo";
+import { leTocaAhora } from "../src/lib/difusion";
 import { difusionParaModelo, difusionVigente, llegoPorDifusion } from "../src/lib/difusion-contexto";
 import { loQueSeVendeAqui } from "../src/lib/agent";
 import { parsearCsv } from "../src/lib/difusion-csv";
@@ -46,6 +47,71 @@ test("el reparto cuenta solo los días de la semana elegidos", () => {
 
 test("sin nadie pendiente, el reparto no pide ningún día", () => {
   assert.equal(calcularReparto(0, 10, [1, 2, 3]).diasNecesarios, 0);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A quién le toca AHORA
+// ─────────────────────────────────────────────────────────────────────────────
+
+const HUSO_PRUEBA = "America/Santo_Domingo";
+
+/** Hora y minuto de AHORA en ese huso, como los cuenta de verdad `leTocaAhora`: minutos desde la medianoche. */
+function ahoraEnMinutos(huso: string): number {
+  const partes = new Intl.DateTimeFormat("en-US", { timeZone: huso, hourCycle: "h23", hour: "2-digit", minute: "2-digit" })
+    .formatToParts(new Date());
+  const hora = Number(partes.find((p) => p.type === "hour")?.value ?? "0");
+  const minuto = Number(partes.find((p) => p.type === "minute")?.value ?? "0");
+  return hora * 60 + minuto;
+}
+
+function comoHoraMinuto(totalMin: number): string {
+  const h = Math.floor(totalMin / 60) % 24;
+  const m = totalMin % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+const campanaDeHorario = (horaDesde: string, horaHasta: string): D.CampanaDifusion => ({
+  id: 1, org_id: 1, canal_id: 1, lista_id: 1, nombre: "x", modo: "qr", mensaje_base: "x",
+  variaciones: null, imagen_clave: null, producto_catalogo_id: null, producto_nombre: null, producto_precio: null,
+  mensajes_por_dia: 10, dias_semana: "1,2,3,4,5,6,7", hora_desde: horaDesde, hora_hasta: horaHasta,
+  pausa_min_seg: 0, pausa_max_seg: 0, estado: "activa", motivo_auto_pausa: null,
+  costo_estimado_por_mensaje: 0, costo_moneda: "RD$", creado_por: null,
+  created_at: D.ahora(), iniciada_at: null, terminada_at: null,
+});
+
+const destinatarioDePrueba: D.DestinatarioDifusion = {
+  id: 1, campana_id: 1, org_id: 1, canal_id: 1, telefono: "18095550000", jid: null,
+  nombre: null, pais: null, estado: "pendiente", variacion_usada: null, mensaje_enviado: null,
+  whapi_message_id: null, intento_at: null, enviado_at: null, entregado_at: null, error: null, orden: 0,
+};
+
+/**
+ * EL BUG REAL (la dueña, 2026-09-28): la campaña se quedaba «activa» y no
+ * mandaba nada pasado el mediodía. `ahoraMin` juntaba la hora y el minuto
+ * como texto —14 y 05 se volvían 1405— en vez de contar minutos desde la
+ * medianoche —845—, así que un rango tan normal como 09:00-21:00 (540-1260 en
+ * minutos) dejaba de reconocer la hora actual en cuanto esa mezcla de texto
+ * superaba 1260, que pasa para casi cualquier hora de la tarde.
+ *
+ * La prueba no depende de A QUÉ HORA se corra: calcula la ventana alrededor
+ * de la hora real de ahora, con dos minutos de margen para no caer justo en
+ * el segundo en que cambia el minuto.
+ */
+test("una hora normal de la tarde sí le toca, no solo la mañana", () => {
+  const ahora = ahoraEnMinutos(HUSO_PRUEBA);
+  const campana = campanaDeHorario("00:00", comoHoraMinuto(Math.min(ahora + 2, 23 * 60 + 59)));
+  assert.equal(
+    leTocaAhora(campana, destinatarioDePrueba, HUSO_PRUEBA),
+    true,
+    "con la ventana abierta hasta un par de minutos después de ahora, tiene que tocarle",
+  );
+});
+
+test("fuera de la ventana configurada, no le toca", () => {
+  const ahora = ahoraEnMinutos(HUSO_PRUEBA);
+  // Una ventana que ya cerró hace una hora: no le toca, a ninguna hora del día.
+  const campana = campanaDeHorario(comoHoraMinuto((ahora + 24 * 60 - 120) % (24 * 60)), comoHoraMinuto((ahora + 24 * 60 - 61) % (24 * 60)));
+  assert.equal(leTocaAhora(campana, destinatarioDePrueba, HUSO_PRUEBA), false);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
