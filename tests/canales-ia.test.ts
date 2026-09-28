@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import * as D from "../src/lib/db";
 import { armarSistema, revisarAgente } from "../src/lib/agent";
 import { conLoVistoYOido, fotoDeProductoDelClienteEnSesion, percibir } from "../src/lib/percepcion";
+import { guardar } from "../src/lib/media";
 import { PAISES, bloqueDePais, obtenerPais, paisDeTelefono } from "../src/lib/paises";
 import {
   enlaceDeMapa,
@@ -598,6 +599,88 @@ test("una nota de voz sin archivo guardado no se intenta transcribir", async () 
   });
 
   assert.deepEqual(despues, antes);
+
+  D.eliminarCanal(orgId, canalId);
+});
+
+/**
+ * SI LA TRANSCRIPCIÓN FALLA DE VERDAD, QUE SE VEA. Antes de esto un modelo
+ * caído, sin cuota o que rechaza el formato solo dejaba un `console.error`
+ * que nadie mira: la dueña únicamente notaba que el agente le pedía al
+ * cliente que repitiera por escrito lo que ya había dicho, sin ninguna pista
+ * de por qué. Con la anomalía, «Necesita tu atención» lo enseña.
+ */
+test("si el modelo no transcribe, queda una anomalía y no un silencio", async () => {
+  const canalId = canal("Falla al oír", "50722225555");
+  const { conversacion } = D.getOrCreateConversation(orgId, canalId, "50711114444", {
+    cuando: D.ahora(),
+  });
+  const mediaUrl = guardar(orgId, "voz-falla-1", "audio", Buffer.from("bytes de mentira"));
+  D.insertMessage(orgId, {
+    conversationId: conversacion.id,
+    whapiMessageId: "voz-falla-1",
+    emisor: "cliente",
+    tipo: "audio",
+    content: "[nota de voz]",
+    mediaUrl,
+    createdAt: D.ahora(),
+  });
+
+  // Sin clave no hace falta red para que falle: `completar` se rinde antes de
+  // marcar, igual que un modelo caído o sin cuota se rendiría después.
+  const claveOriginal = process.env.OPENROUTER_API_KEY;
+  delete process.env.OPENROUTER_API_KEY;
+
+  try {
+    const antes = D.listarMensajes(orgId, conversacion.id);
+    await percibir(orgId, antes, { ver: false, oir: true, modeloVision: "x", modeloAudio: "x" });
+  } finally {
+    if (claveOriginal === undefined) delete process.env.OPENROUTER_API_KEY;
+    else process.env.OPENROUTER_API_KEY = claveOriginal;
+  }
+
+  const aviso = D.listarAnomalias(orgId).find(
+    (a) => a.tipo === "audio_sin_transcribir" && a.conversation_id === conversacion.id,
+  );
+  assert.ok(aviso, "el fallo real queda registrado, no solo en la consola");
+  assert.match(aviso!.detalle ?? "", /OPENROUTER_API_KEY/);
+
+  D.eliminarCanal(orgId, canalId);
+});
+
+/**
+ * SI EL ARCHIVO NUNCA SE PUDO BAJAR, TAMBIÉN QUEDA UNA ANOMALÍA.
+ *
+ * Antes de esto, sin archivo que leer (`wa.ts`: «un fallo aquí no cancela
+ * nada, el mensaje entra igual, solo que sin archivo») `transcribirAudio` se
+ * salía en silencio total, ni una anomalía: la dueña veía el mismo síntoma
+ * que un modelo caído —el agente pidiéndole al cliente que escriba lo que ya
+ * dijo hablando— pero sin ninguna pista de que el problema fue bajar el
+ * archivo, no entenderlo. El caso real de la dueña (2026-09-28).
+ */
+test("si la nota de voz nunca se pudo bajar, también queda una anomalía y no un silencio", async () => {
+  const canalId = canal("Sin archivo al oír", "50722226666");
+  const { conversacion } = D.getOrCreateConversation(orgId, canalId, "50711115555", {
+    cuando: D.ahora(),
+  });
+  D.insertMessage(orgId, {
+    conversationId: conversacion.id,
+    whapiMessageId: "voz-sin-archivo-1",
+    emisor: "cliente",
+    tipo: "audio",
+    content: "[nota de voz]",
+    mediaUrl: null,
+    createdAt: D.ahora(),
+  });
+
+  const antes = D.listarMensajes(orgId, conversacion.id);
+  await percibir(orgId, antes, { ver: false, oir: true, modeloVision: "x", modeloAudio: "x" });
+
+  const aviso = D.listarAnomalias(orgId).find(
+    (a) => a.tipo === "audio_sin_transcribir" && a.conversation_id === conversacion.id,
+  );
+  assert.ok(aviso, "la falta de archivo queda registrada, no solo silenciada");
+  assert.match(aviso!.detalle ?? "", /nunca se descargó/);
 
   D.eliminarCanal(orgId, canalId);
 });

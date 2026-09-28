@@ -26,6 +26,7 @@
 import {
   MODELO_AUDIO,
   MODELO_VISION,
+  crearAnomalia,
   guardarDescripcionImagen,
   guardarTranscripcion,
   type CategoriaImagen,
@@ -161,7 +162,27 @@ export async function transcribirAudio(
   if (m.transcripcion) return;
 
   const audio = m.media_url ? comoDataUrl(orgId, m.media_url) : null;
-  if (!audio) return;
+  if (!audio) {
+    /*
+     * SIN ARCHIVO QUE LEER, TAMBIÉN ES UN FALLO MUDO —el mismo que se arregló
+     * abajo para el modelo caído, y por la misma razón—. Si la nota de voz
+     * nunca se pudo bajar (`wa.ts`: «un fallo aquí no cancela nada, el
+     * mensaje entra igual, solo que sin archivo») o el archivo ya no está en
+     * el volumen, la dueña veía exactamente lo mismo que si el modelo hubiera
+     * fallado: el agente pidiéndole al cliente que escriba lo que ya dijo
+     * hablando, sin ninguna pista de que el problema fue bajar el archivo y
+     * no entenderlo.
+     */
+    crearAnomalia(orgId, {
+      conversationId: m.conversation_id,
+      tipo: "audio_sin_transcribir",
+      severidad: "alta",
+      detalle: m.media_url
+        ? `No se pudo transcribir una nota de voz: el archivo ${m.media_url} ya no está disponible.`
+        : "No se pudo transcribir una nota de voz: el archivo nunca se descargó.",
+    });
+    return;
+  }
 
   // La data URL trae delante `data:audio/ogg;base64,` y el modelo espera solo
   // el contenido y el formato por separado.
@@ -190,7 +211,24 @@ export async function transcribirAudio(
     if (limpio) guardarTranscripcion(orgId, m.id, limpio);
   } catch (e) {
     // Modelo sin soporte de audio, sin cuota o caído. Se registra y se sigue.
-    console.error("Transcripción no disponible:", e instanceof ErrorIA ? e.message : e);
+    const motivo = e instanceof ErrorIA ? e.message : String(e);
+    console.error("Transcripción no disponible:", motivo);
+
+    /*
+     * SIN ESTO EL FALLO ERA MUDO. `console.error` no lo ve nadie: la dueña solo
+     * notaba que el agente le pedía al cliente que escribiera lo que ya había
+     * dicho, sin ninguna pista de por qué. Con la anomalía, «Necesita tu
+     * atención» (`atencion.ts`) lo enseña con el motivo real —modelo caído,
+     * formato que rechaza, sin cuota— para que se pueda arreglar en vez de
+     * adivinar. Una por conversación: `crearAnomalia` no duplica la que ya
+     * sigue abierta.
+     */
+    crearAnomalia(orgId, {
+      conversationId: m.conversation_id,
+      tipo: "audio_sin_transcribir",
+      severidad: "alta",
+      detalle: `No se pudo transcribir una nota de voz con ${modeloAudio}: ${motivo}`,
+    });
   }
 }
 
@@ -246,12 +284,23 @@ export async function percibir(
   mensajes: Mensaje[],
   p: Percepcion,
 ): Promise<Mensaje[]> {
-  const recientes = mensajes.slice(-VENTANA).filter((m) => m.emisor === "cliente" && m.media_url);
+  const recientesDelCliente = mensajes.slice(-VENTANA).filter((m) => m.emisor === "cliente");
+  const recientes = recientesDelCliente.filter((m) => m.media_url);
 
   const imagenes = p.ver
     ? recientes.filter((m) => m.tipo === "imagen" && !m.descripcion_imagen)
     : [];
-  const audios = p.oir ? recientes.filter((m) => m.tipo === "audio" && !m.transcripcion) : [];
+  /*
+   * LA NOTA DE VOZ SIN ARCHIVO TAMBIÉN CUENTA, a propósito sin exigir
+   * `media_url` como las imágenes de arriba: si la descarga de WhatsApp falló
+   * («un fallo ahí no cancela nada, el mensaje entra igual, solo que sin
+   * archivo», `wa.ts`), esta es la única oportunidad de que quede una
+   * anomalía en vez de un agujero mudo. `transcribirAudio` no gasta ninguna
+   * llamada al modelo en ese caso: solo dejar constancia.
+   */
+  const audios = p.oir
+    ? recientesDelCliente.filter((m) => m.tipo === "audio" && !m.transcripcion)
+    : [];
 
   if (imagenes.length === 0 && audios.length === 0) return mensajes;
 
