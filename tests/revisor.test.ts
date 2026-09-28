@@ -103,6 +103,14 @@ test("un precio que no está en la descripción ni en el catálogo no sale", () 
   assert.ok(inventado.some((x) => x.includes("RD$2300") && x.includes("no se inventa")));
   assert.ok(revisarConReglas("Le quedan en RD$2,000 cada uno.", rd).some((x) => x.includes("RD$2000")));
 
+  /*
+   * EL CASO DE LA DUEÑA (RD, Messenger, 2026-09-26): el agente cotizó RD$23,000
+   * —ni en el catálogo ni en ningún anuncio— y pasó porque lo escribió como
+   * «23,000 pesos», sin el símbolo RD$. La regla solo miraba el símbolo.
+   */
+  assert.ok(revisarConReglas("El precio es 23,000 pesos. ¿Qué talla le interesa?", rd).some((x) => x.includes("no se inventa")));
+  assert.deepEqual(revisarConReglas("Los mocasines están en 2,500 pesos.", rd), []);
+
   // El de la descripción del anuncio vale, escrito como lo escriba el dueño.
   const conAnuncio: ContextoRevision = {
     ...rd,

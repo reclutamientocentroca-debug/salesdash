@@ -50,7 +50,7 @@ import { conLoVistoYOido } from "./percepcion";
 import { expresionesDelPais, pareceColor, pareceTalla, preguntasRepetidas, unidadesPorColores, type FichaDelPedido } from "./memoria";
 import { cantidadDicha, clienteAplazaCompra, clienteRenunciaALaCompra, diceDeQueEs, esCorreaLocal, familiasNombradas, nombraUnArticulo, precioDeLaDescripcion, preguntaDelCliente, preguntaDeDireccion, respuestaDirecta, PREGUNTA_COLOR } from "./apertura";
 import { escalaDelArticulo, importe, precioPorCantidad, zonaDelCliente } from "@/agents";
-import { leerImporte } from "./moneda";
+import { leerImporte, type Moneda } from "./moneda";
 import { contieneLugar } from "./envio";
 import { obtenerPais } from "./paises";
 
@@ -131,23 +131,61 @@ function llano(t: string): string {
   return t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 }
 
-/** Los importes escritos con símbolo de moneda, en dígitos. */
-function importes(texto: string, simbolo: string): number[] {
-  const s = simbolo.replace(/[$.]/g, (c) => `\\${c}`);
-  const re = new RegExp(`${s}\\s?(\\d[\\d.,]*)`, "g");
+/**
+ * CÓMO SE LLAMA LA MONEDA PROPIA, EN PALABRAS — para reconocer un precio que
+ * el modelo escribió sin el símbolo. La regla 6 de abajo solo miraba
+ * `RD$1,500`; un agente que escribe «1,500 pesos» o «1,500 pesos dominicanos»
+ * cotizaba un precio inventado y nadie lo paraba, porque para la regla ese
+ * número no existía. Ver el incidente de la dueña (RD, Messenger, 2026-09-26).
+ *
+ * Un importe sin símbolo NI palabra de moneda —un «23,000» a secas— sigue sin
+ * poder distinguirse aquí de un teléfono, una dirección o una talla: eso lo
+ * sigue mirando el modelo revisor, con la conversación delante.
+ */
+const NOMBRE_PROPIO: Record<string, RegExp> = {
+  DOP: /pesos?(?:\s+dominicanos?)?|dominicanos?/i,
+  CRC: /colones?/i,
+  USD: /d[oó]lares?/i,
+  PAB: /balboas?/i,
+};
+
+/** «2,500» y «2.500» son dos mil quinientos; «5.00» y «5,00» son cinco. */
+function limpiarCifra(crudo: string): number | null {
+  // El punto o la coma que cierran la frase no son parte de la cifra:
+  // «US$5.00.» es cinco, no quinientos.
+  const sinPunto = crudo.replace(/[.,]+$/, "");
+  if (!sinPunto) return null;
+  const limpio = /[.,]\d{2}$/.test(sinPunto) && !/[.,]\d{3}$/.test(sinPunto)
+    ? sinPunto.replace(/[.,](\d{2})$/, ".$1").replace(/[.,](?=\d{3})/g, "")
+    : sinPunto.replace(/[.,]/g, "");
+  const n = Number(limpio);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Los importes escritos con símbolo de moneda («RD$1,500») o, a falta de
+ * símbolo, con el NOMBRE de la moneda pegado a la cifra («1,500 pesos»): las
+ * dos son formas de decir el mismo precio, y las dos tienen que poder pararse.
+ */
+function importes(texto: string, moneda: Pick<Moneda, "simbolo" | "codigo">): number[] {
   const salida: number[] = [];
-  for (const m of texto.matchAll(re)) {
-    // El punto o la coma que cierran la frase no son parte de la cifra:
-    // «US$5.00.» es cinco, no quinientos.
-    const crudo = m[1]!.replace(/[.,]+$/, "");
-    if (!crudo) continue;
-    // «2,500» y «2.500» son dos mil quinientos; «5.00» y «5,00» son cinco.
-    const limpio = /[.,]\d{2}$/.test(crudo) && !/[.,]\d{3}$/.test(crudo)
-      ? crudo.replace(/[.,](\d{2})$/, ".$1").replace(/[.,](?=\d{3})/g, "")
-      : crudo.replace(/[.,]/g, "");
-    const n = Number(limpio);
-    if (Number.isFinite(n)) salida.push(n);
+
+  const s = moneda.simbolo.replace(/[$.]/g, (c) => `\\${c}`);
+  const conSimbolo = new RegExp(`${s}\\s?(\\d[\\d.,]*)`, "g");
+  for (const m of texto.matchAll(conSimbolo)) {
+    const n = limpiarCifra(m[1]!);
+    if (n !== null) salida.push(n);
   }
+
+  const nombre = NOMBRE_PROPIO[moneda.codigo];
+  if (nombre) {
+    const conNombre = new RegExp(`(\\d[\\d.,]*)\\s*(?:${nombre.source})`, "gi");
+    for (const m of texto.matchAll(conNombre)) {
+      const n = limpiarCifra(m[1]!);
+      if (n !== null) salida.push(n);
+    }
+  }
+
   return salida;
 }
 
@@ -275,7 +313,7 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
   const envios = [...costos];
   for (const frase of texto.split(/(?<=[.!?\n])\s+/)) {
     if (!/env[ií]o/i.test(frase) || /total/i.test(frase)) continue;
-    for (const n of importes(frase, d.moneda.simbolo)) {
+    for (const n of importes(frase, d.moneda)) {
       if (!costos.has(n) && !esSumaDePrecios(n, conocidas, envios)) {
         fallas.push(
           `cotiza el envío en ${d.moneda.simbolo}${n}, y las únicas tarifas son ` +
@@ -304,7 +342,7 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
     // El envío del resumen tiene que ser uno de los del país.
     const lineaEnvio = texto.split(/\r?\n/).find((l) => /^\W*(costo de )?env[ií]o\b/i.test(llano(l)));
     if (lineaEnvio) {
-      const n = importes(lineaEnvio, d.moneda.simbolo)[0];
+      const n = importes(lineaEnvio, d.moneda)[0];
       if (n !== undefined && !costos.has(n)) {
         fallas.push(`el envío del resumen dice ${d.moneda.simbolo}${n} y no es una tarifa de este país`);
       }
@@ -319,7 +357,7 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
   // tenía delante; si no hay ningún precio escrito en ningún sitio, no puede
   // cotizar ninguno.
   {
-    for (const n of importes(texto, d.moneda.simbolo)) {
+    for (const n of importes(texto, d.moneda)) {
       if (importeExplicable(n, conocidas, envios)) continue;
       fallas.push(
         conocidas.length
@@ -342,7 +380,7 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
    * número del catálogo, no el del anuncio que vio el cliente—.
    */
   if (ctx.precioDelCatalogoQueNoAplica != null) {
-    const dice = importes(texto, d.moneda.simbolo).some((n) => igual(n, ctx.precioDelCatalogoQueNoAplica!));
+    const dice = importes(texto, d.moneda).some((n) => igual(n, ctx.precioDelCatalogoQueNoAplica!));
     if (dice) {
       fallas.push(
         `cotiza ${d.moneda.simbolo}${ctx.precioDelCatalogoQueNoAplica}, el precio del producto del catálogo, pero este anuncio trae su propio precio escrito: el que vale en este chat es el del anuncio, no el del catálogo`,
@@ -427,7 +465,7 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
   for (const frase of texto.split(/(?<=[.!?\n])\s+/)) {
     if (/env[ií]o|domicilio|mensajer|total/i.test(frase)) continue;
     if (!DICE_LO_QUE_VALE.test(frase)) continue;
-    const cobrado = importes(frase, d.moneda.simbolo).find(
+    const cobrado = importes(frase, d.moneda).find(
       (n) => costos.has(n) && !conocidas.some((c) => igual(c, n)),
     );
     if (cobrado !== undefined) {
@@ -715,7 +753,7 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
   {
     const tarifaDicha = (t: string) =>
       /env[ií]o/i.test(t) && !contieneMarcador(t, ctx.marcador ?? MARCADOR_POR_DEFECTO)
-        ? importes(t, d.moneda.simbolo).filter((n) => costos.has(n))
+        ? importes(t, d.moneda).filter((n) => costos.has(n))
         : [];
     const yaDichas = new Set((ctx.textosDelAgente ?? []).flatMap(tarifaDicha));
     if (
@@ -838,7 +876,7 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
   if (
     (pregunta === "precio" || pregunta === "precio_cantidad") &&
     !preguntaQueArticulo &&
-    importes(texto, d.moneda.simbolo).length === 0 &&
+    importes(texto, d.moneda).length === 0 &&
     !HABLA_DE_TRANSFERIR.test(texto) &&
     !contieneMarcador(texto, ctx.marcador ?? MARCADOR_POR_DEFECTO)
   ) {
@@ -870,7 +908,7 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
 
     if (cuantas !== null && base !== null && escalaDelArticulo(d, fuentes, base)) {
       const unidad = precioPorCantidad(d, fuentes, cuantas, base);
-      if (unidad !== base && !importes(texto, d.moneda.simbolo).includes(unidad)) {
+      if (unidad !== base && !importes(texto, d.moneda).includes(unidad)) {
         fallas.push(
           `el cliente preguntó por ${cuantas} unidades y la respuesta le da el precio de una: dile que las ` +
             `${cuantas} le salen a ${importe(d, unidad)} cada una —${importe(d, unidad * cuantas)} en total— y sigue la venta`,
@@ -1023,7 +1061,7 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
     !ctx.ficha?.direccion?.trim() &&
     !ctx.clienteCompartioUbicacion
   ) {
-    const mencionadas = [...new Set(importes(texto, d.moneda.simbolo).filter((n) => costos.has(n)))];
+    const mencionadas = [...new Set(importes(texto, d.moneda).filter((n) => costos.has(n)))];
     if (mencionadas.length >= 2) {
       const todas = [...costos].map((c) => `${d.moneda.simbolo}${c}`).join(" y ");
       fallas.push(
@@ -1061,7 +1099,7 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
        */
       if (tarifa === null) {
         if (costos.size < 2 || contieneMarcador(texto, ctx.marcador ?? MARCADOR_POR_DEFECTO)) continue;
-        const dichas = [...new Set(importes(frase, d.moneda.simbolo).filter((n) => costos.has(n)))];
+        const dichas = [...new Set(importes(frase, d.moneda).filter((n) => costos.has(n)))];
         if (!dichas.length) continue;
 
         const todas = [...costos].map((c) => `${d.moneda.simbolo}${c}`).join(" y ");
@@ -1089,7 +1127,7 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
         );
         break;
       }
-      const enLaFrase = [...new Set(importes(frase, d.moneda.simbolo).filter((n) => costos.has(n)))];
+      const enLaFrase = [...new Set(importes(frase, d.moneda).filter((n) => costos.has(n)))];
       const otra = enLaFrase.length === 1 && enLaFrase[0] !== tarifa ? enLaFrase[0] : undefined;
       if (otra !== undefined) {
         fallas.push(`cotiza el envío en ${d.moneda.simbolo}${otra} y a esa zona le toca ${d.moneda.simbolo}${tarifa}`);
@@ -1228,7 +1266,7 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
       const fuentes = ctx.anuncio ?? ctx.catalogo ?? "";
       const base = leerImporte(precioDeLaDescripcion(fuentes, d.moneda.simbolo) ?? "");
       const unidades = Math.max(dice, pidio);
-      const total = leido.total ? importes(leido.total, d.moneda.simbolo)[0] ?? Number(leido.total.replace(/[^\d.]/g, "")) : null;
+      const total = leido.total ? importes(leido.total, d.moneda)[0] ?? Number(leido.total.replace(/[^\d.]/g, "")) : null;
 
       if (base !== null && unidades >= 2 && total) {
         const cadaUna = precioPorCantidad(d, fuentes, unidades, base);
@@ -1272,7 +1310,7 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
       }
       const tarifaDeLaDireccion = zonaDe(leido.direccion);
       const lineaEnvio = texto.split(/\r?\n/).find((l) => /^\W*(costo de )?env[ií]o\b/i.test(llano(l)));
-      const n = lineaEnvio ? importes(lineaEnvio, d.moneda.simbolo)[0] : undefined;
+      const n = lineaEnvio ? importes(lineaEnvio, d.moneda)[0] : undefined;
       if (tarifaDeLaDireccion !== null && n !== undefined && n !== tarifaDeLaDireccion) {
         fallas.push(`el envío del resumen dice ${d.moneda.simbolo}${n} y a esa dirección le toca ${d.moneda.simbolo}${tarifaDeLaDireccion}`);
       }
@@ -1582,7 +1620,7 @@ export function transferenciaPermitida(borrador: string, ctx: ContextoRevision):
    */
   if (ctx.anuncio) {
     const sinPrecio =
-      importes(ctx.anuncio, ctx.datos.moneda.simbolo).length === 0 && !/\b\d{3,}\b/.test(ctx.anuncio);
+      importes(ctx.anuncio, ctx.datos.moneda).length === 0 && !/\b\d{3,}\b/.test(ctx.anuncio);
     const delAnuncio = familiasNombradas(ctx.anuncio).map((f) => f.familia);
     const enElCatalogo = new Set(familiasNombradas(ctx.catalogo ?? "").map((f) => f.familia));
     if (sinPrecio && delAnuncio.length && !delAnuncio.some((f) => enElCatalogo.has(f))) return true;
