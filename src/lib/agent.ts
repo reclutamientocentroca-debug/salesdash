@@ -3419,7 +3419,7 @@ export async function enviarSeguimiento(
     generada = await generarRespuesta(
       orgId,
       canal.id,
-      [...historial, mensajeInterno(orgId, conversationId, instruccionVisto(anuncioVigente(conv).producto_anuncio))],
+      [...historial, mensajeInterno(orgId, conversationId, instruccionVisto(anuncioVigente(conv).producto_anuncio, agente.pais))],
       conv,
       reglaPrecio.texto,
       { telefono: conv.cliente_phone, nombre: conv.cliente_nombre },
@@ -3516,18 +3516,30 @@ export async function enviarSeguimiento(
  * en la instrucción —no a que el modelo lo adivine entre todo el catálogo—.
  * Sin anuncio, se le prohíbe nombrar cualquier artículo que no sea el que ya
  * se mencionó en el chat.
+ *
+ * SOLO EN COSTA RICA la pregunta de cierre es «¿le gustaría continuar con su
+ * pedido?» y no una pregunta de dato suelto (la dueña, 2026-09-28, con
+ * capturas): un recordatorio que le pide de una el número de calzado o la
+ * talla a quien lleva días sin contestar presupone que sigue interesado;
+ * preguntarle primero si quiere continuar es lo que de verdad lo reengancha.
+ * RD y PA siguen con la de siempre —ver [[arquitectura-agentes-pais]], «Costa
+ * Rica va sola»—.
  */
-export function instruccionVisto(producto: string | null): string {
+export function instruccionVisto(producto: string | null, pais?: string | null): string {
   const elArticulo = producto
     ? `El artículo del que hablaban es «${producto}»: nómbralo con ese mismo nombre, y no con otro —ni el del catálogo, ni uno parecido—.`
     : "Nombra el artículo con las mismas palabras con las que ya se mencionó en esta conversación: no nombres ningún otro artículo, así sea del catálogo o suene parecido.";
+
+  const cierre =
+    pais === "cr"
+      ? "Termina preguntando si le gustaría continuar con su pedido —con esas palabras o muy parecidas—. No le pidas de una la talla, la medida, el color ni la dirección: primero se confirma que sigue interesado, y ese dato se pide después, cuando conteste que sí."
+      : "Termina con una pregunta que lo acerque al cierre —la talla, la medida, el color o la dirección, lo que faltara—.";
 
   return (
     "[Nota interna del sistema, no la escribió el cliente y no debes mencionarla ni repetirla.] " +
     "El cliente dejó de contestar y no ha vuelto. Escríbele UN solo mensaje corto para retomar la venta: " +
     `recuérdale con naturalidad el artículo del que estaban hablando y dile que quedan pocas unidades. ${elArticulo} ` +
-    "Termina con una pregunta que lo acerque al cierre —la talla, la medida, el color o la dirección, lo que " +
-    "faltara—. Sin saludo largo, sin disculpas, sin repetir todo lo hablado, y nunca inventes precios, " +
+    `${cierre} Sin saludo largo, sin disculpas, sin repetir todo lo hablado, y nunca inventes precios, ` +
     "descuentos ni plazos. Trato formal y de empresa: de usted y sin apodos —nada de «maestro», «jefe», " +
     "«amigo»—; por su nombre si lo dio, o sin nada."
   );

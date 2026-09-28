@@ -1708,6 +1708,28 @@ test("el recordatorio dice pocas unidades, pero del artículo del anuncio y no d
 });
 
 /**
+ * SOLO EN COSTA RICA, EL RECORDATORIO PREGUNTA SI QUIERE CONTINUAR.
+ *
+ * El caso de la dueña (2026-09-28, capturas): dos recordatorios de Costa Rica
+ * le pedían de una el número de calzado o la talla a un cliente que llevaba
+ * días sin contestar. Pidió que primero se confirme que sigue interesado. RD
+ * y PA siguen con la pregunta de dato suelto de siempre —«Costa Rica va
+ * sola»—.
+ */
+test("en Costa Rica el recordatorio pregunta si quiere continuar; en los demás países no cambia", () => {
+  const cr = instruccionVisto("Bota MR. JONES para Caballero", "cr");
+  assert.match(cr, /le gustaría continuar con su pedido/i);
+  assert.doesNotMatch(cr, /la talla, la medida, el color o la dirección/i);
+
+  const rd = instruccionVisto("Bota MR. JONES para Caballero", "do");
+  assert.match(rd, /la talla, la medida, el color o la dirección/i);
+  assert.doesNotMatch(rd, /le gustaría continuar con su pedido/i);
+
+  const sinPais = instruccionVisto("Bota MR. JONES para Caballero");
+  assert.match(sinPais, /la talla, la medida, el color o la dirección/i);
+});
+
+/**
  * A quién le toca un recordatorio, y —más importante— a quién NO.
  *
  * Un seguimiento es un mensaje que el cliente no pidió: equivocarse aquí no es
