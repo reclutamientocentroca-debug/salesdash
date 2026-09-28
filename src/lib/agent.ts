@@ -47,7 +47,7 @@ import { descifrar } from "./auth";
 import { leer as leerArchivo } from "./media";
 import { formatearImporte, leerImporte, monedaDelPais } from "./moneda";
 import { anuncioParaModelo, anuncioVigente, descripcionUtil, textoDelProducto, type DatosAnuncio, type ProductoAnunciado } from "./anuncio";
-import { difusionParaModelo, type DatosDifusion } from "./difusion-contexto";
+import { difusionParaModelo, difusionVigente, type DatosDifusion } from "./difusion-contexto";
 import { aperturaSegura, clienteAplazaCompra, clientePideOtraFamilia, familiasNombradas, precioDeLaDescripcion, clienteRenunciaALaCompra, fraseDeTransferencia, laFotoAyudaAElegir, laFotoVaConEstaRespuesta, llevaColor, llevaTalla, nombraUnArticulo, respuestaMinima } from "./apertura";
 import { esMensajeDeSistema } from "./sistema";
 import { contieneMarcador, MARCADOR_POR_DEFECTO, registrarCierre } from "./cierre";
@@ -115,6 +115,32 @@ export function loQueSeVendeAqui(
   historial: Mensaje[],
   simbolo: string,
 ): DatosAnuncio {
+  /*
+   * 0. LA DIFUSIÓN VIGENTE, antes que cualquier anuncio.
+   *
+   * El caso de la dueña (2026-09-28): un cliente que ya tenía conversación
+   * abierta por un anuncio de hacía meses recibió una campaña nueva y
+   * contestó, y no solo el modelo seguía vendiendo el anuncio viejo —el
+   * revisor y las respuestas mecánicas de respaldo también, porque los dos
+   * leen de aquí, y aquí nunca se miraba la difusión. `difusionVigente` ya
+   * resuelve sola cuándo un anuncio más fresco la apaga (`getOrCreateConversation`
+   * lo limpia al llegar), así que si todavía queda algo aquí, es lo que manda.
+   */
+  const laDifusion = difusionVigente(conv);
+  if (laDifusion.producto_difusion) {
+    return {
+      origen: "difusion",
+      producto_anuncio: laDifusion.producto_difusion,
+      descripcion_anuncio: textoDelProducto(
+        {
+          nombre: laDifusion.producto_difusion, precio: laDifusion.precio_difusion,
+          precioMayor: null, tallas: null, colores: null, descripcion: null,
+        },
+        simbolo,
+      ),
+    };
+  }
+
   const delAnuncio = anuncioVigente(conv);
   const conPrecio = (d: DatosAnuncio) =>
     !!precioDeLaDescripcion(d.descripcion_anuncio ?? "", simbolo);
@@ -374,9 +400,9 @@ async function enviarTexto(canalId: number, para: string, texto: string): Promis
 }
 
 /** Y la imagen, por el mismo camino y con la misma regla: solo este archivo. */
-async function enviarImagenWa(canalId: number, para: string, datos: Buffer): Promise<string> {
+async function enviarImagenWa(canalId: number, para: string, datos: Buffer, pie?: string): Promise<string> {
   const { enviarImagen } = await import("./wa");
-  return enviarImagen(canalId, para, datos);
+  return enviarImagen(canalId, para, datos, pie);
 }
 
 /**
@@ -609,11 +635,9 @@ function husoDelAgente(agente: { pais: string | null }): string | null {
   return obtenerPais(agente.pais)?.husoHorario ?? null;
 }
 
-/** El contexto de difusión de un hilo, en la forma que pide `generarRespuesta`. */
+/** El contexto de difusión de un hilo, en la forma que pide `generarRespuesta`. Ver `difusionVigente`. */
 function difusionDelHilo(conv: Conversacion): DatosDifusion {
-  return {
-    campana_id: conv.campana_id, producto_difusion: conv.producto_difusion, precio_difusion: conv.precio_difusion,
-  };
+  return difusionVigente(conv);
 }
 
 /**
@@ -1101,8 +1125,21 @@ export function armarSistema(
    * SABER de qué se habla; el catálogo sigue mandando en precios y condiciones,
    * y eso lo dicen las reglas de la base.
    */
-  const deAnuncio = anuncio ? anuncioParaModelo(anuncio, agenteDePais(agente.pais)?.moneda.simbolo ?? null) : null;
   const deDifusion = difusion ? difusionParaModelo(difusion, agenteDePais(agente.pais)?.moneda.simbolo ?? null) : null;
+  /*
+   * CON DIFUSIÓN VIGENTE, EL ANUNCIO SE CALLA.
+   *
+   * El caso de la dueña (2026-09-28): mandó una campaña con foto y oferta a un
+   * cliente que ya tenía conversación abierta por un anuncio de hacía meses,
+   * y el agente seguía vendiendo el artículo del anuncio viejo en vez del que
+   * la propia campaña le acababa de ofrecer. Los dos bloques juntos —«el
+   * cliente llegó por este anuncio» y «le mandamos esta campaña»— le dan al
+   * modelo dos artículos distintos para elegir, y elegía el que no tocaba.
+   * `difusion` solo llega no-nulo cuando es la MÁS RECIENTE de las dos —ver
+   * `difusionVigente`, que gana sobre cualquier anuncio salvo que ESTE mismo
+   * mensaje traiga uno pegado—, así que aquí manda ella sola.
+   */
+  const deAnuncio = anuncio && !deDifusion ? anuncioParaModelo(anuncio, agenteDePais(agente.pais)?.moneda.simbolo ?? null) : null;
 
   /*
    * ¿ESTE ARTÍCULO LLEVA TALLA Y COLOR? Se decide aquí, una vez, con lo que
@@ -1114,10 +1151,18 @@ export function armarSistema(
    * Null cuando el anuncio no nombra ningún artículo —o no hay anuncio—: ahí
    * no se sabe qué se vende, y el guion sale con la clasificación por hacer.
    */
-  const descripcionDelAnuncio = anuncio?.descripcion_anuncio?.trim() ?? "";
-  const textoDelArticulo = nombraUnArticulo(descripcionDelAnuncio)
-    ? descripcionDelAnuncio
-    : anuncio?.producto_anuncio?.trim() || difusion?.producto_difusion?.trim() || "";
+  /*
+   * Con difusión vigente, el artículo es el de la campaña y nada del anuncio
+   * —ni su descripción ni su título— entra aquí: es la misma prioridad que
+   * ya decidió `deAnuncio` arriba, para que la clasificación de talla y color
+   * no acabe mirando un artículo distinto del que de verdad se está vendiendo.
+   */
+  const descripcionDelAnuncio = deDifusion ? "" : anuncio?.descripcion_anuncio?.trim() ?? "";
+  const textoDelArticulo = deDifusion
+    ? difusion?.producto_difusion?.trim() || ""
+    : nombraUnArticulo(descripcionDelAnuncio)
+      ? descripcionDelAnuncio
+      : anuncio?.producto_anuncio?.trim() || "";
   const articuloConocido = nombraUnArticulo(textoDelArticulo);
   const paisDelArticulo = agenteDePais(agente.pais);
   const conTalla = articuloConocido ? llevaTalla(textoDelArticulo, paisDelArticulo) : null;
@@ -3690,8 +3735,17 @@ export async function enviarMensajeDeDifusion(
   }
 
   try {
+    /*
+     * EL TEXTO VA DE PIE DE FOTO, NO SE PIERDE.
+     *
+     * El caso de la dueña (2026-09-28): armó una campaña con foto y texto, y
+     * al destinatario solo le llegaba la foto, muda. `enviarImagenWa` mandaba
+     * la imagen sola porque nadie le pasaba el texto —esta misma función lo
+     * tenía en `limpio` y no lo usaba—. `imagen.pie`, si algún día alguien lo
+     * rellena aparte, manda sobre el texto general de la campaña.
+     */
     const messageId = imagen
-      ? await enviarImagenWa(canalId, destino, imagen.datos)
+      ? await enviarImagenWa(canalId, destino, imagen.datos, imagen.pie ?? limpio)
       : await enviarTexto(canalId, destino, limpio);
     registrarAiSent(orgId, messageId);
     return { ok: true, messageId };

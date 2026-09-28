@@ -1023,6 +1023,33 @@ function migrar(conexion: DB): void {
   agregarColumna("conversations", "precio_difusion", "REAL");
 
   /*
+   * conversations: LA DIFUSIÓN VIGENTE, aparte de la primera.
+   *
+   * Mismo problema que «el anuncio actual» (arriba), pero con una campaña de
+   * difusión: la dueña mandó una campaña de un producto a un cliente que YA
+   * tenía conversación abierta —por un anuncio de meses atrás, o por otra
+   * campaña—, y el agente seguía vendiendo lo viejo porque `campana_id` y
+   * compañía solo se escriben al CREAR la conversación (ver el comentario de
+   * arriba) y `producto_anuncio`/`descripcion_anuncio` tampoco se pisan.
+   *
+   * Estas tres SÍ se pisan con cada campaña nueva que le llega a este cliente
+   * y a la que responde sin que haya pasado nada más en el hilo mientras
+   * tanto —ver `campanaDeUltimoEnvio` y `getOrCreateConversation`—; las de
+   * arriba siguen intactas para no falsear a qué campaña se le atribuye la
+   * respuesta.
+   */
+  if (!columnas("conversations").includes("difusion_actual_campana_id")) {
+    conexion.exec(`
+      ALTER TABLE conversations ADD COLUMN difusion_actual_campana_id INTEGER;
+      ALTER TABLE conversations ADD COLUMN difusion_actual_producto TEXT;
+      ALTER TABLE conversations ADD COLUMN difusion_actual_precio REAL;
+      UPDATE conversations SET difusion_actual_campana_id = campana_id,
+                               difusion_actual_producto = producto_difusion,
+                               difusion_actual_precio = precio_difusion;
+    `);
+  }
+
+  /*
    * agentes: los dos seguimientos.
    *
    * Nacen encendidos, y no es un descuido: solo salen por los números donde el
@@ -1642,6 +1669,12 @@ export interface Conversacion {
    * dos a la vez en la práctica. Ver `campanaDeUltimoEnvio` en ingesta.ts.
    */
   campana_id: number | null; producto_difusion: string | null; precio_difusion: number | null;
+  /**
+   * LA DIFUSIÓN VIGENTE, aparte de la primera. Gemelas de
+   * `anuncio_actual_producto`/`anuncio_actual_descripcion`: el agente lee
+   * estas, no las de arriba. Ver `difusionVigente` en `difusion-contexto.ts`.
+   */
+  difusion_actual_campana_id: number | null; difusion_actual_producto: string | null; difusion_actual_precio: number | null;
 }
 
 export interface Mensaje {
@@ -2055,14 +2088,21 @@ export function getOrCreateConversation(
     /** La dirección exacta a la que se le contesta. Ver `cliente_jid`. */
     jid?: string | null;
     /**
-     * DE QUÉ CAMPAÑA DE DIFUSIÓN VINO ESTE CLIENTE, si vino de una. A
-     * diferencia del anuncio, esto SOLO se escribe al crear la conversación
-     * (más abajo): si el hilo ya existía, este cliente escribió por su
-     * cuenta o por otro motivo antes de que existiera esta campaña, y
-     * adjudicárselo retroactivamente sería inventar de dónde vino. Ver
+     * DE QUÉ CAMPAÑA DE DIFUSIÓN VINO ESTE CLIENTE, si vino de una.
+     *
+     * `campanaId`/`productoDifusion`/`precioDifusion` son la ATRIBUCIÓN —a
+     * qué campaña se le acredita este lead— y, como el anuncio, SOLO se
+     * escriben al crear la conversación: si el hilo ya existía, este cliente
+     * escribió por su cuenta o por otro motivo antes de que existiera esta
+     * campaña, y adjudicárselo retroactivamente inventaría de dónde vino.
+     *
+     * `difusionEnviadoAt` es aparte, y SÍ importa en un hilo que ya existía:
+     * con él se decide si esta campaña es la DIFUSIÓN VIGENTE —lo que se le
+     * vende ahora—, sin tocar la atribución. Ver `difusion_actual_*` abajo y
      * `campanaDeUltimoEnvio` en ingesta.ts.
      */
     campanaId?: number | null; productoDifusion?: string | null; precioDifusion?: number | null;
+    difusionEnviadoAt?: number | null;
   } = {},
 ): { conversacion: Conversacion; nueva: boolean } {
   const existente = s(
@@ -2117,6 +2157,21 @@ export function getOrCreateConversation(
     if (datos.productoAnuncio || datos.descripcionAnuncio) {
       anuncio.anuncio_actual_producto = datos.productoAnuncio ?? "";
       anuncio.anuncio_actual_descripcion = datos.descripcionAnuncio ?? "";
+      /*
+       * Y LA DIFUSIÓN VIGENTE SE APAGA: un anuncio pegado a ESTE mensaje es
+       * una señal más fresca que cualquier campaña mandada antes, y sin
+       * esto una difusión vigente de un mensaje anterior seguiría colgada
+       * del hilo —y tapando este anuncio nuevo— hasta que llegara otra
+       * campaña que la reemplazara. Aparte del bloque de abajo porque estas
+       * tres no son TEXT.
+       */
+      s(
+        `UPDATE conversations SET difusion_actual_campana_id = NULL, difusion_actual_producto = NULL, difusion_actual_precio = NULL
+          WHERE org_id = ? AND id = ?`,
+      ).run(orgId, existente.id);
+      existente.difusion_actual_campana_id = null;
+      existente.difusion_actual_producto = null;
+      existente.difusion_actual_precio = null;
     }
 
     const campos = Object.keys(anuncio);
@@ -2128,6 +2183,40 @@ export function getOrCreateConversation(
       Object.assign(existente, anuncio);
     }
 
+    /*
+     * LA DIFUSIÓN VIGENTE SÍ SE PISA, con dos condiciones:
+     *
+     *  1. Que esta campaña se le mandara DESPUÉS de lo último que pasó en el
+     *     hilo. Sin esto, un cliente que un día recibió una campaña y nunca
+     *     contestó la arrastraría para siempre en cualquier mensaje suyo,
+     *     hable de lo que hable.
+     *  2. Que ESTE mensaje no traiga su propio anuncio. Un clic en un anuncio
+     *     de verdad es una señal más fresca que cualquier campaña mandada
+     *     antes: gana el anuncio, como siempre.
+     *
+     * Aparte del bloque de arriba porque estas tres columnas no son TEXT
+     * (`Record<string, string>` no les sirve) y porque son una decisión propia,
+     * no un simple «rellena lo que esté vacío».
+     *
+     * El caso de la dueña (2026-09-28): mandó una campaña con foto y oferta a
+     * clientes que YA tenían conversación —de un anuncio de hacía meses, o de
+     * otra campaña—, y el agente le seguía vendiendo lo viejo porque nada
+     * actualizaba esto en un hilo que ya existía.
+     */
+    if (
+      datos.difusionEnviadoAt != null &&
+      datos.difusionEnviadoAt > (existente.last_message_at ?? existente.fecha_inicio) &&
+      !datos.productoAnuncio && !datos.descripcionAnuncio
+    ) {
+      s(
+        `UPDATE conversations SET difusion_actual_campana_id = ?, difusion_actual_producto = ?, difusion_actual_precio = ?
+          WHERE org_id = ? AND id = ?`,
+      ).run(datos.campanaId ?? null, datos.productoDifusion ?? null, datos.precioDifusion ?? null, orgId, existente.id);
+      existente.difusion_actual_campana_id = datos.campanaId ?? null;
+      existente.difusion_actual_producto = datos.productoDifusion ?? null;
+      existente.difusion_actual_precio = datos.precioDifusion ?? null;
+    }
+
     return { conversacion: existente, nueva: false };
   }
 
@@ -2136,13 +2225,15 @@ export function getOrCreateConversation(
     `INSERT INTO conversations
        (org_id, canal_id, cliente_phone, cliente_jid, cliente_nombre, origen, producto_anuncio, descripcion_anuncio,
         anuncio_actual_producto, anuncio_actual_descripcion, superficie, meta_ad_id, red, fecha_inicio, last_message_at,
-        campana_id, producto_difusion, precio_difusion)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        campana_id, producto_difusion, precio_difusion,
+        difusion_actual_campana_id, difusion_actual_producto, difusion_actual_precio)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     orgId, canalId, clientePhone, datos.jid ?? null, datos.nombre ?? null,
     datos.origen ?? null, datos.productoAnuncio ?? null, datos.descripcionAnuncio ?? null,
     datos.productoAnuncio ?? null, datos.descripcionAnuncio ?? null,
     datos.superficie ?? null, datos.metaAdId ?? null, datos.red ?? null, cuando, cuando,
+    datos.campanaId ?? null, datos.productoDifusion ?? null, datos.precioDifusion ?? null,
     datos.campanaId ?? null, datos.productoDifusion ?? null, datos.precioDifusion ?? null,
   );
 

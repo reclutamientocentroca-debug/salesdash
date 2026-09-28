@@ -259,15 +259,30 @@ export async function ingerir(
       }
 
       /*
-       * DE QUÉ CAMPAÑA DE DIFUSIÓN VINO, si es la primera vez que este
-       * cliente escribe en este canal. Solo se mira para una conversación
-       * NUEVA: si ya existía, escribió antes de que esta campaña existiera y
-       * adjudicársela sería inventar de dónde vino. Ver `campanaDeUltimoEnvio`.
+       * DE QUÉ CAMPAÑA DE DIFUSIÓN VINO, o a cuál responde ahora.
+       *
+       * Se mira para todo entrante, tenga o no conversación ya abierta:
+       * `getOrCreateConversation` decide qué hacer con esto según si la
+       * conversación es nueva o no —atribuirle el lead a esta campaña SOLO si
+       * es nueva (si ya existía, escribió antes de que esta campaña existiera
+       * y adjudicársela sería inventar de dónde vino), y actualizar la
+       * DIFUSIÓN VIGENTE si esta campaña se mandó después de lo último que
+       * pasó en el hilo—. Ver `campanaDeUltimoEnvio`.
+       *
+       * El caso de la dueña (2026-09-28): un cliente que YA tenía conversación
+       * —de un anuncio de hacía meses— recibió una campaña nueva y contestó, y
+       * el agente le seguía vendiendo el anuncio viejo: nadie miraba la
+       * difusión en un hilo que ya existía.
        */
-      const deDifusion =
-        !m.deMi && !existeConversacion(orgId, canal.id, telefono)
-          ? campanaDeUltimoEnvio(orgId, canal.id, telefono)
-          : null;
+      const habiaConversacion = existeConversacion(orgId, canal.id, telefono);
+      /*
+       * Un anuncio pegado a ESTE mensaje gana siempre, aunque el hilo sea
+       * nuevo: sin este freno, un cliente que nunca había escrito y llega por
+       * un anuncio de verdad podía terminar con una campaña vieja —mandada a
+       * ese número antes de que existiera conversación, y nunca contestada—
+       * pisándole el artículo en la misma inserción.
+       */
+      const deDifusion = !m.deMi && !m.deAnuncio ? campanaDeUltimoEnvio(orgId, canal.id, telefono) : null;
 
       const { conversacion, nueva } = getOrCreateConversation(orgId, canal.id, telefono, {
         /*
@@ -281,7 +296,8 @@ export async function ingerir(
         // El nombre solo viene en los entrantes; en los salientes es el nuestro.
         nombre: m.deMi ? null : m.nombre,
         cuando: m.cuando,
-        origen: m.deAnuncio ? "anuncio" : deDifusion ? "difusion" : null,
+        // La atribución del lead solo se decide la primera vez.
+        origen: m.deAnuncio ? "anuncio" : deDifusion && !habiaConversacion ? "difusion" : null,
         superficie: m.superficie ?? null,
         red: m.red ?? null,
         metaAdId: m.metaAdId ?? null,
@@ -290,6 +306,7 @@ export async function ingerir(
         campanaId: deDifusion?.campana_id ?? null,
         productoDifusion: deDifusion?.producto_nombre ?? null,
         precioDifusion: deDifusion?.producto_precio ?? null,
+        difusionEnviadoAt: deDifusion?.enviado_at ?? null,
       });
 
       /*

@@ -5,7 +5,8 @@ import * as D from "../src/lib/db";
 import { ingerir, type MensajeEntrante } from "../src/lib/ingesta";
 import { detectarOptOut } from "../src/lib/opt-out";
 import { calcularReparto } from "../src/lib/difusion-calculo";
-import { difusionParaModelo, llegoPorDifusion } from "../src/lib/difusion-contexto";
+import { difusionParaModelo, difusionVigente, llegoPorDifusion } from "../src/lib/difusion-contexto";
+import { loQueSeVendeAqui } from "../src/lib/agent";
 import { parsearCsv } from "../src/lib/difusion-csv";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -221,6 +222,75 @@ test("cuando el cliente responde por primera vez a una difusión, la conversaci�
     assert.match(hilo[0]!.content, /Combo 2 en 1/);
     assert.equal(hilo[1]!.emisor, "cliente");
   });
+});
+
+/*
+ * EL CASO DE LA DUEÑA (2026-09-28): mandó una campaña con foto y oferta a un
+ * cliente que YA tenía conversación abierta —por un anuncio de hacía meses—,
+ * y el agente le seguía vendiendo el artículo del anuncio viejo en vez del
+ * que la propia campaña le acababa de ofrecer.
+ */
+test("un cliente que ya tenía conversación por un anuncio, y responde a una campaña nueva, vende lo de la campaña", () => {
+  const { orgId, canalId } = crearCuentaConCanal("vigente");
+  const canal = D.obtenerCanal(orgId, canalId)!;
+  const telefono = "18095557777";
+
+  // Hace tiempo, este cliente llegó por un anuncio de otro artículo.
+  const conAnuncio: MensajeEntrante[] = [
+    {
+      id: "wa-msg-anuncio-viejo", deMi: false, chatId: `${telefono}@s.whatsapp.net`, tipo: "texto",
+      content: "Info", mediaUrl: null, cuando: D.ahora() - 3600, nombre: "PerfilDeWhatsApp",
+      deAnuncio: true, productoAnuncio: "Camisa de lino", descripcionAnuncio: "Camisa de lino RD$1,850",
+    },
+  ];
+
+  return ingerir(canal, conAnuncio, { dentroDePeticion: false })
+    .then(() => {
+      const antes = D.getOrCreateConversation(orgId, canalId, telefono).conversacion;
+      assert.equal(antes.producto_anuncio, "Camisa de lino");
+
+      // Hoy, la dueña le manda una campaña de OTRO producto a ese mismo cliente.
+      const lista = D.crearListaDifusion(orgId, { nombre: "Lista", tipo: "csv" });
+      const campanaId = D.crearCampanaDifusion(orgId, {
+        canalId, listaId: lista, nombre: "Botas", modo: "qr", mensajeBase: "Hola {nombre}, el {producto} está disponible.",
+        productoNombre: "Botas MR", productoPrecio: 2900,
+        mensajesPorDia: 10, diasSemana: [1, 2, 3, 4, 5], horaDesde: "09:00", horaHasta: "18:00",
+      });
+      D.congelarDestinatarios(orgId, campanaId, canalId, [{ telefono, nombre: null }]);
+      const [destinatario] = D.pendientesDeCampana(orgId, campanaId, 1);
+      D.marcarEnvio(orgId, destinatario!.id, {
+        ok: true, whapiMessageId: "wa-msg-difusion-botas", variacionUsada: null,
+        mensajeEnviado: "Hola, las Botas MR están disponibles.\n\nResponda SALIR si no desea recibir más mensajes.",
+      });
+
+      // Y el cliente contesta, sin mencionar ningún anuncio.
+      const respuesta: MensajeEntrante[] = [
+        {
+          id: "wa-msg-respuesta-botas", deMi: false, chatId: `${telefono}@s.whatsapp.net`, tipo: "texto",
+          content: "Sí, me interesan", mediaUrl: null, cuando: D.ahora(), nombre: "PerfilDeWhatsApp",
+          deAnuncio: false, productoAnuncio: null, descripcionAnuncio: null,
+        },
+      ];
+      return ingerir(canal, respuesta, { dentroDePeticion: false });
+    })
+    .then(() => {
+      const conv = D.getOrCreateConversation(orgId, canalId, telefono).conversacion;
+
+      // La atribución del lead NO cambia: sigue siendo del anuncio, no de la campaña.
+      assert.equal(conv.origen, "anuncio");
+      assert.equal(conv.campana_id, null);
+      assert.equal(conv.producto_anuncio, "Camisa de lino");
+
+      // Pero lo que se vende AHORA es lo de la campaña, no el anuncio viejo.
+      const vigente = difusionVigente(conv);
+      assert.equal(vigente.producto_difusion, "Botas MR");
+      assert.equal(vigente.precio_difusion, 2900);
+
+      const seVende = loQueSeVendeAqui(orgId, conv, [], "RD$");
+      assert.match(seVende.producto_anuncio ?? "", /Botas MR/);
+      assert.doesNotMatch(seVende.descripcion_anuncio ?? "", /lino/i);
+      assert.match(seVende.descripcion_anuncio ?? "", /2900|2,900/);
+    });
 });
 
 test("un cliente que ya tenía conversación de antes no se le adjudica una campaña nueva de rebote", () => {
