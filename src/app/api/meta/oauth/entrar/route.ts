@@ -72,6 +72,16 @@ const PERMISOS = [
   "pages_manage_engagement",
   "instagram_basic",
   "instagram_manage_messages",
+  /*
+   * PARA CONTESTAR EL COMENTARIO DE INSTAGRAM, no para leerlo.
+   *
+   * La suscripción de Instagram (`CAMPOS_SUSCRIPCION_INSTAGRAM`, en
+   * `meta/paginas.ts`) pide el campo `comments`, y Meta exige este permiso
+   * para dárselo. Sin él, Meta conecta la página pero rechaza suscribir la
+   * cuenta de Instagram con «(#3) Application does not have the capability
+   * to make this API call»: el error de la dueña (2026-09-26).
+   */
+  "instagram_manage_comments",
 ].join(",");
 
 /** A dónde vuelve Facebook. Tiene que estar dada de alta en la app de Meta. */
