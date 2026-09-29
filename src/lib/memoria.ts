@@ -76,6 +76,54 @@ const RESPUESTA_HORAS = 6;
 const TALLA_DICHA =
   /(?:\btalla\b\s*(?:es\s+)?(?:la\s+)?|\b(?:uso|calzo|llevo)\s+(?:la\s+)?)(\d{1,2}(?:[.,]5)?|xs|s|m|l|xl|xxl|xxxl|[23]xl)\b(?![\d.,])/i;
 
+/**
+ * «pantalón 38», «camisa XL», «correa 34»: la prenda pegada a su número o
+ * letra, SIN decir «talla». Es como habla de verdad quien pide un conjunto
+ * —más de una prenda a la vez—: nombra cada pieza con su medida, una al lado
+ * de la otra, y `TALLA_DICHA` no la veía porque exige «talla/uso/calzo/llevo»
+ * delante. El caso real (RD, 2026-09-29): «pantalón treinta y ocho y camisa
+ * XL» en una nota de voz —y luego, por escrito, «Pantalón 38 camisa XL»— y la
+ * ficha se quedó en blanco las dos veces: el agente volvió a pedir la talla
+ * que el cliente ya había dado, dos veces.
+ *
+ * A diferencia de `TALLA_DICHA` —que solo guarda el número o la letra—, aquí
+ * se guarda LA FRASE ENTERA: un conjunto trae más de una prenda con más de una
+ * medida, y una talla sola («38») perdería cuál es de cuál.
+ *
+ * Van por SEPARADO —dos búsquedas y una distancia— y no en un solo regex con
+ * «\b»: en JavaScript «\b» no reconoce una vocal con tilde como parte de la
+ * palabra, así que «m[b]ás»/«m[b]edida» partían justo antes de la tilde y la M
+ * suelta de «Talla M» hacía falso positivo con cualquier «más» cercano a una
+ * prenda. Aquí los límites son los mismos —letras y números, en unicode— que
+ * ya usa `pareceTalla` más abajo.
+ */
+const PRENDAS_CON_TALLA =
+  /(?:^|[^\p{L}\p{N}])(camisas?|camisetas?|blusas?|pantal[oó]n(?:es)?|correas?|cintur[oó]n(?:es)?|fajas?|zapatos?|botas?|calzado|tenis)(?=[^\p{L}\p{N}]|$)/giu;
+const TALLA_SUELTA =
+  /(?:^|[^\p{L}\p{N}])(x{0,3}s|m|l|x{1,3}l|\d{1,2}(?:[.,]5)?)(?=[^\p{L}\p{N}]|$)(?!\d)/giu;
+
+/** ¿Cuántos caracteres, como mucho, entre la prenda y su talla? «pantalón 38» son 9. */
+const DISTANCIA_PRENDA_TALLA = 16;
+
+function tieneTallaDePrenda(texto: string): boolean {
+  const prendas = [...texto.matchAll(PRENDAS_CON_TALLA)];
+  if (!prendas.length) return false;
+  const tallas = [...texto.matchAll(TALLA_SUELTA)];
+  if (!tallas.length) return false;
+
+  for (const p of prendas) {
+    const finPrenda = p.index! + p[0].length;
+    for (const t of tallas) {
+      const inicioTalla = t.index!;
+      const finTalla = inicioTalla + t[0].length;
+      // Adyacentes en cualquier orden: «pantalón 38» o «38 de pantalón».
+      const distancia = inicioTalla >= finPrenda ? inicioTalla - finPrenda : p.index! - finTalla;
+      if (distancia <= DISTANCIA_PRENDA_TALLA) return true;
+    }
+  }
+  return false;
+}
+
 const VACIA: FichaDelPedido = { talla: null, color: null, direccion: null, nombre: null, celular: null, cantidad: null };
 
 /** Sin tildes ni mayúsculas, para comparar. */
@@ -500,6 +548,10 @@ function fichaDe(sesion: MensajeDeMemoria[], datos: DatosPais | null): FichaDelP
       if (!m.content.includes("?")) {
         const talla = m.content.match(TALLA_DICHA);
         if (talla) ficha.talla = talla[1].toUpperCase();
+        // «Pantalón 38, camisa XL»: sin decir «talla», y puede traer más de
+        // una prenda —ver `TALLA_DE_PRENDA»—. Se guarda la frase entera para
+        // no perder cuál medida es de cuál pieza.
+        else if (tieneTallaDePrenda(m.content)) ficha.talla = m.content.trim().slice(0, 80);
       }
       /*
        * Y CUÁNTAS, DICHO POR ÉL. La dueña (2026-09-11): «me le está dando al

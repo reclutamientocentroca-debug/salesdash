@@ -1454,6 +1454,24 @@ function aHistorial(mensajes: Mensaje[]) {
 }
 
 /**
+ * LA FICHA TAMBIÉN TIENE QUE OÍR Y VER, no solo leer.
+ *
+ * `fichaDelHilo` (memoria.ts) lee `content` tal cual, y en la base eso es
+ * literalmente «[nota de voz]» para siempre —`guardarTranscripcion` solo
+ * llena la columna `transcripcion`, nunca reescribe `content`—. El caso real
+ * de la dueña (RD, 2026-09-29, capturas): el cliente dio su talla en una nota
+ * de voz, el agente la reconoció y hasta dijo «ya tengo su talla», pero la
+ * ficha mecánica nunca la registró —vio «[nota de voz]», no las palabras—, así
+ * que en cuanto el cliente volvió a tocar el tema, nada impedía que se la
+ * volvieran a preguntar. Aquí se le pasa a la ficha EXACTAMENTE lo mismo que
+ * ya recibe el modelo en `aHistorial`, para que las dos lean la misma
+ * conversación.
+ */
+function paraLaFicha(mensajes: Mensaje[]): Mensaje[] {
+  return mensajes.map((m) => (m.emisor === "cliente" ? { ...m, content: conLoVistoYOido(m) } : m));
+}
+
+/**
  * LO QUE SE LE DICE AL AGENTE CUANDO LE DEVUELVEN UN HILO CON ALGO COLGANDO.
  *
  * Va al final del prompt, que es donde más pesa. Sin esto el modelo lee su
@@ -1713,7 +1731,7 @@ export async function generarRespuesta(
    * una pregunta repetida.
    */
   const ficha =
-    fichaParaModelo(fichaDelHilo(memoriaMensajes, agente.pais), agente.pais) +
+    fichaParaModelo(fichaDelHilo(paraLaFicha(memoriaMensajes), agente.pais), agente.pais) +
     avisoDeClienteQueVuelve(memoriaMensajes) +
     (agente.pais === "do"
       ? "\n\nREGLA DE DIRECCIÓN DE REPÚBLICA DOMINICANA: la dirección se da una sola vez. Si el cliente ya la escribió, acéptala completa, úsala para ubicar la zona y calcular el envío, y no le pidas que la repita, la corrija ni que añada número de casa o referencias. Si el mapa no logra identificar la zona, pregunta únicamente la provincia; nunca vuelvas a pedir toda la dirección."
@@ -2595,7 +2613,7 @@ async function atenderTurno(
    */
   if (!respuesta.texto.trim()) {
     const relleno = datosPais
-      ? respuestaMinima(datosPais, fichaDelHilo(memoriaMensajes, agente.pais), seVende, {
+      ? respuestaMinima(datosPais, fichaDelHilo(paraLaFicha(memoriaMensajes), agente.pais), seVende, {
           ultimoDelCliente: ultimo.content,
           ultimoDelAgente: [...historial].reverse().find((m) => m.emisor !== "cliente")?.content ?? null,
           clienteCompartioUbicacion: clienteCompartioUbicacion(historial),
@@ -2677,7 +2695,7 @@ async function atenderTurno(
         precioDelCatalogoQueNoAplica ??
         precioDelCatalogoQueNoAplicaEnHilo(seVende, datosPais.moneda.simbolo, catalogoProductos),
       fotoDelCliente: fotoDeProductoDelClienteEnSesion(historial),
-      ficha: fichaDelHilo(memoriaMensajes, agente.pais),
+      ficha: fichaDelHilo(paraLaFicha(memoriaMensajes), agente.pais),
       clienteCompartioUbicacion: clienteCompartioUbicacion(historial),
       textosDelCliente: textosDelClienteEnSesion(historial),
       textosDelAgente: textosDeLaCasaEnSesion(historial),
@@ -3103,7 +3121,7 @@ async function atenderTurno(
 
   let otraForma: string | null = null;
   if (iguales.length > 0 && !dobleEnvio && datosPais) {
-    const candidata = respuestaMinima(datosPais, fichaDelHilo(memoriaMensajes, agente.pais), seVende, {
+    const candidata = respuestaMinima(datosPais, fichaDelHilo(paraLaFicha(memoriaMensajes), agente.pais), seVende, {
       ultimoDelCliente: ultimo.content,
       // Lo que iba a salir repetido: así la pregunta sale con otras palabras.
       ultimoDelAgente: respuesta.texto,
@@ -3454,7 +3472,7 @@ export async function enviarSeguimiento(
         reglaPrecio.precioDelCatalogoQueNoAplica ??
         precioDelCatalogoQueNoAplicaEnHilo(anuncioVigente(conv), datosPais.moneda.simbolo, catalogoProductos),
       fotoDelCliente: fotoDeProductoDelClienteEnSesion(historial),
-      ficha: fichaDelHilo(historial, agente.pais),
+      ficha: fichaDelHilo(paraLaFicha(historial), agente.pais),
       textosDelCliente: textosDelClienteEnSesion(historial),
       textosDelAgente: textosDeLaCasaEnSesion(historial),
       telefonoDelChat: conv.cliente_phone,

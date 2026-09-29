@@ -333,6 +333,50 @@ test("dos mensajes seguidos del cliente conservan la talla y no reabren la venta
 });
 
 /**
+ * UN CONJUNTO SE PIDE NOMBRANDO CADA PRENDA CON SU MEDIDA, SIN DECIR «TALLA».
+ *
+ * El caso real (RD, 2026-09-29, capturas): el cliente contestó «pantalón
+ * treinta y ocho y camisa XL» en una nota de voz y, un turno después, otra vez
+ * por escrito «Pantalón 38 camisa XL». Ninguna de las dos decía «talla», «uso»
+ * ni «calzo», así que la ficha se quedaba en blanco y el agente se lo volvía a
+ * preguntar. Aquí se guarda la frase completa —no solo el número— porque un
+ * conjunto trae más de una medida y una talla sola perdería cuál es de cuál.
+ */
+test("«pantalón 38 camisa XL», sin decir «talla», también se guarda —y con las dos medidas—", () => {
+  const f = fichaDelPedido(
+    [
+      { emisor: "ia", content: "Para enviárselo necesito su talla. ¿Cuál le interesa?" },
+      { emisor: "cliente", content: "Pantalón 38 camisa XL" },
+    ],
+    rd,
+  );
+  assert.equal(f.talla, "Pantalón 38 camisa XL");
+  assert.ok(preguntasRepetidas("Para enviárselo necesito su talla. ¿Cuál le interesa?", f).length > 0);
+});
+
+/**
+ * EL FALSO POSITIVO QUE CASI SE CUELA: «más» no es la talla M.
+ *
+ * Al construir la detección de arriba, una primera versión usaba «\b» para
+ * marcar dónde empieza y termina cada palabra. En JavaScript «\b» no cuenta
+ * una vocal con tilde como parte de la palabra, así que en «más» partía justo
+ * antes de la «á» y la «m» suelta se leía como si fuera la talla M —bastaba
+ * con que la frase mencionara una prenda en cualquier parte—. Fijado con los
+ * mismos límites en unicode que ya usa `pareceTalla`.
+ */
+test("una frase con «más» cerca de una prenda no es una talla", () => {
+  const f = fichaDelPedido(
+    [
+      { emisor: "ia", content: "Para enviárselo necesito su talla. ¿Cuál le interesa?" },
+      { emisor: "cliente", content: "XXL" },
+      { emisor: "cliente", content: "Te voy a comprar 1 docena para probar y luego voy a comprar más y pantalones" },
+    ],
+    rd,
+  );
+  assert.equal(f.talla, "XXL", "la M de «más» no debe pisar la talla ya dada");
+});
+
+/**
  * EL PEDIDO QUE SE REGISTRÓ Y NO ERA EL DEL CLIENTE (2026-09-07):
  *
  *   Direccion: Si yo.le escomprado
