@@ -81,8 +81,7 @@ export function normalizarEvento(
   for (const entrada of evento.entry ?? []) {
     // ── Mensajes directos: Messenger y DM de Instagram ────────────────────
     for (const bruto of entrada.messaging ?? []) {
-      const m = normalizarMensaje(bruto, destinoId, esInstagram);
-      if (m) salida.push(m);
+      salida.push(...normalizarMensaje(bruto, destinoId, esInstagram));
     }
 
     // ── Comentarios en publicaciones y anuncios ───────────────────────────
@@ -96,18 +95,31 @@ export function normalizarEvento(
   return salida;
 }
 
+/**
+ * UN SOLO EVENTO PUEDE TRAER VARIAS FOTOS A LA VEZ.
+ *
+ * Cuando el cliente elige varias imágenes de su galería y las manda juntas,
+ * Messenger las manda en un SOLO evento, con un `attachments` de varios
+ * elementos —no un evento por foto, como hace WhatsApp—. Mirar solo
+ * `adjuntos[0]` (lo que hacía esto antes) se comía las demás en silencio: el
+ * cliente mandaba las dos fotos del par de botas, «talón» y «puntera», y el
+ * agente solo veía una. Aquí se devuelve UN `MensajeMeta` por adjunto, cada
+ * uno con su propio `id` —Meta da un solo `mid` para todo el evento, así que
+ * al segundo adjunto en adelante se le añade un sufijo, para no pisar al
+ * primero en la columna UNIQUE de `messages`—.
+ */
 function normalizarMensaje(
   bruto: unknown,
   destinoId: string,
   esInstagram: boolean,
-): MensajeMeta | null {
+): MensajeMeta[] {
   const e = objeto(bruto);
   const mensaje = objeto(e.message);
   const emisorId = texto(objeto(e.sender).id);
   const receptorId = texto(objeto(e.recipient).id);
 
   // Sin identificadores no hay conversación posible.
-  if (!emisorId || !receptorId) return null;
+  if (!emisorId || !receptorId) return [];
 
   /*
    * DE QUIÉN ES ESTE MENSAJE.
@@ -124,7 +136,7 @@ function normalizarMensaje(
   const clienteId = esEco ? receptorId : emisorId;
 
   // Nunca somos nuestro propio cliente. Pasa en algunos ecos mal formados.
-  if (!clienteId || clienteId === destinoId) return null;
+  if (!clienteId || clienteId === destinoId) return [];
 
   /*
    * EL ID QUE HACE IDEMPOTENTE TODO ESTO.
@@ -133,10 +145,12 @@ function normalizarMensaje(
    * vendedor responde desde la bandeja, Meta devuelve el eco de ESE MISMO
    * mensaje con el MISMO `mid`: la segunda inserción no hace nada y el hilo no
    * sale duplicado. Sin `mid` no se guarda el mensaje —prefiero perder uno que
-   * duplicar el hilo entero—.
+   * duplicar el hilo entero—. Con varios adjuntos en el mismo evento, todos
+   * comparten el mismo `mid`: del segundo en adelante se le añade un sufijo,
+   * que si no la segunda foto pisaría la fila de la primera.
    */
   const id = texto(mensaje.mid);
-  if (!id) return null;
+  if (!id) return [];
 
   /*
    * EL REFERRAL DEL ANUNCIO: llega en el primer evento del hilo y solo ahí.
@@ -171,87 +185,100 @@ function normalizarMensaje(
    */
   const contextoAnuncio = objeto(referral.ads_context_data);
 
-  const adjuntos = Array.isArray(mensaje.attachments) ? mensaje.attachments : [];
-  const primero = objeto(adjuntos[0]);
-  const tipoAdjunto = texto(primero.type);
-  const url = texto(objeto(primero.payload).url) || null;
+  const adjuntos: unknown[] = Array.isArray(mensaje.attachments) ? mensaje.attachments : [];
+  // Sin adjuntos, sigue habiendo UN mensaje que procesar: el de puro texto.
+  const unidades = adjuntos.length ? adjuntos : [undefined];
 
-  /*
-   * UN ENLACE COMPARTIDO NO ES UNA FOTO NI UN AUDIO.
-   *
-   * Cuando el cliente comparte un producto —de la página, de un Marketplace o
-   * de cualquier web— Messenger no manda `image` ni `audio`: manda un adjunto
-   * `fallback` (o `post`/`ig_post` si comparte algo de dentro de Meta) con el
-   * título de la página y su URL, sin descripción. Esto caía en «otro» y el
-   * mensaje se guardaba como «(fallback)»: el agente no sabía qué había
-   * compartido el cliente y contestaba con el producto o el precio que le
-   * salieran, casi nunca el del enlace. El título entra igual que en WhatsApp
-   * (`enlace.ts`): pegado al mensaje y marcado como enlace, no como algo que
-   * escribió el cliente.
-   */
-  const esEnlaceCompartido = tipoAdjunto === "fallback" || tipoAdjunto === "post" || tipoAdjunto === "ig_post";
-  const tituloEnlace = esEnlaceCompartido ? texto(objeto(primero.payload).title) || null : null;
+  const salida: MensajeMeta[] = [];
 
-  const contenido = esEnlaceCompartido
-    ? textoConEnlace(texto(mensaje.text), { titulo: tituloEnlace, url })
-    : texto(mensaje.text);
+  unidades.forEach((adj, i) => {
+    const primero = objeto(adj);
+    const tipoAdjunto = texto(primero.type);
+    const url = texto(objeto(primero.payload).url) || null;
 
-  // Un mensaje sin texto ni adjunto no aporta nada al hilo ni al modelo.
-  if (!contenido && !url) return null;
-
-  return {
-    id,
-    deMi: esEco,
-    // `ingesta` normaliza esto como si fuera un teléfono. Un PSID es numérico,
-    // así que sale intacto y sirve igual de identificador dentro del canal.
-    chatId: clienteId,
-    tipo:
-      tipoAdjunto === "image"
-        ? "imagen"
-        : tipoAdjunto === "audio"
-          ? "audio"
-          : tipoAdjunto === "file"
-            ? "documento"
-            : contenido
-              ? "texto"
-              : "otro",
-    content: contenido || `(${tipoAdjunto || "adjunto"})`,
-    mediaUrl: url,
-    cuando: aSegundos(e.timestamp),
-    // Meta no manda el nombre en el webhook: hay que pedirlo al perfil aparte.
-    // Se deja nulo y `getOrCreateConversation` lo rellenará cuando llegue.
-    nombre: null,
-    deAnuncio,
-    productoAnuncio: texto(contextoAnuncio.ad_title) || null,
-    // Meta no manda el cuerpo del anuncio en el referral. Antes aquí iba su
-    // `post_id`, que no es una descripción sino un número.
-    descripcionAnuncio: null,
     /*
-     * LA CREATIVIDAD, que es donde está el precio en media publicidad de
-     * Facebook: escrito ENCIMA de la foto y no en el texto. Va como enlace y no
-     * como bytes —este archivo no llama a nadie—; lo descarga `ingesta.ts` una
-     * sola vez por anuncio y lo describe el modelo de visión, igual que ya se
-     * hacía con la miniatura que manda WhatsApp.
+     * UN ENLACE COMPARTIDO NO ES UNA FOTO NI UN AUDIO.
      *
-     * En un anuncio de vídeo, `video_url` trae la miniatura. Va de segundo por
-     * si algún día trajera el vídeo entero: `descargarImagen` solo acepta
-     * imágenes y ahí se pararía.
+     * Cuando el cliente comparte un producto —de la página, de un Marketplace o
+     * de cualquier web— Messenger no manda `image` ni `audio`: manda un adjunto
+     * `fallback` (o `post`/`ig_post` si comparte algo de dentro de Meta) con el
+     * título de la página y su URL, sin descripción. Esto caía en «otro» y el
+     * mensaje se guardaba como «(fallback)»: el agente no sabía qué había
+     * compartido el cliente y contestaba con el producto o el precio que le
+     * salieran, casi nunca el del enlace. El título entra igual que en WhatsApp
+     * (`enlace.ts`): pegado al mensaje y marcado como enlace, no como algo que
+     * escribió el cliente.
      */
-    imagenAnuncioUrl: texto(contextoAnuncio.photo_url) || texto(contextoAnuncio.video_url) || null,
-    /*
-     * LA PUBLICACIÓN DETRÁS DEL ANUNCIO.
-     *
-     * El referral no trae el texto del anuncio, solo el identificador del post.
-     * Con él se le pide a la Graph API lo que el negocio escribió —donde suele
-     * estar la promesa por la que el cliente escribe— y el enlace para abrirlo
-     * desde el panel. Aquí solo se transporta: pedirlo es cosa de `ingesta`.
-     */
-    postAnuncioId: texto(contextoAnuncio.post_id) || null,
-    superficie: esInstagram ? "instagram" : "messenger",
-    red: esInstagram ? "instagram" : "facebook",
-    metaAdId: adId,
-    comentarioId: null,
-  };
+    const esEnlaceCompartido = tipoAdjunto === "fallback" || tipoAdjunto === "post" || tipoAdjunto === "ig_post";
+    const tituloEnlace = esEnlaceCompartido ? texto(objeto(primero.payload).title) || null : null;
+
+    // El texto del evento va con el PRIMER adjunto: si vinieron varias fotos
+    // juntas, el pie de foto cuenta una sola vez, no una por cada imagen.
+    const textoDelEvento = i === 0 ? texto(mensaje.text) : "";
+    const contenido = esEnlaceCompartido
+      ? textoConEnlace(textoDelEvento, { titulo: tituloEnlace, url })
+      : textoDelEvento;
+
+    // Un mensaje sin texto ni adjunto no aporta nada al hilo ni al modelo.
+    if (!contenido && !url) return;
+
+    salida.push({
+      // El segundo adjunto en adelante lleva un sufijo: ver la nota de `id` arriba.
+      id: i === 0 ? id : `${id}#${i}`,
+      deMi: esEco,
+      // `ingesta` normaliza esto como si fuera un teléfono. Un PSID es numérico,
+      // así que sale intacto y sirve igual de identificador dentro del canal.
+      chatId: clienteId,
+      tipo:
+        tipoAdjunto === "image"
+          ? "imagen"
+          : tipoAdjunto === "audio"
+            ? "audio"
+            : tipoAdjunto === "file"
+              ? "documento"
+              : contenido
+                ? "texto"
+                : "otro",
+      content: contenido || `(${tipoAdjunto || "adjunto"})`,
+      mediaUrl: url,
+      cuando: aSegundos(e.timestamp),
+      // Meta no manda el nombre en el webhook: hay que pedirlo al perfil aparte.
+      // Se deja nulo y `getOrCreateConversation` lo rellenará cuando llegue.
+      nombre: null,
+      deAnuncio,
+      productoAnuncio: texto(contextoAnuncio.ad_title) || null,
+      // Meta no manda el cuerpo del anuncio en el referral. Antes aquí iba su
+      // `post_id`, que no es una descripción sino un número.
+      descripcionAnuncio: null,
+      /*
+       * LA CREATIVIDAD, que es donde está el precio en media publicidad de
+       * Facebook: escrito ENCIMA de la foto y no en el texto. Va como enlace y no
+       * como bytes —este archivo no llama a nadie—; lo descarga `ingesta.ts` una
+       * sola vez por anuncio y lo describe el modelo de visión, igual que ya se
+       * hacía con la miniatura que manda WhatsApp.
+       *
+       * En un anuncio de vídeo, `video_url` trae la miniatura. Va de segundo por
+       * si algún día trajera el vídeo entero: `descargarImagen` solo acepta
+       * imágenes y ahí se pararía.
+       */
+      imagenAnuncioUrl: texto(contextoAnuncio.photo_url) || texto(contextoAnuncio.video_url) || null,
+      /*
+       * LA PUBLICACIÓN DETRÁS DEL ANUNCIO.
+       *
+       * El referral no trae el texto del anuncio, solo el identificador del post.
+       * Con él se le pide a la Graph API lo que el negocio escribió —donde suele
+       * estar la promesa por la que el cliente escribe— y el enlace para abrirlo
+       * desde el panel. Aquí solo se transporta: pedirlo es cosa de `ingesta`.
+       */
+      postAnuncioId: texto(contextoAnuncio.post_id) || null,
+      superficie: esInstagram ? "instagram" : "messenger",
+      red: esInstagram ? "instagram" : "facebook",
+      metaAdId: adId,
+      comentarioId: null,
+    });
+  });
+
+  return salida;
 }
 
 /**

@@ -198,6 +198,41 @@ test("un mensaje sin id de Meta no se guarda", () => {
   assert.equal(normalizarEvento(evento, PAGINA).length, 0);
 });
 
+/**
+ * VARIAS FOTOS A LA VEZ NO SE COMEN LAS DE MÁS.
+ *
+ * Cuando el cliente elige varias imágenes de su galería y las manda juntas,
+ * Messenger las manda en UN SOLO evento con un `attachments` de varios
+ * elementos —WhatsApp, en cambio, manda un evento por foto—. Mirar solo la
+ * primera se comía las demás en silencio: el cliente mandaba dos fotos de las
+ * mismas botas y el agente solo veía una.
+ */
+test("varias fotos en el mismo evento salen como varios mensajes, no se pierden las de más", () => {
+  const evento = eventoMensaje({
+    message: {
+      mid: "m_varias1",
+      text: "Estas son las que quiero",
+      attachments: [
+        { type: "image", payload: { url: "https://scontent.example/foto1.jpg" } },
+        { type: "image", payload: { url: "https://scontent.example/foto2.jpg" } },
+      ],
+    },
+  });
+
+  const salida = normalizarEvento(evento, PAGINA);
+  assert.equal(salida.length, 2, "las dos fotos, no solo la primera");
+
+  assert.equal(salida[0]!.id, "m_varias1");
+  assert.equal(salida[0]!.tipo, "imagen");
+  assert.equal(salida[0]!.mediaUrl, "https://scontent.example/foto1.jpg");
+  assert.equal(salida[0]!.content, "Estas son las que quiero", "el pie de foto va con la primera");
+
+  assert.equal(salida[1]!.id, "m_varias1#1", "la segunda no pisa el id de la primera");
+  assert.equal(salida[1]!.tipo, "imagen");
+  assert.equal(salida[1]!.mediaUrl, "https://scontent.example/foto2.jpg");
+  assert.equal(salida[1]!.content, "(image)", "el pie de foto no se repite en cada imagen");
+});
+
 /*
  * EL ENLACE QUE COMPARTE EL CLIENTE, NO UNA FOTO NI UN AUDIO.
  *
