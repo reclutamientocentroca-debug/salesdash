@@ -104,6 +104,22 @@ export async function describirImagen(
   const imagen = m.media_url ? comoDataUrl(orgId, m.media_url) : null;
 
   if (!imagen) {
+    /*
+     * SIN ARCHIVO QUE MIRAR, TAMBIÉN ES UN FALLO MUDO —la misma clase que se
+     * arregló para el audio, y por la misma razón—. El caso real (Costa Rica,
+     * 2026-09-29): una foto de unas botas que no se pudo describir, y el
+     * agente terminó vendiendo un artículo del catálogo que no tenía nada que
+     * ver —«Chacabana en lino»— porque no sabía qué había en la foto y nadie
+     * se enteró de que la imagen nunca se pudo leer.
+     */
+    crearAnomalia(orgId, {
+      conversationId: m.conversation_id,
+      tipo: "imagen_sin_describir",
+      severidad: "alta",
+      detalle: m.media_url
+        ? `No se pudo describir una imagen: el archivo ${m.media_url} ya no está disponible.`
+        : "No se pudo describir una imagen: el archivo nunca se descargó.",
+    });
     guardarDescripcionImagen(orgId, m.id, { descripcion: SIN_DESCRIBIR, categoria: null });
     return null;
   }
@@ -139,7 +155,14 @@ export async function describirImagen(
   } catch (e) {
     // Modelo caído o sin cuota: la imagen queda sin describir y el hilo va a
     // revisión. Nunca se asume que era una factura.
-    console.error("Visión no disponible:", e instanceof ErrorIA ? e.message : e);
+    const motivo = e instanceof ErrorIA ? e.message : String(e);
+    console.error("Visión no disponible:", motivo);
+    crearAnomalia(orgId, {
+      conversationId: m.conversation_id,
+      tipo: "imagen_sin_describir",
+      severidad: "alta",
+      detalle: `No se pudo describir una imagen con ${modeloVision}: ${motivo}`,
+    });
     guardarDescripcionImagen(orgId, m.id, { descripcion: SIN_DESCRIBIR, categoria: null });
     return null;
   }
@@ -285,19 +308,18 @@ export async function percibir(
   p: Percepcion,
 ): Promise<Mensaje[]> {
   const recientesDelCliente = mensajes.slice(-VENTANA).filter((m) => m.emisor === "cliente");
-  const recientes = recientesDelCliente.filter((m) => m.media_url);
 
-  const imagenes = p.ver
-    ? recientes.filter((m) => m.tipo === "imagen" && !m.descripcion_imagen)
-    : [];
   /*
-   * LA NOTA DE VOZ SIN ARCHIVO TAMBIÉN CUENTA, a propósito sin exigir
-   * `media_url` como las imágenes de arriba: si la descarga de WhatsApp falló
-   * («un fallo ahí no cancela nada, el mensaje entra igual, solo que sin
-   * archivo», `wa.ts`), esta es la única oportunidad de que quede una
-   * anomalía en vez de un agujero mudo. `transcribirAudio` no gasta ninguna
-   * llamada al modelo en ese caso: solo dejar constancia.
+   * LA FOTO O LA NOTA DE VOZ SIN ARCHIVO TAMBIÉN CUENTAN, a propósito sin
+   * exigir `media_url`: si la descarga de WhatsApp falló («un fallo ahí no
+   * cancela nada, el mensaje entra igual, solo que sin archivo», `wa.ts»), esta
+   * es la única oportunidad de que quede una anomalía en vez de un agujero
+   * mudo. `describirImagen`/`transcribirAudio` no gastan ninguna llamada al
+   * modelo en ese caso: solo dejan constancia.
    */
+  const imagenes = p.ver
+    ? recientesDelCliente.filter((m) => m.tipo === "imagen" && !m.descripcion_imagen)
+    : [];
   const audios = p.oir
     ? recientesDelCliente.filter((m) => m.tipo === "audio" && !m.transcripcion)
     : [];

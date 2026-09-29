@@ -686,6 +686,41 @@ test("si la nota de voz nunca se pudo bajar, también queda una anomalía y no u
 });
 
 /**
+ * LO MISMO PARA UNA FOTO: SI NUNCA SE PUDO BAJAR, TAMBIÉN QUEDA UNA ANOMALÍA.
+ *
+ * El caso real (Costa Rica, 2026-09-29, capturas): una foto de unas botas
+ * quedó «[imagen sin describir]» y nadie se enteró de que el archivo nunca se
+ * pudo leer. El agente, sin saber qué había en la foto, terminó vendiendo un
+ * artículo del catálogo que no tenía nada que ver.
+ */
+test("si una foto nunca se pudo bajar, también queda una anomalía y no un silencio", async () => {
+  const canalId = canal("Sin archivo al ver", "50722227777");
+  const { conversacion } = D.getOrCreateConversation(orgId, canalId, "50711116666", {
+    cuando: D.ahora(),
+  });
+  D.insertMessage(orgId, {
+    conversationId: conversacion.id,
+    whapiMessageId: "foto-sin-archivo-1",
+    emisor: "cliente",
+    tipo: "imagen",
+    content: "[imagen]",
+    mediaUrl: null,
+    createdAt: D.ahora(),
+  });
+
+  const antes = D.listarMensajes(orgId, conversacion.id);
+  await percibir(orgId, antes, { ver: true, oir: false, modeloVision: "x", modeloAudio: "x" });
+
+  const aviso = D.listarAnomalias(orgId).find(
+    (a) => a.tipo === "imagen_sin_describir" && a.conversation_id === conversacion.id,
+  );
+  assert.ok(aviso, "la falta de archivo queda registrada, no solo silenciada");
+  assert.match(aviso!.detalle ?? "", /nunca se descargó/);
+
+  D.eliminarCanal(orgId, canalId);
+});
+
+/**
  * El prompt tiene que decirle qué hacer cuando NO se pudo oír. Sin esta línea
  * el agente se inventa que escuchó algo, o le suelta al cliente una excusa
  * técnica sobre audios que no le interesa a nadie.

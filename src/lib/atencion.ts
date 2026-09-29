@@ -63,6 +63,7 @@ const ANOMALIAS: Record<string, { que: (n: number) => string; impacto: string }>
   producto_distinto: { que: (n) => `${n} venta${n === 1 ? "" : "s"} con un producto distinto al anunciado`, impacto: "Revisa qué se vendió" },
   resumen_dudoso: { que: (n) => `${n} resumen${n === 1 ? "" : "es"} de pedido con datos dudosos`, impacto: "Esas ventas esperan en revisión" },
   audio_sin_transcribir: { que: (n) => `${n} nota${n === 1 ? "" : "s"} de voz que la IA no pudo escuchar`, impacto: "El agente le pide al cliente que lo repita por escrito" },
+  imagen_sin_describir: { que: (n) => `${n} foto${n === 1 ? "" : "s"} que la IA no pudo ver`, impacto: "El agente puede confundir el artículo" },
   sin_responder: { que: (n) => `${n} chat${n === 1 ? "" : "s"} de WhatsApp sin respuesta`, impacto: "Clientes esperando" },
 };
 
