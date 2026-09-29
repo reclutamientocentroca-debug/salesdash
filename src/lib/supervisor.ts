@@ -38,6 +38,7 @@
  */
 import { agenteDePais, type DatosPais } from "@/agents";
 import { pareceDireccion, pareceNombreDePersona } from "./memoria";
+import { leerImporte } from "./moneda";
 import { analizarConversacion, apuntarFactura } from "./analyzer";
 import { barrerAnomalias } from "./anomalies";
 import { esResumenDePedido, MARCADOR_POR_DEFECTO, sellarCierresPendientes } from "./cierre";
@@ -92,6 +93,8 @@ export interface ResumenLeido {
   color: string | null;
   /** Cuántas unidades dice el resumen. Con dos colores tiene que decir dos. */
   cantidad: string | null;
+  /** La línea «Envio:» del propio resumen, para comprobar que el total la incluye. */
+  envio: string | null;
 }
 
 /** Sin tildes, en minúsculas y con un solo espacio. Para comparar, no para enseñar. */
@@ -123,7 +126,7 @@ export function leerResumen(texto: string, marcador: string = MARCADOR_POR_DEFEC
   // pie empieza directamente por «Nombre:»—.
   const inicio = lineas.findIndex((l) => llano(l).startsWith(raiz) || llano(l).includes(`${raiz} `));
 
-  const salida: ResumenLeido = { nombre: null, cel: null, direccion: null, total: null, producto: null, talla: null, color: null, cantidad: null };
+  const salida: ResumenLeido = { nombre: null, cel: null, direccion: null, total: null, producto: null, talla: null, color: null, cantidad: null, envio: null };
 
   const campo = (linea: string, etiqueta: RegExp): string | null => {
     const m = linea.match(etiqueta);
@@ -151,6 +154,8 @@ export function leerResumen(texto: string, marcador: string = MARCADOR_POR_DEFEC
       salida.color = campo(l, /^[^:]*:\s*(.*)$/);
     } else if (salida.cantidad === null && /^cantidad\b/.test(plano)) {
       salida.cantidad = campo(l, /^[^:]*:\s*(.*)$/);
+    } else if (salida.envio === null && /^(costo de )?env[ií]o\b/.test(plano)) {
+      salida.envio = campo(l, /^[^:]*:\s*(.*)$/);
     }
   }
 
@@ -208,6 +213,23 @@ export function fallasDelResumen(
   }
 
   if (esHueco(r.total) || !/\d/.test(r.total!)) fallas.push("el total no es una cifra");
+
+  /*
+   * EL TOTAL NUNCA PUEDE SER MENOS QUE EL ENVÍO SOLO. El total es el precio
+   * del artículo por la cantidad, MÁS el envío: no hay forma de que salga por
+   * debajo del envío solo, a menos que el artículo valiera menos que cero. El
+   * caso real (Costa Rica, 2026-09-29): «Envio: ₡3.500 / TOTAL A PAGAR:
+   * ₡2.500» —un resumen con el producto equivocado («Chacabana en lino» en
+   * vez de las botas del anuncio) que además sumó mal—. Si esto se hubiera
+   * mirado antes de mandarlo, el resumen no habría salido así.
+   */
+  if (!esHueco(r.total) && !esHueco(r.envio)) {
+    const total = leerImporte(r.total);
+    const envio = leerImporte(r.envio);
+    if (total !== null && envio !== null && total < envio) {
+      fallas.push(`el total (${r.total}) es menor que el envío solo (${r.envio}): la cuenta no cuadra`);
+    }
+  }
 
   return fallas;
 }

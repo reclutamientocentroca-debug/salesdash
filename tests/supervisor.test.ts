@@ -118,6 +118,23 @@ test("un resumen con huecos, con el nombre de la casa o sin cifra no es un pedid
   assert.ok(compartida.some((f) => f.includes("ubicación compartida")));
 });
 
+/**
+ * EL TOTAL NUNCA PUEDE SER MENOS QUE EL ENVÍO SOLO.
+ *
+ * El caso real (Costa Rica, 2026-09-29, capturas): «Envio: ₡3.500» y «TOTAL A
+ * PAGAR: ₡2.500» en el mismo resumen —con el producto equivocado además,
+ * porque la foto no se pudo describir—. El total es el precio por la
+ * cantidad MÁS el envío: no hay forma de que salga por debajo del envío solo.
+ */
+test("un total menor que el envío no cuadra", () => {
+  const roto = fallasDelResumen(leerResumen(pedido({ nombre: "Ana Pérez", total: "RD$100" })));
+  assert.ok(roto.some((f) => f.includes("la cuenta no cuadra")), "RD$100 de total con RD$250 de envío no cuadra");
+
+  // El total con el envío ya sumado sí puede ser bajo, mientras no sea MENOS que el envío.
+  assert.deepEqual(fallasDelResumen(leerResumen(pedido({ nombre: "Ana Pérez", total: "RD$250" }))), []);
+  assert.deepEqual(fallasDelResumen(leerResumen(pedido({ nombre: "Ana Pérez" }))), [], "el caso normal sigue sin objeciones");
+});
+
 // ── Revisar los cierres ─────────────────────────────────────────────────────
 
 test("el mismo nombre en tres chats de clientes distintos manda las tres ventas a revisión", () => {
