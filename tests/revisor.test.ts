@@ -471,6 +471,20 @@ test("el precio que trae la foto del cliente no se para como inventado", () => {
   );
 });
 
+// Con anuncio, manda su descripción: el precio leído en la foto del cliente se para.
+test("con anuncio, el precio leído en la foto del cliente no vale", () => {
+  const conAnuncio = {
+    ...rd,
+    anuncio: "Zapatos De Caballero RD$2,500",
+    catalogo: "Catálogo:\n(sin catálogo cargado)",
+    fotoDelCliente: "Producto: Zapatos. Precio: RD$23,000.",
+  };
+  assert.ok(
+    revisarConReglas("Los zapatos están en RD$23,000. ¿Qué talla le interesa?", conAnuncio)
+      .some((f) => f.includes("RD$23000")),
+  );
+});
+
 /**
  * EL PRECIO DEL CATÁLOGO SE PARA CUANDO EL ANUNCIO TRAE EL SUYO PROPIO
  * (la dueña, 2026-09-21).

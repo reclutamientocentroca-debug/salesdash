@@ -233,7 +233,11 @@ const FORMAS_DE_PAGO = /contra entrega|contraentrega|transferencia|\bsinpe\b|\by
  * escribe el dueño como le sale: «RD$1,500», «1500 pesos», «Precio: 1.500».
  */
 function cifrasConocidas(ctx: ContextoRevision): number[] {
-  const fuentes = [ctx.catalogo, ctx.anuncio ?? "", ctx.fotoDelCliente ?? ""].join("\n");
+  // Con anuncio manda la descripción del anuncio (la dueña, 2026-09-30): el
+  // precio que una máquina leyó en la foto del cliente no vale como cifra
+  // conocida. Sin anuncio, la foto sigue siendo fuente.
+  const deLaFoto = ctx.anuncio?.trim() ? "" : (ctx.fotoDelCliente ?? "");
+  const fuentes = [ctx.catalogo, ctx.anuncio ?? "", deLaFoto].join("\n");
   const salida = new Set<number>();
 
   /*
