@@ -377,6 +377,43 @@ test("una frase con «más» cerca de una prenda no es una talla", () => {
 });
 
 /**
+ * EL COLOR DICHO POR SU CUENTA, EN DOS MENSAJES SEGUIDOS.
+ *
+ * El caso real (RD, 2026-09-30, captura): a «¿Qué color le interesa?» el
+ * cliente contestó «Asul rojos amarillo kemao» y, en un mensaje aparte,
+ * «Berde». El agente volvió a preguntar el color porque el emparejamiento
+ * pregunta-respuesta solo mira el mensaje INMEDIATO siguiente, y aquí ninguno
+ * de los dos lo era del todo —además, «rojos» en plural tampoco calzaba con
+ * «rojo»—.
+ */
+test("el color dicho por su cuenta se guarda, aunque no sea la respuesta inmediata ni venga en un solo mensaje", () => {
+  const f = fichaDelPedido(
+    [
+      { emisor: "ia", content: "¿Qué color le interesa?" },
+      { emisor: "cliente", content: "Asul rojos amarillo kemao" },
+      { emisor: "cliente", content: "Berde" },
+    ],
+    rd,
+  );
+  // «amarillo» sale limpio en el primer mensaje: con eso ya queda registrado.
+  assert.ok(f.color, "algún color quedó registrado");
+  assert.ok(
+    preguntasRepetidas("¿Qué color le interesa?", f).length > 0,
+    "con el color ya en la ficha, volver a preguntarlo es una falla que el revisor para",
+  );
+
+  // El plural solo, sin más palabras, también cuenta.
+  const soloPlural = fichaDelPedido(
+    [
+      { emisor: "ia", content: "¿Qué color le interesa?" },
+      { emisor: "cliente", content: "Rojos" },
+    ],
+    rd,
+  );
+  assert.equal(soloPlural.color, "Rojos");
+});
+
+/**
  * EL PEDIDO QUE SE REGISTRÓ Y NO ERA EL DEL CLIENTE (2026-09-07):
  *
  *   Direccion: Si yo.le escomprado

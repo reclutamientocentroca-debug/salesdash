@@ -193,7 +193,10 @@ export function leerProductoDelAnuncio(
   const precioMayor = AL_POR_MAYOR.test(texto) ? segundo : null;
 
   const tallas = texto.match(TALLAS_ESCRITAS)?.[1]?.trim() ?? null;
-  const colores = [...new Set([...texto.matchAll(reColores("gi"))].map((m) => m[0].toLowerCase()))];
+  // El grupo capturado (m[1]) y no la coincidencia completa (m[0]): desde que
+  // `reColores` acepta el plural («rojos»), la coincidencia completa lo
+  // incluiría y el color quedaría escrito en plural en el resumen.
+  const colores = [...new Set([...texto.matchAll(reColores("gi"))].map((m) => m[1]!.toLowerCase()))];
 
   return {
     nombre,

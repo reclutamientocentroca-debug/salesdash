@@ -1593,6 +1593,15 @@ test("un combo no lleva talla aunque el catálogo hable de tallas, y un color qu
   const conColores = { ...rd, anuncio: "Anuncio: Camisa de lino RD$1,850, en blanco, azul y negro.", esApertura: false };
   assert.deepEqual(revisarConReglas("La tenemos en blanco, azul y negro. ¿Cuál le interesa?", conColores), []);
   assert.ok(revisarConReglas("La tenemos en rojo. ¿Le interesa?", conColores).some((f) => f.includes("«rojo»")));
+
+  /*
+   * EL PLURAL DEL COLOR NO ES UN COLOR INVENTADO (2026-09-30): la descripción
+   * dice «azul» y el modelo contesta «azules» —gramaticalmente normal cuando
+   * habla de varias— y antes esto se paraba como si fuera un color que la
+   * descripción no trae, porque «azules» no es una substring de «azul» al
+   * revés. El plural sí se puede nombrar si el singular está escrito.
+   */
+  assert.deepEqual(revisarConReglas("La tenemos en azules y negros. ¿Cuál le interesa?", conColores), []);
 });
 
 /**

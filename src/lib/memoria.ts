@@ -554,6 +554,29 @@ function fichaDe(sesion: MensajeDeMemoria[], datos: DatosPais | null): FichaDelP
         else if (tieneTallaDePrenda(m.content)) ficha.talla = m.content.trim().slice(0, 80);
       }
       /*
+       * UN COLOR DICHO POR SU CUENTA, igual que la talla de arriba: no hace
+       * falta que venga justo detrás de «¿Qué color le interesa?». El caso
+       * real (RD, 2026-09-30, captura): el cliente dio los colores en dos
+       * mensajes seguidos —«Asul rojos amarillo kemao» y, aparte, «Berde»— y
+       * el agente volvió a preguntar el color porque ninguno de los dos era
+       * la respuesta INMEDIATA a esa pregunta —el emparejamiento de abajo
+       * exige que sea el mensaje justo siguiente—. Con la misma guarda que ya
+       * usa la dirección (ni una pregunta, ni un saludo de apertura).
+       *
+       * Y SIN QUE PAREZCA UNA DIRECCIÓN: «200 metros norte de la iglesia, casa
+       * verde» nombra un color —la casa que sirve de seña— y no es el color
+       * del artículo. Dos pruebas ya existentes lo pillaron al escribir esto:
+       * la dirección manda cuando el texto parece las dos cosas a la vez.
+       */
+      if (
+        !m.content.includes("?") &&
+        !APERTURA.test(m.content) &&
+        !pareceDireccion(m.content, datos) &&
+        pareceColor(m.content)
+      ) {
+        ficha.color = m.content.trim().slice(0, 60);
+      }
+      /*
        * Y CUÁNTAS, DICHO POR ÉL. La dueña (2026-09-11): «me le está dando al
        * cliente media docena al precio de uno; media docena es a 1,190 cada
        * una». La pregunta se contestaba bien, pero la cantidad no llegaba nunca

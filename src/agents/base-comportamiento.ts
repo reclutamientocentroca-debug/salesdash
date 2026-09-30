@@ -57,9 +57,19 @@ export const COLORES_CONOCIDOS = [
   "coral", "mostaza", "lila", "violeta", "salmon", "salmón", "oliva", "menta", "perla", "borgoña",
 ];
 
-/** La lista de arriba, hecha expresión. `g` para contarlos, sin nada para mirar si hay alguno. */
+/**
+ * La lista de arriba, hecha expresión. `g` para contarlos, sin nada para mirar
+ * si hay alguno.
+ *
+ * CON PLURAL, que antes no llevaba (la dueña, RD, 2026-09-30, captura): el
+ * cliente contestó «Asul rojos amarillo kemao» y «rojos» no calzaba con
+ * «rojo» —«mocasin(es)», la misma familia de arreglo que ya tuvo la talla—.
+ * `e?s?` acepta las dos formas del plural español, «+s» (rojo → rojos) y
+ * «+es» (azul → azules, gris → grises), sin inventar un plural que no exista:
+ * como el sufijo es opcional, la palabra sola sigue calzando igual.
+ */
 export function reColores(banderas = "i"): RegExp {
-  return new RegExp(`\\b(${COLORES_CONOCIDOS.join("|")})\\b`, banderas);
+  return new RegExp(`\\b(${COLORES_CONOCIDOS.join("|")})e?s?\\b`, banderas);
 }
 
 /** La tabla, escrita para que la lea el modelo. */

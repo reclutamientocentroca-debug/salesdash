@@ -533,7 +533,15 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
   {
     const fuentes = llano(ctx.anuncio ? ctx.anuncio : ctx.catalogo);
     if (fuentes.trim()) {
-      const dichos = [...new Set(llano(texto).match(COLORES_NOMBRADOS) ?? [])];
+      /*
+       * LA PALABRA BASE, SIN EL PLURAL. Desde que `reColores` acepta «rojos»
+       * además de «rojo» (2026-09-30), tomar la coincidencia completa (`m[0]`)
+       * comparaba «rojos» contra una fuente que solo escribe «rojo» —el
+       * singular es parte del plural, así que la comparación siempre calza
+       * cuando se usa la palabra base (el grupo capturado) en vez de la forma
+       * exacta que escribió el modelo.
+       */
+      const dichos = [...new Set([...llano(texto).matchAll(COLORES_NOMBRADOS)].map((m) => m[1]!))];
       const inventados = dichos.filter((c) => !fuentes.includes(c));
       if (inventados.length) {
         fallas.push(
