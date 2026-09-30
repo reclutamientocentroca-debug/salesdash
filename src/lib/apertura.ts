@@ -121,7 +121,7 @@ export function familiasNombradas(texto: string): { familia: string; palabra: st
  * que se tiraba a la basura— porque «polo» no estaba aquí, aunque la tabla de
  * la tienda diga «Camisas, t-shirts, polos y boxers: de la S a la XXL».
  */
-const ROPA = /\b(camisas?|camisetas?|blusas?|pantal[oó]n|pantalones|t-?shirts?|polos?|poloch(?:es?|er(?:es)?)|b[oó]xers?|correas?|cintur[oó]n|cinturones)\b/i;
+const ROPA = /\b(camisas?|camisetas?|blusas?|pantal[oó]n|pantalones|t-?shirts?|polos?|polo ?shirts?|poloch(?:es?|er(?:es)?)|b[oó]xers?|correas?|cintur[oó]n|cinturones)\b/i;
 const CALZADO = /\b(zapato|zapatos|calzado|tenis|bota|botas|mocas[ií]n|mocasines|sandalia|sandalias|zapatilla|zapatillas|chancleta|chancletas)\b/i;
 const COLORES = reColores("gi");
 

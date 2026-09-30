@@ -123,6 +123,16 @@ test("clasifica talla y color solo en las familias permitidas", () => {
    */
   assert.equal(primeraPregunta("Camiseta Kenneth Cole Originales ₡27,969", cr), "¿Qué talla le interesa?");
   assert.equal(llevaColor("Blusa de dama RD$1,200 en blanco y negro"), true);
+
+  /*
+   * EL MISMO CASO, OTRA PALABRA (Costa Rica, 2026-09-30, captura): un
+   * «Poloshirt marca Kenneth Cole» —anglicismo pegado, tal cual lo escriben
+   * los anuncios— tampoco se reconocía como ropa, y el agente volvió a saltar
+   * directo a pedir la dirección con tallas S a XXL escritas en el propio
+   * anuncio.
+   */
+  assert.equal(primeraPregunta("Poloshirt marca Kenneth Cole ₡23,300", cr), "¿Qué talla le interesa?");
+  assert.equal(llevaTalla("Polo shirt original azul, talla M", rd), true, "con espacio también cuenta");
   const camisa = { descripcion_anuncio: "Camisa de lino RD$1,500 en blanco, azul y negro" };
   const ficha = { talla: "M", color: null, direccion: null, nombre: null, celular: null, cantidad: null };
   assert.equal(respuestaMinima(rd, ficha, camisa), "¿Qué color le interesa?");

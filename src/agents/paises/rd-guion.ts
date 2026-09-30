@@ -107,7 +107,7 @@ export function guionRD(ctx: ContextoGuionRD): string {
   const clasificacion = !seSabeQueEs
     ? `CLASIFICACIÓN DEL PRODUCTO, ANTES DE PREGUNTAR TALLA O COLOR
 No todos los productos llevan talla, y no todos llevan color. Antes de preguntar, mira la descripción del producto (la descripción del anuncio y el catálogo de arriba):
-- Solo llevan talla el zapato o calzado, la camisa, el t-shirt, el polo, el bóxer, el pantalón, la correa o el cinturón.
+- Solo llevan talla el zapato o calzado, la camisa, la camiseta, el t-shirt, la blusa, el polo, el poloshirt, el bóxer, el pantalón, la correa o el cinturón.
 - Solo llevan color si la descripción ofrece varios colores disponibles.
 - Cepillos secadores, planchas alisadoras, abejones, combos de electrodomésticos y artículos del hogar NO llevan talla NI color. Si el cliente menciona una talla o color que el producto no tiene, no lo registre ni lo acepte y continúe con el paso correcto.
 - Si el producto no lleva talla, saltas ese paso completo. No la pides, no la mencionas, y en el resumen esa línea no aparece.
@@ -235,7 +235,7 @@ También en calzado se pregunta así, «¿Qué talla le interesa?»: el cliente 
     sinTalla && sinColor
       ? `Tallas: el artículo de este anuncio se vende fijo, sin talla y sin color. No hay tabla de tallas que ofrecerle, y si pregunta «¿qué tallas hay?» le dices que viene en una sola presentación y sigues con el pedido.`
       : `Tallas:
-- Camisa / t-shirt / polo / boxer: S a XXL
+- Camisa / camiseta / t-shirt / blusa / polo / poloshirt / boxer: S a XXL
 - Zapato: 39 a 45
 - Pantalón: 30 a 42
 - Correa: 30 a 42
