@@ -133,6 +133,14 @@ test("clasifica talla y color solo en las familias permitidas", () => {
    */
   assert.equal(primeraPregunta("Poloshirt marca Kenneth Cole ₡23,300", cr), "¿Qué talla le interesa?");
   assert.equal(llevaTalla("Polo shirt original azul, talla M", rd), true, "con espacio también cuenta");
+
+  // «Jeans» y «shorts» son del mismo tipo que pantalón —el mismo rango de
+  // talla, 30 a 42— y hasta ahora tampoco pedían nada.
+  assert.equal(primeraPregunta("Jeans para dama RD$1,800", rd), "¿Qué talla le interesa?");
+  assert.equal(llevaTalla("Short deportivo unisex ₡7.500"), true);
+  assert.equal(llevaTalla("Franela estampada RD$650"), true, "«franela» es camisa en buen caribeño");
+  assert.equal(llevaTalla("Chacabana de lino RD$1,500"), true);
+
   const camisa = { descripcion_anuncio: "Camisa de lino RD$1,500 en blanco, azul y negro" };
   const ficha = { talla: "M", color: null, direccion: null, nombre: null, celular: null, cantidad: null };
   assert.equal(respuestaMinima(rd, ficha, camisa), "¿Qué color le interesa?");
