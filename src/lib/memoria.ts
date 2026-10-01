@@ -321,7 +321,7 @@ export function pareceTalla(texto: string): boolean {
   const t = llano(texto).replace(/\(nota de voz\)/g, " ").trim();
   if (!t || t.length > 25) return false;
   const letra = /(^|[^\p{L}\p{N}])(x{0,3}s|m|l|x{1,3}l|unica)([^\p{L}\p{N}]|$)/u;
-  const numero = /(^|\D)\d{1,2}([.,]5|\s*y\s*medio|\s*1\/2|½)?(\D|$)/;
+  const numero = /(^|\D)\d{1,2}(\.5)?(\D|$)/;
   return letra.test(t) || numero.test(t);
 }
 
