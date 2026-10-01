@@ -56,7 +56,7 @@ const RELLENO = /^(¡?compra seguro!?|solo|oferta|promoci[oó]n|nuevo|nueva|disp
  * producto el anuncio traía dos frases de eslogan.
  */
 const FAMILIAS: { familia: string; palabras: string }[] = [
-  { familia: "calzado", palabras: "zapatos?|zapatillas?|tenis|botas?|mocas[ií]n|mocasines|sandalias?|chancletas?|calzado" },
+  { familia: "calzado", palabras: "zapatos?|zapatillas?|tenis|botas?|bot[ií]n(?:es)?|mocas[ií]n|mocasines|sandalias?|chancletas?|calzado" },
   /*
    * «POLOCHE» ES EL POLO, en buen dominicano (la dueña, 2026-09-10). El caso:
    * «Yo escribí por los polocheres» y el agente siguió con el calzado del
@@ -123,7 +123,7 @@ export function familiasNombradas(texto: string): { familia: string; palabra: st
  */
 const ROPA =
   /\b(camisas?|camisetas?|blusas?|franelas?|chacabanas?|pantal[oó]n|pantalones|jeans?|shorts?|bermudas?|t-?shirts?|polos?|polo ?shirts?|poloch(?:es?|er(?:es)?)|b[oó]xers?|correas?|cintur[oó]n|cinturones)\b/i;
-const CALZADO = /\b(zapato|zapatos|calzado|tenis|bota|botas|mocas[ií]n|mocasines|sandalia|sandalias|zapatilla|zapatillas|chancleta|chancletas)\b/i;
+const CALZADO = /\b(zapato|zapatos|calzado|tenis|bota|botas|bot[ií]n|bot[ií]nes|mocas[ií]n|mocasines|sandalia|sandalias|zapatilla|zapatillas|chancleta|chancletas)\b/i;
 const COLORES = reColores("gi");
 
 /**
@@ -203,13 +203,26 @@ export function precioDeLaDescripcion(descripcion: string, simbolo: string): str
 }
 
 /**
+ * ANTES DE LA VARIANTE, no solo antes del precio. El caso real (RD,
+ * 2026-10-01): «BOTINES DE CUERO PREMIUM Colores disponibles: Negro, Vino,
+ * Miel. Precio: RD$2,900» —las tallas o colores escritos ANTES del precio,
+ * sin punto que los separe del nombre— dejaba el artículo como «BOTINES DE
+ * CUERO PREMIUM Colores disponibles: Negro, Vino, Miel Precio», que es
+ * justo lo que salió en el resumen de un pedido real. Cortar también aquí
+ * evita que esa lista de variantes llegue hasta el nombre del producto.
+ */
+const ETIQUETA_DE_VARIANTE = /\b(?:colores?\s+disponibles?|colores?\s*:|tallas?\s+disponibles?|tallas?\s*:|precios?\s*:)/i;
+
+/**
  * EL ARTÍCULO, con las palabras de la propia descripción: lo que hay antes del
- * primer precio, sin emojis ni relleno, recortado a una frase.
+ * primer precio o de la primera lista de tallas o colores, sin emojis ni
+ * relleno, recortado a una frase.
  */
 export function articuloDeLaDescripcion(descripcion: string, simbolo: string): string | null {
   const sinEmojis = descripcion.replace(EMOJIS, " ").replace(/\s+/g, " ").trim();
+  const antesDeVariante = sinEmojis.split(ETIQUETA_DE_VARIANTE)[0] ?? sinEmojis;
   const s = simbolo.replace(/[$.]/g, (c) => `\\${c}`);
-  const antesDelPrecio = sinEmojis.split(new RegExp(`\\s*(?:—|-|–|:)?\\s*(?:solo|a|por|en)?\\s*${s}`, "i"))[0] ?? "";
+  const antesDelPrecio = antesDeVariante.split(new RegExp(`\\s*(?:—|-|–|:)?\\s*(?:solo|a|por|en)?\\s*${s}`, "i"))[0] ?? "";
 
   // Fuera el relleno con el que abren los anuncios —«¡COMPRA SEGURO!»,
   // «OFERTA»—, las veces que haga falta, antes de quedarse con la primera frase.

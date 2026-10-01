@@ -1387,7 +1387,7 @@ const SIN_VARIANTES =
  * el mismo `ROPA` de `apertura.ts`: las dos listas dicen lo mismo a propósito.
  */
 const CON_TALLA_SIEMPRE =
-  /\b(camisas?|pantalon|pantalones|t-?shirts?|polos?|poloch(?:es?|er(?:es)?)|boxers?|zapatos?|tenis|botas?|mocasin|mocasines|sandalias?|calzado|correas?|cinturon|cinturones)\b/i;
+  /\b(camisas?|pantalon|pantalones|t-?shirts?|polos?|poloch(?:es?|er(?:es)?)|boxers?|zapatos?|tenis|botas?|bot[ií]n(?:es)?|mocasin|mocasines|sandalias?|calzado|correas?|cinturon|cinturones)\b/i;
 
 /*
  * LAS DOS LISTAS DE ARRIBA, CON EL PAÍS DELANTE.

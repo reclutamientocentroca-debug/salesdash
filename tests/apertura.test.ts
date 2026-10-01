@@ -46,6 +46,18 @@ test("el precio y el artículo salen tal cual de la descripción", () => {
 
   // Sin precio escrito no hay nada seguro que cotizar.
   assert.equal(precioDeLaDescripcion("Camisas de lino, consulte precio", "RD$"), null);
+
+  /*
+   * EL CASO REAL (RD, 2026-10-01): el resumen de un pedido salió con
+   * «Producto: BOTINES DE CUERO PREMIUM Colores disponibles: Negro Vino Miel
+   * Precio»: la descripción nombraba los colores ANTES del precio y sin un
+   * punto que los separara del nombre, así que todo eso se quedó pegado al
+   * artículo. Las etiquetas de variante —colores o tallas disponibles,
+   * precio— cortan el nombre igual que el símbolo de la moneda.
+   */
+  const botines = "BOTINES DE CUERO PREMIUM Colores disponibles: Negro, Vino, Miel Precio: RD$2,900";
+  assert.equal(articuloDeLaDescripcion(botines, "RD$"), "Botines De Cuero Premium");
+  assert.equal(precioDeLaDescripcion(botines, "RD$"), "RD$2,900");
 });
 
 test("la primera pregunta es la del orden de venta según el artículo", () => {
@@ -140,6 +152,14 @@ test("clasifica talla y color solo en las familias permitidas", () => {
   assert.equal(llevaTalla("Short deportivo unisex ₡7.500"), true);
   assert.equal(llevaTalla("Franela estampada RD$650"), true, "«franela» es camisa en buen caribeño");
   assert.equal(llevaTalla("Chacabana de lino RD$1,500"), true);
+
+  /*
+   * EL CASO REAL (RD, 2026-10-01): un pedido de «BOTINES DE CUERO PREMIUM» se
+   * cerró sin pedir nunca la talla —«botines» no estaba en la lista de
+   * calzado, solo «botas»— y el resumen salió sin línea de Talla.
+   */
+  assert.equal(primeraPregunta("Botines de cuero premium RD$2,900", rd), "¿Qué talla le interesa?");
+  assert.equal(llevaTalla("Botín de dama, número 37", rd), true, "singular con tilde también cuenta");
 
   const camisa = { descripcion_anuncio: "Camisa de lino RD$1,500 en blanco, azul y negro" };
   const ficha = { talla: "M", color: null, direccion: null, nombre: null, celular: null, cantidad: null };

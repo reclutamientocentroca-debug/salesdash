@@ -98,7 +98,7 @@ const TALLA_DICHA =
  * ya usa `pareceTalla` más abajo.
  */
 const PRENDAS_CON_TALLA =
-  /(?:^|[^\p{L}\p{N}])(camisas?|camisetas?|blusas?|pantal[oó]n(?:es)?|correas?|cintur[oó]n(?:es)?|fajas?|zapatos?|botas?|calzado|tenis)(?=[^\p{L}\p{N}]|$)/giu;
+  /(?:^|[^\p{L}\p{N}])(camisas?|camisetas?|blusas?|pantal[oó]n(?:es)?|correas?|cintur[oó]n(?:es)?|fajas?|zapatos?|botas?|bot[ií]n(?:es)?|calzado|tenis)(?=[^\p{L}\p{N}]|$)/giu;
 const TALLA_SUELTA =
   /(?:^|[^\p{L}\p{N}])(x{0,3}s|m|l|x{1,3}l|\d{1,2}(?:[.,]5)?)(?=[^\p{L}\p{N}]|$)(?!\d)/giu;
 
