@@ -980,6 +980,42 @@ test("con el cliente solo saludando, no se le elige el artículo ni se le piden 
 });
 
 /**
+ * EL CASO DE LA DUEÑA (RD, 2026-10-01): el cliente escribió «Dónde está el
+ * negocio», sin ningún anuncio, y el agente le contestó la ubicación de
+ * corrido con «¡Llegaron las nuevas Mochilas DIBI! RD$8,500. Indíquenos su
+ * dirección.» —un producto real del catálogo, con su precio real, que el
+ * cliente nunca pidió—. Preguntar dónde está el negocio tiene respuesta fija
+ * y no nombra ningún artículo: contestarla no es haber elegido un producto,
+ * igual que saludar o preguntar por el conjunto.
+ */
+test("preguntar dónde está el negocio no hace elegir un artículo del catálogo", () => {
+  const dondeEsta = {
+    ...rd,
+    anuncio: null,
+    catalogo: "Catálogo:\n- Mochilas DIBI — 8500",
+    textosDelCliente: ["Dónde está el negocio"],
+    ultimoDelCliente: "Dónde está el negocio",
+    ficha: { talla: null, color: null, direccion: null, nombre: null, celular: null, cantidad: null },
+  };
+
+  assert.ok(
+    revisarConReglas(
+      "Hola! Bienvenido(a) a RINCON DCM. Gracias por escribirnos. Somos tienda virtual, le llevamos el pedido hasta su casa. Llegaron las nuevas Mochilas DIBI! RD$8,500. Indíquenos su dirección.",
+      dondeEsta,
+    ).some((f) => f.includes("todavía no sabes qué artículo quiere")),
+  );
+
+  // Lo que sí toca: contestar dónde están y preguntar cuál es el artículo.
+  assert.deepEqual(
+    revisarConReglas(
+      "Hola! Bienvenido(a) a RINCON DCM. Somos tienda virtual, le llevamos el pedido hasta su casa. ¿Cuál es el artículo de su interés?",
+      dondeEsta,
+    ),
+    [],
+  );
+});
+
+/**
  * EL CASO DE LA DUEÑA (República Dominicana, 2026-09-08): el cliente abrió con
  * «Buenas.k precio», el agente le contestó con el artículo pero sin cifra, le
  * sacó la talla, y cuando insistió —«Primero deme precio»— le respondió

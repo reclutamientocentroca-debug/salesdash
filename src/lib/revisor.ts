@@ -48,7 +48,7 @@ import { completarJson, ErrorIA } from "./ia";
 import { MODELO_ANALISIS, type Mensaje } from "./db";
 import { conLoVistoYOido } from "./percepcion";
 import { expresionesDelPais, pareceColor, pareceTalla, preguntasRepetidas, unidadesPorColores, type FichaDelPedido } from "./memoria";
-import { cantidadDicha, clienteAplazaCompra, clienteRenunciaALaCompra, diceDeQueEs, esCorreaLocal, familiasNombradas, nombraUnArticulo, precioDeLaDescripcion, preguntaDelCliente, preguntaDeDireccion, respuestaDirecta, PREGUNTA_COLOR } from "./apertura";
+import { cantidadDicha, clienteAplazaCompra, clienteRenunciaALaCompra, diceDeQueEs, esCorreaLocal, familiasNombradas, nombraUnArticulo, precioDeLaDescripcion, preguntaDelCliente, preguntaDeDireccion, respuestaDirecta, PREGUNTA_COLOR, type PreguntaDelCliente } from "./apertura";
 import { escalaDelArticulo, importe, precioPorCantidad, zonaDelCliente } from "@/agents";
 import { leerImporte, type Moneda } from "./moneda";
 import { contieneLugar } from "./envio";
@@ -820,16 +820,39 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
      * Se mira que la pregunta sea POR EL CONJUNTO y que no nombre nada: con
      * «¿cuánto cuesta el poloche?» el cliente sí eligió, aunque esa palabra no
      * esté en ninguna lista nuestra, y ahí no se le para nada.
+     *
+     * NI PREGUNTAR POR EL NEGOCIO, EL ENVÍO, EL PAGO O EL TIEMPO SE SALVA, PERO
+     * SOLO CUANDO LA RESPUESTA SE INVENTA UN PRECIO (RD, 2026-10-01): el caso
+     * real es «¿Dónde está el negocio?», sin anuncio, y el agente contestó la
+     * ubicación de corrido con «¡Llegaron las nuevas Mochilas DIBI! RD$8,500»
+     * —un producto real del catálogo, con su precio real, pero que el cliente
+     * nunca pidió— y de una vez «Indíquenos su dirección.».
+     *
+     * CON PRECIO DE POR MEDIO, porque sin esa condición esto rompía un caso ya
+     * cubierto y querido: a «Donde tuta» (ubicación, sin anuncio) contestar
+     * «Somos tienda virtual y enviamos a todo el país. ¿Qué número calza?» SÍ
+     * vale —no nombra ni cotiza nada, solo sigue el hilo que ya traía el
+     * propio «¿Qué número calza?» anterior del agente—, igual que «El envío
+     * depende de la zona. ¿Qué número calza?» a quien preguntó por el envío.
+     * Lo que delata el artículo inventado es la cifra: un precio que nadie
+     * pidió es la prueba de que se sacó un producto del catálogo por cuenta
+     * propia.
      */
+    const SIN_ARTICULO: (PreguntaDelCliente | null)[] = ["ubicacion", "envio", "pago", "tiempo"];
+    const soloInfoGeneral = dichoPorElCliente.every((t) => SOLO_SALUDA.test(t) || preguntaPorElConjunto(t));
+    const todoSinArticulo = dichoPorElCliente.every(
+      (t) => SOLO_SALUDA.test(t) || preguntaPorElConjunto(t) || SIN_ARTICULO.includes(preguntaDelCliente(t)),
+    );
     if (
       dichoPorElCliente.length > 0 &&
-      dichoPorElCliente.every((t) => SOLO_SALUDA.test(t) || preguntaPorElConjunto(t)) &&
+      todoSinArticulo &&
+      (soloInfoGeneral || importes(texto, d.moneda).length > 0) &&
       !ctx.anuncio &&
       !enMarcha &&
       PIDE_UN_DATO_DEL_PEDIDO.test(texto)
     ) {
       fallas.push(
-        "el cliente solo ha saludado o ha preguntado por lo que vendes en general, no hay anuncio y todavía no sabes qué artículo quiere: la respuesta ya le pide un dato del pedido. El artículo lo elige él, no lo saques del catálogo. Salúdalo si toca y pregúntale «¿Cuál es el artículo de su interés?», y espera a que conteste",
+        "el cliente solo ha saludado, ha preguntado por lo que vendes en general o por algo con respuesta fija (dónde están, el envío, el pago, cuánto tarda), no hay anuncio y todavía no sabes qué artículo quiere: la respuesta ya le pide un dato del pedido. El artículo lo elige él, no lo saques del catálogo. Contesta lo que preguntó si toca y pregúntale «¿Cuál es el artículo de su interés?», y espera a que conteste",
       );
     }
   }
