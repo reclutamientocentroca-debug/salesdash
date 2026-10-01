@@ -205,6 +205,39 @@ export default async function Dashboard({ searchParams }: Props) {
         </div>
       </div>
 
+      {/* ── Cierre de mes: el informe corporativo, por mes o por fechas ── */}
+      <form
+        method="get"
+        action="/api/informe/cierre"
+        className="tarjeta"
+        style={{ marginBottom: 14, display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}
+      >
+        {soloAnuncio && <input type="hidden" name="solo" value="anuncio" />}
+        <div style={{ flex: 1, minWidth: 220 }}>
+          <div style={{ fontSize: 13.5, fontWeight: 600 }}>Descargar cierre de mes</div>
+          <div className="tenue" style={{ fontSize: 12 }}>
+            Informe con círculos de medición, gráficos y plan para cumplir la meta. Antes de bajarlo se depura
+            lo automatizado frente a lo asistido.
+          </div>
+        </div>
+        <label style={{ fontSize: 12 }}>
+          Mes
+          <input type="month" name="mes" style={{ display: "block", padding: "5px 8px" }} />
+        </label>
+        <span className="tenue" style={{ fontSize: 12, paddingBottom: 8 }}>o</span>
+        <label style={{ fontSize: 12 }}>
+          Desde
+          <input type="date" name="fd" style={{ display: "block", padding: "5px 8px" }} />
+        </label>
+        <label style={{ fontSize: 12 }}>
+          Hasta
+          <input type="date" name="fh" style={{ display: "block", padding: "5px 8px" }} />
+        </label>
+        <button type="submit" className="btn btn-acento" style={{ padding: "7px 12px", fontSize: 12.5 }}>
+          <IconoDescargar tam={14} /> Descargar
+        </button>
+      </form>
+
       {sinConectar && (
         <div
           className="tarjeta"

@@ -68,7 +68,7 @@ const QUIEN: Record<Mensaje["emisor"], string> = {
  * modelo de ese chat: un «<script>» en el nombre de alguien no puede volverse
  * ejecutable porque el dueño abra su propio informe.
  */
-function esc(v: unknown): string {
+export function esc(v: unknown): string {
   return String(v ?? "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -76,21 +76,21 @@ function esc(v: unknown): string {
     .replace(/"/g, "&quot;");
 }
 
-function fecha(epoch: number | null): string {
+export function fecha(epoch: number | null): string {
   if (!epoch) return "—";
   return new Date(epoch * 1000).toLocaleString("es-DO", {
     day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
   });
 }
 
-function dinero(n: number | null, moneda?: Moneda | null): string {
+export function dinero(n: number | null, moneda?: Moneda | null): string {
   if (n === null || n === undefined) return "—";
   if (moneda && moneda.codigo) return formatearImporte(n, moneda);
   return n.toLocaleString("es-DO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 /** «RD$5,500 · ₡23.500 · US$45.00»: un importe por moneda, sin sumarlos. */
-function porMoneda(m: Metricas, campo: "facturado" | "facturado_ia" | "facturado_humano" | "envios" | "promedio"): string {
+export function porMoneda(m: Metricas, campo: "facturado" | "facturado_ia" | "facturado_humano" | "envios" | "promedio"): string {
   if (m.facturado_por_moneda.length === 0) return dinero(0);
   return m.facturado_por_moneda.map((f) => dinero(f[campo], f.moneda)).join(" · ");
 }
@@ -273,7 +273,7 @@ function hilo(c: Conversacion, mensajes: Mensaje[]): string {
   </section>`;
 }
 
-const ESTILO = `
+export const ESTILO = `
   :root { color-scheme: light; }
   * { box-sizing: border-box; }
   body { margin: 0; padding: 28px; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;

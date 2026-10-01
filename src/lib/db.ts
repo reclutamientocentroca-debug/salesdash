@@ -4115,6 +4115,99 @@ export function cierresConIntervencionHumana(orgId: number, r: Rango): number {
   ).get(...val) as { n: number }).n;
 }
 
+/**
+ * QUIÉN LLEVÓ CADA HILO, número por número: la IA sola, o un vendedor.
+ *
+ * Se lee de los MENSAJES, no de `intervencion_humana`, porque lo que importa
+ * para el cierre de mes es el orden: no es lo mismo el vendedor que entró a un
+ * chat que la IA ya llevaba (la INTERRUMPIÓ) que el que contestó desde el
+ * primer mensaje. Y de las interrumpidas, cuántas la IA RETOMÓ después.
+ *
+ * Cuenta por llegada (como `totalLeads`), y "cerradas" es cualquier venta, la
+ * cerrara quien la cerrara: lo que se compara es cómo acaban los hilos de cada
+ * grupo.
+ */
+export interface Interrupciones {
+  canal_id: number;
+  total: number;
+  /** La IA contestó y ninguna persona escribió. */
+  ia_sola: number; ia_sola_cerradas: number;
+  /** Un vendedor entró a un hilo que la IA ya llevaba. */
+  interrumpidas: number; interrumpidas_cerradas: number;
+  /** De las interrumpidas, en las que la IA volvió a contestar después. */
+  ia_retomo: number;
+  /** Un vendedor contestó desde el primer mensaje, sin IA antes. */
+  vendedor_primero: number; vendedor_primero_cerradas: number;
+  /** Ni IA ni vendedor contestaron. */
+  sin_respuesta: number;
+}
+
+export function interrupciones(orgId: number, r: Rango): Interrupciones[] {
+  const { where, val } = filtroRango(orgId, r);
+  const cerrada = `cerrado_por IN ('ia','humano')`;
+  const suma = (cond: string) => `COALESCE(SUM(CASE WHEN ${cond} THEN 1 ELSE 0 END), 0)`;
+  return s(
+    `SELECT canal_id,
+            COUNT(*) AS total,
+            ${suma("h IS NULL AND i IS NOT NULL")} AS ia_sola,
+            ${suma(`h IS NULL AND i IS NOT NULL AND ${cerrada}`)} AS ia_sola_cerradas,
+            ${suma("h IS NOT NULL AND i IS NOT NULL AND i < h")} AS interrumpidas,
+            ${suma(`h IS NOT NULL AND i IS NOT NULL AND i < h AND ${cerrada}`)} AS interrumpidas_cerradas,
+            ${suma("h IS NOT NULL AND i IS NOT NULL AND i < h AND iu > hu")} AS ia_retomo,
+            ${suma("h IS NOT NULL AND (i IS NULL OR h <= i)")} AS vendedor_primero,
+            ${suma(`h IS NOT NULL AND (i IS NULL OR h <= i) AND ${cerrada}`)} AS vendedor_primero_cerradas,
+            ${suma("h IS NULL AND i IS NULL")} AS sin_respuesta
+       FROM (
+         SELECT canal_id, cerrado_por,
+                (SELECT MIN(m.created_at) FROM messages m WHERE m.conversation_id = conversations.id AND m.emisor = 'humano') AS h,
+                (SELECT MAX(m.created_at) FROM messages m WHERE m.conversation_id = conversations.id AND m.emisor = 'humano') AS hu,
+                (SELECT MIN(m.created_at) FROM messages m WHERE m.conversation_id = conversations.id AND m.emisor = 'ia') AS i,
+                (SELECT MAX(m.created_at) FROM messages m WHERE m.conversation_id = conversations.id AND m.emisor = 'ia') AS iu
+           FROM conversations
+          WHERE ${where}
+       )
+      GROUP BY canal_id`,
+  ).all(...val) as Interrupciones[];
+}
+
+/**
+ * LA DEPURACIÓN DE LA INTERVENCIÓN: vuelve a leer, en cada hilo del periodo,
+ * si de verdad escribió una persona.
+ *
+ * `intervencion_humana` se sube con `MAX(…)` al llegar un mensaje y nada la
+ * baja si ese mensaje se reatribuye después a la IA. Es el denominador de la
+ * efectividad asistida: un hilo marcado de más es un hilo que la IA llevó sola
+ * contado contra el equipo. Devuelve cuántos hilos cambiaron.
+ */
+export function depurarIntervenciones(orgId: number, r: Rango): number {
+  const { where, val } = filtroRango(orgId, r);
+  const hayHumano = `EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = conversations.id AND m.emisor = 'humano')`;
+  return s(
+    `UPDATE conversations
+        SET intervencion_humana = CASE WHEN ${hayHumano} THEN 1 ELSE 0 END
+      WHERE ${where}
+        AND intervencion_humana <> CASE WHEN ${hayHumano} THEN 1 ELSE 0 END`,
+  ).run(...val).changes;
+}
+
+/**
+ * Ventas cuyo bando no cuadra con el hilo, para la auditoría del cierre.
+ *   - `asistidas_sin_vendedor`: cerradas como asistidas y en el hilo no escribió
+ *     ninguna persona (la factura la mandó otro canal, o el número lo atiende
+ *     otro bot).
+ *   - `automatizadas_tras_vendedor`: las cerró un resumen de la IA después de
+ *     que un vendedor tocara el hilo. Es el caso normal de un buen trabajo.
+ */
+export function incoherenciasDeCierre(orgId: number, r: Rango): { asistidas_sin_vendedor: number; automatizadas_tras_vendedor: number } {
+  const { where, val } = filtroCierres(orgId, r);
+  const fila = s(
+    `SELECT COALESCE(SUM(CASE WHEN cerrado_por = 'humano' AND intervencion_humana = 0 THEN 1 ELSE 0 END), 0) AS a,
+            COALESCE(SUM(CASE WHEN cerrado_por = 'ia' AND intervencion_humana = 1 THEN 1 ELSE 0 END), 0) AS b
+       FROM conversations WHERE ${where}`,
+  ).get(...val) as { a: number; b: number };
+  return { asistidas_sin_vendedor: fila.a, automatizadas_tras_vendedor: fila.b };
+}
+
 /** Tiempo medio hasta el cierre, en segundos. Excluye conversaciones abiertas. */
 export function tiemposDeCierre(orgId: number, r: Rango) {
   const { where, val } = filtroCierres(orgId, r);
