@@ -7,7 +7,7 @@ import { Hilo } from "@/components/panel/Burbuja";
 import Escribir from "@/components/panel/Escribir";
 import { Nube, Pastilla, dinero, fechaYHora, tienePedido } from "@/components/panel/Piezas";
 import ProductoDeLaFoto from "@/components/panel/ProductoDeLaFoto";
-import { llegoPorAnuncio } from "@/lib/anuncio";
+import { anuncioVigente, llegoPorAnuncio } from "@/lib/anuncio";
 import { fichaDeLaFoto } from "@/lib/meta/contexto-anuncio";
 import { getConversation, husosDeLosCanales, listarCanales, listarMensajes } from "@/lib/db";
 import { porQueCalla } from "@/lib/agent";
@@ -50,6 +50,7 @@ export default async function PaginaConversacion({ params, searchParams }: Props
   /* Qué es y cuánto vale lo que sale en la foto de este chat: null cuando no
      hay ninguna foto que nombrar, y entonces la casilla no se enseña. */
   const foto = fichaDeLaFoto(ctx.orgId, conv, mensajes);
+  const anuncioActual = anuncioVigente(conv);
   const faltantes = leerLista(conv.datos_faltantes);
 
   return (
@@ -119,7 +120,7 @@ export default async function PaginaConversacion({ params, searchParams }: Props
               <Dato
                 etiqueta="Del anuncio"
                 valor={
-                  conv.producto_anuncio ??
+                  anuncioActual.producto_anuncio ??
                   (llegoPorAnuncio(conv) ? "Anuncio sin título" : "—")
                 }
               />
@@ -133,10 +134,10 @@ export default async function PaginaConversacion({ params, searchParams }: Props
               entender por qué pide lo que pide: el título dice qué producto lo
               trajo, y el texto, qué se le dijo que iba a encontrar.
             */}
-            {conv.descripcion_anuncio && (
+            {anuncioActual.descripcion_anuncio && (
               <p style={{ marginTop: 12, fontSize: 12.5, color: "var(--ink-2)" }}>
                 <strong style={{ color: "var(--ink)" }}>Prometía:</strong>{" "}
-                {conv.descripcion_anuncio}
+                {anuncioActual.descripcion_anuncio}
               </p>
             )}
 

@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { llegoPorAnuncio } from "@/lib/anuncio";
+import { anuncioVigente, llegoPorAnuncio } from "@/lib/anuncio";
 import { listarCanales, listarConversaciones, type EstadoCierre } from "@/lib/db";
 import { puedeAtenderCanal, rangoDesdeQuery, sesionApi } from "@/lib/tenant";
 
@@ -57,10 +57,10 @@ export async function GET(req: NextRequest) {
     estado: c.cerrado_por,
     senal_de_cierre: c.senal_de_cierre,
     producto_vendido: c.producto_vendido,
-    producto_anuncio: c.producto_anuncio,
+    producto_anuncio: anuncioVigente(c).producto_anuncio,
     // Qué prometía el anuncio. Sin esto, quien exporta las conversaciones se
     // lleva el título del producto pero no lo que se le dijo al cliente.
-    descripcion_anuncio: c.descripcion_anuncio,
+    descripcion_anuncio: anuncioVigente(c).descripcion_anuncio,
     llego_por_anuncio: llegoPorAnuncio(c),
     total: c.total,
     envio: c.envio,

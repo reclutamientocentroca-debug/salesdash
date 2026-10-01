@@ -15,7 +15,7 @@ import {
 import { fichaDeLaFoto } from "@/lib/meta/contexto-anuncio";
 import { anomaliaDeCorreccion } from "@/lib/analyzer";
 import { fechaDelCierre, MARCADOR_POR_DEFECTO } from "@/lib/cierre";
-import { descripcionUtil } from "@/lib/anuncio";
+import { anuncioVigente, descripcionUtil } from "@/lib/anuncio";
 import { puedeAtenderCanal, sesionApi, type Contexto } from "@/lib/tenant";
 
 export const runtime = "nodejs";
@@ -62,6 +62,8 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
   return NextResponse.json({
     conversacion: {
       ...conv,
+      // El panel enseña el anuncio por el que escribió la ÚLTIMA vez.
+      producto_anuncio: anuncioVigente(conv).producto_anuncio,
       canal: canal?.nombre ?? "—",
       datos_faltantes: leerLista(conv.datos_faltantes),
     },

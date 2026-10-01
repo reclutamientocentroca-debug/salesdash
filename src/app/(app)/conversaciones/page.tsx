@@ -12,7 +12,7 @@ import {
   type EstadoCierre,
   type FilaBandeja,
 } from "@/lib/db";
-import { descripcionUtil, llegoPorAnuncio } from "@/lib/anuncio";
+import { anuncioVigente, descripcionUtil, llegoPorAnuncio } from "@/lib/anuncio";
 import { requerirSesion } from "@/lib/tenant";
 
 export const metadata = { title: "Conversaciones · SalesDash" };
@@ -125,7 +125,7 @@ export default async function PaginaConversaciones({ searchParams }: Props) {
     .filter(
       (c) =>
         !buscado ||
-        [c.cliente_nombre, c.cliente_phone, c.producto_vendido, c.producto_anuncio, c.ultimo_texto].some(
+        [c.cliente_nombre, c.cliente_phone, c.producto_vendido, anuncioVigente(c).producto_anuncio, c.ultimo_texto].some(
           (v) => (v ?? "").toLowerCase().includes(buscado),
         ),
     );
@@ -159,8 +159,10 @@ export default async function PaginaConversaciones({ searchParams }: Props) {
    * está vendiendo.
    */
   const anuncioMeta = abierta?.meta_ad_id ? anuncioMetaPorAdId(ctx.orgId, abierta.meta_ad_id) : undefined;
+  // Arriba va el anuncio por el que escribió la ÚLTIMA vez, no el primero.
+  const anuncioActual = abierta ? anuncioVigente(abierta) : undefined;
   const descripcionDelAnuncio =
-    abierta?.descripcion_anuncio || anuncioMeta?.texto || descripcionUtil(anuncioMeta?.descripcion_imagen);
+    anuncioActual?.descripcion_anuncio || anuncioMeta?.texto || descripcionUtil(anuncioMeta?.descripcion_imagen);
 
   /*
    * Cuántos de estos chats los trajo un anuncio.
@@ -286,7 +288,7 @@ export default async function PaginaConversaciones({ searchParams }: Props) {
                       pastilla el hilo parecería de alguien que escribió solo. */}
                   {llegoPorAnuncio(c) && (
                     <span className="pastilla pastilla-abierta">
-                      {c.producto_anuncio ?? "Por anuncio"}
+                      {anuncioVigente(c).producto_anuncio ?? "Por anuncio"}
                     </span>
                   )}
                 </div>
@@ -354,7 +356,7 @@ export default async function PaginaConversaciones({ searchParams }: Props) {
                   }}
                 >
                   <strong>Llegó por un anuncio</strong>
-                  {abierta.producto_anuncio ? `: ${abierta.producto_anuncio}` : ""}
+                  {anuncioActual?.producto_anuncio ? `: ${anuncioActual.producto_anuncio}` : ""}
                   {descripcionDelAnuncio && (
                     <div className="tenue" style={{ marginTop: 2 }}>{descripcionDelAnuncio}</div>
                   )}
