@@ -282,7 +282,7 @@ test("un resumen dominicano con dos colores y una sola unidad no sale", () => {
 
 Nombre: Manuel Peña
 Telefono: 8098503819
-Direccion: Pantoja, Santo Domingo
+Direccion: Calle Duarte #12, Pantoja, Santo Domingo
 Producto: Polos Bronx Originales
 ${variante}
 Cantidad: ${cantidad}

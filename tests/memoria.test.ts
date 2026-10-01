@@ -441,7 +441,14 @@ test("una frase suelta no es una dirección, ni un color, ni una talla", () => {
 
   // Y lo que sí es el dato, sigue entrando.
   assert.equal(contesta("Indíquenos su dirección.", "Calle Duarte #70, Brisas del Este").direccion, "Calle Duarte #70, Brisas del Este");
-  assert.equal(contesta("Indíquenos su dirección.", "Los Alcarrizos").direccion, "Los Alcarrizos", "un sector del país es una dirección");
+  // EN RD (la dueña, 2026-10-01): un sector o provincia a secas, sin calle,
+  // casa ni ninguna otra seña, dice la zona pero no es la dirección completa.
+  assert.equal(contesta("Indíquenos su dirección.", "Los Alcarrizos").direccion, null, "un sector solo, sin seña, no es la dirección en RD");
+  assert.equal(
+    contesta("Indíquenos su dirección.", "Los Alcarrizos, casa azul cerca del colmado").direccion,
+    "Los Alcarrizos, casa azul cerca del colmado",
+    "un sector con una seña extra sí es la dirección",
+  );
   assert.equal(contesta("¿Qué color le interesa?", "negro").color, "negro");
   assert.equal(contesta("¿Qué color le interesa?", "el chocolate").color, "el chocolate");
   assert.equal(contesta("¿Qué talla le interesa?", "la 42").talla, "la 42");

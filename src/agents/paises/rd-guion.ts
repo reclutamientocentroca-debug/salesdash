@@ -197,7 +197,7 @@ También en calzado se pregunta así, «¿Qué talla le interesa?»: el cliente 
   // Los pasos que no van no se escriben, y la numeración se cierra sobre ellos.
   const pasoTalla = sinTalla
     ? ``
-    : `\n\n2. Talla → esperas respuesta. Lo que conteste tiene que SER una talla: una letra (S, M, L, XL, XXL) o un número. Si contesta otra cosa —te repite el nombre del artículo («poloche», «los polos», «el cepillo»), te hace una pregunta, te dice cuántos quiere o cualquier cosa que no es una medida—, la talla NO ha llegado: le contestas en una línea lo que dijo y le vuelves a pedir la talla, con otras palabras. Nunca escribas «Perfecto, ya tenemos su talla» sin tener la talla.`;
+    : `\n\n2. Talla → esperas respuesta. Lo que conteste tiene que SER una talla: una letra (S, M, L, XL, XXL) o un número. La media talla es una talla como cualquier otra: «9 y medio», «9 1/2», «9½», «9.5» y «9,5» son la MISMA talla, la 9.5. La aceptas sin dudar, no la redondeas a 9 ni a 10, no dices que no la manejas y sigues con el pedido; en el resumen la escribes «9.5». Si contesta otra cosa —te repite el nombre del artículo («poloche», «los polos», «el cepillo»), te hace una pregunta, te dice cuántos quiere o cualquier cosa que no es una medida—, la talla NO ha llegado: le contestas en una línea lo que dijo y le vuelves a pedir la talla, con otras palabras. Nunca escribas «Perfecto, ya tenemos su talla» sin tener la talla.`;
   const pasoColor = sinColor
     ? ``
     : `\n\n${sinTalla ? 2 : 3}. Color${ctx.conFoto ? ` — CON LA FOTO` : ``}\n¿Qué color le interesa?${
@@ -236,7 +236,7 @@ También en calzado se pregunta así, «¿Qué talla le interesa?»: el cliente 
       ? `Tallas: el artículo de este anuncio se vende fijo, sin talla y sin color. No hay tabla de tallas que ofrecerle, y si pregunta «¿qué tallas hay?» le dices que viene en una sola presentación y sigues con el pedido.`
       : `Tallas:
 - Camisa / camiseta / t-shirt / blusa / polo / poloshirt / boxer: S a XXL
-- Zapato: 39 a 45
+- Zapato: 39 a 45 (y también números como 9, 10 o 11 con sus medias tallas: 9 y medio = 9 1/2 = 9.5, se vende igual)
 - Pantalón: 30 a 42
 - Correa: 30 a 42
 - Cepillos, blowers, planchas y abejones: sin talla ni color, no las preguntes
@@ -307,6 +307,7 @@ ${primerMensaje}${pasoTalla}${pasoColor}
 ${nDireccion}. Dirección
 ${PREGUNTA_DIRECCION_RD}
 LA DIRECCIÓN SE PIDE UNA SOLA VEZ. Con lo que el cliente conteste ya se despacha: la das por buena y pasas al costo de envío. NO le pides ni un dato más de ella: ni el número de casa, ni el apartamento, ni el piso, ni una seña para reconocer la puerta, ni el color de la casa, ni un punto de referencia, ni el nombre del edificio, ni que la repita «para confirmar». Si mandó su ubicación por el mapa, ESA es su dirección y vale igual de buena: se la confirmas en corto por su sector y sigues. El mensajero llama al teléfono, que sí se pide en el paso siguiente; cada repregunta por la puerta es una venta que se cae.
+PERO UNA PROVINCIA O UN SECTOR A SECAS NO SON LA DIRECCIÓN (la dueña, 2026-10-01). Si lo que contesta es SOLO el nombre de un lugar —una provincia, una ciudad o un sector, como «Santiago» o «Los Alcarrizos»—, sin calle, sin casa, sin ninguna otra seña de dónde queda, eso dice la zona del envío pero no es la dirección de entrega: no la des por buena todavía. Reconócele el lugar que ya dio y pídele la dirección exacta DENTRO de ese lugar, así: «Indíquenos la dirección en <el lugar que dio>.» —por ejemplo, «Indíquenos la dirección en Santiago.» o «Indíquenos la dirección en Los Alcarrizos.»—. No le sueltas el costo de envío ni el teléfono en este mensaje: esos van cuando ya tengas la dirección completa. En cuanto conteste con calle, sector, casa o cualquier seña de dónde queda, ESA sí es la dirección: ya no la vuelves a pedir, y sigues con el costo de envío y el teléfono como dice el paso siguiente.
 
 ${nDireccion + 1}. Costo de envío + teléfono (REGLA FIJA — no se modifica)
 En cuanto el cliente da la dirección, identificas la zona, le informas el costo de envío y en el MISMO mensaje le pides el teléfono. Nunca pides el teléfono sin haber dicho antes el costo de envío.

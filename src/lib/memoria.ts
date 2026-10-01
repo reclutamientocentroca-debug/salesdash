@@ -289,11 +289,21 @@ const SEÑAS_DE_DIRECCION = new RegExp(
 export function pareceDireccion(texto: string, datos: DatosPais | null = null): boolean {
   const t = texto.trim();
   if (t.length < 6) return false;
-  // Un sitio del país es dirección aunque venga solo: «Los Alcarrizos».
-  if (datos && zonaDelCliente(datos, t) !== null) return true;
   if (SEÑAS_DE_DIRECCION.test(t)) return true;
   // «Calle 3 #12» sin la palabra «calle»: un número y algo más.
-  return /\d/.test(t) && t.split(/\s+/).length >= 2;
+  if (/\d/.test(t) && t.split(/\s+/).length >= 2) return true;
+  /*
+   * Un sitio del país es dirección aunque venga solo: «Los Alcarrizos».
+   *
+   * EN REPÚBLICA DOMINICANA NO (la dueña, 2026-10-01): ni una provincia
+   * («Santiago») ni un sector («Los Alcarrizos») solos, sin calle, sin casa,
+   * sin ninguna otra seña, son la dirección de entrega —dicen la ZONA para
+   * cobrar el envío, y nada más—. El guion de RD confirma el lugar que ya dio
+   * y le pide la dirección exacta DENTRO de ese lugar. En los demás países,
+   * el sitio solo sigue contando como dirección completa, como hasta ahora.
+   */
+  if (datos && zonaDelCliente(datos, t) !== null) return datos.codigo !== "do";
+  return false;
 }
 
 /** ¿Esto parece un color? Uno de los que la casa reconoce, y no una frase. */
@@ -311,7 +321,7 @@ export function pareceTalla(texto: string): boolean {
   const t = llano(texto).replace(/\(nota de voz\)/g, " ").trim();
   if (!t || t.length > 25) return false;
   const letra = /(^|[^\p{L}\p{N}])(x{0,3}s|m|l|x{1,3}l|unica)([^\p{L}\p{N}]|$)/u;
-  const numero = /(^|\D)\d{1,2}(\.5)?(\D|$)/;
+  const numero = /(^|\D)\d{1,2}([.,]5|\s*y\s*medio|\s*1\/2|½)?(\D|$)/;
   return letra.test(t) || numero.test(t);
 }
 
@@ -529,14 +539,25 @@ function fichaDe(sesion: MensajeDeMemoria[], datos: DatosPais | null): FichaDelP
         continue;
       }
 
-      // Un sitio del país escrito por él es su dirección hasta que dé otra.
-      // «¿Envían a Las Matas de Farfán?» es una pregunta, no su dirección.
+      /*
+       * Un sitio del país escrito por él es su dirección hasta que dé otra.
+       * «¿Envían a Las Matas de Farfán?» es una pregunta, no su dirección.
+       *
+       * A PROPÓSITO SOLO `zonaDelCliente`, no `pareceDireccion` entera: sin
+       * pregunta delante, un mensaje suelto que solo tenga un número —«mi
+       * número es 809-555-1234», que además es el celular— no puede colarse
+       * por la rama de «un número y dos palabras» de `pareceDireccion` y
+       * pisar la dirección que ya se había dado. Aquí solo cuenta un sitio
+       * reconocido del país, tal cual era antes; la exigencia extra de RD
+       * (ver `pareceDireccion`) se aplica aparte, abajo.
+       */
       if (
         datos &&
         (abierta === null || abierta === "direccion") &&
         !APERTURA.test(m.content) &&
         !m.content.includes("?") &&
-        zonaDelCliente(datos, m.content) !== null
+        zonaDelCliente(datos, m.content) !== null &&
+        (datos.codigo !== "do" || pareceDireccion(m.content, datos))
       ) {
         ficha.direccion = m.content.trim().slice(0, 160);
       }
