@@ -197,7 +197,7 @@ También en calzado se pregunta así, «¿Qué talla le interesa?»: el cliente 
   // Los pasos que no van no se escriben, y la numeración se cierra sobre ellos.
   const pasoTalla = sinTalla
     ? ``
-    : `\n\n2. Talla → esperas respuesta. Lo que conteste tiene que SER una talla: una letra (S, M, L, XL, XXL) o un número. Si contesta otra cosa —te repite el nombre del artículo («poloche», «los polos», «el cepillo»), te hace una pregunta, te dice cuántos quiere o cualquier cosa que no es una medida—, la talla NO ha llegado: le contestas en una línea lo que dijo y le vuelves a pedir la talla, con otras palabras. Nunca escribas «Perfecto, ya tenemos su talla» sin tener la talla.`;
+    : `\n\n2. Talla → esperas respuesta. Lo que conteste tiene que SER una talla: una letra (S, M, L, XL, XXL) o un número. La media talla es una talla como cualquier otra: «9 y medio», «9 1/2», «9½», «9.5» y «9,5» son la MISMA talla, la 9.5. La aceptas sin dudar, no la redondeas a 9 ni a 10, no dices que no la manejas y sigues con el pedido; en el resumen la escribes «9.5». Si contesta otra cosa —te repite el nombre del artículo («poloche», «los polos», «el cepillo»), te hace una pregunta, te dice cuántos quiere o cualquier cosa que no es una medida—, la talla NO ha llegado: le contestas en una línea lo que dijo y le vuelves a pedir la talla, con otras palabras. Nunca escribas «Perfecto, ya tenemos su talla» sin tener la talla.`;
   const pasoColor = sinColor
     ? ``
     : `\n\n${sinTalla ? 2 : 3}. Color${ctx.conFoto ? ` — CON LA FOTO` : ``}\n¿Qué color le interesa?${
@@ -236,7 +236,7 @@ También en calzado se pregunta así, «¿Qué talla le interesa?»: el cliente 
       ? `Tallas: el artículo de este anuncio se vende fijo, sin talla y sin color. No hay tabla de tallas que ofrecerle, y si pregunta «¿qué tallas hay?» le dices que viene en una sola presentación y sigues con el pedido.`
       : `Tallas:
 - Camisa / camiseta / t-shirt / blusa / polo / poloshirt / boxer: S a XXL
-- Zapato: 39 a 45
+- Zapato: 39 a 45 (y también números como 9, 10 o 11 con sus medias tallas: 9 y medio = 9 1/2 = 9.5, se vende igual)
 - Pantalón: 30 a 42
 - Correa: 30 a 42
 - Cepillos, blowers, planchas y abejones: sin talla ni color, no las preguntes
