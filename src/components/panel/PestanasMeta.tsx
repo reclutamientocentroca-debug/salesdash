@@ -15,16 +15,20 @@ import { useState, type ReactNode } from "react";
  */
 export default function PestanasMeta({
   sinResponder,
+  comentariosSinResponder,
   sinVincular,
   bandeja,
+  comentarios,
   anuncios,
 }: {
   sinResponder: number;
+  comentariosSinResponder: number;
   sinVincular: number;
   bandeja: ReactNode;
+  comentarios: ReactNode;
   anuncios: ReactNode;
 }) {
-  const [cual, setCual] = useState<"bandeja" | "anuncios">("bandeja");
+  const [cual, setCual] = useState<"bandeja" | "comentarios" | "anuncios">("bandeja");
 
   return (
     <>
@@ -48,6 +52,21 @@ export default function PestanasMeta({
           type="button"
           role="tab"
           className="sd-pestana"
+          aria-selected={cual === "comentarios"}
+          onClick={() => setCual("comentarios")}
+        >
+          Comentarios
+          {comentariosSinResponder > 0 && (
+            <span className="sd-cuenta sd-cuenta-viva">
+              {comentariosSinResponder} sin responder
+            </span>
+          )}
+        </button>
+
+        <button
+          type="button"
+          role="tab"
+          className="sd-pestana"
           aria-selected={cual === "anuncios"}
           onClick={() => setCual("anuncios")}
         >
@@ -62,6 +81,7 @@ export default function PestanasMeta({
         Anuncios no puede devolverte al principio de la lista.
       */}
       <div role="tabpanel" hidden={cual !== "bandeja"}>{bandeja}</div>
+      <div role="tabpanel" hidden={cual !== "comentarios"}>{comentarios}</div>
       <div role="tabpanel" hidden={cual !== "anuncios"}>{anuncios}</div>
     </>
   );

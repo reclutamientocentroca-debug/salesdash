@@ -936,6 +936,15 @@ function migrar(conexion: DB): void {
   }
 
   /*
+   * El número de contacto de una PÁGINA (el WhatsApp del negocio que atiende
+   * esa página). Cada página tiene el suyo: cuando un cliente de Messenger
+   * pide «el número», el agente le da el de ESTA página y no uno cualquiera.
+   */
+  if (!columnas("canales").includes("numero_contacto")) {
+    conexion.exec(`ALTER TABLE canales ADD COLUMN numero_contacto TEXT`);
+  }
+
+  /*
    * conversations: por dónde entró este hilo.
    *
    * Va en la conversación y no en el canal porque UNA página produce las tres
@@ -1620,6 +1629,8 @@ export interface Canal {
   negocio: string | null;
   /** Cuenta de Instagram enlazada a la página, si la hay. */
   meta_ig_id: string | null;
+  /** El número que se le da al cliente que lo pide, en una página de Meta. */
+  numero_contacto: string | null;
 }
 
 export interface Conversacion {
@@ -1922,6 +1933,12 @@ export function listarCanales(orgId: number, restringirA?: number[] | null): Can
 
 export function obtenerCanal(orgId: number, id: number): Canal | undefined {
   return s(`SELECT * FROM canales WHERE org_id = ? AND id = ?`).get(orgId, id) as Canal | undefined;
+}
+
+/** Guarda (o borra, con null) el número de contacto de una página. */
+export function guardarNumeroContacto(orgId: number, canalId: number, numero: string | null): boolean {
+  return s(`UPDATE canales SET numero_contacto = ? WHERE org_id = ? AND id = ? AND tipo = 'meta'`)
+    .run(numero, orgId, canalId).changes > 0;
 }
 
 export function contarCanales(orgId: number): number {

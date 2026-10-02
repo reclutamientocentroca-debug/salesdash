@@ -107,10 +107,16 @@ export default function BandejaMeta({
   filas,
   paginas,
   superficie = "messenger",
+  soloComentarios = false,
+  sinComentarios = false,
 }: {
   filas: FilaMeta[];
   paginas: { id: number; nombre: string }[];
   superficie?: "messenger" | "instagram";
+  /** Es el apartado de comentarios: no se contestan como un chat. */
+  soloComentarios?: boolean;
+  /** Es la bandeja de mensajes: los comentarios tienen su apartado. */
+  sinComentarios?: boolean;
 }) {
   const router = useRouter();
 
@@ -126,9 +132,17 @@ export default function BandejaMeta({
 
   const finDelHilo = useRef<HTMLDivElement>(null);
 
-  const filasDeSuperficie = filas.filter((f) => superficie === "instagram"
-    ? f.superficie === "instagram"
-    : f.superficie !== "instagram");
+  // Un comentario puede ser de cualquiera de las dos redes y `superficie` vale
+  // «comentario» en ambas: la página ya trajo solo los de su red.
+  const filasDeSuperficie = soloComentarios
+    ? filas
+    : filas.filter((f) => superficie === "instagram"
+        ? f.superficie === "instagram"
+        : f.superficie !== "instagram");
+
+  const filtrosVisibles = FILTROS.filter(
+    (f) => !((soloComentarios || sinComentarios) && (f.clave === "mensajes" || f.clave === "comentarios")),
+  );
 
   const visibles = filasDeSuperficie.filter((f) => {
     if (pagina !== "todas" && f.canalId !== pagina) return false;
@@ -236,8 +250,15 @@ export default function BandejaMeta({
     <div className="sd-meta-bandeja">
       {/* ── La lista ─────────────────────────────────────────────── */}
       <aside className="sd-meta-lista">
+        {soloComentarios && (
+          <p className="tenue" style={{ margin: "0 0 8px", fontSize: 12 }}>
+            Los comentarios son públicos: tu respuesta se publica colgada del comentario, a la
+            vista de todos. Una sola por comentario, corta, y sin datos personales: lo demás
+            se habla por privado.
+          </p>
+        )}
         <div className="sd-meta-filtros" role="group" aria-label="Filtrar la bandeja">
-          {FILTROS.map((f) => (
+          {filtrosVisibles.map((f) => (
             <button
               key={f.clave}
               type="button"

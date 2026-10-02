@@ -115,7 +115,16 @@ export default async function PaginaCanalMeta({ red }: { red: "facebook" | "inst
   // número solo acota lo que puede LEER el agente. Ver `listarCatalogo`.
   const productos = listarCatalogo(orgId, true).map((p) => ({ id: p.id, nombre: p.nombre }));
 
-  const sinResponder = filas.filter((f) => f.ultimoEmisor === "cliente").length;
+  /*
+   * Los comentarios tienen su apartado: no se contestan como un chat. Se
+   * publican colgados del comentario, a la vista de todos, y una sola respuesta
+   * por comentario. Mezclados con los mensajes, el vendedor tecleaba pensando
+   * en un privado y el cliente lo leía en público.
+   */
+  const filasMensajes = filas.filter((f) => f.superficie !== "comentario");
+  const filasComentarios = filas.filter((f) => f.superficie === "comentario");
+  const sinResponder = filasMensajes.filter((f) => f.ultimoEmisor === "cliente").length;
+  const comentariosSinResponder = filasComentarios.filter((f) => f.ultimoEmisor === "cliente").length;
   const sinVincular = anuncios.filter((a) => a.productoId === null).length;
 
   const config = VARIABLES.map((v) => ({ ...v, puesta: estaPuesta(v.clave) }));
@@ -196,11 +205,22 @@ export default async function PaginaCanalMeta({ red }: { red: "facebook" | "inst
       {canalesRed.length > 0 ? (
         <PestanasMeta
           sinResponder={sinResponder}
+          comentariosSinResponder={comentariosSinResponder}
           sinVincular={sinVincular}
           bandeja={
             <BandejaMeta
-              filas={filas}
+              filas={filasMensajes}
               paginas={paginas.map((p) => ({ id: p.id, nombre: p.nombre }))}
+              superficie={esInstagram ? "instagram" : "messenger"}
+              sinComentarios
+            />
+          }
+          comentarios={
+            <BandejaMeta
+              filas={filasComentarios}
+              paginas={paginas.map((p) => ({ id: p.id, nombre: p.nombre }))}
+              superficie={esInstagram ? "instagram" : "messenger"}
+              soloComentarios
             />
           }
           anuncios={<AnunciosMeta anuncios={anuncios} productos={productos} />}

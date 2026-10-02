@@ -1,5 +1,6 @@
 "use client";
 
+import NumeroDePagina from "@/components/panel/NumeroDePagina";
 import { useEffect, useState } from "react";
 import FichaPais from "./FichaPais";
 import { saludoDelPais, type PaisResumen } from "@/lib/paises";
@@ -65,6 +66,8 @@ interface CanalAgente {
   tipo: string;
   /** Cómo se presenta este número: el nombre de su perfil de WhatsApp. */
   negocio: string | null;
+  /** Solo en una página de Meta: el número que da el agente si el cliente lo pide. */
+  numero_contacto: string | null;
   revision: RevisionAgente;
   /** El agente de este canal, tal y como está guardado. */
   agente: Agente;
@@ -206,12 +209,15 @@ export default function PanelAgente({
   plantillaInicial,
   canalesIniciales,
   paises,
+  numerosWhatsapp,
   consumo,
 }: {
   /** El agente de la cuenta (canal 0): el molde del que nacen los demás. */
   plantillaInicial: Agente;
   canalesIniciales: CanalAgente[];
   paises: PaisResumen[];
+  /** Los WhatsApp conectados de la cuenta, para elegir el número de una página. */
+  numerosWhatsapp: { id: number; nombre: string; numero: string }[];
   consumo: Consumo;
 }) {
   const router = useRouter();
@@ -611,6 +617,25 @@ export default function PanelAgente({
               </>
             )}
           </div>
+
+          {/* El número de la tienda: solo lo da el agente de una página de
+              Facebook, en Messenger y en los comentarios. */}
+          {canal.tipo === "meta" && (
+            <div style={{ marginTop: 18, paddingTop: 16, borderTop: "1px solid var(--line)", display: "grid", gap: 6 }}>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>Número de la tienda</div>
+              <p className="tenue" style={{ margin: 0 }}>
+                Si un cliente pide el número en Messenger o en un comentario, el agente le da este. Es el
+                único caso en que lo da: sin número aquí, no da ninguno.
+              </p>
+              <NumeroDePagina
+                key={canal.id}
+                canalId={canal.id}
+                inicial={canal.numero_contacto}
+                nombrePagina={canal.nombre}
+                numeros={numerosWhatsapp}
+              />
+            </div>
+          )}
 
           <div
             style={{

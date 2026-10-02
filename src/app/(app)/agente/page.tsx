@@ -78,6 +78,7 @@ export default async function PaginaAgente() {
           conectado: c.estado === "conectado",
           tipo: c.tipo,
           negocio: c.negocio,
+          numero_contacto: c.numero_contacto,
           /*
            * El agente de ESTE número. Se pide aquí y no en el cliente porque
            * pedirlo lo crea si no existe: al abrir la página, cada canal ya
@@ -93,6 +94,9 @@ export default async function PaginaAgente() {
           revision: revisarAgente(ctx.orgId, c.id),
         }))}
         paises={paises}
+        numerosWhatsapp={listarCanales(ctx.orgId)
+          .filter((c) => c.tipo !== "meta" && !c.phone.startsWith("pendiente:"))
+          .map((c) => ({ id: c.id, nombre: c.nombre, numero: `+${c.phone.replace(/\D/g, "")}` }))}
         consumo={{
           respuestas_hoy: uso.reduce((n, u) => n + u.exitos, 0),
           fallos_hoy: uso.reduce((n, u) => n + u.fallos, 0),

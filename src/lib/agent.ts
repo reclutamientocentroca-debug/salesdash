@@ -15,6 +15,7 @@
  * escribe "hubo un error" a un cliente. Es preferible el silencio y que un
  * vendedor lo tome.
  */
+import { clientePideNumero, textoDeComentario, textoDelNumero } from "./numero-contacto";
 import {
   ahora,
   anuncioMetaPorAdId,
@@ -48,7 +49,7 @@ import { leer as leerArchivo } from "./media";
 import { formatearImporte, leerImporte, monedaDelPais } from "./moneda";
 import { anuncioParaModelo, anuncioVigente, descripcionUtil, textoDelProducto, type DatosAnuncio, type ProductoAnunciado } from "./anuncio";
 import { difusionParaModelo, difusionVigente, type DatosDifusion } from "./difusion-contexto";
-import { aperturaSegura, clienteAplazaCompra, clientePideOtraFamilia, familiasNombradas, precioDeLaDescripcion, clienteRenunciaALaCompra, fraseDeTransferencia, laFotoAyudaAElegir, laFotoVaConEstaRespuesta, llevaColor, llevaTalla, nombraUnArticulo, respuestaMinima } from "./apertura";
+import { aperturaSegura, clienteAplazaCompra, clientePideOtraFamilia, familiasNombradas, precioDeLaDescripcion, preguntaDelCliente, clienteRenunciaALaCompra, fraseDeTransferencia, laFotoAyudaAElegir, laFotoVaConEstaRespuesta, llevaColor, llevaTalla, nombraUnArticulo, respuestaMinima } from "./apertura";
 import { esMensajeDeSistema } from "./sistema";
 import { contieneMarcador, MARCADOR_POR_DEFECTO, registrarCierre } from "./cierre";
 import { completar, ErrorIA, hoyISO } from "./ia";
@@ -2861,6 +2862,49 @@ async function atenderTurno(
       console.log(`[revisor] etiqueta de transferencia sin motivo en ${conversationId}: se ignora`);
       respuesta = { ...respuesta, pideAsesor: false };
     }
+  }
+
+  /*
+   * ── «¿ME DA EL NÚMERO?» — EL DE ESTA PÁGINA ─────────────────────────────
+   *
+   * En Messenger y en los comentarios de Facebook el cliente escribe a una página,
+   * y cuando pide el número quiere el WhatsApp del negocio que la atiende. Cada
+   * página tiene el suyo (`numero_contacto`): se lo damos tal cual, sin que lo
+   * decida el modelo, que ya se ha inventado teléfonos. Sin número guardado en
+   * la página no se toca nada y contesta el agente como siempre.
+   */
+  const redDelHilo = conv.red ?? (conv.superficie === "instagram" ? "instagram" : "facebook");
+  if (
+    canal.tipo === "meta" &&
+    redDelHilo === "facebook" &&
+    canal.numero_contacto &&
+    clientePideNumero(ultimo.content)
+  ) {
+    respuesta = { ...respuesta, texto: textoDelNumero(canal.numero_contacto), pideAsesor: false, pideFoto: false };
+  }
+
+  /*
+   * ── UN COMENTARIO PÚBLICO SOLO INVITA AL WHATSAPP, NUNCA VENDE AHÍ ──────
+   *
+   * (la dueña, RD, 2026-10-02, con capturas): lo que se contesta colgado de un
+   * comentario lo lee cualquiera que pase por la publicación, no solo quien
+   * preguntó. Precio, talla, color o pedirle la dirección ahí es exhibirlo en
+   * público —y dejárselo servido a la competencia—. Sea lo que sea lo que
+   * haya escrito el modelo, en un comentario la respuesta es SIEMPRE la
+   * invitación al WhatsApp de esta página, nunca el hilo de venta — salvo que
+   * pregunte dónde está ubicada la tienda, que tiene su propia frase fija. Por
+   * ahora solo para RD, que es donde la dueña lo pidió con el caso delante; en
+   * los demás países cae en la respuesta genérica. Sin número de contacto
+   * guardado en la página no se toca nada: no hay qué dar.
+   */
+  if (conv.superficie === "comentario" && canal.tipo === "meta" && canal.numero_contacto) {
+    const esPreguntaDeUbicacion = agente.pais === "do" && preguntaDelCliente(ultimo.content) === "ubicacion";
+    respuesta = {
+      ...respuesta,
+      texto: textoDeComentario(canal.numero_contacto, esPreguntaDeUbicacion),
+      pideAsesor: false,
+      pideFoto: false,
+    };
   }
 
   /*
