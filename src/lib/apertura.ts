@@ -493,7 +493,11 @@ export function respuestaMinima(
    */
   const anterior = opciones.ultimoDelAgente ? llano(opciones.ultimoDelAgente).replace(/\s+/g, " ").trim() : "";
   if (anterior && anterior === llano(pregunta).replace(/\s+/g, " ").trim()) {
-    pregunta = otraFormaDePreguntar(d, paso, descripcion);
+    const zonaYaDada =
+      paso === "direccion" && opciones.ultimoDelCliente && zonaDelCliente(d, opciones.ultimoDelCliente) !== null
+        ? opciones.ultimoDelCliente.trim()
+        : null;
+    pregunta = otraFormaDePreguntar(d, paso, descripcion, zonaYaDada);
   }
 
   /*
@@ -744,8 +748,19 @@ export function fraseDeTransferencia(d: DatosPais): string {
   return "Permítame un momento, le paso con un representante.";
 }
 
-/** La misma pregunta con otras palabras, para cuando la anterior quedó sin contestar. */
-function otraFormaDePreguntar(d: DatosPais, paso: PasoDelPedido, descripcion: string): string {
+/**
+ * La misma pregunta con otras palabras, para cuando la anterior quedó sin
+ * contestar.
+ *
+ * `zonaYaDada`: en RD, si lo que el cliente escribió ya nombra un sector o
+ * provincia reconocido —y por eso no cuenta todavía como dirección completa,
+ * ver `pareceDireccion` en memoria.ts—, no tiene sentido volver a pedirle
+ * «con el sector y la provincia»: eso es justo lo que ya dio. El caso real
+ * (RD, 2026-10-02): contestó «Jarabacoa, palo blanco» y la respuesta
+ * mecánica, al repetir la pregunta, le pidió «su dirección exacta de
+ * entrega, con el sector y la provincia» como si no hubiera dicho nada.
+ */
+function otraFormaDePreguntar(d: DatosPais, paso: PasoDelPedido, descripcion: string, zonaYaDada: string | null = null): string {
   const tu = d.trato === "tu";
   switch (paso) {
     case "talla":
@@ -756,6 +771,7 @@ function otraFormaDePreguntar(d: DatosPais, paso: PasoDelPedido, descripcion: st
     case "color":
       return tu ? "¿Qué color te interesa?" : "¿Qué color le interesa?";
     case "direccion":
+      if (d.codigo === "do" && zonaYaDada) return `Indíquenos la dirección en ${zonaYaDada}.`;
       switch (d.codigo) {
         case "do":
           return "¿Cuál es su dirección exacta de entrega, con el sector y la provincia?";

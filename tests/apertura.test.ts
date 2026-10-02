@@ -646,6 +646,24 @@ test("la respuesta mínima contesta la pregunta del cliente y no se repite", () 
     "Indíquenos su dirección.",
   );
 
+  /*
+   * EL CASO REAL (RD, 2026-10-02): contestó «Jarabacoa, palo blanco» a
+   * «Indíquenos su dirección.» —un sector reconocido, sin calle ni casa, que
+   * en RD no cuenta todavía como dirección completa (ver `pareceDireccion`)—
+   * y la ficha se queda sin dirección. Al repetirse la pregunta, no se le
+   * pide otra vez «con el sector y la provincia»: eso ya lo dio.
+   */
+  const tallaYColor = { ...vacia, talla: "39", color: "negro" };
+  assert.equal(
+    respuestaMinima(rd, tallaYColor, zapatos, { ultimoDelCliente: "Jarabacoa, palo blanco", ultimoDelAgente: "Indíquenos su dirección." }),
+    "Indíquenos la dirección en Jarabacoa, palo blanco.",
+  );
+  // Y si lo que contestó no es un sitio del país, sigue la pregunta genérica.
+  assert.equal(
+    respuestaMinima(rd, tallaYColor, zapatos, { ultimoDelCliente: "Si yo le he comprado", ultimoDelAgente: "Indíquenos su dirección." }),
+    "¿Cuál es su dirección exacta de entrega, con el sector y la provincia?",
+  );
+
   // El envío se contesta con la tarifa del cliente si se sabe dónde está, y con las dos si no.
   assert.equal(respuestaDirecta(rd, "¿cuánto es el envío?", zapatos, "Santiago"), "El envío a su zona le sale en RD$290.");
   assert.match(respuestaDirecta(rd, "¿hacen envíos?", zapatos, null)!, /RD\$250 en .+ y RD\$290 al resto del país/);
