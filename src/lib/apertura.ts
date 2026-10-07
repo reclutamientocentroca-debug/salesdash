@@ -73,7 +73,16 @@ const FAMILIAS: { familia: string; palabras: string }[] = [
    * Separadas, un anuncio de polos vinculado a una chacabana sí se nota.
    */
   { familia: "camisas y blusas", palabras: "camisas?|t-?shirts?|franelas?|blusas?" },
-  { familia: "polos", palabras: "polos?|poloch(?:es?|er(?:es)?)" },
+  /*
+   * «TICHER» ES EL POLO, igual que «poloche» (la dueña, RD, 2026-10-09): en
+   * «los polo son los poloche o ticher que salen en 1,400», confirma que
+   * ahí «ticher» —la forma dominicana de decir «t-shirt»— nombra el MISMO
+   * artículo que «poloche», no una camiseta distinta. Va en la familia
+   * «polos», no en «camisas y blusas» con el «t-shirt» en inglés, por la
+   * misma razón que «poloche» tiene la suya: mezclarlas es lo que hacía que
+   * un anuncio de polos abriera vendiendo una chacabana.
+   */
+  { familia: "polos", palabras: "polos?|poloch(?:es?|er(?:es)?)|ticher(?:s)?" },
   { familia: "chacabanas", palabras: "chacabanas?" },
   { familia: "pantalones", palabras: "pantal[oó]n|pantalones|jeans?|shorts?|bermudas?" },
   /*
@@ -122,7 +131,7 @@ export function familiasNombradas(texto: string): { familia: string; palabra: st
  * la tienda diga «Camisas, t-shirts, polos y boxers: de la S a la XXL».
  */
 const ROPA =
-  /\b(camisas?|camisetas?|blusas?|franelas?|chacabanas?|pantal[oó]n|pantalones|jeans?|shorts?|bermudas?|t-?shirts?|polos?|polo ?shirts?|poloch(?:es?|er(?:es)?)|b[oó]xers?|correas?|cintur[oó]n|cinturones)\b/i;
+  /\b(camisas?|camisetas?|blusas?|franelas?|chacabanas?|pantal[oó]n|pantalones|jeans?|shorts?|bermudas?|t-?shirts?|polos?|polo ?shirts?|poloch(?:es?|er(?:es)?)|ticher(?:s)?|b[oó]xers?|correas?|cintur[oó]n|cinturones)\b/i;
 const CALZADO = /\b(zapato|zapatos|calzado|tenis|bota|botas|bot[ií]n|bot[ií]nes|mocas[ií]n|mocasines|sandalia|sandalias|zapatilla|zapatillas|chancleta|chancletas)\b/i;
 const COLORES = reColores("gi");
 
@@ -943,7 +952,7 @@ export function tallasDisponibles(descripcion: string, d: DatosPais): string | n
     return fila("Correas y cinturones");
   }
   if (/\b(pantal[oó]n|pantalones|jean|jeans|short|shorts|bermuda)\b/i.test(descripcion)) return fila("Pantalones");
-  if (/\b(camisas?|polos?|poloch(?:es?|er(?:es)?)|t-?shirts?|franelas?|blusas?|chacabanas?|su[eé]ter|sudadera|chaqueta|abrigo|b[oó]xers?|underwear)\b/i.test(descripcion)) return fila("Camisas, t-shirts, polos y boxers");
+  if (/\b(camisas?|polos?|poloch(?:es?|er(?:es)?)|ticher(?:s)?|t-?shirts?|franelas?|blusas?|chacabanas?|su[eé]ter|sudadera|chaqueta|abrigo|b[oó]xers?|underwear)\b/i.test(descripcion)) return fila("Camisas, t-shirts, polos y boxers");
   return null;
 }
 

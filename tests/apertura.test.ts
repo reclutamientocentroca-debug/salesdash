@@ -390,6 +390,22 @@ test("«poloche» es el polo, y quien lo pide no recibe la foto del calzado", ()
 });
 
 /**
+ * «TICHER» TAMBIÉN ES EL POLO, igual que «poloche» (la dueña, RD,
+ * 2026-10-09): «los polo son los poloche o ticher que salen en 1,400».
+ * Misma familia, mismo flujo: talla y color, sin que la palabra en inglés
+ * «t-shirt» —que es otra familia, «camisas y blusas»— lo tape.
+ */
+test("«ticher» también es el polo, al RD$1,400 de siempre", () => {
+  for (const dice of ["quiero un ticher", "tienen tichers?", "el ticher negro"]) {
+    assert.deepEqual(familiasNombradas(dice).map((f) => f.familia), ["polos"], dice);
+    assert.equal(llevaTalla(dice, rd), true, "lleva talla, como cualquier polo");
+    assert.equal(llevaColor(dice, rd), true);
+  }
+  assert.equal(tallasDisponibles("POLOS BRONX ORIGINALES RD$1,400", rd), "de la S a la XXL");
+  assert.equal(primeraPregunta("POLOS BRONX ORIGINALES RD$1,400", rd), "¿Qué talla le interesa?");
+});
+
+/**
  * EN COSTA RICA UNA FAJA ES EL CINTURÓN, Y SE VENDE COMO TAL.
  *
  * La dueña (2026-09-09): «la faja es cinturón, correa; este es el lenguaje que
