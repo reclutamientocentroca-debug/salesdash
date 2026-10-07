@@ -1554,6 +1554,53 @@ test("el anuncio del lead se lee una vez y el agente vende con ese precio, sin t
 });
 
 /**
+ * UNA PALABRA DE RECLAMO PUBLICITARIO NO ES EL ARTÍCULO (la dueña, Costa
+ * Rica, 2026-10-07, con captura). El caso real: un anuncio de «Cepillo
+ * Blower One Step» con el precio escrito en dólares («$10,188») en un canal
+ * de colones, así que el precio del anuncio no se reconocía y la búsqueda
+ * caía al catálogo de lo anunciado. Ahí, el cliente preguntó «Me dijo precio
+ * especial 9,188?» y «especial» —de la «FAJA REVERSIBLE... PROMOCIÓN
+ * ESPECIAL» anunciada antes— bastó para que se le vendiera la faja en vez
+ * del cepillo que de verdad preguntaba.
+ */
+test("una palabra de oferta como «especial» o «precio» no vincula con otro producto", async () => {
+  encender(false);
+  const cr = agenteDePais("cr")!;
+  D.actualizarAgente(orgId, { pais: "cr" }, canalId);
+  const canal = D.obtenerCanal(orgId, canalId)!;
+
+  await ingerir(
+    canal,
+    [{
+      id: "lead-faja", deMi: false, chatId: "50688889999@s.whatsapp.net", tipo: "texto",
+      content: "Hola, quiero información", mediaUrl: null, cuando: D.ahora(), nombre: "Pal",
+      deAnuncio: true, productoAnuncio: "Telleria",
+      descripcionAnuncio: "FAJA REVERSIBLE PARA HOMBRE PROMOCIÓN ESPECIAL: ¡Llévate 1 faja por ₡12,500!",
+      metaAdId: "ad-faja",
+    }],
+    { dentroDePeticion: false },
+  );
+
+  assert.equal(D.buscarProductoAnunciado(orgId, "Me dijo precio especial 9,188?"), null, "ni «precio» ni «especial» identifican un artículo");
+  assert.equal(D.buscarProductoAnunciado(orgId, "cuánto cuesta la oferta"), null);
+
+  // Y lo que sí nombra el artículo lo sigue encontrando, como siempre.
+  const anunciado = D.buscarProductoAnunciado(orgId, "pregunto por la faja reversible");
+  assert.match(anunciado!.nombre, /FAJA REVERSIBLE/i);
+
+  // De punta a punta: sin un anuncio propio, la pregunta por «precio especial»
+  // no debe traer de vuelta el anuncio de la faja.
+  const otro = D.getOrCreateConversation(orgId, canalId, "50688887777").conversacion;
+  const seVende = loQueSeVendeAqui(
+    orgId,
+    D.getConversation(orgId, otro.id)!,
+    [{ emisor: "cliente", content: "Me dijo precio especial 9,188?", created_at: D.ahora() } as D.Mensaje],
+    cr.moneda.simbolo,
+  );
+  assert.equal(seVende.descripcion_anuncio, null, "no se inventa el vínculo con la faja");
+});
+
+/**
  * EL CATÁLOGO NO MANDA SOBRE EL PRECIO DEL ANUNCIO DE WHATSAPP TAMPOCO.
  *
  * `precioDelCatalogoQueNoAplica` (en `meta/contexto-anuncio.ts`) ya protege

@@ -3462,6 +3462,31 @@ function raizDeArticulo(palabra: string): string {
   return palabra;
 }
 
+/*
+ * PALABRAS QUE NO IDENTIFICAN NINGÚN ARTÍCULO (la dueña, Costa Rica,
+ * 2026-10-07, con captura): a «Me dijo precio especial 9,188?» —una
+ * pregunta sobre un anuncio de «Cepillo Blower One Step»— se le contestó
+ * vendiéndole una «Faja reversible», porque esa faja se anunciaba con
+ * «PROMOCIÓN ESPECIAL» y «especial» es una palabra de cuatro letras que
+ * `buscarProductoAnunciado` contaba como si nombrara el artículo. El
+ * propio comentario de esta función ya decía que una palabra «del
+ * artículo» no es cualquier palabra de cuatro letras —«de», «para», el
+ * nombre de la tienda—; a esa lista le faltaban las palabras de reclamo
+ * publicitario, que son igual de genéricas y aparecen en anuncios de
+ * cualquier producto.
+ */
+const PALABRAS_SIN_ARTICULO = new Set([
+  "especial", "especiales", "oferta", "ofertas", "promo", "promocion", "promociones",
+  "descuento", "descuentos", "rebaja", "rebajas", "gratis", "precio", "precios",
+  "nuevo", "nueva", "nuevos", "nuevas", "disponible", "disponibles", "atencion",
+  "compra", "seguro", "unidad", "unidades", "solo", "aprovecha", "aproveche",
+  "ultimas", "ultimos", "stock", "envio", "envios", "incluido", "incluidos",
+]);
+
+function esPalabraDelArticulo(palabra: string): boolean {
+  return !PALABRAS_SIN_ARTICULO.has(palabra);
+}
+
 /**
  * EL PRODUCTO ANUNCIADO QUE NOMBRA ESTE TEXTO, si es de esta tienda.
  *
@@ -3479,7 +3504,7 @@ export function buscarProductoAnunciado(orgId: number, texto: string | null | un
   if (!t) return null;
 
   const palabras = (x: string) =>
-    x.split(/[^\p{L}\p{N}]+/u).filter((p) => p.length >= 4).map(raizDeArticulo);
+    x.split(/[^\p{L}\p{N}]+/u).filter((p) => p.length >= 4).map(raizDeArticulo).filter(esPalabraDelArticulo);
 
   const palabrasDelCliente = new Set(palabras(t));
   if (!palabrasDelCliente.size) return null;
@@ -3515,7 +3540,7 @@ export function sugerirProductoDelCatalogo(
   if (!t) return null;
 
   const palabras = (x: string) =>
-    x.split(/[^\p{L}\p{N}]+/u).filter((p) => p.length >= 4).map(raizDeArticulo);
+    x.split(/[^\p{L}\p{N}]+/u).filter((p) => p.length >= 4).map(raizDeArticulo).filter(esPalabraDelArticulo);
 
   const palabrasDelAnuncio = new Set(palabras(t));
   if (!palabrasDelAnuncio.size) return null;
