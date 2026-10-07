@@ -308,6 +308,22 @@ test("nunca responde a un mensaje que no escribió el cliente", async () => {
   assert.equal(motivoDe(await atenderConversacion(orgId, canalId, deHumano)), "ultimo_no_es_cliente");
 });
 
+/**
+ * EL CASO REAL (la dueña, Costa Rica, 2026-10-08, con captura): un hilo sin
+ * un solo mensaje —el panel lo mostraba vacío— decía al pulsar «Contesta la
+ * IA» que «el último del hilo es de la casa», una frase que da por hecho que
+ * SÍ hay un mensaje. Ella no entendía por qué no se transfería nada, porque
+ * ahí no había ningún mensaje de nadie que transferir.
+ */
+test("un hilo sin ningún mensaje no dice que «el último es de la casa»", async () => {
+  encender(true);
+  const vacio = hilo([]);
+  const r = await atenderConversacion(orgId, canalId, vacio);
+  assert.equal(motivoDe(r), "hilo_vacio");
+  assert.match(porQueNoContesto(r)!, /no tiene ning[uú]n mensaje todav[ií]a/);
+  assert.doesNotMatch(porQueNoContesto(r)!, /de la casa/);
+});
+
 test("si un vendedor escribió hace poco, el agente se calla", async () => {
   encender(true);
   const id = hilo([
@@ -469,6 +485,10 @@ test("escribir y devolver el hilo en el mismo segundo no vuelve a callar al agen
 
 /** Y cuando el intento no escribe nada, se puede decir por qué. */
 test("el intento que no contesta se explica con palabras de quien atiende", () => {
+  assert.match(
+    porQueNoContesto({ atendida: false, motivo: "hilo_vacio" })!,
+    /no tiene ningún mensaje todavía/,
+  );
   assert.match(
     porQueNoContesto({ atendida: false, motivo: "ultimo_no_es_cliente" })!,
     /ningún mensaje del cliente sin contestar/,

@@ -937,6 +937,8 @@ export type MotivoSilencio =
   /** Alguien puso ESTE hilo en manos de una persona desde el panel. */
   | "atiende_humano"
   | "canal_apagado"
+  /** El hilo no tiene ni un solo mensaje todavía: no hay nada que leer ni a quién contestar. */
+  | "hilo_vacio"
   | "ultimo_no_es_cliente"
   | "vendedor_reciente"
   | "pidio_humano"
@@ -2081,6 +2083,8 @@ export function porQueNoContesto(r: Resultado): string | null {
   if (r.atendida) return null;
 
   switch (r.motivo) {
+    case "hilo_vacio":
+      return "Esta conversación no tiene ningún mensaje todavía: el cliente no ha escrito nada. El agente contestará en cuanto el cliente escriba.";
     case "ultimo_no_es_cliente":
       return "No hay ningún mensaje del cliente sin contestar: el último del hilo es de la casa. El agente contestará en cuanto el cliente escriba.";
     case "ya_contestado":
@@ -2268,7 +2272,22 @@ async function atenderTurno(
       return true;
     })();
 
-  if (!ultimo || ultimo.emisor !== "cliente") {
+  /*
+   * SIN NINGÚN MENSAJE, NO HAY NADA QUE CONTESTAR —Y NO ES LO MISMO QUE
+   * «EL ÚLTIMO ES DE LA CASA» (la dueña, Costa Rica, 2026-10-08, con
+   * captura): un hilo vacío (el cliente nunca escribió nada, en ningún
+   * canal) mostraba «no hay ningún mensaje del cliente sin contestar: el
+   * último del hilo es de la casa» —una frase que da por hecho que SÍ hay
+   * un mensaje, solo que no es del cliente—, y eso confundía: ella leía
+   * «la casa escribió algo» en una pantalla sin un solo mensaje, y no
+   * entendía por qué no se transfería nada. Aquí no hay nada que
+   * transferir porque no hay nada, punto; se dice así, para no inventar un
+   * mensaje de la casa que no existe.
+   */
+  if (!ultimo) {
+    return { atendida: false, motivo: "hilo_vacio" };
+  }
+  if (ultimo.emisor !== "cliente") {
     return { atendida: false, motivo: "ultimo_no_es_cliente" };
   }
   // Un «[protocolMessage]» que entró antes de filtrarse no es del cliente.
