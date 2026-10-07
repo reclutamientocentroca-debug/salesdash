@@ -48,7 +48,7 @@ import { completarJson, ErrorIA } from "./ia";
 import { MODELO_ANALISIS, type Mensaje } from "./db";
 import { conLoVistoYOido } from "./percepcion";
 import { expresionesDelPais, pareceColor, pareceTalla, preguntasRepetidas, unidadesPorColores, type FichaDelPedido } from "./memoria";
-import { cantidadDicha, clienteAplazaCompra, clienteRenunciaALaCompra, diceDeQueEs, esCorreaLocal, familiasNombradas, nombraUnArticulo, precioDeLaDescripcion, preguntaDelCliente, preguntaDeDireccion, respuestaDirecta, PREGUNTA_COLOR, type PreguntaDelCliente } from "./apertura";
+import { anuncioOfreceEnvioGratis, cantidadDicha, clienteAplazaCompra, clienteRenunciaALaCompra, diceDeQueEs, esCorreaLocal, familiasNombradas, nombraUnArticulo, precioDeLaDescripcion, preguntaDelCliente, preguntaDeDireccion, respuestaDirecta, PREGUNTA_COLOR, type PreguntaDelCliente } from "./apertura";
 import { escalaDelArticulo, importe, precioPorCantidad, zonaDelCliente } from "@/agents";
 import { leerImporte, type Moneda } from "./moneda";
 import { contieneLugar } from "./envio";
@@ -333,8 +333,18 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
     fallas.push("promete una forma de pago y en este país no hay ninguna configurada: eso lo confirma un representante");
   }
 
-  // 4. Descuentos, envío gratis, días de entrega, reservas, muestrarios.
-  for (const p of PROMESAS_PROHIBIDAS) if (p.re.test(texto)) fallas.push(p.falla);
+  /*
+   * 4. Descuentos, envío gratis, días de entrega, reservas, muestrarios.
+   *
+   * EL ENVÍO GRATIS NO ES UN INVENTO CUANDO EL ANUNCIO YA LO PROMETIÓ (la
+   * dueña, Costa Rica, 2026-10-07). La regla existe para que el agente no se
+   * invente una oferta que nadie autorizó; si el propio anuncio —escrito por
+   * el negocio— ya dice «envío gratis», repetirlo es informar, no inventar.
+   */
+  for (const p of PROMESAS_PROHIBIDAS) {
+    if (p.falla === "ofrece envío gratis" && anuncioOfreceEnvioGratis(ctx.anuncio)) continue;
+    if (p.re.test(texto)) fallas.push(p.falla);
+  }
 
   // 5. Un resumen tiene que ser un pedido: sin huecos y a nombre de un cliente.
   const marcador = ctx.marcador ?? MARCADOR_POR_DEFECTO;
@@ -349,6 +359,16 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
       const n = importes(lineaEnvio, d.moneda)[0];
       if (n !== undefined && !costos.has(n)) {
         fallas.push(`el envío del resumen dice ${d.moneda.simbolo}${n} y no es una tarifa de este país`);
+      }
+      /*
+       * EL ANUNCIO PROMETIÓ ENVÍO GRATIS, Y EL RESUMEN LO COBRA (la dueña,
+       * Costa Rica, 2026-10-07). El caso que esto evita: un anuncio con
+       * «envío gratis» escrito, y el cliente termina pagando la tarifa de su
+       * zona igual, porque nada comprobaba que el resumen respetara esa
+       * oferta.
+       */
+      if (n !== undefined && n > 0 && anuncioOfreceEnvioGratis(ctx.anuncio)) {
+        fallas.push(`el anuncio promete envío gratis y el resumen cobra ${d.moneda.simbolo}${n} de envío: no se cobra`);
       }
     }
   }

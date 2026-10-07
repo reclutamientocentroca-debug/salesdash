@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { agenteDePais, precioPorCantidad } from "../src/agents";
 import { fichaDelPedido } from "../src/lib/memoria";
 import { leerProductoDelAnuncio, textoDelProducto } from "../src/lib/anuncio";
-import { aperturaSegura, articuloDeLaDescripcion, cantidadDicha, clienteAplazaCompra, clientePideOtraFamilia, clienteRenunciaALaCompra, familiasNombradas, llevaColor, llevaTalla, mensajeSinProducto, precioDeLaDescripcion, preguntaDelCliente, preguntaDeDireccion, primeraPregunta, respuestaDirecta, respuestaMinima, resumenMecanico, tallasDisponibles } from "../src/lib/apertura";
+import { anuncioOfreceEnvioGratis, aperturaSegura, articuloDeLaDescripcion, cantidadDicha, clienteAplazaCompra, clientePideOtraFamilia, clienteRenunciaALaCompra, familiasNombradas, llevaColor, llevaTalla, mensajeSinProducto, precioDeLaDescripcion, preguntaDelCliente, preguntaDeDireccion, primeraPregunta, respuestaDirecta, respuestaMinima, resumenMecanico, tallasDisponibles } from "../src/lib/apertura";
 import { contieneMarcador } from "../src/lib/cierre";
 
 /**
@@ -769,6 +769,28 @@ test("en Costa Rica el envío y el teléfono van juntos tras la dirección, y el
   const resumen = respuestaMinima(cr, completo, faja, {});
   assert.ok(resumen.startsWith("📋 RESUMEN DEL PEDIDO"), resumen);
   assert.equal(resumen.includes("¿Se lo despacho"), false);
+});
+
+/**
+ * SI EL ANUNCIO DICE «ENVÍO GRATIS» (la dueña, Costa Rica, 2026-10-07), no se
+ * cobra: ni en el aviso de logística, ni en el resumen, ni en el total.
+ */
+test("en Costa Rica, el envío gratis del anuncio no se cobra", () => {
+  assert.equal(anuncioOfreceEnvioGratis("FAJA REVERSIBLE PARA HOMBRE ₡9.000. ¡Envío gratis!"), true);
+  assert.equal(anuncioOfreceEnvioGratis("FAJA REVERSIBLE PARA HOMBRE ₡9.000"), false);
+
+  const fajaGratis = { descripcion_anuncio: "FAJA REVERSIBLE PARA HOMBRE ₡9.000. ¡Envío gratis!" };
+  const completo = {
+    talla: "34", color: "negro", direccion: "Escazú centro, 200 sur de la iglesia",
+    celular: "88881111", nombre: "Cliente", cantidad: null,
+  };
+
+  const logistica = respuestaMinima(cr, { ...completo, nombre: null, celular: null }, fajaGratis, { ultimoDelCliente: completo.direccion });
+  assert.ok(logistica.includes("El envío es gratis y paga al recibir."), logistica);
+
+  const resumen = respuestaMinima(cr, completo, fajaGratis, {});
+  assert.ok(resumen.includes("Envio: Gratis"), resumen);
+  assert.ok(resumen.includes("TOTAL A PAGAR: ₡9.000"), resumen);
 });
 
 /**

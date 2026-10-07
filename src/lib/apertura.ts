@@ -203,6 +203,26 @@ export function precioDeLaDescripcion(descripcion: string, simbolo: string): str
 }
 
 /**
+ * ¿EL ANUNCIO PROMETE EL ENVÍO GRATIS? (la dueña, Costa Rica, 2026-10-07).
+ *
+ * Cuando la propia descripción del anuncio dice «envío gratis» —una oferta
+ * real, escrita por el negocio, no inventada por el agente— el envío no se
+ * cobra: ni se menciona su costo, ni se suma al total. Sin esto, el resumen
+ * seguía cobrando la tarifa de la zona aunque el anuncio ya hubiera
+ * prometido que no se cobra, y el cliente terminaba pagando un envío que el
+ * propio anuncio le dijo gratis.
+ *
+ * Es la MISMA frase que el revisor prohíbe inventar (`PROMESAS_PROHIBIDAS`
+ * en revisor.ts): ahí la regla es «el agente no se inventa el envío
+ * gratis»; aquí es «si el anuncio ya lo prometió, no se cobra». Una regla
+ * no contradice la otra: las dos miran la misma frase, cada una en su sitio.
+ */
+export const ENVIO_GRATIS_RE = /env[ií]o gratis|gratis el env[ií]o|sin costo de env[ií]o|env[ií]o sin costo|env[ií]o incluido/i;
+export function anuncioOfreceEnvioGratis(descripcion: string | null | undefined): boolean {
+  return ENVIO_GRATIS_RE.test(descripcion ?? "");
+}
+
+/**
  * ANTES DE LA VARIANTE, no solo antes del precio. El caso real (RD,
  * 2026-10-01): «BOTINES DE CUERO PREMIUM Colores disponibles: Negro, Vino,
  * Miel. Precio: RD$2,900» —las tallas o colores escritos ANTES del precio,
@@ -540,7 +560,8 @@ export function respuestaMinima(
     const zona = zonaDelCliente(d, ficha.direccion) ?? zonaDelCliente(d, opciones.lugar);
     if (zona !== null) {
       const donde = nombreDeLaZona(d, ficha.direccion ?? "", opciones.lugar);
-      const costo = importe(d, zona === "resto" ? d.envio.restoDelPais.costo : zona.costo);
+      // Si el anuncio prometió envío gratis, no se cobra (la dueña, 2026-10-07).
+      const costo = anuncioOfreceEnvioGratis(descripcion) ? "gratis" : importe(d, zona === "resto" ? d.envio.restoDelPais.costo : zona.costo);
       const logistica =
         zona === "resto"
           ? `Perfecto, hasta ${donde} va por correo y lo retira en la sucursal más cercana. El envío es ${costo} y el pago va por adelantado, por SINPE o transferencia.`
@@ -629,7 +650,8 @@ export function resumenMecanico(
 
   const zona = zonaDelCliente(d, ficha.direccion) ?? zonaDelCliente(d, opciones.lugar);
   if (zona === null) return null;
-  const envio = zona === "resto" ? d.envio.restoDelPais.costo : zona.costo;
+  const envioGratis = anuncioOfreceEnvioGratis(descripcion);
+  const envio = envioGratis ? 0 : zona === "resto" ? d.envio.restoDelPais.costo : zona.costo;
 
   const articulo =
     articuloDeLaDescripcion(descripcion, d.moneda.simbolo) ??
@@ -665,7 +687,7 @@ export function resumenMecanico(
     if (tallaValida) lineas.push(`Talla: ${tallaValida}`);
     if (colorValido) lineas.push(`Color: ${colorValido}`);
     lineas.push(`Cantidad: ${cantidad}`);
-    lineas.push(`Envio: ${importe(d, envio)}`);
+    lineas.push(`Envio: ${envioGratis ? "Gratis" : importe(d, envio)}`);
     lineas.push(`TOTAL A PAGAR: ${importe(d, total)}`);
     /*
      * La forma de pago es la de SU zona, no la del país. En la provincia
@@ -691,7 +713,7 @@ export function resumenMecanico(
     if (tallaValida) lineas.push(`Talla: ${tallaValida}`);
     if (colorValido) lineas.push(`Color: ${colorValido}`);
     lineas.push(`Cantidad: ${cantidad}`);
-    lineas.push(`Envio: ${importe(d, envio)}`);
+    lineas.push(`Envio: ${envioGratis ? "Gratis" : importe(d, envio)}`);
     lineas.push(`TOTAL A PAGAR: ${importe(d, total)}`);
     lineas.push(`Forma de pago: ${zona === "resto" ? "SINPE o transferencia por adelantado" : "contra entrega"}`);
     lineas.push("✅ PEDIDO REGISTRADO", FRASE_DE_CIERRE_CR);
@@ -706,7 +728,7 @@ export function resumenMecanico(
     lineas.push(`Cantidad: ${cantidad}`);
     if (variante) lineas.push(`Talla y color: ${variante}`);
     lineas.push(`Dirección: ${ficha.direccion}`);
-    lineas.push(`Costo de envío: ${importe(d, envio)}`);
+    lineas.push(`Costo de envío: ${envioGratis ? "Gratis" : importe(d, envio)}`);
     const pago = zona === "resto" ? d.envio.restoDelPais.pago : zona.pago;
     if (d.pago && pago) lineas.push(`Forma de pago: ${pago}`);
     lineas.push(`Total a pagar: ${importe(d, total)}`);
