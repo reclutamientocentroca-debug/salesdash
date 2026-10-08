@@ -72,6 +72,41 @@ test("descuentos, envío gratis, días de entrega y reservas no salen", () => {
   assert.deepEqual(revisarConReglas("Se lo enviamos dentro de 24 a 48 horas.", rd), []);
 });
 
+/**
+ * EL CASO REAL (Costa Rica, 2026-10-10, con captura): el anuncio decía
+ * «envío gratis» y la IA seguía cobrando ₡3.500 — no en el resumen, sino en
+ * el AVISO DE LOGÍSTICA de mitad de conversación («Perfecto, hasta San
+ * José... El envío es ₡3.500 y paga al recibir.»), que es donde se dice el
+ * costo por primera vez. El arreglo anterior solo miraba la línea «Envio:»
+ * del resumen final; esto confirma que también para a mitad de camino.
+ */
+test("si el anuncio promete envío gratis, cobrarlo no sale en ningún momento de la conversación", () => {
+  const conGratis = { ...cr, anuncio: "Este cliente llegó por un anuncio:\n- Producto anunciado: Faja reversible\n- Lo que promete el anuncio: FAJA REVERSIBLE PARA HOMBRE. ¡Envío gratis a todo el país!" };
+
+  // Decirlo correctamente, sin cobrar nada, pasa.
+  assert.deepEqual(
+    revisarConReglas("Perfecto, hasta San José se lo llevamos a domicilio. El envío es gratis y paga al recibir.\n¿Me facilita su número de teléfono para el pedido?", conGratis),
+    [],
+  );
+
+  // Pero cobrar la tarifa normal del país, en ese mismo aviso —antes de
+  // llegar nunca al resumen—, sí se para.
+  assert.ok(
+    revisarConReglas("Perfecto, hasta San José se lo llevamos a domicilio. El envío es ₡3.500 y paga al recibir.\n¿Me facilita su número de teléfono para el pedido?", conGratis)
+      .some((x) => x.includes("promete envío gratis") && x.includes("₡3500")),
+  );
+
+  // Y en el resumen final, igual.
+  const resumenConCobro = "📋 RESUMEN DEL PEDIDO\nNombre: Ana Pérez\nTelefono: 88881111\nDireccion: San José centro\nProducto: Faja reversible\nCantidad: 1\nEnvio: ₡3.500\nTOTAL A PAGAR: ₡12.500\nForma de pago: contra entrega";
+  assert.ok(revisarConReglas(resumenConCobro, conGratis).some((x) => x.includes("promete envío gratis")));
+
+  // Sin esa promesa en el anuncio, la tarifa normal sigue pasando sin objeción.
+  assert.deepEqual(
+    revisarConReglas("Perfecto, hasta San José se lo llevamos a domicilio. El envío es ₡3.500 y paga al recibir.\n¿Me facilita su número de teléfono para el pedido?", cr),
+    [],
+  );
+});
+
 test("un resumen con huecos, a nombre de la vendedora o con un envío ajeno no sale", () => {
   const pedido = (nombre: string, total: string, envio = "RD$250") =>
     `Resumen:\n\nNombre: ${nombre}\nCel: 8095551234\nProducto: Mocasines\nCantidad: 1\nDirección: Calle 1 #2, Los Prados, Santo Domingo\nCosto de envío: ${envio}\nTotal a pagar: ${total}`;

@@ -315,6 +315,7 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
   const costos = new Set([d.envio.restoDelPais.costo, ...d.envio.zonas.map((z) => z.costo)]);
   const conocidas = cifrasConocidas(ctx);
   const envios = [...costos];
+  const envioGratisPrometido = anuncioOfreceEnvioGratis(ctx.anuncio);
   for (const frase of texto.split(/(?<=[.!?\n])\s+/)) {
     if (!/env[ií]o/i.test(frase) || /total/i.test(frase)) continue;
     for (const n of importes(frase, d.moneda)) {
@@ -323,6 +324,18 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
           `cotiza el envío en ${d.moneda.simbolo}${n}, y las únicas tarifas son ` +
             [...costos].map((c) => `${d.moneda.simbolo}${c}`).join(" y "),
         );
+        break;
+      }
+      /*
+       * Y SI EL ANUNCIO YA PROMETIÓ ENVÍO GRATIS, NINGUNA TARIFA VALE (la
+       * dueña, Costa Rica, 2026-10-10, con captura): esto se decía en el
+       * aviso de logística —«Perfecto, hasta San José... El envío es
+       * ₡3.500...»—, ANTES del resumen, así que la regla 5 de abajo —que solo
+       * mira el resumen— nunca llegaba a verlo. Aquí se mira cualquier frase
+       * con «envío», se diga donde se diga en la conversación.
+       */
+      if (n > 0 && envioGratisPrometido) {
+        fallas.push(`el anuncio promete envío gratis y cotiza ${d.moneda.simbolo}${n} de envío: no se cobra`);
         break;
       }
     }
@@ -354,6 +367,13 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
       fallas.push(`manda el resumen y ${f}: no se manda hasta tener ese dato`);
     }
     // El envío del resumen tiene que ser uno de los del país.
+    //
+    // APARTE DE LA REGLA 2, a propósito: aquella corta el texto en frases por
+    // punto o salto de línea SEGUIDO DE ESPACIO, y un resumen de líneas
+    // pegadas sin ese espacio —y con la palabra «TOTAL» en alguna parte, que
+    // hace que la regla 2 lo salte entero, pensando que es un total y no una
+    // tarifa— puede quedar como una sola frase larga sin partir. Leer la
+    // línea «Envio:» a mano no tiene ese problema.
     const lineaEnvio = texto.split(/\r?\n/).find((l) => /^\W*(costo de )?env[ií]o\b/i.test(llano(l)));
     if (lineaEnvio) {
       const n = importes(lineaEnvio, d.moneda)[0];
@@ -362,12 +382,10 @@ export function revisarConReglas(borrador: string, ctx: ContextoRevision): strin
       }
       /*
        * EL ANUNCIO PROMETIÓ ENVÍO GRATIS, Y EL RESUMEN LO COBRA (la dueña,
-       * Costa Rica, 2026-10-07). El caso que esto evita: un anuncio con
-       * «envío gratis» escrito, y el cliente termina pagando la tarifa de su
-       * zona igual, porque nada comprobaba que el resumen respetara esa
-       * oferta.
+       * Costa Rica, 2026-10-07 y 2026-10-10). El caso real: el anuncio decía
+       * «envío gratis» y el resumen final cobraba la tarifa de siempre.
        */
-      if (n !== undefined && n > 0 && anuncioOfreceEnvioGratis(ctx.anuncio)) {
+      if (n !== undefined && n > 0 && envioGratisPrometido) {
         fallas.push(`el anuncio promete envío gratis y el resumen cobra ${d.moneda.simbolo}${n} de envío: no se cobra`);
       }
     }
