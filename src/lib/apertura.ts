@@ -72,7 +72,14 @@ const FAMILIAS: { familia: string; palabras: string }[] = [
    * cotizando la chacabana y su precio a quien había pinchado en el polo.
    * Separadas, un anuncio de polos vinculado a una chacabana sí se nota.
    */
-  { familia: "camisas y blusas", palabras: "camisas?|t-?shirts?|franelas?|blusas?" },
+  /*
+   * MÁS LENGUAJE DOMINICANO (la dueña, 2026-10-10): «quiero que la IA
+   * entienda cualquier lenguaje dominicano». Primera pasada con sinónimos
+   * ya confirmados, de las MISMAS prendas que esta tienda ya vende —no
+   * artículos nuevos—: «camisilla» es la camiseta sin mangas, de la misma
+   * familia que la camisa.
+   */
+  { familia: "camisas y blusas", palabras: "camisas?|t-?shirts?|franelas?|camisillas?|blusas?" },
   /*
    * «TICHER» ES EL POLO, igual que «poloche» (la dueña, RD, 2026-10-09): en
    * «los polo son los poloche o ticher que salen en 1,400», confirma que
@@ -84,7 +91,12 @@ const FAMILIAS: { familia: string; palabras: string }[] = [
    */
   { familia: "polos", palabras: "polos?|poloch(?:es?|er(?:es)?)|ticher(?:s)?" },
   { familia: "chacabanas", palabras: "chacabanas?" },
-  { familia: "pantalones", palabras: "pantal[oó]n|pantalones|jeans?|shorts?|bermudas?" },
+  /*
+   * «MAHONES» ES EL JEAN, Y «PANTALONETA» EL SHORT (la dueña, 2026-10-10,
+   * misma pasada de lenguaje dominicano): mismo pantalón de siempre, dicho
+   * como se dice en el país.
+   */
+  { familia: "pantalones", palabras: "pantal[oó]n|pantalones|jeans?|mahon(?:es)?|shorts?|pantalonetas?|bermudas?" },
   /*
    * LA CHAQUETA TIENE OTROS NOMBRES, según el país y quién escriba: «chumpa»
    * en buena parte de Centroamérica, «casaca» y «cazadora» en otras plazas. El
@@ -131,7 +143,7 @@ export function familiasNombradas(texto: string): { familia: string; palabra: st
  * la tienda diga «Camisas, t-shirts, polos y boxers: de la S a la XXL».
  */
 const ROPA =
-  /\b(camisas?|camisetas?|blusas?|franelas?|chacabanas?|pantal[oó]n|pantalones|jeans?|shorts?|bermudas?|t-?shirts?|polos?|polo ?shirts?|poloch(?:es?|er(?:es)?)|ticher(?:s)?|b[oó]xers?|correas?|cintur[oó]n|cinturones)\b/i;
+  /\b(camisas?|camisetas?|blusas?|franelas?|camisillas?|chacabanas?|pantal[oó]n|pantalones|jeans?|mahon(?:es)?|shorts?|pantalonetas?|bermudas?|t-?shirts?|polos?|polo ?shirts?|poloch(?:es?|er(?:es)?)|ticher(?:s)?|b[oó]xers?|correas?|cintur[oó]n|cinturones)\b/i;
 const CALZADO = /\b(zapato|zapatos|calzado|tenis|bota|botas|bot[ií]n|bot[ií]nes|mocas[ií]n|mocasines|sandalia|sandalias|zapatilla|zapatillas|chancleta|chancletas)\b/i;
 const COLORES = reColores("gi");
 
@@ -951,8 +963,8 @@ export function tallasDisponibles(descripcion: string, d: DatosPais): string | n
   if (/\b(correa|correas|cintur[oó]n|cinturones)\b/i.test(descripcion) || esCorreaLocal(descripcion, d)) {
     return fila("Correas y cinturones");
   }
-  if (/\b(pantal[oó]n|pantalones|jean|jeans|short|shorts|bermuda)\b/i.test(descripcion)) return fila("Pantalones");
-  if (/\b(camisas?|polos?|poloch(?:es?|er(?:es)?)|ticher(?:s)?|t-?shirts?|franelas?|blusas?|chacabanas?|su[eé]ter|sudadera|chaqueta|abrigo|b[oó]xers?|underwear)\b/i.test(descripcion)) return fila("Camisas, t-shirts, polos y boxers");
+  if (/\b(pantal[oó]n|pantalones|jean|jeans|mahon|mahones|short|shorts|pantaloneta|pantalonetas|bermuda)\b/i.test(descripcion)) return fila("Pantalones");
+  if (/\b(camisas?|polos?|poloch(?:es?|er(?:es)?)|ticher(?:s)?|t-?shirts?|franelas?|camisillas?|blusas?|chacabanas?|su[eé]ter|sudadera|chaqueta|abrigo|b[oó]xers?|underwear)\b/i.test(descripcion)) return fila("Camisas, t-shirts, polos y boxers");
   return null;
 }
 

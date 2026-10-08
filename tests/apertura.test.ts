@@ -406,6 +406,30 @@ test("«ticher» también es el polo, al RD$1,400 de siempre", () => {
 });
 
 /**
+ * MÁS LENGUAJE DOMINICANO (la dueña, 2026-10-10): «quiero que la IA entienda
+ * cualquier lenguaje dominicano, porque debe de saber lo que está vendiendo
+ * y a qué se puede referir el cliente». Primera pasada con sinónimos ya
+ * confirmados de las MISMAS prendas que la tienda ya vende: «mahones» es el
+ * jean, «pantaloneta» el short, «camisilla» la camiseta sin mangas.
+ */
+test("«mahones», «pantaloneta» y «camisilla»: el mismo pantalón y la misma camisa de siempre", () => {
+  for (const dice of ["quiero unos mahones", "tiene mahon azul", "el mahon claro"]) {
+    assert.deepEqual(familiasNombradas(dice).map((f) => f.familia), ["pantalones"], dice);
+    assert.equal(llevaTalla(dice, rd), true);
+  }
+  for (const dice of ["quiero una pantaloneta", "tiene pantalonetas deportivas"]) {
+    assert.deepEqual(familiasNombradas(dice).map((f) => f.familia), ["pantalones"], dice);
+    assert.equal(llevaTalla(dice, rd), true);
+  }
+  for (const dice of ["quiero una camisilla", "tiene camisillas blancas"]) {
+    assert.deepEqual(familiasNombradas(dice).map((f) => f.familia), ["camisas y blusas"], dice);
+    assert.equal(llevaTalla(dice, rd), true);
+  }
+  assert.equal(tallasDisponibles("MAHONES AZULES RD$1,800", rd), "de la 30 a la 42");
+  assert.equal(primeraPregunta("PANTALONETA DEPORTIVA RD$900", rd), "¿Qué talla le interesa?");
+});
+
+/**
  * EN COSTA RICA UNA FAJA ES EL CINTURÓN, Y SE VENDE COMO TAL.
  *
  * La dueña (2026-09-09): «la faja es cinturón, correa; este es el lenguaje que
