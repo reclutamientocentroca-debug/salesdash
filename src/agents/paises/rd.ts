@@ -451,8 +451,9 @@ export const RD: DatosPais = {
     agenteCotiza: true,
     desde: 3,
     /*
-     * LOS POLOS, dictados por la dueña (2026-09-09): «de 1 unidad a 2, cuestan
-     * 1,400; de 3 a 11 piezas, 1,190; por docena, 990 cada uno».
+     * LOS POLOS, dictados por la dueña (2026-09-09, corregidos 2026-10-08):
+     * de 1 a 5 cuestan 1,400; de 6 a 11 piezas, 1,190; de 12 en adelante, 990
+     * cada uno. (Antes el tramo de 1,190 empezaba en 3.)
      *
      * Antes esto no estaba en ninguna parte: el agente solo conocía el precio
      * del anuncio, así que tres polos se cobraban a RD$1,400 cada uno —la
@@ -465,8 +466,8 @@ export const RD: DatosPais = {
         articulo: "Polos",
         palabras: "polos?",
         tramos: [
-          { desde: 1, hasta: 2, precio: 1400 },
-          { desde: 3, hasta: 11, precio: 1190 },
+          { desde: 1, hasta: 5, precio: 1400 },
+          { desde: 6, hasta: 11, precio: 1190 },
           { desde: 12, hasta: null, precio: 990 },
         ],
       },

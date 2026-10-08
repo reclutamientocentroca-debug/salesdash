@@ -588,6 +588,42 @@ CREATE TABLE IF NOT EXISTS recalculos (
   PRIMARY KEY (org_id, clave)
 );
 
+/* IA VIGILANTE: la configuración. Una fila por cuenta y canal; canal_id 0 son
+   los ajustes generales (interruptor general y prompt de sistema), que valen
+   para toda la cuenta. Un NULL en guia, reglas o prompt significa «el texto de
+   fábrica»: solo se guarda lo que la dueña escribe. Ver vigilante.ts. */
+CREATE TABLE IF NOT EXISTS vigilante_config (
+  org_id INTEGER NOT NULL REFERENCES orgs(id),
+  canal_id INTEGER NOT NULL DEFAULT 0,
+  activa INTEGER NOT NULL DEFAULT 0,
+  modo TEXT NOT NULL DEFAULT 'corregir' CHECK(modo IN ('corregir','vigilar')),
+  guia TEXT,
+  reglas TEXT,
+  prompt TEXT,
+  actualizado_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  PRIMARY KEY (org_id, canal_id)
+);
+
+/* IA VIGILANTE: un registro por respuesta revisada, con el veredicto. Los
+   contadores salen de aquí; la tabla de correcciones es lo CORREGIDA. FALLO es
+   «no se pudo revisar» (tardó, error o JSON ilegible) y se envió la original. */
+CREATE TABLE IF NOT EXISTS vigilante_registro (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id INTEGER NOT NULL REFERENCES orgs(id),
+  canal_id INTEGER NOT NULL,
+  conversation_id INTEGER,
+  creado_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  veredicto TEXT NOT NULL CHECK(veredicto IN ('APROBADA','CORREGIDA','FALLO')),
+  modo TEXT NOT NULL,
+  mensaje_cliente TEXT NOT NULL DEFAULT '',
+  respuesta_original TEXT NOT NULL,
+  respuesta_final TEXT NOT NULL,
+  motivos TEXT NOT NULL DEFAULT '[]',
+  enviada TEXT NOT NULL DEFAULT 'original' CHECK(enviada IN ('original','corregida')),
+  error TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_vigilante_registro_org ON vigilante_registro(org_id, creado_at);
+
 /*
  * DIFUSIONES — envío masivo de WhatsApp por campaña, controlado.
  *
@@ -2041,6 +2077,8 @@ export function eliminarCanal(orgId: number, id: number): void {
     // El agente del canal se va con él. La plantilla de la cuenta (canal_id 0)
     // no se toca nunca: de ella nacen los que vengan después.
     s(`DELETE FROM agentes WHERE org_id = ? AND canal_id = ?`).run(orgId, id);
+    s(`DELETE FROM vigilante_config WHERE org_id = ? AND canal_id = ?`).run(orgId, id);
+    s(`DELETE FROM vigilante_registro WHERE org_id = ? AND canal_id = ?`).run(orgId, id);
     s(`DELETE FROM canales WHERE org_id = ? AND id = ?`).run(orgId, id);
   });
   tx();
@@ -3811,6 +3849,197 @@ export function usoDelDia(orgId: number, dia: string) {
   return s(
     `SELECT modelo, proposito, exitos, fallos FROM uso_modelo WHERE org_id = ? AND dia = ?`,
   ).all(orgId, dia) as { modelo: string; proposito: string; exitos: number; fallos: number }[];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// IA Vigilante — configuración y registro. La lógica vive en vigilante.ts.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type ModoVigilante = "corregir" | "vigilar";
+export type VeredictoVigilante = "APROBADA" | "CORREGIDA" | "FALLO";
+
+export interface VigilanteConfig {
+  org_id: number;
+  /** 0 = ajustes generales de la cuenta. */
+  canal_id: number;
+  activa: number;
+  modo: ModoVigilante;
+  /** null = el texto de fábrica. */
+  guia: string | null;
+  reglas: string | null;
+  prompt: string | null;
+}
+
+export function obtenerVigilanteConfig(orgId: number, canalId: number): VigilanteConfig | null {
+  return (s(`SELECT * FROM vigilante_config WHERE org_id = ? AND canal_id = ?`).get(orgId, canalId) as
+    | VigilanteConfig
+    | undefined) ?? null;
+}
+
+/** Cambia solo lo que viene: lo que no se manda se queda como estaba. */
+export function guardarVigilanteConfig(
+  orgId: number,
+  canalId: number,
+  cambio: { activa?: boolean; modo?: ModoVigilante; guia?: string | null; reglas?: string | null; prompt?: string | null },
+): void {
+  const antes = obtenerVigilanteConfig(orgId, canalId);
+  const elige = <T>(nuevo: T | undefined, viejo: T): T => (nuevo === undefined ? viejo : nuevo);
+
+  s(
+    `INSERT INTO vigilante_config (org_id, canal_id, activa, modo, guia, reglas, prompt, actualizado_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, unixepoch())
+     ON CONFLICT(org_id, canal_id) DO UPDATE SET
+       activa = excluded.activa, modo = excluded.modo, guia = excluded.guia,
+       reglas = excluded.reglas, prompt = excluded.prompt, actualizado_at = excluded.actualizado_at`,
+  ).run(
+    orgId,
+    canalId,
+    elige(cambio.activa === undefined ? undefined : cambio.activa ? 1 : 0, antes?.activa ?? 0),
+    elige(cambio.modo, antes?.modo ?? "corregir"),
+    elige(cambio.guia, antes?.guia ?? null),
+    elige(cambio.reglas, antes?.reglas ?? null),
+    elige(cambio.prompt, antes?.prompt ?? null),
+  );
+}
+
+export interface VigilanteRegistro {
+  id: number;
+  org_id: number;
+  canal_id: number;
+  conversation_id: number | null;
+  creado_at: number;
+  veredicto: VeredictoVigilante;
+  modo: string;
+  mensaje_cliente: string;
+  respuesta_original: string;
+  respuesta_final: string;
+  /** JSON: string[] */
+  motivos: string;
+  enviada: "original" | "corregida";
+  error: string | null;
+}
+
+export function registrarVigilancia(
+  orgId: number,
+  d: {
+    canalId: number;
+    conversationId: number | null;
+    veredicto: VeredictoVigilante;
+    modo: ModoVigilante;
+    mensajeCliente: string;
+    respuestaOriginal: string;
+    respuestaFinal: string;
+    motivos: string[];
+    enviada: "original" | "corregida";
+    error?: string | null;
+  },
+): void {
+  s(
+    `INSERT INTO vigilante_registro
+       (org_id, canal_id, conversation_id, veredicto, modo, mensaje_cliente, respuesta_original,
+        respuesta_final, motivos, enviada, error)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    orgId,
+    d.canalId,
+    d.conversationId,
+    d.veredicto,
+    d.modo,
+    d.mensajeCliente.slice(0, 2000),
+    d.respuestaOriginal.slice(0, 4000),
+    d.respuestaFinal.slice(0, 4000),
+    JSON.stringify(d.motivos.slice(0, 8)),
+    d.enviada,
+    d.error ? d.error.slice(0, 300) : null,
+  );
+}
+
+export interface FiltroVigilancia {
+  /** Los canales que puede ver quien pregunta (null = todos los de la cuenta). */
+  canalesPermitidos?: number[] | null;
+  canalId?: number | null;
+  desde?: number | null;
+  hasta?: number | null;
+}
+
+function dondeVigilancia(orgId: number, f: FiltroVigilancia): { sql: string; args: (number | string)[] } {
+  const partes = ["org_id = ?"];
+  const args: (number | string)[] = [orgId];
+
+  if (f.canalesPermitidos) {
+    // Lista vacía = ningún canal: que la consulta no devuelva nada, no todo.
+    partes.push(f.canalesPermitidos.length ? `canal_id IN (${f.canalesPermitidos.map(() => "?").join(",")})` : "0");
+    args.push(...f.canalesPermitidos);
+  }
+  if (f.canalId) {
+    partes.push("canal_id = ?");
+    args.push(f.canalId);
+  }
+  if (f.desde != null) {
+    partes.push("creado_at >= ?");
+    args.push(f.desde);
+  }
+  if (f.hasta != null) {
+    partes.push("creado_at <= ?");
+    args.push(f.hasta);
+  }
+  return { sql: partes.join(" AND "), args };
+}
+
+/** Las correcciones (y los fallos), las más nuevas primero. */
+export function listarCorreccionesVigilante(orgId: number, f: FiltroVigilancia, limite = 200): VigilanteRegistro[] {
+  const { sql, args } = dondeVigilancia(orgId, f);
+  return db
+    .prepare(
+      `SELECT * FROM vigilante_registro WHERE ${sql} AND veredicto = 'CORREGIDA' ORDER BY id DESC LIMIT ?`,
+    )
+    .all(...args, limite) as VigilanteRegistro[];
+}
+
+export interface ContadoresVigilante {
+  aprobadas: number;
+  corregidas: number;
+  fallos: number;
+  /** Los motivos de corrección más repetidos. */
+  motivos: { motivo: string; cantidad: number }[];
+}
+
+export function contadoresVigilante(orgId: number, f: FiltroVigilancia): ContadoresVigilante {
+  const { sql, args } = dondeVigilancia(orgId, f);
+  const filas = db
+    .prepare(`SELECT veredicto, COUNT(*) AS n FROM vigilante_registro WHERE ${sql} GROUP BY veredicto`)
+    .all(...args) as { veredicto: VeredictoVigilante; n: number }[];
+  const n = (v: VeredictoVigilante) => filas.find((x) => x.veredicto === v)?.n ?? 0;
+
+  // Los motivos se cuentan en JS: son texto libre dentro de un JSON. Se
+  // normaliza para que «Repite el precio.» y «repite el precio» sean uno.
+  const cuentas = new Map<string, { motivo: string; cantidad: number }>();
+  const reciente = db
+    .prepare(`SELECT motivos FROM vigilante_registro WHERE ${sql} AND veredicto = 'CORREGIDA' ORDER BY id DESC LIMIT 2000`)
+    .all(...args) as { motivos: string }[];
+  for (const fila of reciente) {
+    let lista: unknown;
+    try {
+      lista = JSON.parse(fila.motivos);
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(lista)) continue;
+    for (const m of lista) {
+      if (typeof m !== "string" || !m.trim()) continue;
+      const clave = m.toLowerCase().replace(/[.\s]+$/g, "").trim();
+      const previa = cuentas.get(clave);
+      if (previa) previa.cantidad++;
+      else cuentas.set(clave, { motivo: m.trim(), cantidad: 1 });
+    }
+  }
+
+  return {
+    aprobadas: n("APROBADA"),
+    corregidas: n("CORREGIDA"),
+    fallos: n("FALLO"),
+    motivos: [...cuentas.values()].sort((a, b) => b.cantidad - a.cantidad).slice(0, 10),
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

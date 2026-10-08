@@ -193,7 +193,7 @@ export function loQueSeVendeAqui(
    * producto— y el cliente preguntando «Cuánto valen esos 5 polo shirt»
    * (por la FOTO del anuncio, una fila de polos). Esto buscó en TODO lo que
    * la tienda ha anunciado alguna vez, por esas mismas palabras, y encontró
-   * «T-SHIRT TIPO POLO Marca Kenneth Cole» —comparte «polo» y
+   * «T-SHIRT TIPO POLO Marca Kenneth Cole» —que comparte «polo» y
    * «shirt»— en vez del producto real del anuncio: RD$25,522 por algo que
    * no era. El cliente SÍ llegó por un anuncio —hay `meta_ad_id`,
    * `producto_anuncio`—; lo que falta es solo el texto para leer el precio.
@@ -2716,6 +2716,10 @@ async function atenderTurno(
    * que es por donde se colaba el mismo fallo de Costa Rica por segunda vez.
    */
   const esApertura = !retomado && esAperturaDeSesion(historial);
+  // Lo que arma el revisor, guardado para la vigilante más abajo (mismos datos, una sola vez).
+  let contextoRevisor: import("./revisor").ContextoRevision | null = null;
+  // Textos que fija el código (el número de contacto, la invitación del comentario): nadie los reescribe.
+  let textoFijo = false;
   if (datosPais) {
     const { correccionParaElAgente, revisarBorrador, transferenciaPermitida } = await import("./revisor");
     const org = obtenerOrg(orgId);
@@ -2759,6 +2763,7 @@ async function atenderTurno(
       ),
     };
 
+    contextoRevisor = contexto;
     let veredicto = await revisarBorrador(orgId, org?.modelo_analisis, historial, respuesta.texto, contexto);
     // El último borrador que escribió el agente, para mandarlo si solo lo paró el modelo revisor.
     let candidata = respuesta.texto;
@@ -2918,6 +2923,7 @@ async function atenderTurno(
     clientePideNumero(ultimo.content)
   ) {
     respuesta = { ...respuesta, texto: textoDelNumero(canal.numero_contacto), pideAsesor: false, pideFoto: false };
+    textoFijo = true;
   }
 
   /*
@@ -2942,6 +2948,7 @@ async function atenderTurno(
       pideAsesor: false,
       pideFoto: false,
     };
+    textoFijo = true;
   }
 
   /*
@@ -3071,7 +3078,7 @@ async function atenderTurno(
    * colgadas del mismo comentario se leen como dos personas contestando a la
    * vez delante de todo el mundo.
    */
-  let partes = partirEnMensajes(respuesta.texto, {
+  const partir = () => partirEnMensajes(respuesta.texto, {
     saludoAparte:
       conv.superficie !== "comentario" &&
       // Los guiones de la dueña —el dominicano (2026-09-05) y el tico
@@ -3088,9 +3095,47 @@ async function atenderTurno(
    * blanco no es vacía— y aquí se queda sin partes. No hay nada que mandar, y
    * mandar un mensaje en blanco es peor que callarse.
    */
-  if (partes.length === 0) {
+  if (partir().length === 0) {
     return { atendida: false, motivo: "fallo_modelo", detalle: "respuesta vacía" };
   }
+
+  /*
+   * ── LA IA VIGILANTE, ANTES DE MANDAR ────────────────────────────────────
+   *
+   * Lee esta respuesta con la conversación, la guía de venta y las reglas
+   * fijas de la dueña delante (`vigilante.ts`) y decide: sale tal cual o sale
+   * la versión corregida. Va por FreeLLMAPI, no por OpenRouter.
+   *
+   * Arranca YA y se espera junto con el retardo de cortesía de abajo, no
+   * después: la revisión corre mientras el cliente ve «escribiendo…» y no suma
+   * tiempo mientras quepa en esa espera. Como tope tiene 20 s; pasado eso, o si
+   * falla, sale la respuesta original. Nunca rechaza: lo que devuelve es
+   * `null` (apagada o sin cambios) o el texto que sale.
+   */
+  const vigilancia =
+    textoFijo || !contextoRevisor || !datosPais
+      ? Promise.resolve(null)
+      : (async () => {
+          const { vigilarEnvio } = await import("./vigilante");
+          const { revisarConReglas } = await import("./revisor");
+          const ctxRevisor = contextoRevisor!;
+          return vigilarEnvio({
+            orgId,
+            canalId,
+            conversationId,
+            pais: agente.pais,
+            historial,
+            ultimoDelCliente: ultimo.content,
+            respuesta: respuesta.texto,
+            bloqueDelPais: ctxRevisor.bloqueDelPais,
+            producto: ctxRevisor.anuncio,
+            // La corrección pasa las mismas reglas mecánicas que el borrador del agente.
+            validarCorregida: (texto) => revisarConReglas(texto, ctxRevisor),
+          });
+        })().catch((e) => {
+          console.error(`[vigilante] fallo inesperado en ${conversationId}; sale la original`, e);
+          return null;
+        });
 
   /*
    * ── NO CONTESTAR AL INSTANTE ────────────────────────────────────────────
@@ -3110,13 +3155,34 @@ async function atenderTurno(
    */
   const espera = esperaDeCortesia(agente.retardo_seg, ahora() - ultimo.created_at);
 
+  let revisada: Awaited<typeof vigilancia> = null;
   if (espera > 0) {
     if (canal.tipo !== "meta") {
       const { marcarEscribiendo } = await import("./wa");
       await marcarEscribiendo(canal.id, conv.cliente_jid ?? conv.cliente_phone, true);
     }
-    await esperar(espera * 1000);
+    [, revisada] = await Promise.all([esperar(espera * 1000), vigilancia]);
+  } else {
+    revisada = await vigilancia;
   }
+
+  /*
+   * Si la vigilante corrigió, sale la corregida. La transferencia a una persona
+   * se decide con LO QUE SALE: un resumen con su etiqueta que la vigilante
+   * cambió por una pregunta no puede dejar al hilo pasado a un asesor, y una
+   * corrección que sí pasa el chat tiene que pasarlo (siempre que el guion lo
+   * permita: `transferenciaPermitida`).
+   */
+  if (revisada?.corregida) {
+    const { transferenciaPermitida } = await import("./revisor");
+    const pasa =
+      !!datosPais &&
+      !!contextoRevisor &&
+      (contieneMarcador(revisada.texto, marcadorOrg) || revisada.texto.trim() === fraseDeTransferencia(datosPais)) &&
+      transferenciaPermitida(revisada.texto, contextoRevisor);
+    respuesta = { ...respuesta, texto: revisada.texto, pideAsesor: pasa };
+  }
+  let partes = partir();
 
   /*
    * ÚLTIMA MIRADA ANTES DE ABRIR LA BOCA. Entre que se leyó el hilo y ahora han

@@ -293,9 +293,9 @@ test("una pregunta por el precio de varias se contesta, y se le enseña el tramo
   assert.equal(preguntaDelCliente("si llevo la M me sirve?"), null, "eso pregunta por la talla");
   assert.equal(preguntaDelCliente("Talla L"), null);
 
-  // Tres van al tramo de 3 a 11, y se le enseña la docena, que es más barata.
-  const tres = respuestaDirecta(rd, "¿a cómo me salen 3?", polos, null)!;
-  assert.ok(tres.startsWith("Las 3 unidades le salen a RD$1,190 cada una: RD$3,570."), tres);
+  // Seis van al tramo de 6 a 11, y se le enseña la docena, que es más barata.
+  const tres = respuestaDirecta(rd, "¿a cómo me salen 6?", polos, null)!;
+  assert.ok(tres.startsWith("Las 6 unidades le salen a RD$1,190 cada una: RD$7,140."), tres);
   assert.match(tres, /desde 12 le salen a RD\$990 cada una/);
 
   // Con la docena ya pedida no hay nada mejor que ofrecer: no se insiste.
@@ -333,8 +333,8 @@ test("los polos dominicanos cambian de precio con la cantidad", () => {
   const polos = { descripcion_anuncio: "🖤 POLOS BRONX ORIGINALES 🖤 Moderno, Fresco y duradero RD$1,400" };
 
   assert.equal(precioPorCantidad(rd, polos.descripcion_anuncio, 1, 1400), 1400);
-  assert.equal(precioPorCantidad(rd, polos.descripcion_anuncio, 2, 1400), 1400);
-  assert.equal(precioPorCantidad(rd, polos.descripcion_anuncio, 3, 1400), 1190);
+  assert.equal(precioPorCantidad(rd, polos.descripcion_anuncio, 5, 1400), 1400);
+  assert.equal(precioPorCantidad(rd, polos.descripcion_anuncio, 6, 1400), 1190);
   assert.equal(precioPorCantidad(rd, polos.descripcion_anuncio, 11, 1400), 1190);
   assert.equal(precioPorCantidad(rd, polos.descripcion_anuncio, 12, 1400), 990, "la docena");
   assert.equal(precioPorCantidad(rd, polos.descripcion_anuncio, 24, 1400), 990);
@@ -354,7 +354,7 @@ test("los polos dominicanos cambian de precio con la cantidad", () => {
       .find((l) => l.startsWith("TOTAL A PAGAR"));
 
   assert.equal(total("1"), "TOTAL A PAGAR: RD$1,650", "1400 + 250 de envío");
-  assert.equal(total("3"), "TOTAL A PAGAR: RD$3,820", "tres a 1,190 + 250");
+  assert.equal(total("6"), "TOTAL A PAGAR: RD$7,390", "seis a 1,190 + 250");
   assert.equal(total("12"), "TOTAL A PAGAR: RD$12,130", "la docena a 990 + 250");
 });
 
@@ -894,7 +894,7 @@ test("preguntar por doce se contesta con el precio de doce, no con el de uno", (
   assert.ok(texto.endsWith("¿Qué talla le interesa?"), "la venta sigue por donde iba");
 
   // Los tramos de en medio cuentan igual, y la docena se pide por su nombre.
-  assert.ok(aperturaSegura(rd, polos, saludo, "cuanto cuestan 3 polos")!.includes("RD$1,190 cada una: RD$3,570"));
+  assert.ok(aperturaSegura(rd, polos, saludo, "cuanto cuestan 6 polos")!.includes("RD$1,190 cada una: RD$7,140"));
   assert.ok(aperturaSegura(rd, polos, saludo, "a como sale la docena?")!.includes("RD$990 cada una: RD$11,880"));
 
   // Sin cantidad, el mensaje de siempre: el precio del anuncio, tal cual.

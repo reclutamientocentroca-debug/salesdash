@@ -52,7 +52,8 @@ const SECCIONES = [
     titulo: "Configuración",
     items: [
       { href: "/numeros", texto: "Números", Icono: IconoNumeros },
-      { href: "/agente", texto: "Agente de IA", Icono: IconoAgente },
+      { href: "/agente", texto: "Agente de IA", Icono: IconoAgente, exacto: true },
+      { href: "/agente/vigilante", texto: "IA Vigilante", Icono: IconoRevision },
       { href: "/equipo", texto: "Equipo", Icono: IconoEquipo },
       { href: "/configuracion", texto: "Ajustes", Icono: IconoConfiguracion },
     ],
@@ -155,8 +156,8 @@ export default function BarraLateral({ negocio, paises, usuario, superadmin, pen
           <div key={seccion.titulo} className="sd-seccion">
             <div className="rotulo sd-seccion-titulo">{seccion.titulo}</div>
             <ul className="sd-menu">
-              {seccion.items.map(({ href, texto, Icono }) => {
-                const activo = ruta === href || ruta.startsWith(`${href}/`);
+              {seccion.items.map(({ href, texto, Icono, exacto }) => {
+                const activo = ruta === href || (!exacto && ruta.startsWith(`${href}/`));
                 return (
                   <li key={href}>
                     <Link
