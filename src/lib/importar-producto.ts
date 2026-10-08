@@ -661,10 +661,12 @@ export async function importarLinksDeProducto(
     for (let i = 0; i < porImportar.length; i++) {
       const link = porImportar[i]!;
       const { resultado, error } = resultados[i]!;
+      // Una lectura fallida no borra lo último que sí se pudo leer: si Roplis
+      // no contesta en el refresco, se conservan los datos anteriores.
       marcarLinkImportado(orgId, link.id, {
-        datos: resultado ? JSON.stringify(resultado.datos) : null,
-        fotoUrl: resultado?.fotoUrl ?? null,
-        descripcion: resultado?.descripcion ?? null,
+        datos: resultado ? JSON.stringify(resultado.datos) : link.datos,
+        fotoUrl: resultado ? resultado.fotoUrl ?? null : link.foto_url,
+        descripcion: resultado ? resultado.descripcion ?? null : link.descripcion,
         error,
       });
       if (error) fallidos.push({ url: link.url, error });

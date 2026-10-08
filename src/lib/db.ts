@@ -3751,6 +3751,18 @@ export function crearAnomalia(orgId: number, datos: {
 export function listarAnomalias(orgId: number, soloAbiertas = true, restringirA?: number[] | null): Anomalia[] {
   const cond = ["a.org_id = ?"];
   const val: unknown[] = [orgId];
+/**
+ * Productos con links cuya última lectura es más vieja que `segundos` (o que
+ * nunca se leyó). Es lo que recorre el reloj de refresco para que colores y
+ * tallas sigan al stock real de la tienda.
+ */
+export function productosConLinksViejos(segundos: number): { org_id: number; producto_id: number }[] {
+  return s(
+    `SELECT DISTINCT org_id, producto_id FROM producto_links
+      WHERE importado_at IS NULL OR importado_at < unixepoch() - ?`,
+  ).all(segundos) as { org_id: number; producto_id: number }[];
+}
+
   if (soloAbiertas) cond.push("a.resuelta = 0");
   if (restringirA !== undefined && restringirA !== null) {
     if (restringirA.length === 0) cond.push("0");

@@ -152,6 +152,29 @@ export async function register(): Promise<void> {
   );
   relojDifusiones.unref?.();
 
+  /*
+   * El reloj del refresco de productos. Ver `src/lib/refresco-productos.ts`.
+   *
+   * Cada tres horas relee los links de Roplis para que colores y tallas sigan
+   * al stock real. La primera vuelta va a los dos minutos, para no competir con
+   * el arranque; el estado vive en la base (`importado_at`), así que un
+   * reinicio no pierde la cuenta.
+   */
+  const refresco = () => {
+    void (async () => {
+      try {
+        const { refrescarProductos } = await import("@/lib/refresco-productos");
+        const n = await refrescarProductos();
+        if (n > 0) console.log(`[refresco] ${n} producto(s) actualizados desde sus links`);
+      } catch (e) {
+        console.error("[arranque] falló el refresco de productos", e);
+      }
+    })();
+  };
+  const relojRefresco = setInterval(refresco, 3 * 60 * 60 * 1000);
+  relojRefresco.unref?.();
+  setTimeout(refresco, 2 * 60 * 1000).unref?.();
+
   try {
     const { rehidratar } = await import("@/lib/wa");
     await rehidratar();
