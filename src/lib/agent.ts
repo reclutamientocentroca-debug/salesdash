@@ -47,7 +47,7 @@ import {
 import { descifrar } from "./auth";
 import { leer as leerArchivo } from "./media";
 import { formatearImporte, leerImporte, monedaDelPais } from "./moneda";
-import { anuncioParaModelo, anuncioVigente, descripcionUtil, textoDelProducto, type DatosAnuncio, type ProductoAnunciado } from "./anuncio";
+import { anuncioParaModelo, anuncioVigente, descripcionUtil, llegoPorAnuncio, textoDelProducto, type DatosAnuncio, type ProductoAnunciado } from "./anuncio";
 import { difusionParaModelo, difusionVigente, type DatosDifusion } from "./difusion-contexto";
 import { aperturaSegura, clienteAplazaCompra, clientePideOtraFamilia, familiasNombradas, precioDeLaDescripcion, preguntaDelCliente, clienteRenunciaALaCompra, fraseDeTransferencia, laFotoAyudaAElegir, laFotoVaConEstaRespuesta, llevaColor, llevaTalla, nombraUnArticulo, respuestaMinima } from "./apertura";
 import { esMensajeDeSistema } from "./sistema";
@@ -185,9 +185,27 @@ export function loQueSeVendeAqui(
     };
   }
 
-  // 3. Lo que la tienda anunció y el cliente nombra ahora.
+  /*
+   * 3. Lo que la tienda anunció y el cliente nombra ahora.
+   *
+   * SOLO PARA QUIEN LLEGA SIN NINGÚN ANUNCIO DETRÁS. El caso real (RD,
+   * 2026-10-08): un «Anuncio en estados» —sin texto que nombre el
+   * producto— y el cliente preguntando «Cuánto valen esos 5 polo shirt»
+   * (por la FOTO del anuncio, una fila de polos). Esto buscó en TODO lo que
+   * la tienda ha anunciado alguna vez, por esas mismas palabras, y encontró
+   * «T-SHIRT TIPO POLO Marca Kenneth Cole» —comparte «polo» y
+   * «shirt»— en vez del producto real del anuncio: RD$25,522 por algo que
+   * no era. El cliente SÍ llegó por un anuncio —hay `meta_ad_id`,
+   * `producto_anuncio`—; lo que falta es solo el texto para leer el precio.
+   * Adivinar de qué anuncio habla con las palabras del cliente es para
+   * quien escribe SIN haber pinchado nada —«quiero unos poloches», días
+   * después, sin anuncio ninguno—: ahí sí es la única pista que hay. Con
+   * un anuncio real delante, aunque esté mudo, no se reemplaza por una
+   * adivinanza: mejor decir que no hay precio y que lo confirma un
+   * representante, que vender otra cosa con toda confianza.
+   */
   const loQueDijo = textosDelClienteEnSesion(historial).join(" · ");
-  const anunciado = buscarProductoAnunciado(orgId, loQueDijo);
+  const anunciado = llegoPorAnuncio(conv) ? null : buscarProductoAnunciado(orgId, loQueDijo);
 
   /*
    * NO ES LA MISMA FAMILIA: NO CUENTA, aunque comparta alguna palabra suelta.

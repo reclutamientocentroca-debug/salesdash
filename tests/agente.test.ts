@@ -1621,6 +1621,66 @@ test("una palabra de oferta como «especial» o «precio» no vincula con otro p
 });
 
 /**
+ * UN ANUNCIO SIN TEXTO NO SE RELLENA ADIVINANDO DEL CATÁLOGO (la dueña, RD,
+ * 2026-10-08, con captura). El caso real: un «Anuncio en estados» —sin
+ * título ni descripción que nombren el producto— con la foto de cinco
+ * polos, y el cliente preguntó «Cuánto valen esos 5 polo shirt». La
+ * búsqueda en el catálogo de lo anunciado encontró «T-SHIRT TIPO POLO
+ * Marca Kenneth Cole» —comparte «polo» y «shirt»— y cotizó RD$25,522 por
+ * algo que el cliente no pidió. Pero este cliente SÍ llegó por un anuncio
+ * de verdad —hay `meta_ad_id`—: adivinar del catálogo es solo para quien
+ * escribe SIN haber pinchado nada.
+ */
+test("un «Anuncio en estados» sin texto no adivina otro producto del catálogo", async () => {
+  encender(false);
+  const rd = agenteDePais("do")!;
+  D.actualizarAgente(orgId, { pais: "do" }, canalId);
+  const canal = D.obtenerCanal(orgId, canalId)!;
+
+  // Otro cliente, en otro momento, pinchó un anuncio real de la Kenneth Cole:
+  // eso es lo que la deja registrada en el catálogo de lo anunciado.
+  await ingerir(
+    canal,
+    [{
+      id: "lead-kennethcole", deMi: false, chatId: "18095556666@s.whatsapp.net", tipo: "texto",
+      content: "Hola, quiero información", mediaUrl: null, cuando: D.ahora() - 3600, nombre: "Otro",
+      deAnuncio: true, productoAnuncio: "Kenneth Cole",
+      descripcionAnuncio: "T-SHIRT TIPO POLO Marca Kenneth Cole 100%original con cuello RD$25,522",
+      metaAdId: "ad-kennethcole",
+    }],
+    { dentroDePeticion: false },
+  );
+
+  // El cliente real de la captura: un «Anuncio en estados» sin producto en
+  // el texto, preguntando por los polos de la foto con otras palabras.
+  await ingerir(
+    canal,
+    [{
+      id: "lead-estados", deMi: false, chatId: "18095557000@s.whatsapp.net", tipo: "texto",
+      content: "Quiero más información sobre el anuncio.", mediaUrl: null, cuando: D.ahora(), nombre: "Kenneth Reid",
+      deAnuncio: true, productoAnuncio: "Anuncio en estados",
+      descripcionAnuncio: "Consulta los detalles en tu teléfono",
+      metaAdId: "ad-estados",
+    }],
+    { dentroDePeticion: false },
+  );
+
+  const hilo = D.getOrCreateConversation(orgId, canalId, "18095557000").conversacion;
+  const seVende = loQueSeVendeAqui(
+    orgId,
+    D.getConversation(orgId, hilo.id)!,
+    [
+      { emisor: "cliente", content: "Quiero más información sobre el anuncio.", created_at: D.ahora() - 60 } as D.Mensaje,
+      { emisor: "cliente", content: "Cuanto valen esos 5 polo shirt", created_at: D.ahora() } as D.Mensaje,
+    ],
+    rd.moneda.simbolo,
+  );
+
+  assert.equal(seVende.descripcion_anuncio, "Consulta los detalles en tu teléfono", "se queda con lo real del anuncio, sin precio");
+  assert.doesNotMatch(seVende.descripcion_anuncio ?? "", /Kenneth Cole|25,522/, "no se cuela el producto de otro cliente");
+});
+
+/**
  * EL CATÁLOGO NO MANDA SOBRE EL PRECIO DEL ANUNCIO DE WHATSAPP TAMPOCO.
  *
  * `precioDelCatalogoQueNoAplica` (en `meta/contexto-anuncio.ts`) ya protege
