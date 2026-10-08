@@ -2,7 +2,8 @@ import "./entorno";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as D from "../src/lib/db";
-import { combinarVariantes, extraerDeHtml, formatearVariantes, urlSegura } from "../src/lib/importar-producto";
+import { chromium } from "playwright";
+import { botonesDelFieldset, combinarVariantes, extraerDeHtml, formatearVariantes, urlSegura } from "../src/lib/importar-producto";
 
 /**
  * DE LA PÁGINA DEL PRODUCTO A «VARIANTES».
@@ -241,4 +242,47 @@ test("canalPorPaisDeLink no crea el agente de un canal que todavía no tiene uno
 
   const yaTieneFila = D.listarAgentes(orgId).some((a) => a.canal_id === canalNuevo);
   assert.equal(yaTieneFila, false, "el lookup no debe crear la fila del agente de un canal sin configurar");
+});
+
+/**
+ * LA TALLA NO TIENE TEXTO, A DIFERENCIA DEL COLOR (la dueña, 2026-10-10, con
+ * captura): «T-SHIRT PARA CABALLERO» trajo los 3 colores pero ninguna talla.
+ * Comprobado a mano contra esa página real de Roplis: el botón de color trae
+ * `aria-label` —un swatch no tiene letra que leer—, pero el de talla no lo
+ * necesita —«S», «M», «L» ya se leen solos— y el botón queda sin `aria-label`
+ * NI texto: la letra vive en el `<label>` que lo envuelve, fuera del botón,
+ * que además está `class="hidden"`. Lo único que el botón sí trae, en los dos
+ * casos, es el atributo `value`.
+ */
+test("un botón de variante sin aria-label ni texto se lee por su atributo value", async () => {
+  const browser = await chromium.launch({ headless: true, args: ["--no-sandbox", "--disable-setuid-sandbox"] });
+  try {
+    const page = await browser.newPage();
+    // El patrón real de Roplis para la talla: sin aria-label, sin texto dentro
+    // del botón, la letra como texto del <label> que lo envuelve.
+    await page.setContent(`<!doctype html><html><body>
+      <fieldset>
+        <legend>Size</legend>
+        <div>
+          <label>S<div><button class="hidden" role="radio" value="S"></button></div></label>
+          <label>M<div><button class="hidden" role="radio" value="M"></button></div></label>
+          <label>L<div><button class="hidden" role="radio" value="L"></button></div></label>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>Color</legend>
+        <div>
+          <button aria-label="Blanco" value="BLANCO    "></button>
+          <button aria-label="Negro" value="NEGRO    "></button>
+        </div>
+      </fieldset>
+    </body></html>`);
+
+    assert.deepEqual(await botonesDelFieldset(page, "talla"), []);
+    assert.deepEqual(await botonesDelFieldset(page, "size"), ["S", "M", "L"], "se lee por el value, no por el texto");
+    // El de color ya funcionaba —trae aria-label—, y sigue funcionando igual.
+    assert.deepEqual(await botonesDelFieldset(page, "color"), ["Blanco", "Negro"]);
+  } finally {
+    await browser.close();
+  }
 });

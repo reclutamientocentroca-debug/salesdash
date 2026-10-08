@@ -301,6 +301,11 @@ test("ninguna función de lectura de db.ts omite el orgId", async () => {
     // Por definicion no pertenecen a ninguna cuenta: son los eventos sin dueno.
     // Solo los mira el superadmin.
     "eventosMetaHuerfanos",
+    // El refresco automático de links (refresco-productos.ts), misma clase:
+    // un reloj sin sesión que pregunta, en TODAS las cuentas, qué productos
+    // tienen un link sin releer hace rato. Devuelve el org_id de cada uno, y
+    // desde ahí el refresco vuelve a ir con orgId como cualquier otro.
+    "productosConLinksViejos",
   ]);
 
   const infractoras: string[] = [];

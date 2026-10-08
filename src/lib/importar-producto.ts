@@ -268,15 +268,28 @@ interface ColorLeido {
  * prefijo dado («color», «talla», «size»…) y devuelve los botones de su
  * primer `<div>` hijo. Es el patrón exacto que usa Roplis para sus
  * selectores de variante — comprobado a mano contra un producto real.
+ *
+ * EL BOTÓN DE LA TALLA NO TIENE TEXTO, A DIFERENCIA DEL DE COLOR (la dueña,
+ * 2026-10-10, con captura: «T-SHIRT PARA CABALLERO» traía los 3 colores pero
+ * ninguna talla). Comprobado a mano contra esa página real: el de color SÍ
+ * trae `aria-label` —un swatch no tiene letra que leer, así que la tienda se
+ * lo pone para quien usa lector de pantalla—, pero el de talla no lo
+ * necesita —«S», «M», «L» ya se leen solos— y Roplis no se lo puso: el
+ * botón está `class="hidden"` y SIN texto, con la letra visible en el
+ * `<label>` que lo envuelve, fuera del propio botón. Lo único que el botón sí
+ * trae, en los dos casos, es el atributo `value` —"S", "BLANCO"...—, que es
+ * de donde hay que leerlo cuando no hay ni `aria-label` ni texto.
  */
-async function botonesDelFieldset(page: Page, prefijo: string): Promise<string[]> {
+export async function botonesDelFieldset(page: Page, prefijo: string): Promise<string[]> {
   return page.evaluate((prefijo) => {
     const legend = [...document.querySelectorAll("legend")].find((l) =>
       l.textContent?.trim().toLowerCase().startsWith(prefijo),
     );
     const contenedor = legend?.parentElement?.querySelector(":scope > div");
     const botones = contenedor ? [...contenedor.querySelectorAll("button")] : [];
-    return botones.map((b) => (b.getAttribute("aria-label") || b.textContent || "").trim()).filter(Boolean);
+    return botones
+      .map((b) => (b.getAttribute("aria-label") || b.getAttribute("value") || b.textContent || "").trim())
+      .filter(Boolean);
   }, prefijo);
 }
 
