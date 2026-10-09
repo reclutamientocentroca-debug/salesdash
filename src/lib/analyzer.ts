@@ -234,7 +234,7 @@ ${articulo}En dos o tres frases, y solo con lo que SE VE:
 - Qué producto es${nombraArticulo ? ", repitiendo el nombre que la tienda le dio arriba" : " — mirando la imagen: lo que la tienda escribió ahí no nombra ningún producto, así que no lo repitas ni lo menciones"}.
 - Qué colores aparecen. Si solo hay uno, dilo: "solo se ve en negro". Si no hay colores a elegir, dilo también.
 - Qué TALLAS o medidas se leen, copiadas tal cual: "S, M, L, XL", "de la 36 a la 42". Si no se lee ninguna, dilo: "no se ve ninguna talla".
-- CUALQUIER precio, cifra u oferta escrita en la imagen, copiada tal cual.
+- CUALQUIER precio, cifra u oferta escrita en la imagen, copiada tal cual. Si la imagen dice algo del envío («envío gratis», «envío incluido»), cópialo tal cual también.
 
 La talla y el color SE DICEN SIEMPRE, aunque sea para decir que no los hay: quien lea esto decide con ello si se los pregunta al cliente, y callarlos es lo que le hace preguntar una talla que ese artículo no tiene. Del resto, lo que no se vea no lo menciones. No inventes nada, no adornes y no saludes.`;
 }

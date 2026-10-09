@@ -49,7 +49,7 @@ import { leer as leerArchivo } from "./media";
 import { formatearImporte, leerImporte, monedaDelPais } from "./moneda";
 import { anuncioParaModelo, anuncioVigente, descripcionUtil, llegoPorAnuncio, textoDelProducto, type DatosAnuncio, type ProductoAnunciado } from "./anuncio";
 import { difusionParaModelo, difusionVigente, type DatosDifusion } from "./difusion-contexto";
-import { aperturaSegura, clienteAplazaCompra, clientePideOtraFamilia, familiasNombradas, precioDeLaDescripcion, preguntaDelCliente, clienteRenunciaALaCompra, fraseDeTransferencia, laFotoAyudaAElegir, laFotoVaConEstaRespuesta, llevaColor, llevaTalla, nombraUnArticulo, respuestaMinima } from "./apertura";
+import { anuncioOfreceEnvioGratis, aperturaSegura, clienteAplazaCompra, clientePideOtraFamilia, familiasNombradas, precioDeLaDescripcion, preguntaDelCliente, clienteRenunciaALaCompra, fraseDeTransferencia, laFotoAyudaAElegir, laFotoVaConEstaRespuesta, llevaColor, llevaTalla, nombraUnArticulo, respuestaMinima } from "./apertura";
 import { esMensajeDeSistema } from "./sistema";
 import { contieneMarcador, MARCADOR_POR_DEFECTO, registrarCierre } from "./cierre";
 import { completar, ErrorIA, hoyISO } from "./ia";
@@ -110,7 +110,7 @@ import { ubicacionParaModelo, validarUbicacion, type UbicacionValidada } from ".
  * los tres, el agente sigue sin cotizar: eso sí es motivo de transferir, y lo
  * decide el guion.
  */
-export function loQueSeVendeAqui(
+function loQueSeVendeAquiSinFoto(
   orgId: number,
   conv: Conversacion,
   historial: Mensaje[],
@@ -249,6 +249,27 @@ export function loQueSeVendeAqui(
   }
 
   return delAnuncio;
+}
+
+/**
+ * EL ENVÍO INCLUIDO TAMBIÉN VALE SI LO DICE LA FOTO DEL ANUNCIO (la dueña,
+ * Costa Rica, 2026-10-09). Si la imagen del anuncio dice «envío gratis» o
+ * «envío incluido», se trata igual que si lo dijera la descripción: no se
+ * cobra. La visión copia ese letrero a la descripción de la imagen; aquí se
+ * suma a lo que se vende, porque `anuncioOfreceEnvioGratis` (apertura y
+ * revisor) solo mira ese texto. Si la foto no lo dice, nada cambia.
+ */
+export function loQueSeVendeAqui(
+  orgId: number,
+  conv: Conversacion,
+  historial: Mensaje[],
+  simbolo: string,
+): DatosAnuncio {
+  const r = loQueSeVendeAquiSinFoto(orgId, conv, historial, simbolo);
+  if (!conv.meta_ad_id || r.origen === "difusion" || anuncioOfreceEnvioGratis(r.descripcion_anuncio)) return r;
+  const foto = descripcionUtil(anuncioMetaPorAdId(orgId, conv.meta_ad_id)?.descripcion_imagen ?? null);
+  if (!foto || !anuncioOfreceEnvioGratis(foto)) return r;
+  return { ...r, descripcion_anuncio: [r.descripcion_anuncio, "Envío incluido (lo dice la foto del anuncio)"].filter(Boolean).join(". ") };
 }
 
 /**
