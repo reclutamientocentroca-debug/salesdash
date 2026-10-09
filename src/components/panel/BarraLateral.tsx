@@ -46,6 +46,7 @@ const SECCIONES = [
       { href: "/ventas", texto: "Ventas", Icono: IconoVentas },
       { href: "/productos", texto: "Productos", Icono: IconoProductos },
       { href: "/difusiones", texto: "Difusiones", Icono: IconoDifusiones },
+      { href: "/anuncios", texto: "Anuncios", Icono: IconoProductos },
     ],
   },
   {

@@ -49,6 +49,7 @@ import { leer as leerArchivo } from "./media";
 import { formatearImporte, leerImporte, monedaDelPais } from "./moneda";
 import { anuncioParaModelo, anuncioVigente, descripcionUtil, llegoPorAnuncio, textoDelProducto, type DatosAnuncio, type ProductoAnunciado } from "./anuncio";
 import { difusionParaModelo, difusionVigente, type DatosDifusion } from "./difusion-contexto";
+import { anuncioManualQueCoincide } from "./anuncios-manuales";
 import { anuncioOfreceEnvioGratis, aperturaSegura, clienteAplazaCompra, clientePideOtraFamilia, familiasNombradas, precioDeLaDescripcion, preguntaDelCliente, clienteRenunciaALaCompra, fraseDeTransferencia, laFotoAyudaAElegir, laFotoVaConEstaRespuesta, llevaColor, llevaTalla, nombraUnArticulo, respuestaMinima } from "./apertura";
 import { esMensajeDeSistema } from "./sistema";
 import { contieneMarcador, MARCADOR_POR_DEFECTO, registrarCierre } from "./cierre";
@@ -266,6 +267,26 @@ export function loQueSeVendeAqui(
   simbolo: string,
 ): DatosAnuncio {
   const r = loQueSeVendeAquiSinFoto(orgId, conv, historial, simbolo);
+
+  /*
+   * EL ANUNCIO ESCRITO A MANO EN EL PANEL, antes que la foto. Si su texto es el
+   * que trajo al cliente, manda: su descripción pone el monto cuando el
+   * anuncio no trae precio, y «no cobrar envío» deja el envío incluido.
+   */
+  if (r.origen !== "difusion") {
+    const manual = anuncioManualQueCoincide(orgId, conv.canal_id, [
+      conv.descripcion_anuncio, conv.producto_anuncio, r.descripcion_anuncio,
+    ]);
+    if (manual) {
+      const base = precioDeLaDescripcion(r.descripcion_anuncio ?? "", simbolo) ? r.descripcion_anuncio : manual.descripcion;
+      return {
+        ...r,
+        descripcion_anuncio: manual.sin_envio
+          ? [base, "Envío incluido (el anuncio promete el envío gratis: no se cobra y se le dice al cliente que el envío está incluido)"].filter(Boolean).join(". ")
+          : base,
+      };
+    }
+  }
   if (!conv.meta_ad_id || r.origen === "difusion" || anuncioOfreceEnvioGratis(r.descripcion_anuncio)) return r;
   const foto = descripcionUtil(anuncioMetaPorAdId(orgId, conv.meta_ad_id)?.descripcion_imagen ?? null);
   if (!foto || !anuncioOfreceEnvioGratis(foto)) return r;

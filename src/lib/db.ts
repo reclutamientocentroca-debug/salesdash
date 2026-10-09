@@ -673,6 +673,24 @@ CREATE TABLE IF NOT EXISTS difusion_exclusiones (
   PRIMARY KEY (org_id, telefono)
 );
 
+/*
+ * ANUNCIOS ESCRITOS A MANO (la dueña, Costa Rica, 2026-10-09). El texto del
+ * anuncio y su foto, tal como los pone la tienda en el panel, con la marca de
+ * «no cobrar envío». Cuando un cliente llega por un anuncio cuyo texto coincide
+ * con uno de estos, la IA sabe que el envío va incluido y cobra solo el monto
+ * del anuncio. canal_id 0 = vale para todos los números de la cuenta.
+ */
+CREATE TABLE IF NOT EXISTS anuncios_manuales (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id INTEGER NOT NULL REFERENCES orgs(id),
+  canal_id INTEGER NOT NULL DEFAULT 0,
+  nombre TEXT NOT NULL,
+  descripcion TEXT NOT NULL,
+  imagen_clave TEXT,
+  sin_envio INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+
 CREATE TABLE IF NOT EXISTS difusion_campanas (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   org_id INTEGER NOT NULL REFERENCES orgs(id),
@@ -5908,4 +5926,28 @@ export function resumenDeCampana(orgId: number, campanaId: number): {
 export function campanasActivasParaElReloj(): { org_id: number; id: number }[] {
   return s(`SELECT org_id, id FROM difusion_campanas WHERE estado = 'activa' ORDER BY id ASC`)
     .all() as { org_id: number; id: number }[];
+}
+
+
+export interface AnuncioManual {
+  id: number; org_id: number; canal_id: number; nombre: string; descripcion: string;
+  imagen_clave: string | null; sin_envio: number; created_at: number;
+}
+
+export function listarAnunciosManuales(orgId: number): AnuncioManual[] {
+  return s(`SELECT * FROM anuncios_manuales WHERE org_id = ? ORDER BY created_at DESC`).all(orgId) as AnuncioManual[];
+}
+
+export function crearAnuncioManual(orgId: number, d: {
+  canalId: number; nombre: string; descripcion: string; imagenClave: string | null; sinEnvio: boolean;
+}): number {
+  const r = s(
+    `INSERT INTO anuncios_manuales (org_id, canal_id, nombre, descripcion, imagen_clave, sin_envio)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(orgId, d.canalId, d.nombre, d.descripcion, d.imagenClave, d.sinEnvio ? 1 : 0);
+  return Number(r.lastInsertRowid);
+}
+
+export function eliminarAnuncioManual(orgId: number, id: number): void {
+  s(`DELETE FROM anuncios_manuales WHERE org_id = ? AND id = ?`).run(orgId, id);
 }
