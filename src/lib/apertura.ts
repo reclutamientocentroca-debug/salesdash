@@ -1096,6 +1096,22 @@ export function preguntaDelCliente(texto: string | null | undefined): PreguntaDe
     const cuantas = cantidadDicha(texto);
     if (cuantas !== null && cuantas >= 2) return "precio_cantidad";
   }
+
+  /*
+   * «PREGUNTO SI LOS 5 POR 1400»: también pregunta el precio, sin ninguna de
+   * las palabras de arriba («cuánto», «a cómo», «precio»). El caso real (RD,
+   * 2026-10-09, con captura): el cliente lo preguntó así DOS VECES seguidas
+   * —«Yo te pregunto si los 5 polos por 1400» y, sin respuesta, «Yo le
+   * pregunto si son cinco por 1400»— y las dos veces el agente siguió con el
+   * siguiente paso del pedido (talla, teléfono) sin contestarle, porque esta
+   * función no reconocía la pregunta: sin reconocerla, la regla que exige
+   * contestar el precio antes de seguir (revisor.ts) nunca se disparaba.
+   */
+  if (/\bpregunt\w*\b[^.?!]*\bpor\s*\d/.test(t)) {
+    const cuantas = cantidadDicha(texto);
+    return cuantas !== null && cuantas >= 2 ? "precio_cantidad" : "precio";
+  }
+
   // El mayoreo se pregunta también sin nombrar el precio: «¿venden por docena?».
   if (/\b(mayor|mayoreo|docenas?)\b/.test(t) && cantidadDicha(texto) !== null) return "precio_cantidad";
   return null;

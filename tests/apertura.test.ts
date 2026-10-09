@@ -903,6 +903,25 @@ test("preguntar por doce se contesta con el precio de doce, no con el de uno", (
 });
 
 /**
+ * EL CASO DE LA DUEÑA (RD, 2026-10-09), con la captura delante.
+ *
+ * El cliente preguntó «Yo te pregunto si los 5 polos por 1400» y, sin
+ * respuesta, lo repitió con otras palabras: «Yo le pregunto si son cinco por
+ * 1400». Las DOS veces el agente siguió con el paso que tocaba (talla,
+ * teléfono) sin contestarle: esta forma de preguntar el precio —sin
+ * «cuánto», «a cómo» ni «precio», solo «pregunto si <cantidad> por
+ * <cifra>»— no la reconocía nadie, así que la regla que exige contestar el
+ * precio antes de seguir (revisor.ts) nunca llegaba a mirarla.
+ */
+test("«pregunto si los 5 por 1400» también pregunta el precio, sin «cuánto» ni «a cómo»", () => {
+  for (const dice of ["Yo te pregunto si los 5 polos por 1400", "Yo le pregunto si son cinco por 1400"]) {
+    assert.equal(preguntaDelCliente(dice), "precio_cantidad", dice);
+  }
+  // Una sola unidad, o sin «por» una cifra, sigue sin ser cantidad.
+  assert.equal(preguntaDelCliente("yo pregunto si por fin llegó el pedido"), null);
+});
+
+/**
  * Y NO TODO NÚMERO ES UNA CANTIDAD. En un chat de ventas un «12» es una talla,
  * una hora o el final de un teléfono muchas más veces que una docena de polos:
  * por eso solo se lee pegado a una pregunta de precio, y con las tallas y las

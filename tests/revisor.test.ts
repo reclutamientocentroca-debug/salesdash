@@ -1187,6 +1187,33 @@ test("el precio por cantidad de los polos se cotiza y no se transfiere", () => {
 });
 
 /**
+ * EL CASO DE LA DUEÑA (RD, 2026-10-09), con la captura delante.
+ *
+ * El cliente preguntó «Yo te pregunto si los 5 polos por 1400» y, sin
+ * respuesta, lo repitió con otras palabras. Las dos veces el agente siguió
+ * con el siguiente paso (talla, teléfono) sin contestarle: esta forma de
+ * preguntar el precio —«pregunto si <cantidad> por <cifra>», sin «cuánto»
+ * ni «a cómo»— no se reconocía, así que esta regla nunca llegaba a mirarla.
+ */
+test("«pregunto si los 5 por 1400» se contesta antes de seguir, igual que «a cómo salen»", () => {
+  const preguntaAsi = { ...rd, catalogo: "Catálogo:\n- Polos Bronx — 1400", anuncio: "POLOS BRONX ORIGINALES RD$1,400", ultimoDelCliente: "Yo te pregunto si los 5 polos por 1400" };
+
+  assert.ok(
+    revisarConReglas("¿Qué talla le interesa?", preguntaAsi).some((f) => f.includes("el cliente preguntó el precio")),
+  );
+  // Y repetida con otras palabras, sin «cuánto» ni «a cómo», igual se contesta.
+  const otraVez = { ...preguntaAsi, ultimoDelCliente: "Yo le pregunto si son cinco por 1400" };
+  assert.ok(
+    revisarConReglas("¿Me facilita su número de teléfono para el pedido?", otraVez).some((f) => f.includes("el cliente preguntó el precio")),
+  );
+  // Con cualquier cifra en la respuesta, ya no hace falta pararla por esto.
+  assert.deepEqual(
+    revisarConReglas("Las 5 unidades le salen a RD$1,400 cada una: RD$7,000. ¿Qué talla le interesa?", preguntaAsi),
+    [],
+  );
+});
+
+/**
  * A JIMANÍ NO SE LE PROMETE MENSAJERO NI PAGO AL RECIBIR.
  *
  * La dueña (2026-09-10): en la provincia Independencia el pedido va por la
