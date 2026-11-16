@@ -10,6 +10,7 @@ import {
   conteoPorEstado,
   resumenDeAnuncio,
   leadsPorDifusion,
+  leadsPorPaisConFranja,
   leadsPorSuCuenta,
   productosDeAnuncio,
   metricasPorCanal,
@@ -18,10 +19,11 @@ import {
   tiemposDeCierre,
   totalLeads,
   ventasParaRanking,
+  type LeadDeFranja,
   type Rango,
 } from "./db";
 import { mismaMoneda, monedaDelPais, SIN_MONEDA, type Moneda } from "./moneda";
-import { fechaISOEn, husoDelServidor } from "./rango";
+import { fechaISOEn, FRANJAS_HORARIAS, husoDelServidor } from "./rango";
 import { obtenerPais } from "./paises";
 
 /**
@@ -482,3 +484,21 @@ export function formatearDuracion(segundos: number | null): string {
   const dias = Math.floor(horas / 24);
   return `${dias} d ${horas % 24} h`;
 }
+
+/**
+ * CUÁNTOS CLIENTES ESCRIBEN EN CADA FRANJA DEL DÍA, para un país.
+ *
+ * `leadsPorPaisConFranja` ya le puso su franja a cada lead, en la hora de SU
+ * número; aquí solo se cuenta, franja por franja, en el mismo orden en que se
+ * enseñan en el panel —de la madrugada a la noche—, y ninguna queda sin fila
+ * aunque esté en cero: una franja muda también es información.
+ */
+export function franjasDelPais(orgId: number, r: Rango, paisCodigo: string): { clave: string; etiqueta: string; cantidad: number }[] {
+  const leads = leadsPorPaisConFranja(orgId, r, paisCodigo);
+  const porFranja = new Map<string, number>();
+  for (const l of leads) porFranja.set(l.franja, (porFranja.get(l.franja) ?? 0) + 1);
+
+  return FRANJAS_HORARIAS.map((f) => ({ clave: f.clave, etiqueta: f.etiqueta, cantidad: porFranja.get(f.clave) ?? 0 }));
+}
+
+export type { LeadDeFranja };

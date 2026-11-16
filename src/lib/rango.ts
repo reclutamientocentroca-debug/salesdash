@@ -149,6 +149,37 @@ export function periodoEnHuso(p: Periodo, huso: string, ahora: number = Date.now
   return rangoAEpochs(p.clave, huso, ahora);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Las franjas horarias del día, en la hora del país
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface Franja {
+  clave: string;
+  /** Como se enseña en el panel: «12:00 a. m. – 8:00 a. m.». */
+  etiqueta: string;
+  /** Minutos desde la medianoche, los dos inclusive. */
+  desdeMin: number;
+  hastaMin: number;
+}
+
+/**
+ * LAS CINCO FRANJAS QUE PIDIÓ LA DUEÑA, para medir cuándo escribe la gente de
+ * cada país. Van en minutos del día —no en texto— para poder clasificar una
+ * hora con una simple comparación, y la etiqueta es la que ella misma dio.
+ */
+export const FRANJAS_HORARIAS: Franja[] = [
+  { clave: "madrugada", etiqueta: "12:00 a. m. – 8:00 a. m.", desdeMin: 0, hastaMin: 8 * 60 },
+  { clave: "manana", etiqueta: "8:01 a. m. – 10:00 a. m.", desdeMin: 8 * 60 + 1, hastaMin: 10 * 60 },
+  { clave: "mediodia", etiqueta: "10:01 a. m. – 5:00 p. m.", desdeMin: 10 * 60 + 1, hastaMin: 17 * 60 },
+  { clave: "tarde", etiqueta: "5:01 p. m. – 7:00 p. m.", desdeMin: 17 * 60 + 1, hastaMin: 19 * 60 },
+  { clave: "noche", etiqueta: "7:01 p. m. – 11:59 p. m.", desdeMin: 19 * 60 + 1, hastaMin: 23 * 60 + 59 },
+];
+
+/** A qué franja del día pertenece ese minuto. Siempre contesta una: las cinco cubren el día entero. */
+export function franjaDeMinuto(minutos: number): Franja {
+  return FRANJAS_HORARIAS.find((f) => minutos >= f.desdeMin && minutos <= f.hastaMin) ?? FRANJAS_HORARIAS.at(-1)!;
+}
+
 const DIA_ISO: Record<string, number> = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };
 
 /**

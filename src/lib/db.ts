@@ -20,7 +20,7 @@ import type { Database as DB, Statement } from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { obtenerPais, paisDeTelefono } from "./paises";
-import { desfaseMs, husoDelServidor, periodoEnHuso, rangoAEpochs } from "./rango";
+import { desfaseMs, franjaDeMinuto, husoDelServidor, minutosDelDiaEn, periodoEnHuso, rangoAEpochs } from "./rango";
 import { esGrupo, jidDeTelefono, normalizarTelefono } from "./telefono";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -4204,6 +4204,67 @@ export function husoDeLaCuenta(orgId: number): string {
 function husoDelCanal(canal: { phone: string; pais: string }): string | null {
   const codigo = canal.pais || paisDeTelefono(canal.phone)?.codigo || "";
   return obtenerPais(codigo)?.husoHorario ?? null;
+}
+
+export interface LeadDeFranja {
+  canal_id: number;
+  canal_nombre: string;
+  telefono: string;
+  nombre: string | null;
+  /** Epoch en segundos, con el que llegó el lead. */
+  fecha_inicio: number;
+  /** La clave de `FRANJAS_HORARIAS` a la que cayó, en la hora del país del número. */
+  franja: string;
+}
+
+/**
+ * LOS LEADS DE UN PAÍS, CON SU FRANJA HORARIA YA PUESTA.
+ *
+ * La dueña (2026-11-16) pidió medir cuántos clientes escriben en cada franja
+ * del día en Costa Rica y Panamá, y poder descargar los que entraron en una
+ * franja concreta. Las dos cosas —el conteo del panel y el CSV que se
+ * descarga— salen de esta MISMA lista para que nunca se descuadren: el total
+ * que se ve es siempre la cantidad de filas que trae el archivo.
+ *
+ * Como `metricasPorCanal`, cada número cuenta en SU PROPIA hora: un cliente
+ * que escribe a las 9 de la noche en San José cae en la franja de la noche
+ * aunque el servidor, en UTC, ya esté en la madrugada del día siguiente.
+ */
+export function leadsPorPaisConFranja(orgId: number, r: Rango, paisCodigo: string): LeadDeFranja[] {
+  const canales = s(
+    `SELECT ca.id AS canal_id, ca.nombre, ca.phone, COALESCE(a.pais, '') AS pais
+       FROM canales ca
+       LEFT JOIN agentes a ON a.org_id = ca.org_id AND a.canal_id = ca.id
+      WHERE ca.org_id = ?`,
+  ).all(orgId) as { canal_id: number; nombre: string; phone: string; pais: string }[];
+
+  const delPais = canales
+    .filter((ca) => r.canalId === undefined || ca.canal_id === r.canalId)
+    .filter((ca) => r.canalIds === undefined || r.canalIds.includes(ca.canal_id))
+    .filter((ca) => (ca.pais || paisDeTelefono(ca.phone)?.codigo || "") === paisCodigo);
+
+  const salida: LeadDeFranja[] = [];
+  for (const ca of delPais) {
+    const huso = husoDelCanal(ca) ?? r.huso ?? husoDelServidor();
+    const periodo = periodoEnHuso(r, huso);
+    const filas = s(
+      `SELECT fecha_inicio, cliente_phone, cliente_nombre FROM conversations
+        WHERE org_id = ? AND canal_id = ? AND fecha_inicio >= ? AND fecha_inicio <= ?`,
+    ).all(orgId, ca.canal_id, periodo.desde, periodo.hasta) as
+      { fecha_inicio: number; cliente_phone: string; cliente_nombre: string | null }[];
+
+    for (const f of filas) {
+      salida.push({
+        canal_id: ca.canal_id,
+        canal_nombre: ca.nombre,
+        telefono: f.cliente_phone,
+        nombre: f.cliente_nombre,
+        fecha_inicio: f.fecha_inicio,
+        franja: franjaDeMinuto(minutosDelDiaEn(huso, f.fecha_inicio * 1000)).clave,
+      });
+    }
+  }
+  return salida.sort((a, b) => b.fecha_inicio - a.fecha_inicio);
 }
 
 /**

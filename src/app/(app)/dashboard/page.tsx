@@ -27,15 +27,24 @@ import {
   listarPaginasMeta,
 } from "@/lib/db";
 import { filasDeAtencion } from "@/lib/atencion";
-import { calcularMetricas, type Metricas } from "@/lib/metrics";
+import { calcularMetricas, franjasDelPais, type Metricas } from "@/lib/metrics";
 import type { Moneda } from "@/lib/moneda";
 import { rangoDeLaCuenta, requerirSesion } from "@/lib/tenant";
 
 export const metadata = { title: "Resumen · SalesDash" };
 export const dynamic = "force-dynamic";
 
+/** Los países que la dueña pidió medir por horario (2026-11-16). Guatemala se suma el día que tenga un número. */
+const PAISES_CON_FRANJAS = [
+  { codigo: "cr", bandera: "🇨🇷", nombre: "Costa Rica" },
+  { codigo: "pa", bandera: "🇵🇦", nombre: "Panamá" },
+] as const;
+
 interface Props {
-  searchParams: Promise<{ rango?: string; solo?: string; desde?: string; hasta?: string }>;
+  searchParams: Promise<{
+    rango?: string; solo?: string; desde?: string; hasta?: string;
+    pais_franja?: string;
+  }>;
 }
 
 /** «6,3 %»: el porcentaje como se escribe aquí, con la coma. */
@@ -51,7 +60,7 @@ function paisCorto(nombre: string | null): string {
 
 export default async function Dashboard({ searchParams }: Props) {
   const ctx = await requerirSesion();
-  const { rango: clave = "7d", solo, desde, hasta } = await searchParams;
+  const { rango: clave = "7d", solo, desde, hasta, pais_franja } = await searchParams;
 
   /*
    * El filtro vive en la URL y no en un estado del cliente: así el panel se
@@ -76,6 +85,9 @@ export default async function Dashboard({ searchParams }: Props) {
     canalIds: ctx.canalesPermitidos ?? undefined,
   };
   const m = calcularMetricas(ctx.orgId, rango);
+
+  const paisFranja = PAISES_CON_FRANJAS.find((p) => p.codigo === pais_franja)?.codigo ?? "cr";
+  const franjas = franjasDelPais(ctx.orgId, rango, paisFranja);
 
   /*
    * EL PERIODO ANTERIOR, del mismo largo y justo antes: de ahí sale el «+12,4 %»
@@ -382,6 +394,9 @@ export default async function Dashboard({ searchParams }: Props) {
         <LeadsDeAnuncios m={m} />
       </div>
 
+      {/* ── Clientes por horario, país por país ─────────────────────────── */}
+      <FranjasDeClientes pais={paisFranja} franjas={franjas} parametros={parametros} />
+
       {/* ── Rendimiento por WhatsApp ───────────────────────────────────── */}
       <TablaRendimiento
         titulo="Rendimiento por WhatsApp"
@@ -561,6 +576,121 @@ function LeadsDeAnuncios({ m }: { m: Metricas }) {
             <strong className="num" style={{ fontSize: 15 }}>{total}</strong>
           </div>
         </>
+      )}
+    </section>
+  );
+}
+
+/**
+ * CUÁNTOS CLIENTES ESCRIBEN EN CADA FRANJA DEL DÍA, país por país.
+ *
+ * La dueña (2026-11-16) pidió poder medirlo —de la madrugada a la noche, en la
+ * hora de ese país— y descargar los que entraron en una franja concreta. El
+ * selector de país vive en la URL, como el resto de los filtros del panel: se
+ * puede compartir el enlace o guardarlo tal como se está mirando.
+ */
+function FranjasDeClientes({
+  pais,
+  franjas,
+  parametros,
+}: {
+  pais: (typeof PAISES_CON_FRANJAS)[number]["codigo"];
+  franjas: { clave: string; etiqueta: string; cantidad: number }[];
+  parametros: URLSearchParams;
+}) {
+  const total = franjas.reduce((a, f) => a + f.cantidad, 0);
+
+  const linkPais = (codigo: string) => {
+    const p = new URLSearchParams(parametros);
+    p.set("pais_franja", codigo);
+    return `/dashboard?${p.toString()}#clientes-por-horario`;
+  };
+  const linkDescarga = (claveFranja: string) => {
+    const p = new URLSearchParams(parametros);
+    p.set("pais", pais);
+    p.set("franja", claveFranja);
+    return `/api/metrics/franjas?${p.toString()}`;
+  };
+
+  return (
+    <section id="clientes-por-horario" className="tarjeta" style={{ marginBottom: 14 }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+        <div>
+          <h2 className="titulo-tarjeta">Clientes por horario</h2>
+          <div className="tenue">Cuántos escriben en cada franja del día, en la hora de ese país</div>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          {PAISES_CON_FRANJAS.map((p) => (
+            <Link
+              key={p.codigo}
+              href={linkPais(p.codigo)}
+              className={`btn ${pais === p.codigo ? "btn-acento" : "btn-secundario"}`}
+              style={{ textDecoration: "none", padding: "6px 12px", fontSize: 12.5 }}
+              aria-pressed={pais === p.codigo}
+            >
+              {p.bandera} {p.nombre}
+            </Link>
+          ))}
+        </div>
+      </div>
+
+      {total === 0 ? (
+        <Vacio
+          titulo="Nadie escribió en este periodo"
+          texto="Cambia el periodo de arriba o espera a que lleguen conversaciones de ese país."
+        />
+      ) : (
+        <div style={{ overflowX: "auto" }}>
+          <table className="tabla">
+            <thead>
+              <tr>
+                <th>Franja</th>
+                <th>Clientes</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {franjas.map((f) => (
+                <tr key={f.clave}>
+                  <td>{f.etiqueta}</td>
+                  <td>
+                    <span className="sd-tasa">
+                      <span className="sd-minibarra">
+                        <span
+                          style={{
+                            display: "block",
+                            width: `${total === 0 ? 0 : Math.round((f.cantidad / total) * 100)}%`,
+                            height: "100%",
+                            background: "var(--acc)",
+                          }}
+                        />
+                      </span>
+                      {f.cantidad}
+                    </span>
+                  </td>
+                  <td style={{ textAlign: "right" }}>
+                    {f.cantidad > 0 && (
+                      <Link
+                        href={linkDescarga(f.clave)}
+                        className="btn btn-tenue"
+                        style={{ textDecoration: "none", padding: "5px 10px", fontSize: 12.5 }}
+                      >
+                        <IconoDescargar tam={13} /> Descargar
+                      </Link>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td>Total</td>
+                <td>{total}</td>
+                <td />
+              </tr>
+            </tfoot>
+          </table>
+        </div>
       )}
     </section>
   );
