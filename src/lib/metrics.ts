@@ -501,4 +501,60 @@ export function franjasDelPais(orgId: number, r: Rango, paisCodigo: string): { c
   return FRANJAS_HORARIAS.map((f) => ({ clave: f.clave, etiqueta: f.etiqueta, cantidad: porFranja.get(f.clave) ?? 0 }));
 }
 
+export interface FilaDeDia {
+  /** «2026-11-15», en la hora del país. */
+  fecha: string;
+  /** Cuántos cayeron en cada franja, por su clave. */
+  porFranja: Record<string, number>;
+  total: number;
+}
+
+/**
+ * EL REGISTRO DÍA POR DÍA, UNA FILA POR FECHA, para el Excel que se descarga.
+ *
+ * La dueña (2026-11-16) lo quería así y no como una lista de clientes: un día
+ * por fila, una franja por columna, para leerlo de un vistazo como lleva su
+ * propio registro a mano. Ningún día del periodo se queda sin fila aunque no
+ * haya escrito nadie —un día en cero también es información—, salvo que el
+ * periodo sea tan largo que rellenarlo todo no aporte y sí sature (más de 92
+ * días): ahí solo salen los días que de verdad tuvieron alguien.
+ */
+export function franjasPorDia(orgId: number, r: Rango, paisCodigo: string, maxDias = 92): FilaDeDia[] {
+  const huso = obtenerPais(paisCodigo)?.husoHorario ?? husoDelServidor();
+  const leads = leadsPorPaisConFranja(orgId, r, paisCodigo);
+
+  const vacia = (): Record<string, number> => Object.fromEntries(FRANJAS_HORARIAS.map((f) => [f.clave, 0]));
+  const sumar = (porFranja: Record<string, number>) => Object.values(porFranja).reduce((a, n) => a + n, 0);
+
+  const porDia = new Map<string, Record<string, number>>();
+  for (const l of leads) {
+    const fecha = fechaISOEn(huso, l.fecha_inicio);
+    const fila = porDia.get(fecha) ?? vacia();
+    fila[l.franja] = (fila[l.franja] ?? 0) + 1;
+    porDia.set(fecha, fila);
+  }
+  const diasConDatos = [...porDia.keys()].sort();
+
+  // Con «todo» el rango empieza en 1970: se ancla al primer día con datos,
+  // igual que `rellenarDias`, para no generar décadas de filas vacías.
+  const desdeISO = r.desde === 0 ? (diasConDatos[0] ?? fechaISOEn(huso, r.hasta)) : fechaISOEn(huso, r.desde);
+  const hastaISO = fechaISOEn(huso, r.hasta);
+  const dias = Math.round((Date.parse(`${hastaISO}T00:00:00Z`) - Date.parse(`${desdeISO}T00:00:00Z`)) / 86_400_000);
+
+  if (!Number.isFinite(dias) || dias < 0 || dias > maxDias) {
+    return diasConDatos.map((fecha) => {
+      const porFranja = porDia.get(fecha)!;
+      return { fecha, porFranja, total: sumar(porFranja) };
+    });
+  }
+
+  const filas: FilaDeDia[] = [];
+  for (let i = 0; i <= dias; i++) {
+    const fecha = new Date(Date.parse(`${desdeISO}T00:00:00Z`) + i * 86_400_000).toISOString().slice(0, 10);
+    const porFranja = porDia.get(fecha) ?? vacia();
+    filas.push({ fecha, porFranja, total: sumar(porFranja) });
+  }
+  return filas;
+}
+
 export type { LeadDeFranja };

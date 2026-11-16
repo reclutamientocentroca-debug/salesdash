@@ -2,7 +2,7 @@ import "./entorno";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as D from "../src/lib/db";
-import { franjasDelPais } from "../src/lib/metrics";
+import { franjasDelPais, franjasPorDia } from "../src/lib/metrics";
 import { FRANJAS_HORARIAS, franjaDeMinuto } from "../src/lib/rango";
 
 /**
@@ -89,4 +89,31 @@ test("un país sin ningún cliente en el periodo enseña las cinco franjas en ce
   const vacio = franjasDelPais(orgId, { desde: 0, hasta: 1 }, "cr");
   assert.equal(vacio.length, 5);
   assert.ok(vacio.every((f) => f.cantidad === 0));
+});
+
+test("el registro día por día no se salta ningún día del periodo, aunque esté en cero", () => {
+  const dias = franjasPorDia(orgId, rango, "cr");
+  const fechas = dias.map((d) => d.fecha);
+  // Las 18:00 y las 22:00 de Costa Rica el 10 de noviembre son, en UTC, ya el
+  // 11 — pero el día que cuenta es el de SU hora, no el del servidor.
+  assert.ok(fechas.includes("2026-11-09"), "el día de antes, sin ningún cliente, también sale");
+  assert.ok(fechas.includes("2026-11-10"));
+  assert.ok(fechas.includes("2026-11-11"), "el día de después, también sin nadie, también sale");
+
+  const dia9 = dias.find((d) => d.fecha === "2026-11-09")!;
+  assert.equal(dia9.total, 0);
+  const dia11 = dias.find((d) => d.fecha === "2026-11-11")!;
+  assert.equal(dia11.total, 0);
+
+  // Las cinco franjas del 10 de noviembre de Costa Rica, cada una con su cliente.
+  const dia10 = dias.find((d) => d.fecha === "2026-11-10")!;
+  assert.equal(dia10.porFranja.madrugada, 1);
+  assert.equal(dia10.porFranja.manana, 1);
+  assert.equal(dia10.porFranja.mediodia, 1);
+  assert.equal(dia10.porFranja.tarde, 1);
+  assert.equal(dia10.porFranja.noche, 1);
+  assert.equal(dia10.total, 5);
+
+  const total = dias.reduce((a, d) => a + d.total, 0);
+  assert.equal(total, 5, "los cinco clientes de Costa Rica, todos en el mismo día suyo");
 });
