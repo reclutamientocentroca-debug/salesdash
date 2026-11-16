@@ -605,10 +605,10 @@ function FranjasDeClientes({
     p.set("pais_franja", codigo);
     return `/dashboard?${p.toString()}#clientes-por-horario`;
   };
-  const linkDescarga = (claveFranja: string) => {
+  const linkDescarga = (claveFranja?: string) => {
     const p = new URLSearchParams(parametros);
     p.set("pais", pais);
-    p.set("franja", claveFranja);
+    if (claveFranja) p.set("franja", claveFranja);
     return `/api/metrics/franjas?${p.toString()}`;
   };
 
@@ -686,7 +686,15 @@ function FranjasDeClientes({
               <tr>
                 <td>Total</td>
                 <td>{total}</td>
-                <td />
+                <td style={{ textAlign: "right" }}>
+                  <Link
+                    href={linkDescarga()}
+                    className="btn btn-tenue"
+                    style={{ textDecoration: "none", padding: "5px 10px", fontSize: 12.5, whiteSpace: "nowrap" }}
+                  >
+                    <IconoDescargar tam={13} /> Descargar todo
+                  </Link>
+                </td>
               </tr>
             </tfoot>
           </table>
