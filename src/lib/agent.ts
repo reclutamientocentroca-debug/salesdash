@@ -3714,7 +3714,7 @@ export async function enviarSeguimiento(
  * «Chacabanas de manga corta, RD$1,200» recibió al día siguiente un
  * recordatorio hablando de «la Chaqueta Kenneth Cole Original» —un artículo
  * que nadie había mencionado en ese chat—. La táctica de decir que quedan
- * pocas unidades SÍ vale (la dueña, 2026-09-17): lo que no vale es que el
+ * pocas unidades YA NO vale (la dueña la quitó el 2026-11-19): tampoco vale que el
  * artículo cambie. Con el catálogo entero delante y la instrucción a secas de
  * «el artículo del que estaban hablando», el modelo tenía de dónde sacar
  * cualquier producto de la tienda, no solo el de esta conversación.
@@ -3745,7 +3745,7 @@ export function instruccionVisto(producto: string | null, pais?: string | null):
   return (
     "[Nota interna del sistema, no la escribió el cliente y no debes mencionarla ni repetirla.] " +
     "El cliente dejó de contestar y no ha vuelto. Escríbele UN solo mensaje corto para retomar la venta: " +
-    `recuérdale con naturalidad el artículo del que estaban hablando y dile que quedan pocas unidades. ${elArticulo} ` +
+    `recuérdale con naturalidad el artículo del que estaban hablando. No le digas que quedan pocas unidades, que se agota ni que la promoción termina: nada de urgencia ni escasez. ${elArticulo} ` +
     `${cierre} Sin saludo largo, sin disculpas, sin repetir todo lo hablado, y nunca inventes precios, ` +
     "descuentos ni plazos. Trato formal y de empresa: de usted y sin apodos —nada de «maestro», «jefe», " +
     "«amigo»—; por su nombre si lo dio, o sin nada."
