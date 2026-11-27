@@ -4283,6 +4283,65 @@ export function husosDeLosCanales(orgId: number): Map<number, string> {
   return new Map(filas.map((f) => [f.canal_id, husoDelCanal(f) ?? deLaCuenta]));
 }
 
+export interface ConteoDeTurno {
+  leads: number;
+  cierres_ia: number;
+  cierres_humano: number;
+}
+
+export type ClaveDeTurno = "dia" | "noche" | "madrugada";
+
+/**
+ * LOS DOS TURNOS QUE PIDIÓ LA DUEÑA (2026-11-27) para el resumen impreso: de 8
+ * de la mañana a 5 de la tarde y de 5 de la tarde a medianoche. La madrugada va
+ * aparte para que la suma de las filas sea el total del periodo. En minutos
+ * desde la medianoche: `desdeMin` entra, `hastaMin` ya no.
+ */
+export const TURNOS: { clave: ClaveDeTurno; etiqueta: string; desdeMin: number; hastaMin: number }[] = [
+  { clave: "dia", etiqueta: "8:00 a. m. – 5:00 p. m.", desdeMin: 8 * 60, hastaMin: 17 * 60 },
+  { clave: "noche", etiqueta: "5:00 p. m. – 12:00 a. m.", desdeMin: 17 * 60, hastaMin: 24 * 60 },
+  { clave: "madrugada", etiqueta: "12:00 a. m. – 8:00 a. m.", desdeMin: 0, hastaMin: 8 * 60 },
+];
+
+/**
+ * LEADS Y CIERRES POR TURNO DEL DÍA, para el resumen que se imprime.
+ *
+ * Sigue las dos reglas del resto del panel: el lead cuenta por la hora en que
+ * ESCRIBIÓ (`filtroRango`) y la venta por la hora en que se CERRÓ
+ * (`filtroCierres`), cada una en la hora del país de su número: las 9 de la
+ * noche en San José son de la noche aunque el servidor, en UTC, ya esté en la
+ * madrugada del día siguiente. La suma de los turnos es el total de
+ * conversaciones y de ventas del mismo periodo.
+ */
+export function conteoPorTurno(orgId: number, r: Rango): Record<ClaveDeTurno, ConteoDeTurno> {
+  const husos = husosDeLosCanales(orgId);
+  const deLaCuenta = r.huso ?? husoDeLaCuenta(orgId);
+  const turnoDe = (canalId: number, epoch: number): ClaveDeTurno => {
+    const minutos = minutosDelDiaEn(husos.get(canalId) ?? deLaCuenta, epoch * 1000);
+    return TURNOS.find((t) => minutos >= t.desdeMin && minutos < t.hastaMin)?.clave ?? "madrugada";
+  };
+
+  const cero = (): ConteoDeTurno => ({ leads: 0, cierres_ia: 0, cierres_humano: 0 });
+  const out: Record<ClaveDeTurno, ConteoDeTurno> = { dia: cero(), noche: cero(), madrugada: cero() };
+
+  const llegadas = filtroRango(orgId, r);
+  const leads = s(
+    "SELECT canal_id, fecha_inicio FROM conversations WHERE " + llegadas.where,
+  ).all(...llegadas.val) as { canal_id: number; fecha_inicio: number }[];
+  for (const l of leads) out[turnoDe(l.canal_id, l.fecha_inicio)].leads++;
+
+  const cierres = filtroCierres(orgId, r);
+  const ventas = s(
+    "SELECT canal_id, fecha_cierre, cerrado_por FROM conversations WHERE " + cierres.where,
+  ).all(...cierres.val) as { canal_id: number; fecha_cierre: number; cerrado_por: "ia" | "humano" }[];
+  for (const v of ventas) {
+    const t = out[turnoDe(v.canal_id, v.fecha_cierre)];
+    if (v.cerrado_por === "ia") t.cierres_ia++;
+    else t.cierres_humano++;
+  }
+  return out;
+}
+
 /** Conteo por estado. La suma de estos cuatro DEBE ser el total de leads. */
 export function conteoPorEstado(orgId: number, r: Rango): Record<EstadoCierre, number> {
   const { where, val } = filtroRango(orgId, r);

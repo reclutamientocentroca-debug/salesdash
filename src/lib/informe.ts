@@ -20,13 +20,16 @@
  * informe dijera algo distinto de la pantalla, uno de los dos estaría mintiendo.
  */
 import {
+  conteoPorTurno,
   getConversation,
   listarConversaciones,
   listarMensajes,
   obtenerOrg,
+  TURNOS,
   type Canal,
   type Conversacion,
   type Mensaje,
+  type Rango,
 } from "./db";
 import { calcularMetricas, formatearDuracion, type Metricas } from "./metrics";
 import { formatearImporte, type Moneda } from "./moneda";
@@ -377,6 +380,39 @@ function tablaCanales(m: Metricas): string {
   </table>`;
 }
 
+/**
+ * LEADS Y CIERRES POR HORARIO: de 8 de la mañana a 5 de la tarde y de 5 de la
+ * tarde a medianoche, que es como la dueña reparte el día (2026-11-27). La
+ * madrugada va en su fila para que la suma sea el total del periodo. Cada
+ * número cuenta en la hora de su país; ver `conteoPorTurno`.
+ */
+function tablaTurnos(orgId: number, rango: Rango): string {
+  const t = conteoPorTurno(orgId, rango);
+  const total = { leads: 0, cierres_ia: 0, cierres_humano: 0 };
+  const celda = (n: number) => '<td class="num">' + n + "</td>";
+  const filas = TURNOS.map((turno) => {
+    const c = t[turno.clave];
+    total.leads += c.leads;
+    total.cierres_ia += c.cierres_ia;
+    total.cierres_humano += c.cierres_humano;
+    return (
+      "<tr><td>" + esc(turno.etiqueta) + "</td>" +
+      celda(c.leads) + celda(c.cierres_ia) + celda(c.cierres_humano) + celda(c.cierres_ia + c.cierres_humano) +
+      "</tr>"
+    );
+  }).join("");
+  return (
+    '<table class="rejilla"><thead><tr><th>Horario</th><th class="num">Leads recibidos</th>' +
+    '<th class="num">Cierre automatizada</th><th class="num">Cierre asistida</th><th class="num">Cierres en total</th></tr></thead>' +
+    "<tbody>" + filas + "</tbody>" +
+    "<tfoot><tr><td>Todo el día</td>" +
+    celda(total.leads) + celda(total.cierres_ia) + celda(total.cierres_humano) + celda(total.cierres_ia + total.cierres_humano) +
+    "</tr></tfoot></table>" +
+    '<p class="tenue">En la hora del país de cada número. El lead cuenta en el horario en que el cliente escribió ' +
+    "por primera vez; el cierre, en el horario en que se cerró la venta.</p>"
+  );
+}
+
 /** «desde el 18/08/2026 hasta el 25/08/2026», o «todo el histórico». */
 function periodo(r: { desde: number; hasta: number }): string {
   if (r.desde <= 0 && r.hasta >= 9_999_999_999) return "todo el histórico";
@@ -558,6 +594,9 @@ export function informeDeCuenta(
 
   <h2>Cómo fue el periodo</h2>
   ${tablaResumen(m, m.cobertura_ia.meta, m.efectividad_humana.meta)}
+
+  <h2>Por horario: leads y cierres</h2>
+  ${tablaTurnos(orgId, { ...rango, soloAnuncio, canalIds })}
 
   <h2>Cada número</h2>
   ${tablaCanales(m)}
